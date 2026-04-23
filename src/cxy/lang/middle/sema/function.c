@@ -114,6 +114,14 @@ const Type *matchOverloadedFunctionPerfectMatch(Log *L,
                     score--;
                     continue;
                 }
+                if (isReferenceType(paramType) && !isReferenceType(argType)) {
+                    compatible = isTypeAssignableFrom(stripReference(paramType),
+                                                      argType);
+                    if (compatible) {
+                        score--;
+                        continue;
+                    }
+                }
                 compatible = isExplicitConstructableFrom(L, paramType, argType);
                 if (compatible) {
                     score -= 2;

@@ -146,6 +146,7 @@ set(CXY_FRONTEND_SOURCES
         src/cxy/lang/frontend/encode.c
         src/cxy/lang/frontend/defines.c
         src/cxy/lang/frontend/decode.c
+        src/cxy/lang/frontend/iterable.c
         src/cxy/lang/frontend/lexer.c
         src/cxy/lang/frontend/module.c
         src/cxy/lang/frontend/operator.c
@@ -389,6 +390,7 @@ set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/base64.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/coro.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/crypto.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/dotenv.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/fetch.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/fserver.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/hash.cxy

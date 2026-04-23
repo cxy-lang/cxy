@@ -1,10 +1,13 @@
-import "add.h" as add
-struct Hello {
-   x : i32 = 0
-   y : bool = true
-}
 
-func mul(a: i32, b: i32) => a * b
+
+struct Hello {
+    func say(...args: auto) : !void {
+        println("Saying: ", #{args.[0]})
+    }
+}
 
 func main(): !void {
+   var x = Hello{}
+   x.say("Hello, World!", 3)
 }
+

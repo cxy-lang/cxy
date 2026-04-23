@@ -210,7 +210,8 @@ static AstNode *getMembers(EvalContext *ctx,
         return NULL;
 
     const Type *type = resolveUnThisUnwrapType(stripAll(node->type));
-    if (nodeIs(node, TypeRef) && isClassOrStructType(type)) {
+    if (nodeIs(node, TypeRef) && isClassOrStructType(type) ||
+        typeIs(type, Enum)) {
         node = getTypeDecl(type);
         if (node == NULL)
             return NULL;
@@ -218,20 +219,16 @@ static AstNode *getMembers(EvalContext *ctx,
 
     switch (node->tag) {
     case astTupleType:
-        return comptimeWrapped(
-            ctx, &node->loc, node->tupleType.elements, flgComptimeIterable);
+        return makeAstComptimeIterable(ctx->pool, &node->loc, node, node->type);
     case astUnionDecl:
-        return comptimeWrapped(
-            ctx, &node->loc, node->unionDecl.members, flgComptimeIterable);
+        return makeAstComptimeIterable(ctx->pool, &node->loc, node, type);
     case astStructDecl:
     case astClassDecl:
-        return comptimeWrapped(
-            ctx, &node->loc, node->structDecl.members, flgComptimeIterable);
+        return makeAstComptimeIterable(ctx->pool, &node->loc, node, type);
     case astGenericParam:
         return getMembers(ctx, loc, getTypeDecl(type), NULL);
     case astEnumDecl:
-        return comptimeWrapped(
-            ctx, &node->loc, node->enumDecl.options, flgComptimeIterable);
+        return makeAstComptimeIterable(ctx->pool, &node->loc, node, node->type);
     default:
         break;
     }
@@ -249,7 +246,8 @@ static AstNode *getAttributes(EvalContext *ctx,
     if (decl == NULL)
         return NULL;
 
-    return comptimeWrapped(ctx, &node->loc, decl->attrs, flgComptimeIterable);
+    return makeAstComptimeIterable(
+        ctx->pool, &node->loc, decl->attrs, decl->type);
 }
 
 static AstNode *getAnnotations(EvalContext *ctx,
@@ -259,11 +257,11 @@ static AstNode *getAnnotations(EvalContext *ctx,
 {
     if (isClassOrStructType(node->type)) {
         AstNode *decl = getTypeDecl(node->type);
-        return comptimeWrapped(
-            ctx, &node->loc, decl->classDecl.annotations, flgComptimeIterable);
+        return makeAstComptimeIterable(
+            ctx->pool, &node->loc, decl->classDecl.annotations, node->type);
     }
     else {
-        return comptimeWrapped(ctx, &node->loc, NULL, flgComptimeIterable);
+        return makeAstComptimeIterable(ctx->pool, &node->loc, NULL, node->type);
     }
 }
 
@@ -307,10 +305,8 @@ static AstNode *getTypeInfo(EvalContext *ctx,
     switch (node->tag) {
     case astFuncParamDecl:
         if (hasFlag(node, Variadic))
-            return comptimeWrapped(ctx,
-                                   &node->loc,
-                                   node->funcParam.type->tupleType.elements,
-                                   flgComptimeIterable);
+            return makeAstComptimeIterable(
+                ctx->pool, &node->loc, node, node->type);
 
         return node->funcParam.type;
     default:
@@ -414,7 +410,7 @@ getParam_from_decl:
         goto getParam_from_decl;
     }
 
-    return comptimeWrapped(ctx, &node->loc, params, flgComptimeIterable);
+    return makeAstComptimeIterable(ctx->pool, &node->loc, decl, node->type);
 }
 
 static AstNode *getStripedType(EvalContext *ctx,
@@ -1166,8 +1162,7 @@ static AstNode *getStructOrClassMembers(EvalContext *ctx,
                                         AstNode *node,
                                         attr(unused) AstNode *args)
 {
-    return comptimeWrapped(
-        ctx, loc, node->structDecl.members, flgComptimeIterable);
+    return makeAstComptimeIterable(ctx->pool, loc, node, node->type);
 }
 
 static AstNode *getClassBase(EvalContext *ctx,

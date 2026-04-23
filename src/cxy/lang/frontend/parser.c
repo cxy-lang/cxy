@@ -2383,6 +2383,9 @@ static OperatorOverload operatorOverload(Parser *P)
         case tokAwait:
             op = (OperatorOverload){.f = opAwait, .s = S_Await};
             break;
+        case tokAs:
+            op = (OperatorOverload){.f = opCast, .s = S_Cast};
+            break;
 #define f(O, PP, T, S, N)                                                      \
     case tok##T:                                                               \
         op = (OperatorOverload){.f = op##O, .s = S_##O};                       \

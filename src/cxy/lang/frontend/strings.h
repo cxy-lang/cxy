@@ -102,6 +102,7 @@ extern "C" {
     f(atomic)                   \
     f(forced)                   \
     f(val)                      \
+    f(disabled)                 \
     f(__init)                   \
     f(__defaults_init)          \
     f(__startup)                \

@@ -98,6 +98,11 @@ pub class Vector[T] {
         return &_data.[index]
     }
 
+    func move(index: i32) {
+        assert!(index < _size)
+        return &&_data.[index];
+    }
+
     const func `[]`(index: i32) {
         assert!(index < _size)
         return &_data.[index]

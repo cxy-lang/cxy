@@ -256,6 +256,17 @@ bool evalExplicitConstruction(AstVisitor *visitor,
     if (isTypeAssignableFrom(type, source))
         return true;
 
+    if (isReferenceType(type) && !isReferenceType(source)) {
+        AstNode *operand = deepCloneAstNode(ctx->pool, node);
+        node->tag = astReferenceOf;
+        node->type = makeReferenceType(ctx->types, source, source->flags);
+        clearAstBody(node);
+        node->unaryExpr.op = opRefof;
+        node->unaryExpr.isPrefix = true;
+        node->unaryExpr.operand = operand;
+        return true;
+    }
+
     if (!isClassOrStructType(type))
         return false;
 

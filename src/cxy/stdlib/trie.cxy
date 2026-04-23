@@ -79,7 +79,7 @@ pub class Trie[Data] {
         }
         assert!(!node.data)
         node.data = &&data
-        return &node.data
+        return node.data.ref()
     }
 
     - func find(prefix: string, len: u64) : (i64, &Data)? {

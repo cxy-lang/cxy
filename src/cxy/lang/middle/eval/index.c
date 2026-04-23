@@ -3,6 +3,8 @@
 //
 
 #include "eval.h"
+#include "lang/frontend/iterable.h"
+#include <_string.h>
 #include <lang/frontend/flag.h>
 
 static bool evalAstNodeAtIndex(EvalContext *ctx,
@@ -49,6 +51,26 @@ static bool evalStringIndexExpr(EvalContext *ctx, AstNode *node)
         return setEvalStringIndexExprResult(
             node, findInAstNode(target, index->stringLiteral.value));
     case astComptimeOnly:
+        if (hasFlag(target, ComptimeIterable)) {
+            ComptimeIterator it =
+                newComptimeIterator(ctx->pool, ctx->types, target);
+            if (it.kind != citInvalid) {
+                cstring name = index->stringLiteral.value;
+                while (comptimeIteratorHasNext(&it)) {
+                    AstNode *current = comptimeIteratorNext(&it);
+                    if (current && name == getNamedNodeName(current)) {
+                        AstNode *result = nodeIs(current, Annotation)
+                                              ? current->annotation.value
+                                              : current;
+                        return setEvalStringIndexExprResult(node, result);
+                    }
+                }
+                // Not found - return null
+                node->tag = astNullLit;
+                return false;
+            }
+        }
+        // Fallback to old method for non-iterable comptimeOnly nodes
         return setEvalStringIndexExprResult(
             node, findInComptimeIterable(target, index->stringLiteral.value));
     case astAttr:
@@ -91,6 +113,7 @@ static bool evalIntegerIndexExpr(EvalContext *ctx, AstNode *node)
         return false;
     }
 
+    target = resolveAstNode(target);
     switch (target->tag) {
     case astStringLit:
         if (i > strlen(target->stringLiteral.value)) {
@@ -121,9 +144,44 @@ static bool evalIntegerIndexExpr(EvalContext *ctx, AstNode *node)
             return false;
         }
         return evalAstNodeAtIndex(ctx, node, target->attr.args, i);
+    case astFuncParamDecl:
+        if (hasFlag(target, Variadic)) {
+            AstNode *arg = getNodeAtIndex(target, i);
+            if (arg != NULL) {
+                node->tag = astIdentifier;
+                clearAstBody(node);
+                node->ident.value = arg->_name;
+                node->ident.resolvesTo = arg;
+                return true;
+            }
+        }
+        break;
     case astComptimeOnly:
-        if (hasFlag(target, ComptimeIterable))
-            return evalAstNodeAtIndex(ctx, node, target->next, i);
+        if (hasFlag(target, ComptimeIterable)) {
+            ComptimeIterator it =
+                newComptimeIterator(ctx->pool, ctx->types, target);
+            if (it.kind == citInvalid) {
+                logError(ctx->L,
+                         &target->loc,
+                         "invalid comptime iterable for index operation",
+                         NULL);
+                node->tag = astError;
+                return false;
+            }
+
+            AstNode *result = comptimeIteratorAt(&it, (u64)i);
+            if (result == NULL) {
+                logError(ctx->L,
+                         &node->loc,
+                         "index {i64} is out of bounds for comptime iterable",
+                         (FormatArg[]){{.i64 = i}});
+                node->tag = astError;
+                return false;
+            }
+
+            *node = *result;
+            return true;
+        }
         break;
     default:
         break;

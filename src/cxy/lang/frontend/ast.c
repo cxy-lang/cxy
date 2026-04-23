@@ -2,6 +2,7 @@
 #include "ast.h"
 #include "capture.h"
 #include "flag.h"
+#include "iterable.h"
 #include "strings.h"
 #include "ttable.h"
 
@@ -1620,6 +1621,28 @@ AstNode *makeAstNop(MemPool *pool, const FileLoc *loc)
     return makeAstNode(pool, loc, &(AstNode){.tag = astNoop});
 }
 
+AstNode *makeAstComptimeOnly(MemPool *pool,
+                             const FileLoc *loc,
+                             AstNode *node,
+                             const Type *type)
+{
+    AstNode *result =
+        makeAstNode(pool, loc, &(AstNode){.tag = astComptimeOnly});
+    result->comptimeOnly.node = node;
+    result->comptimeOnly.type = type;
+    return result;
+}
+
+AstNode *makeAstComptimeIterable(MemPool *pool,
+                                 const FileLoc *loc,
+                                 AstNode *node,
+                                 const Type *type)
+{
+    AstNode *result = makeAstComptimeOnly(pool, loc, node, type);
+    result->flags |= flgComptimeIterable;
+    return result;
+}
+
 AstNode *makePathFromIdent(MemPool *pool, const AstNode *ident)
 {
     return makePath(
@@ -2024,6 +2047,7 @@ cstring getNamedNodeName(const AstNode *member)
     case astUnionDecl:
     case astTypeDecl:
     case astEnumDecl:
+    case astEnumOptionDecl:
     case astAttr:
     case astAnnotation:
     case astFuncParamDecl:
@@ -2835,10 +2859,23 @@ AstNode *findInComptimeIterable(AstNode *node, cstring name)
 {
     if (node == NULL || name == NULL)
         return NULL;
-    AstNode *it = node->next;
-    for (; it; it = it->next) {
-        if (name == getNamedNodeName(it)) {
-            return nodeIs(it, Annotation) ? it->annotation.value : it;
+    
+    // Handle new comptimeOnly format
+    if (nodeIs(node, ComptimeOnly) && hasFlag(node, ComptimeIterable)) {
+        AstNode *current = node->comptimeOnly.node;
+        for (; current; current = current->next) {
+            if (name == getNamedNodeName(current)) {
+                return nodeIs(current, Annotation) ? current->annotation.value : current;
+            }
+        }
+        return NULL;
+    }
+    
+    // Old format: use node->next
+    AstNode *current = node->next;
+    for (; current; current = current->next) {
+        if (name == getNamedNodeName(current)) {
+            return nodeIs(current, Annotation) ? current->annotation.value : current;
         }
     }
     return NULL;

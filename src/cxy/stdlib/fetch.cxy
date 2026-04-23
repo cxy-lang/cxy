@@ -553,12 +553,14 @@ pub class Session {
     - _proto = __string("http");
     - _sock: Socket = null;
     - _req: Request = null;
+    - _hostname: String = null;
 
     func `init`(proto: __string, host: String, port: u16, addr: Address) {
         _proto = &&proto
         _port = port
         _addr = &&addr
-        header("Host", &&host)
+        _hostname = &&host
+        header("Host", _hostname)
     }
 
     @inline
@@ -594,7 +596,7 @@ pub class Session {
         @unlikely if (_sock == null || !_sock) {
             var fd = tcpConnect(_addr, _timeout)
             if (isHttps())
-                _sock = SslSocket.create(fd, _addr)
+                _sock = SslSocket.create(fd, _addr, _hostname.str())
             else
                 _sock = TcpSocket(fd, _addr)
         }

@@ -879,6 +879,11 @@ struct AstNode {
             AstNode *value;
             i64 index;
         } gep;
+
+        struct {
+            AstNode *node;      // member list, first vararg, etc.
+            const Type *type;   // unwrapped, resolved, unthis type
+        } comptimeOnly;
     };
 };
 
@@ -1489,6 +1494,16 @@ AstNode *makeAstClosureCapture(MemPool *pool, AstNode *captured);
 
 AstNode *makeAstNop(MemPool *pool, const FileLoc *loc);
 
+AstNode *makeAstComptimeOnly(MemPool *pool,
+                              const FileLoc *loc,
+                              AstNode *node,
+                              const Type *type);
+
+AstNode *makeAstComptimeIterable(MemPool *pool,
+                                  const FileLoc *loc,
+                                  AstNode *node,
+                                  const Type *type);
+
 AstNode *copyAstNode(MemPool *pool, const AstNode *node);
 
 AstNode *duplicateAstNode(MemPool *pool, const AstNode *node);
@@ -1598,6 +1613,8 @@ void unlinkAstNode(AstNode **head, AstNode *prev, AstNode *node);
 const char *getDeclKeyword(AstTag tag);
 
 const char *getDeclarationName(const AstNode *node);
+
+cstring getNamedNodeName(const AstNode *member);
 
 void setDeclarationName(AstNode *node, cstring name);
 

@@ -635,7 +635,6 @@ static void shakeFuncDecl(AstVisitor *visitor, AstNode *node)
 
     node->funcDecl.paramsCount = total;
     node->funcDecl.requiredParamsCount = required;
-    astVisit(visitor, node->funcDecl.body);
     if (node->funcDecl.signature->ret)
         astVisit(visitor, node->funcDecl.signature->ret);
     if (node->funcDecl.body && !nodeIs(node->funcDecl.body, BlockStmt)) {
@@ -651,6 +650,7 @@ static void shakeFuncDecl(AstVisitor *visitor, AstNode *node)
                         &(AstNode){.tag = astReturnStmt,
                                    .returnStmt.expr = node->funcDecl.body})}});
     }
+    astVisit(visitor, node->funcDecl.body);
 
     if (isVariadic) {
         if (!hasFlag(node, Extern)) {
@@ -898,7 +898,8 @@ static void shakeGenericDecl(AstVisitor *visitor, AstNode *node)
         }
     }
     else if (decl->funcDecl.operatorOverload != opInvalid &&
-             decl->funcDecl.operatorOverload != opIs) {
+             decl->funcDecl.operatorOverload != opIs &&
+             decl->funcDecl.operatorOverload != opCast) {
         logError(ctx->L,
                  &node->loc,
                  "unsupported generic function overload, must be inferrable",
@@ -955,21 +956,23 @@ static void shakeTestDecl(AstVisitor *visitor, AstNode *node)
                                                   NULL),
                                  NULL,
                                  NULL)});
-
-    insertAstNode(
-        &ctx->testCases,
-        makeTupleExpr(ctx->pool,
-                      &node->loc,
-                      flgNone,
-                      makeStringLiteral(
-                          ctx->pool,
-                          &node->loc,
-                          testName,
-                          makeResolvedIdentifier(
-                              ctx->pool, &node->loc, name, 0, node, NULL, NULL),
-                          NULL),
-                      NULL,
-                      NULL));
+    if (!findAttribute(node, S_disabled)) {
+        insertAstNode(
+            &ctx->testCases,
+            makeTupleExpr(
+                ctx->pool,
+                &node->loc,
+                flgNone,
+                makeStringLiteral(
+                    ctx->pool,
+                    &node->loc,
+                    testName,
+                    makeResolvedIdentifier(
+                        ctx->pool, &node->loc, name, 0, node, NULL, NULL),
+                    NULL),
+                NULL,
+                NULL));
+    }
 }
 
 static void shakeExceptionDecl(AstVisitor *visitor, AstNode *node)

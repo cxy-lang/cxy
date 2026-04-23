@@ -248,7 +248,7 @@ static bool isDiscardableException(AstNode *node)
     switch (parent->tag) {
     case astVarDecl:
 #define f(TAG) case ast##TAG:
-    CXY_LANG_AST_EXP_TAGS(f)
+        CXY_LANG_AST_EXP_TAGS(f)
         return false;
 #undef f
     default:
@@ -279,7 +279,7 @@ void checkCatchBinaryOperator(AstVisitor *visitor,
         return;
     }
 
-    if (!ctx->returnState) {
+    if (!ctx->returnState && !catcher->hasBreakOrContinue) {
         if (isVoidType(rhsType) && !isDiscardableException(node)) {
             logError(ctx->L,
                      &rhs->loc,
@@ -290,9 +290,10 @@ void checkCatchBinaryOperator(AstVisitor *visitor,
         }
 
         const Type *targetType =
-            isVoidResultType(lhsType) ? makeVoidType(ctx->types) :
-                (isDiscardExpr(rhs) ? makeVoidType(ctx->types) :
-                    getResultTargetType(lhsType) );
+            isVoidResultType(lhsType)
+                ? makeVoidType(ctx->types)
+                : (isDiscardExpr(rhs) ? makeVoidType(ctx->types)
+                                      : getResultTargetType(lhsType));
         if (!isTypeAssignableFrom(targetType, rhsType)) {
             logError(
                 ctx->L,
@@ -377,10 +378,11 @@ void checkCallExceptionBubbleUp(AstVisitor *visitor, AstNode *node)
     AstNode *func = ctx->currentEnclosure;
     const Type *ret = NULL;
     if (nodeIs(func, FuncDecl)) {
-         ret = func->type->func.retType;
+        ret = func->type->func.retType;
     }
     else {
-        ret = func && func->closureExpr.ret? func->closureExpr.ret->type : NULL;
+        ret =
+            func && func->closureExpr.ret ? func->closureExpr.ret->type : NULL;
     }
 
     if (!isResultType(ret)) {

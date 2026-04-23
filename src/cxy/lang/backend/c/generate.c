@@ -116,7 +116,6 @@ static void generateStructTypeDef(CodegenContext *ctx,
     else
         format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Struct");
-    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -128,7 +127,6 @@ static void generateTupleTypeDef(CodegenContext *ctx,
     generateCustomTypeName(ctx, state, type, "Tuple");
     format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Tuple");
-    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -140,7 +138,6 @@ static void generateUnionTypeDef(CodegenContext *ctx,
     generateCustomTypeName(ctx, state, type, "Union");
     format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Union");
-    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -152,7 +149,6 @@ static void generateUntaggedUnionTypeDef(CodegenContext *ctx,
     generateCustomTypeName(ctx, state, type, "Union");
     format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Union");
-    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -164,7 +160,6 @@ static void generateResultTypeDef(CodegenContext *ctx,
     generateCustomTypeName(ctx, state, type, "Result");
     format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Result");
-    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -176,7 +171,6 @@ static void generateEnumTypeDef(CodegenContext *ctx,
     generateTypeName(ctx, state, type->tEnum.base);
     format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Enum");
-    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -191,7 +185,6 @@ static void generateExceptionTypeDef(CodegenContext *ctx,
     else
         format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Exception");
-    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -203,7 +196,6 @@ static void generateClassTypeDef(CodegenContext *ctx,
     generateCustomTypeName(ctx, state, type, "Class");
     format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Class");
-    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -244,6 +236,8 @@ static void generateTypeDef(CodegenContext *ctx,
 static void typeGraphPrevisit(const Type *type, TypeGraphVisitor *visitor)
 {
     CodegenContext *ctx = visitor->ctx;
+    if (type->generated || type->retyped)
+        return;
     generateTypeDef(ctx, typeState(ctx), type);
 }
 
@@ -284,7 +278,6 @@ static void generateTupleType(CodegenContext *ctx, const Type *type)
 {
     format(typeState(ctx), "struct ", NULL);
     generateCustomTypeName(ctx, typeState(ctx), type, "Tuple");
-    format(typeState(ctx), " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(typeState(ctx), " {{{>}", NULL);
     for (u64 i = 0; i < type->tuple.count; i++) {
         format(typeState(ctx), "\n", NULL);
@@ -317,7 +310,6 @@ static void generateClassType(CodegenContext *ctx, const Type *type)
     format(typeState(ctx), "struct ", NULL);
     generateStructAttributes(ctx, type);
     generateCustomTypeName(ctx, typeState(ctx), type, "Class");
-    format(typeState(ctx), " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(typeState(ctx), " {{{>}", NULL);
     for (u64 i = 0; i < type->tClass.members->count; i++) {
         const NamedTypeMember *member = &type->tClass.members->members[i];
@@ -336,7 +328,6 @@ static void generateStructType(CodegenContext *ctx, const Type *type)
     format(typeState(ctx), "struct ", NULL);
     generateStructAttributes(ctx, type);
     generateCustomTypeName(ctx, typeState(ctx), type, "Struct");
-    format(typeState(ctx), " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(typeState(ctx), " {{{>}", NULL);
     for (u64 i = 0; i < type->tStruct.members->count; i++) {
         const NamedTypeMember *member = &type->tStruct.members->members[i];
@@ -377,7 +368,6 @@ static void generateUnionType(CodegenContext *ctx, const Type *type)
     format(typeState(ctx), "struct ", NULL);
     generateStructAttributes(ctx, type);
     generateCustomTypeName(ctx, typeState(ctx), type, "Union");
-    format(typeState(ctx), " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(typeState(ctx), "{{{>}\n", NULL);
     format(typeState(ctx), "uint32_t tag;\n", NULL);
     format(typeState(ctx), "union {{{>}", NULL);
@@ -399,7 +389,6 @@ static void generateResultType(CodegenContext *ctx, const Type *type)
     format(typeState(ctx), "struct ", NULL);
     generateStructAttributes(ctx, type);
     generateCustomTypeName(ctx, typeState(ctx), type, "Result");
-    format(typeState(ctx), " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(typeState(ctx), "{{{>}\n", NULL);
     format(typeState(ctx), "uint32_t tag;\n", NULL);
     format(typeState(ctx), "union {{{>}", NULL);
@@ -450,6 +439,25 @@ static void generateFunctionType(CodegenContext *ctx, const Type *type)
         generateTypeName(ctx, typeState(ctx), type->func.params[i]);
     }
     format(typeState(ctx), ");\n", NULL);
+}
+
+static void generatePointerTypeName(CodegenContext *ctx,
+                                    FormatState *state,
+                                    const Type *type)
+{
+    Flags flags = flgNone;
+    const Type *pointed = stripPointerOnce(type, &flags);
+    if (!typeIs(pointed, Pointer)) {
+        generateTypeName(ctx, state, pointed);
+    }
+    else {
+        generatePointerTypeName(
+            ctx, state, resolveAndUnThisType(type)->pointer.pointed);
+        if (flags & flgConst) {
+            format(state, " const ", NULL);
+        }
+    }
+    format(state, "*", NULL);
 }
 
 static void generateType(CodegenContext *ctx, const Type *type)
@@ -506,12 +514,15 @@ static void generateTypeName(CodegenContext *ctx,
 {
     // if (!type->generated)
     //     generateType(ctx, type);
+    if (isPointerTypeExact(type)) {
+        generatePointerTypeName(ctx, state, type);
+        return;
+    }
 
-    u64 flags = flgNone;
-    type = unwrapType(type, &flags);
-    if (flags & flgConst && !typeIs(type, String))
+    if (isConstType(type) && !typeIs(type, String))
         format(state, "const ", NULL);
 
+    type = unwrapType(type, NULL);
     switch (type->tag) {
     case typPrimitive:
         switch (type->primitive.id) {
@@ -1882,6 +1893,8 @@ static void visitVariableDecl(ConstAstVisitor *visitor, const AstNode *node)
     if (hasFlag(node, Comptime))
         return;
 
+    if (node->codegen)
+        return;
     ((AstNode *)node)->codegen = (void *)true;
     addDebugInfo(ctx, node);
     if (findAttribute(node, S_volatile))
@@ -1962,6 +1975,8 @@ static void visitExternDecl(ConstAstVisitor *visitor, const AstNode *node)
 static void visitFuncDecl(ConstAstVisitor *visitor, const AstNode *node)
 {
     CodegenContext *ctx = getConstAstVisitorContext(visitor);
+    if (node->codegen)
+        return;
     ((AstNode *)node)->codegen = (void *)true;
     if (hasFlag(node, Abstract))
         return;

@@ -445,11 +445,12 @@ bool packageAddCommand(const Options *options, StrPool *strings, Log *log)
             return false;
         }
 
-        repository      = res.repository;
-        newDep.tag      = res.tag;
-        newDep.version  = (constraint && constraint[0] != '\0')
-                            ? makeString(strings, constraint)
-                            : NULL;
+        repository         = res.repository;
+        newDep.repository  = res.repository;
+        newDep.tag         = res.tag;
+        newDep.version     = (constraint && constraint[0] != '\0')
+                               ? makeString(strings, constraint)
+                               : NULL;
         /* We intentionally don't set newDep.version to the exact semver —
          * we keep the user's original constraint so Cxyfile.yaml stays
          * correct for future `cxy package update` runs.               */

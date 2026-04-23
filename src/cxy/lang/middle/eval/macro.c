@@ -17,6 +17,7 @@
 #include "lang/frontend/ast.h"
 #include "lang/frontend/capture.h"
 #include "lang/frontend/flag.h"
+#include "lang/frontend/iterable.h"
 #include "lang/frontend/strings.h"
 #include "lang/frontend/ttable.h"
 #include "lang/frontend/types.h"
@@ -1195,6 +1196,21 @@ static AstNode *makeLenNode(AstVisitor *visitor,
             args->intLiteral.uValue = 0;
         args->next = NULL;
         return args;
+    }
+
+    // Check if it's a comptime iterable
+    if (nodeIs(arg, ComptimeOnly) && hasFlag(arg, ComptimeIterable)) {
+        ComptimeIterator it = newComptimeIterator(ctx->pool, ctx->types, arg);
+        if (it.kind != citInvalid) {
+            u64 count = comptimeIteratorCount(&it);
+            args->tag = astIntegerLit;
+            args->intLiteral.isNegative = false;
+            args->intLiteral.uValue = count;
+            args->type = getPrimitiveType(ctx->types, prtU64);
+            clearAstBody(args);
+            args->next = NULL;
+            return args;
+        }
     }
 
     switch (raw->tag) {

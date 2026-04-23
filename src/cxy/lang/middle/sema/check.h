@@ -26,6 +26,7 @@ typedef struct {
     AstModifier blockModifier;
     bool traceMemory;
     bool returnState;
+    bool jumpState;
     bool exceptionTrace;
     union {
         struct {
@@ -63,6 +64,7 @@ typedef struct {
         AstNode *variable;
         AstNode *block;
         AstNode *expr;
+        bool hasBreakOrContinue;
     } catcher;
 } TypingContext;
 

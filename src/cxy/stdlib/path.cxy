@@ -1,4 +1,4 @@
-module path
+    module path
 
 import { Stat, stat, fstat, lstat, getenv, IOError } from "stdlib/os.cxy"
 

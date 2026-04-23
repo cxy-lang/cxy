@@ -12,7 +12,7 @@ static void castIntegerLiteral(const Type *to, AstNode *expr)
 {
 #define CAST_INTEGER(TYP)                                                      \
     if (expr->intLiteral.isNegative)                                           \
-        expr->intLiteral.value = (i128)(TYP)expr->intLiteral.value;             \
+        expr->intLiteral.value = (i128)(TYP)expr->intLiteral.value;            \
     else                                                                       \
         expr->intLiteral.uValue = (u128)(TYP)expr->intLiteral.uValue;
 
@@ -116,16 +116,53 @@ static void castLiteral(TypingContext *ctx, AstNode *node)
     }
 }
 
+static void checkCastOverload(AstVisitor *visitor,
+                              const Type *type,
+                              AstNode *node)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    AstNode *expr = node->castExpr.expr, *to = node->castExpr.to;
+    AstNode *overload = findMemberDeclInType(type, S_Cast);
+    if (!nodeIs(overload, GenericDecl)) {
+        logError(ctx->L,
+                 &node->loc,
+                 "type '{t}' does not have a cast operator",
+                 (FormatArg[]){{.t = expr->type}});
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
+    node->tag = astCallExpr;
+    clearAstBody(node);
+    node->callExpr.callee = makeMemberExpr(
+        ctx->pool,
+        &expr->loc,
+        flgNone,
+        expr,
+        makeResolvedPathWithArgs(
+            ctx->pool, &expr->loc, S_Cast, 0, overload, to, overload->type),
+        NULL,
+        NULL);
+    astVisit(visitor, node);
+}
+
 void checkCastExpr(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
     const Type *expr = checkType(visitor, node->castExpr.expr);
     const Type *target = checkType(visitor, node->castExpr.to);
     if (!isTypeCastAssignable(target, expr)) {
+        const Type *bare = stripPointerOrReferenceOnce(expr, NULL);
+        if (isClassOrStructType(bare)) {
+            checkCastOverload(visitor, bare, node);
+            return;
+        }
+
         logError(ctx->L,
                  &node->loc,
                  "type '{t}' cannot be cast to type '{t}'",
                  (FormatArg[]){{.t = expr}, {.t = target}});
+        node->type = ERROR_TYPE(ctx);
+        return;
     }
 
     if (typeIsBaseOf(expr, target)) {

@@ -8,12 +8,584 @@ import "time.h" as ctime
 
 macro HTTP_TIME_FMT "%a, %d %b %Y %T GMT";
 macro LOG_TIME_FMT  "%Y-%m-%d %H:%M:%S";
+macro DATE_FMT "%Y-%m-%d";
+macro TIME_FMT "%H:%M:%S";
+macro DATETIME_FMT "%Y-%m-%d %H:%M:%S";
 
 #if (defined __ALPINE__) {
     pub type time_t = alltypes.time_t
 }
 else {
     pub type time_t = ctime.time_t
+}
+
+pub enum DayOfWeek: i32 {
+    @str("Sunday")
+    Sunday = 0,
+    @str("Monday")
+    Monday = 1,
+    @str("Tuesday")
+    Tuesday = 2,
+    @str("Wednesday")
+    Wednesday = 3,
+    @str("Thursday")
+    Thursday = 4,
+    @str("Friday")
+    Friday = 5,
+    @str("Saturday")
+    Saturday = 6
+}
+
+pub enum Month: i32 {
+    @str("January")
+    January = 1,
+    @str("February")
+    February = 2,
+    @str("March")
+    March = 3,
+    @str("April")
+    April = 4,
+    @str("May")
+    May = 5,
+    @str("June")
+    June = 6,
+    @str("July")
+    July = 7,
+    @str("August")
+    August = 8,
+    @str("September")
+    September = 9,
+    @str("October")
+    October = 10,
+    @str("November")
+    November = 11,
+    @str("December")
+    December = 12
+}
+
+pub struct Years {
+    value: i64
+
+    @inline
+    const func `as`[Unit](): Unit {
+        #if #Unit == #Years {
+            return Years{value: value}
+        }
+        else #if #Unit == #Months {
+            return Months{value: value * 12}
+        }
+        else #if #Unit == #Days {
+            return Days{value: value * 365}
+        }
+        else #if #Unit == #Hours {
+            return Hours{value: value * 8760}
+        }
+        else #if #Unit == #Minutes {
+            return Minutes{value: value * 525600}
+        }
+        else #if #Unit == #Seconds {
+            return Seconds{value: value * 31536000}
+        }
+        else #if #Unit == #Millis {
+            return Millis{value: value * 31536000000}
+        }
+        else #if #Unit == #i64 {
+            return value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    const func `str`(os: &OutputStream) {
+        os << value << " year" << (value == 1 ? "" : "s")
+    }
+
+    @inline
+    const func `==`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value == other
+        }
+        else #if #Unit == #Years {
+            return value == other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value == other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value == other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value == other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value == other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value == other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value == other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `!=`[Unit](other: Unit): bool {
+        return !(this == other)
+    }
+}
+
+pub struct Months {
+    value: i64
+
+    @inline
+    const func `as`[Unit](): Unit {
+        #if #Unit == #Years {
+            return Years{value: value / 12}
+        }
+        else #if #Unit == #Months {
+            return Months{value: value}
+        }
+        else #if #Unit == #Days {
+            return Days{value: value * 30}
+        }
+        else #if #Unit == #Hours {
+            return Hours{value: value * 720}
+        }
+        else #if #Unit == #Minutes {
+            return Minutes{value: value * 43200}
+        }
+        else #if #Unit == #Seconds {
+            return Seconds{value: value * 2592000}
+        }
+        else #if #Unit == #Millis {
+            return Millis{value: value * 2592000000}
+        }
+        else #if #Unit == #i64 {
+            return value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    const func `str`(os: &OutputStream) {
+        os << value << " month" << (value == 1 ? "" : "s")
+    }
+
+    @inline
+    const func `==`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value == other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value == other.value
+        }
+        else #if #Unit == #Months {
+            return value == other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value == other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value == other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value == other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value == other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value == other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `!=`[Unit](other: Unit): bool {
+        return !(this == other)
+    }
+}
+
+pub struct Days {
+    value: i64
+
+    @inline
+    const func `as`[Unit](): Unit {
+        #if #Unit == #Years {
+            return Years{value: value / 365}
+        }
+        else #if #Unit == #Months {
+            return Months{value: value / 30}
+        }
+        else #if #Unit == #Days {
+            return Days{value: value}
+        }
+        else #if #Unit == #Hours {
+            return Hours{value: value * 24}
+        }
+        else #if #Unit == #Minutes {
+            return Minutes{value: value * 1440}
+        }
+        else #if #Unit == #Seconds {
+            return Seconds{value: value * 86400}
+        }
+        else #if #Unit == #Millis {
+            return Millis{value: value * 86400000}
+        }
+        else #if #Unit == #i64 {
+            return value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    const func `str`(os: &OutputStream) {
+        os << value << " day" << (value == 1 ? "" : "s")
+    }
+
+    @inline
+    const func `==`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value == other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value == other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value == other.value
+        }
+        else #if #Unit == #Days {
+            return value == other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value == other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value == other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value == other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value == other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `!=`[Unit](other: Unit): bool {
+        return !(this == other)
+    }
+}
+
+pub struct Hours {
+    value: i64
+
+    @inline
+    const func `as`[Unit](): Unit {
+        #if #Unit == #Years {
+            return Years{value: value / 8760}
+        }
+        else #if #Unit == #Months {
+            return Months{value: value / 720}
+        }
+        else #if #Unit == #Days {
+            return Days{value: value / 24}
+        }
+        else #if #Unit == #Hours {
+            return Hours{value: value}
+        }
+        else #if #Unit == #Minutes {
+            return Minutes{value: value * 60}
+        }
+        else #if #Unit == #Seconds {
+            return Seconds{value: value * 3600}
+        }
+        else #if #Unit == #Millis {
+            return Millis{value: value * 3600000}
+        }
+        else #if #Unit == #i64 {
+            return value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    const func `str`(os: &OutputStream) {
+        os << value << " hour" << (value == 1 ? "" : "s")
+    }
+
+    @inline
+    const func `==`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value == other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value == other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value == other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value == other.value
+        }
+        else #if #Unit == #Hours {
+            return value == other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value == other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value == other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value == other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `!=`[Unit](other: Unit): bool {
+        return !(this == other)
+    }
+}
+
+pub struct Minutes {
+    value: i64
+
+    @inline
+    const func `as`[Unit](): Unit {
+        #if #Unit == #Years {
+            return Years{value: value / 525600}
+        }
+        else #if #Unit == #Months {
+            return Months{value: value / 43200}
+        }
+        else #if #Unit == #Days {
+            return Days{value: value / 1440}
+        }
+        else #if #Unit == #Hours {
+            return Hours{value: value / 60}
+        }
+        else #if #Unit == #Minutes {
+            return Minutes{value: value}
+        }
+        else #if #Unit == #Seconds {
+            return Seconds{value: value * 60}
+        }
+        else #if #Unit == #Millis {
+            return Millis{value: value * 60000}
+        }
+        else #if #Unit == #i64 {
+            return value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    const func `str`(os: &OutputStream) {
+        os << value << " minute" << (value == 1 ? "" : "s")
+    }
+
+    @inline
+    const func `==`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value == other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value == other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value == other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value == other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value == other.value
+        }
+        else #if #Unit == #Minutes {
+            return value == other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value == other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value == other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `!=`[Unit](other: Unit): bool {
+        return !(this == other)
+    }
+}
+
+pub struct Seconds {
+    value: i64
+
+    @inline
+    const func `as`[Unit](): Unit {
+        #if #Unit == #Years {
+            return Years{value: value / 31536000}
+        }
+        else #if #Unit == #Months {
+            return Months{value: value / 2592000}
+        }
+        else #if #Unit == #Days {
+            return Days{value: value / 86400}
+        }
+        else #if #Unit == #Hours {
+            return Hours{value: value / 3600}
+        }
+        else #if #Unit == #Minutes {
+            return Minutes{value: value / 60}
+        }
+        else #if #Unit == #Seconds {
+            return Seconds{value: value}
+        }
+        else #if #Unit == #Millis {
+            return Millis{value: value * 1000}
+        }
+        else #if #Unit == #i64 {
+            return value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    const func `str`(os: &OutputStream) {
+        os << value << " second" << (value == 1 ? "" : "s")
+    }
+
+    @inline
+    const func `==`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value == other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value == other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value == other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value == other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value == other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value == other.value
+        }
+        else #if #Unit == #Seconds {
+            return value == other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value == other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `!=`[Unit](other: Unit): bool {
+        return !(this == other)
+    }
+}
+
+pub struct Millis {
+    value: i64
+
+    @inline
+    const func `as`[Unit](): Unit {
+        #if #Unit == #Years {
+            return Years{value: value / 31536000000}
+        }
+        else #if #Unit == #Months {
+            return Months{value: value / 2592000000}
+        }
+        else #if #Unit == #Days {
+            return Days{value: value / 86400000}
+        }
+        else #if #Unit == #Hours {
+            return Hours{value: value / 3600000}
+        }
+        else #if #Unit == #Minutes {
+            return Minutes{value: value / 60000}
+        }
+        else #if #Unit == #Seconds {
+            return Seconds{value: value / 1000}
+        }
+        else #if #Unit == #Millis {
+            return Millis{value: value}
+        }
+        else #if #Unit == #i64 {
+            return value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    const func `str`(os: &OutputStream) {
+        os << value << " millisecond" << (value == 1 ? "" : "s")
+    }
+
+    @inline
+    const func `==`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value == other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value == other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value == other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value == other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value == other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value == other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value == other.value
+        }
+        else #if #Unit == #Millis {
+            return value == other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `!=`[Unit](other: Unit): bool {
+        return !(this == other)
+    }
 }
 
 pub struct Time {
@@ -50,4 +622,558 @@ pub struct Time {
 
     @inline
     const func timestamp() { return _t }
+
+    @inline
+    const func `as`[Unit](): Unit {
+        #if #Unit == #Years {
+            return Years{value: _t / 31536000}
+        }
+        else #if #Unit == #Months {
+            return Months{value: _t / 2592000}
+        }
+        else #if #Unit == #Days {
+            return Days{value: _t / 86400}
+        }
+        else #if #Unit == #Hours {
+            return Hours{value: _t / 3600}
+        }
+        else #if #Unit == #Minutes {
+            return Minutes{value: _t / 60}
+        }
+        else #if #Unit == #Seconds {
+            return Seconds{value: _t}
+        }
+        else #if #Unit == #Millis {
+            return Millis{value: _t * 1000}
+        }
+        else #if #Unit == #i64 {
+            return _t
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    const func formatDate(): String {
+        var output = String()
+        format(DATE_FMT!, &output)
+        return &&output
+    }
+
+    const func formatTime(): String {
+        var output = String()
+        format(TIME_FMT!, &output)
+        return &&output
+    }
+
+    const func formatDateTime(): String {
+        var output = String()
+        format(DATETIME_FMT!, &output)
+        return &&output
+    }
+
+    const func year(): i32 {
+        return _tm.tm_year + 1900
+    }
+
+    const func month(): Month {
+        return (_tm.tm_mon + 1) !: Month
+    }
+
+    const func monthValue(): i32 {
+        return _tm.tm_mon + 1
+    }
+
+    const func dayOfMonth(): i32 {
+        return _tm.tm_mday
+    }
+
+    const func dayOfWeek(): DayOfWeek {
+        return _tm.tm_wday as DayOfWeek
+    }
+
+    const func dayOfWeekValue(): i32 {
+        return _tm.tm_wday
+    }
+
+    const func hour(): i32 {
+        return _tm.tm_hour
+    }
+
+    const func minute(): i32 {
+        return _tm.tm_min
+    }
+
+    const func second(): i32 {
+        return _tm.tm_sec
+    }
+
+    const func dayOfYear(): i32 {
+        return _tm.tm_yday + 1
+    }
+
+    const func isWeekend(): bool {
+        return _tm.tm_wday == 0 || _tm.tm_wday == 6
+    }
+
+    const func isWeekday(): bool {
+        return _tm.tm_wday >= 1 && _tm.tm_wday <= 5
+    }
+
+    const func isLeapYear(): bool {
+        var y = year()
+        return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
+    }
+
+    const func isToday(): bool {
+        var now = Time()
+        return year() == now.year() &&
+               monthValue() == now.monthValue() &&
+               dayOfMonth() == now.dayOfMonth()
+    }
+
+    const func isFuture(): bool {
+        return _t > Time()._t
+    }
+
+    const func isPast(): bool {
+        return _t < Time()._t
+    }
+
+    const func `-`(other: &const Time): Seconds {
+        return Seconds{value: _t - other._t}
+    }
+
+    const func `-`(duration: Years): Time {
+        return Time(_t - duration.value * 31536000)
+    }
+
+    const func `-`(duration: Months): Time {
+        return Time(_t - duration.value * 2592000)
+    }
+
+    const func `-`(duration: Days): Time {
+        return Time(_t - duration.value * 86400)
+    }
+
+    const func `-`(duration: Hours): Time {
+        return Time(_t - duration.value * 3600)
+    }
+
+    const func `-`(duration: Minutes): Time {
+        return Time(_t - duration.value * 60)
+    }
+
+    const func `-`(duration: Seconds): Time {
+        return Time(_t - duration.value)
+    }
+
+    const func `-`(duration: Millis): Time {
+        return Time(_t - duration.value / 1000)
+    }
+
+    const func `+`(duration: Years): Time {
+        return Time(_t + duration.value * 31536000)
+    }
+
+    const func `+`(duration: Months): Time {
+        return Time(_t + duration.value * 2592000)
+    }
+
+    const func `+`(duration: Days): Time {
+        return Time(_t + duration.value * 86400)
+    }
+
+    const func `+`(duration: Hours): Time {
+        return Time(_t + duration.value * 3600)
+    }
+
+    const func `+`(duration: Minutes): Time {
+        return Time(_t + duration.value * 60)
+    }
+
+    const func `+`(duration: Seconds): Time {
+        return Time(_t + duration.value)
+    }
+
+    const func `+`(duration: Millis): Time {
+        return Time(_t + duration.value / 1000)
+    }
+
+    const func `<`(other: &const Time): bool {
+        return _t < other._t
+    }
+
+    const func `>`(other: &const Time): bool {
+        return _t > other._t
+    }
+
+    const func `<=`(other: &const Time): bool {
+        return _t <= other._t
+    }
+
+    const func `>=`(other: &const Time): bool {
+        return _t >= other._t
+    }
+
+    @inline
+    const func `==`(other: &const Time): bool {
+        return _t == other._t
+    }
+
+    @inline
+    const func `!=`(other: &const Time): bool {
+        return _t != other._t
+    }
+
+    const func isSameDay(other: &const Time): bool {
+        return year() == other.year() &&
+               monthValue() == other.monthValue() &&
+               dayOfMonth() == other.dayOfMonth()
+    }
+
+    const func startOfDay(): Time {
+        var copy = _tm
+        copy.tm_hour = 0
+        copy.tm_min = 0
+        copy.tm_sec = 0
+        return Time(ctime.timegm(ptrof copy))
+    }
+
+    const func endOfDay(): Time {
+        var copy = _tm
+        copy.tm_hour = 23
+        copy.tm_min = 59
+        copy.tm_sec = 59
+        return Time(ctime.timegm(ptrof copy))
+    }
+
+    const func startOfMonth(): Time {
+        var copy = _tm
+        copy.tm_mday = 1
+        copy.tm_hour = 0
+        copy.tm_min = 0
+        copy.tm_sec = 0
+        return Time(ctime.timegm(ptrof copy))
+    }
+
+    const func endOfMonth(): Time {
+        var copy = _tm
+        copy.tm_mon++
+        copy.tm_mday = 0
+        copy.tm_hour = 23
+        copy.tm_min = 59
+        copy.tm_sec = 59
+        return Time(ctime.timegm(ptrof copy))
+    }
+
+    const func startOfYear(): Time {
+        var copy = _tm
+        copy.tm_mon = 0
+        copy.tm_mday = 1
+        copy.tm_hour = 0
+        copy.tm_min = 0
+        copy.tm_sec = 0
+        return Time(ctime.timegm(ptrof copy))
+    }
+
+    const func endOfYear(): Time {
+        var copy = _tm
+        copy.tm_year++
+        copy.tm_mon = 0
+        copy.tm_mday = 0
+        copy.tm_hour = 23
+        copy.tm_min = 59
+        copy.tm_sec = 59
+        return Time(ctime.timegm(ptrof copy))
+    }
+
+    @[static]
+    func fromDate(year: i32, month: i32, day: i32): Time {
+        var tm = ctime.tm{}
+        tm.tm_year = year - 1900
+        tm.tm_mon = month - 1
+        tm.tm_mday = day
+        tm.tm_hour = 0
+        tm.tm_min = 0
+        tm.tm_sec = 0
+        tm.tm_isdst = -1
+        return Time(ctime.timegm(ptrof tm))
+    }
+
+    @[static]
+    func fromDateTime(year: i32, month: i32, day: i32, hour: i32, minute: i32, second: i32): Time {
+        var tm = ctime.tm{}
+        tm.tm_year = year - 1900
+        tm.tm_mon = month - 1
+        tm.tm_mday = day
+        tm.tm_hour = hour
+        tm.tm_min = minute
+        tm.tm_sec = second
+        tm.tm_isdst = -1
+        return Time(ctime.timegm(ptrof tm))
+    }
+
+    @[static]
+    func daysInMonth(month: i32, year: i32): i32 {
+        if month == 2 {
+            var isLeap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+            return isLeap ? 29 : 28
+        }
+        if month == 4 || month == 6 || month == 9 || month == 11 {
+            return 30
+        }
+        return 31
+    }
+}
+
+pub struct FmtTime {
+    time: &Time
+    fmt: string
+    func `init`(time: &Time, fmt: string) {
+        this.time = time
+        this.fmt = fmt
+    }
+    const func `str`(os: &OutputStream) {
+        time.format(fmt, os)
+    }
+}
+
+pub func now(): Time {
+    return Time()
+}
+
+pub func today(): Time {
+    return Time().startOfDay()
+}
+
+pub func yesterday(): Time {
+    return today() - Days{value: 1}
+}
+
+pub func tomorrow(): Time {
+    return today() + Days{value: 1}
+}
+
+test "Days conversion to other units" {
+    var days = Days{value: 1}
+    ok!((days as Hours).value == 24)
+    ok!((days as Minutes).value == 1440)
+    ok!((days as Seconds).value == 86400)
+    ok!((days as Millis).value == 86400000)
+}
+
+test "Hours conversion to other units" {
+    var hours = Hours{value: 24}
+    ok!((hours as Days).value == 1)
+    ok!((hours as Minutes).value == 1440)
+    ok!((hours as Seconds).value == 86400)
+}
+
+test "Minutes conversion to other units" {
+    var minutes = Minutes{value: 60}
+    ok!((minutes as Hours).value == 1)
+    ok!((minutes as Seconds).value == 3600)
+}
+
+test "Seconds conversion to other units" {
+    var seconds = Seconds{value: 3600}
+    ok!((seconds as Hours).value == 1)
+    ok!((seconds as Minutes).value == 60)
+    ok!((seconds as Millis).value == 3600000)
+}
+
+test "Millis conversion to other units" {
+    var millis = Millis{value: 1000}
+    ok!((millis as Seconds).value == 1)
+    ok!(millis as i64 == 1000)
+}
+
+test "Duration as i64 returns raw value" {
+    ok!(Days{value: 5} as i64 == 5)
+    ok!(Hours{value: 10} as i64 == 10)
+    ok!(Minutes{value: 30} as i64 == 30)
+    ok!(Seconds{value: 100} as i64 == 100)
+}
+
+test "Time.fromDate creates correct date" {
+    var t = Time.fromDate(2024, 6, 15)
+    ok!(t.year() == 2024)
+    ok!(t.monthValue() == 6)
+    ok!(t.dayOfMonth() == 15)
+}
+
+test "Time.fromDateTime creates correct datetime" {
+    var t = Time.fromDateTime(2024, 12, 25, 14, 30, 45)
+    ok!(t.year() == 2024)
+    ok!(t.monthValue() == 12)
+    ok!(t.dayOfMonth() == 25)
+    ok!(t.hour() == 14)
+    ok!(t.minute() == 30)
+    ok!(t.second() == 45)
+}
+
+test "Time.daysInMonth returns correct values" {
+    ok!(Time.daysInMonth(1, 2024) == 31)
+    ok!(Time.daysInMonth(2, 2024) == 29)
+    ok!(Time.daysInMonth(2, 2023) == 28)
+    ok!(Time.daysInMonth(4, 2024) == 30)
+    ok!(Time.daysInMonth(12, 2024) == 31)
+}
+
+test "Time addition with Days" {
+    var t = Time.fromDate(2024, 1, 1)
+    var t2 = t + Days{value: 10}
+    ok!(t2.dayOfMonth() == 11)
+}
+
+test "Time subtraction with Days" {
+    var t = Time.fromDate(2024, 1, 15)
+    var t2 = t - Days{value: 10}
+    ok!(t2.dayOfMonth() == 5)
+}
+
+test "Time addition with Hours" {
+    var t = Time.fromDateTime(2024, 1, 1, 12, 0, 0)
+    var t2 = t + Hours{value: 6}
+    ok!(t2.hour() == 18)
+}
+
+test "Time subtraction with Minutes" {
+    var t = Time.fromDateTime(2024, 1, 1, 12, 30, 0)
+    var t2 = t - Minutes{value: 15}
+    ok!(t2.minute() == 15)
+}
+
+test "Time difference returns Seconds" {
+    var t1 = Time.fromDateTime(2024, 1, 1, 12, 0, 0)
+    var t2 = Time.fromDateTime(2024, 1, 1, 13, 0, 0)
+    var diff = t2 - t1
+    ok!(diff.value == 3600)
+}
+
+test "Time comparison operators" {
+    var t1 = Time.fromDate(2024, 1, 1)
+    var t2 = Time.fromDate(2024, 1, 2)
+
+    ok!(t1 < t2)
+    ok!(t2 > t1)
+    ok!(t1 <= t2)
+    ok!(t2 >= t1)
+    ok!(t1 <= t1)
+    ok!(t1 >= t1)
+}
+
+test "Time.isLeapYear detects leap years" {
+    var t2024 = Time.fromDate(2024, 1, 1)
+    var t2023 = Time.fromDate(2023, 1, 1)
+    var t2000 = Time.fromDate(2000, 1, 1)
+    var t1900 = Time.fromDate(1900, 1, 1)
+
+    ok!(t2024.isLeapYear())
+    ok!(!t2023.isLeapYear())
+    ok!(t2000.isLeapYear())
+    ok!(!t1900.isLeapYear())
+}
+
+test "Time.isWeekend and isWeekday" {
+    var saturday = Time.fromDate(2024, 6, 15)
+    var sunday = Time.fromDate(2024, 6, 16)
+    var monday = Time.fromDate(2024, 6, 17)
+
+    ok!(saturday.isWeekend())
+    ok!(sunday.isWeekend())
+    ok!(monday.isWeekday())
+    ok!(!monday.isWeekend())
+}
+
+test "Time.isSameDay compares dates correctly" {
+    var t1 = Time.fromDateTime(2024, 6, 15, 10, 0, 0)
+    var t2 = Time.fromDateTime(2024, 6, 15, 20, 0, 0)
+    var t3 = Time.fromDateTime(2024, 6, 16, 10, 0, 0)
+
+    ok!(t1.isSameDay(&t2))
+    ok!(!t1.isSameDay(&t3))
+}
+
+test "Time.startOfDay sets time to midnight" {
+    var t = Time.fromDateTime(2024, 6, 15, 14, 30, 45)
+    var start = t.startOfDay()
+
+    ok!(start.hour() == 0)
+    ok!(start.minute() == 0)
+    ok!(start.second() == 0)
+    ok!(start.dayOfMonth() == 15)
+}
+
+test "Time.endOfDay sets time to 23:59:59" {
+    var t = Time.fromDateTime(2024, 6, 15, 10, 0, 0)
+    var end = t.endOfDay()
+
+    ok!(end.hour() == 23)
+    ok!(end.minute() == 59)
+    ok!(end.second() == 59)
+    ok!(end.dayOfMonth() == 15)
+}
+
+test "Time.as[i64] returns timestamp" {
+    var t = Time.fromDate(2024, 1, 1)
+    var timestamp = t as i64
+    ok!(timestamp > 0)
+    ok!(timestamp == t.timestamp())
+}
+
+test "Time.as Unit converts to durations" {
+    var t = Time(86400)
+    ok!((t as Days).value == 1)
+    ok!((t as Hours).value == 24)
+    ok!((t as Seconds).value == 86400)
+}
+
+test "Module helpers: today, yesterday, tomorrow" {
+    var todayTime = today()
+    var yesterdayTime = yesterday()
+    var tomorrowTime = tomorrow()
+
+    ok!(todayTime > yesterdayTime)
+    ok!(tomorrowTime > todayTime)
+
+    var diff = todayTime - yesterdayTime
+    ok!((diff as Days).value == 1)
+}
+
+test "Duration cross-type equality comparisons" {
+    // Days to other units
+    ok!(Days{value: 1} == Hours{value: 24})
+    ok!(Days{value: 1} == Minutes{value: 1440})
+    ok!(Days{value: 1} == Seconds{value: 86400})
+
+    // Hours to other units
+    ok!(Hours{value: 24} == Days{value: 1})
+    ok!(Hours{value: 1} == Minutes{value: 60})
+    ok!(Hours{value: 1} == Seconds{value: 3600})
+
+    // Minutes to other units
+    ok!(Minutes{value: 60} == Hours{value: 1})
+    ok!(Minutes{value: 60} == Seconds{value: 3600})
+
+    // Seconds to other units
+    ok!(Seconds{value: 86400} == Days{value: 1})
+    ok!(Seconds{value: 3600} == Hours{value: 1})
+    ok!(Seconds{value: 60} == Minutes{value: 1})
+}
+
+test "Duration to i64 equality comparisons" {
+    ok!(Days{value: 5} == 5`i64)
+    ok!(Hours{value: 10} == 10`i64)
+    ok!(Minutes{value: 30} == 30`i64)
+    ok!(Seconds{value: 100} == 100`i64)
+    ok!(Millis{value: 1000} == 1000`i64)
+}
+
+test "Duration cross-type inequality comparisons" {
+    ok!(Days{value: 1} != Hours{value: 25})
+    ok!(Hours{value: 1} != Minutes{value: 61})
+    ok!(Minutes{value: 1} != Seconds{value: 61})
+    ok!(Seconds{value: 1} != 2`i64)
 }

@@ -147,8 +147,6 @@ void evalPathEpilogue(AstVisitor *visitor,
     else {
         replaceAstNodeWith(
             node, nodeIs(symbol, VarDecl) ? symbol->varDecl.init : symbol);
-        if (hasFlag(node, ComptimeIterable))
-            node->next = symbol->next;
         node->flags &= ~flgComptime;
     }
 }

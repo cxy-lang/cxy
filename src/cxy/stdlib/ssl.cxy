@@ -109,7 +109,7 @@ pub class SslSocket: Socket {
     }
 
     @static
-    func create(fd: i32, addr: Address, ctx: ^TYPES.ssl_ctx_st = sslClientCtx): !This {
+    func create(fd: i32, addr: Address, hostname: string = null, ctx: ^TYPES.ssl_ctx_st = sslClientCtx): !This {
         var ssl: ^TYPES.ssl_st = null
         var bio = SSL.BIO_new_ssl(ctx, (ctx == sslClientCtx)? 1 : 0)
         if (bio == null) {
@@ -122,6 +122,11 @@ pub class SslSocket: Socket {
             BIO.BIO_free(bio)
             unistd.close(fd)
             raise SslError(f"BIO_get_ssl failed: {getSslError()}")
+        }
+
+        // Set SNI (Server Name Indication)
+        if (hostname != null) {
+            SSL.SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME!, TLSEXT_NAMETYPE_host_name!, hostname !: ^void)
         }
 
         SSL_set_mode!(ssl, SSL_MODE_ENABLE_PARTIAL_WRITE!|SSL_MODE_AUTO_RETRY!)

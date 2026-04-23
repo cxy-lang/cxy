@@ -383,7 +383,7 @@ bool isTypeCastAssignable(const Type *to, const Type *from)
     }
 
     if (unwrappedTo->tag == unwrappedFrom->tag) {
-        if (to->tag != typPrimitive && to->tag != typEnum)
+        if (to->tag == typPointer)
             return (fromFlags & flgConst) ? (toFlags & flgConst) : true;
     }
 
@@ -396,6 +396,8 @@ bool isTypeCastAssignable(const Type *to, const Type *from)
     case typPrimitive:
         if (typeIs(to, Optional))
             to = to->optional.target;
+        if (isIntegerType(unwrappedFrom) && typeIs(to, Enum))
+            return isTypeCastAssignable(to->tEnum.base, unwrappedFrom);
         if (!typeIs(to, Primitive))
             return false;
         if (to->primitive.id == unwrappedFrom->primitive.id)

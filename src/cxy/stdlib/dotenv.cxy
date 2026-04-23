@@ -1,0 +1,417 @@
+module dotenv
+
+import { HashMap } from "./hash.cxy"
+import { Vector } from "./vector.cxy"
+import { FileInputStream, getenv } from "./os.cxy"
+import { exists } from "./path.cxy"
+
+pub exception DotEnvError(msg: String) => msg.str()
+
+pub class DotEnv {
+    - vars = HashMap[String, String]()
+
+    func `init`() {}
+
+    func load(str: __string): !void {
+        var len = str.size()
+        var lineNum = 1
+        var idx = 0`u64
+
+        while idx < len {
+            var lineStart = idx
+            // Find end of line
+            while idx < len && str.[idx] != '\n'`char {
+                idx++
+            }
+
+            var lineLen = idx - lineStart
+            if lineLen > 0 {
+                var line = str.substr(lineStart, <i64>lineLen)
+                parseLine(line, lineNum)
+            }
+
+            // Skip newline
+            if idx < len && str.[idx] == '\n'`char {
+                idx++
+            }
+            lineNum++
+        }
+    }
+
+    - func parseLine(line: __string, lineNum: i32): !void {
+        var len = line.size()
+        var idx = 0`u64
+
+        // Skip leading whitespace
+        while idx < len && (line.[idx] == ' ' || line.[idx] == '\t') {
+            idx++
+        }
+
+        // Skip empty lines and comments
+        if idx >= len || line.[idx] == '#' {
+            return
+        }
+
+        // Find = sign
+        var equal = line.indexOf('=')
+        if !equal {
+            raise DotEnvError(f"Missing '=' on line {lineNum}")
+        }
+        var key = line.substr(idx, <i64>(*equal - idx)).trim()
+        var value = line.substr(*equal + 1).trim()
+
+        var quoteChar = '\0' as char
+        if value.size() > 0 && (value.[0] == '"' || value.[0] == '\'') {
+            quoteChar = value.[0]
+
+            // Strip opening quote
+            value = value.substr(1)
+
+            // Strip closing quote if present
+            if value.size() > 0 && value.[value.size() - 1] == quoteChar {
+                value = value.substr(0, <i64>(value.size() - 1))
+            }
+        }
+
+        // Expand variables if double quoted or unquoted
+        var finalValue: String = null
+        if quoteChar == '\'' {
+            // Single quoted - literal
+            finalValue = String(value)
+        } else {
+            // Expand variables
+            finalValue = _expandVariables(value)
+        }
+
+        vars.insert(String(key), &&finalValue)
+    }
+
+    func _expandVariables(value: __string): String {
+        var result = String()
+        var i = 0`u64
+        var len = value.size()
+
+        while i < len {
+            if value.[i] == '$' && i + 1 < len && value.[i + 1] == '{' {
+                // Found ${...}
+                var start = i + 2
+                var end = start
+                var hasDefault = false
+                var defaultStart = 0`u64
+
+                // Find closing } or :-
+                while end < len && value.[end] != '}' {
+                    if value.[end] == ':' && end + 1 < len && value.[end + 1] == '-' {
+                        hasDefault = true
+                        defaultStart = end + 2
+                        break
+                    }
+                    end++
+                }
+
+                if hasDefault {
+                    // Find actual closing }
+                    var defaultEnd = defaultStart
+                    while defaultEnd < len && value.[defaultEnd] != '}'`char {
+                        defaultEnd++
+                    }
+
+                    if defaultEnd >= len {
+                        // Malformed - just copy literal
+                        result << '$'
+                        i++
+                        continue
+                    }
+
+                    // Extract variable name
+                    var varNameLen = defaultStart - start - 2
+                    var varNameStr = value.substr(start, <i64>varNameLen)
+
+                    // Extract default value
+                    var defaultLen = defaultEnd - defaultStart
+                    var defaultStr = value.substr(defaultStart, <i64>defaultLen)
+
+                    // Look up variable
+                    var varValue = _lookupVariable(varNameStr.str())
+                    if !varValue.empty() {
+                        result << varValue
+                    } else {
+                        result << defaultStr
+                    }
+
+                    i = defaultEnd + 1
+                } else {
+                    // No default - just ${VAR}
+                    if end >= len {
+                        // Malformed - just copy literal
+                        result << '$'
+                        i++
+                        continue
+                    }
+
+                    var varNameLen = end - start
+                    var varNameStr = value.substr(start, <i64>varNameLen)
+
+                    var varValue = _lookupVariable(varNameStr)
+                    if !varValue.empty() {
+                        result << varValue
+                    }
+
+                    i = end + 1
+                }
+            } else {
+                result << value.[i]
+                i++
+            }
+        }
+
+        return &&result
+    }
+
+    func _lookupVariable(name: __string): __string {
+        // First check in current vars
+        var key = String(name)
+        var varValue = vars.[key]
+        if !!varValue {
+            return varValue&.__str()
+        }
+
+        // Then check environment
+        return getenv(key.str(), null) catch __string()
+    }
+
+    @inline
+    const func get(key: string) => vars.[key]
+
+    func required(key: string): !String {
+        var value = get(key)
+        if !value {
+            var val = String(getenv(key))  // this will raise if not found
+            vars.[key] = val
+            return &&val
+        }
+        return __copy!(*value)
+    }
+
+    @inline
+    const func has(key: string) => vars.contains(key)
+
+    @inline
+    const func size() => vars.size()
+
+    @[static]
+    func fromFile(path: string = null): !DotEnv {
+        var resolvedPath = resolvePath(path)
+
+        // Read file using FileInputStream
+        var fis = FileInputStream.open(resolvedPath.str()) catch {
+            raise DotEnvError(f"Cannot open file: {resolvedPath}")
+        }
+
+        var buffer = fis.readAll() catch {
+            raise DotEnvError(f"Failed to read file: {resolvedPath}")
+        }
+
+        // Create instance and parse
+        var env = DotEnv()
+        env.load(buffer.__str())
+        return &&env
+    }
+
+    @[static]
+    func fromString(str: __string): !DotEnv {
+        var env = DotEnv()
+        env.load(str)
+        return &&env
+    }
+
+    @[static]
+    - func resolvePath(path: string): String {
+        // If explicit path provided, use it
+        if path != null && path.[0] != '\0' {
+             return String(path)
+        }
+
+        // 1. Check DOT_ENV environment variable (highest priority)
+        var dotEnv = getenv("DOT_ENV", null) catch __string()
+        if !dotEnv.empty() {
+            return String(dotEnv)
+        }
+
+        // 2. Check ENV_STAGE environment variable
+        #if defined ENV {
+            var stagePath = mk_str!(".env.", ENV!)
+            if exists(stagePath) {
+                return String(stagePath)
+            }
+        }
+
+        // 3. Check __CXY_TEST__ comptime flag
+        #if defined __CXY_TEST__ {
+            if exists(".env.test") {
+                return String(".env.test")
+            }
+        }
+
+        // 4. Default to .env
+        return ".env".S
+    }
+}
+
+test "DotEnv basic parsing" {
+    var content = "KEY1=value1\nKEY2=value2".s
+    var env = DotEnv.fromString(content) catch {
+        ok!(false)
+        return
+    }
+
+    ok!(env.has("KEY1"))
+    ok!(env.has("KEY2"))
+
+    var val1 = env.get("KEY1")
+    ok!(!!val1)
+    ok!(*val1 == "value1")
+
+    var val2 = env.get("KEY2")
+    ok!(!!val2)
+    ok!(*val2 == "value2")
+}
+
+test "DotEnv handles comments" {
+    var content = "# This is a comment\nKEY=value\n# Another comment".s
+    var env = DotEnv.fromString(content) catch {
+        ok!(false)
+        return
+    }
+
+    ok!(env.size() == 1)
+    ok!(env.has("KEY"))
+}
+
+test "DotEnv handles empty lines" {
+    var content = "KEY1=value1\n\n\nKEY2=value2\n\n".s
+    var env = DotEnv.fromString(content) catch {
+        ok!(false)
+        return
+    }
+
+    ok!(env.size() == 2)
+    ok!(env.has("KEY1"))
+    ok!(env.has("KEY2"))
+}
+
+test "DotEnv handles quoted values" {
+    var content = "SINGLE='single quoted'\nDOUBLE=\"double quoted\"".s
+    var env = DotEnv.fromString(content) catch {
+        ok!(false)
+        return
+    }
+
+    var single = env.get("SINGLE")
+    ok!(!!single)
+    ok!(*single == "single quoted")
+
+    var dbl = env.get("DOUBLE")
+    ok!(!!dbl)
+    ok!(*dbl == "double quoted")
+}
+
+test "DotEnv variable expansion" {
+    var content = "HOST=localhost\nPORT=5432\nURL=http://${HOST}:${PORT}".s
+    var env = DotEnv.fromString(content) catch {
+        ok!(false)
+        return
+    }
+
+    var url = env.get("URL")
+    ok!(!!url)
+    ok!(*url == "http://localhost:5432")
+}
+
+test "DotEnv expansion with defaults" {
+    var content = "PORT=${PORT:-3000}\nHOST=${HOST:-0.0.0.0}".s
+    var env = DotEnv.fromString(content) catch {
+        ok!(false)
+        return
+    }
+
+    var port = env.get("PORT")
+    ok!(!!port)
+    ok!(*port == "3000")
+
+    var host = env.get("HOST")
+    ok!(!!host)
+    ok!(*host == "0.0.0.0")
+}
+
+test "DotEnv single quotes prevent expansion" {
+    var content = "VAR=test\nLITERAL='${VAR}'".s
+    var env = DotEnv.fromString(content) catch {
+        ok!(false)
+        return
+    }
+
+    var literal = env.get("LITERAL")
+    ok!(!!literal)
+    ok!(*literal == "${VAR}")
+}
+
+test "DotEnv empty value without quotes skips variable" {
+    var content = "EMPTY=\nNOT_EMPTY=value".s
+    var env = DotEnv.fromString(content) catch {
+        ok!(false)
+        return
+    }
+
+    // EMPTY should not be set (unless in environment)
+    ok!(env.has("NOT_EMPTY"))
+}
+
+test "DotEnv explicit empty with quotes" {
+    var content = "EMPTY=\"\"\nNOT_EMPTY=value".s
+    var env = DotEnv.fromString(content) catch {
+        ok!(false)
+        return
+    }
+
+    var empty = env.get("EMPTY")
+    ok!(!!empty)
+    ok!((*empty).size() == 0)
+
+    ok!(env.has("NOT_EMPTY"))
+}
+
+test "DotEnv rejects malformed lines" {
+    var content = "NOEQUALS".s
+    @unused var env = DotEnv.fromString(content) catch {
+        // Should throw error
+        ok!(true)
+        return
+    }
+
+    ok!(false)
+}
+
+test "DotEnv handles whitespace around equals" {
+    var content = "KEY = value".s
+    var env = DotEnv.fromString(content) catch {
+        ok!(false)
+        return
+    }
+
+    var val = env.get("KEY")
+    ok!(!!val)
+    ok!(*val == "value")
+}
+
+test "DotEnv complex expansion" {
+    var content = "DB_HOST=localhost\nDB_PORT=5432\nDB_USER=admin\nDB_NAME=myapp\nDATABASE_URL=postgres://${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}".s
+    var env = DotEnv.fromString(content) catch {
+        ok!(false)
+        return
+    }
+
+    var dbUrl = env.get("DATABASE_URL")
+    ok!(!!dbUrl)
+    ok!(*dbUrl == "postgres://admin@localhost:5432/myapp")
+}

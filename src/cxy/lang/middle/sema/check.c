@@ -375,6 +375,9 @@ static void checkBreakOrContinueStmt(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
     node->type = makeVoidType(ctx->types);
+    if (ctx->catcher.block) {
+        ctx->catcher.hasBreakOrContinue = true;
+    }
 }
 
 static void checkWhileStmt(AstVisitor *visitor, AstNode *node)

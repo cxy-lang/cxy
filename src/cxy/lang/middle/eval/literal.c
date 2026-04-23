@@ -5,6 +5,7 @@
 #include "eval.h"
 
 #include "lang/frontend/flag.h"
+#include "lang/frontend/iterable.h"
 #include "lang/frontend/strings.h"
 #include "lang/frontend/ttable.h"
 
@@ -140,7 +141,7 @@ bool evalBooleanCast(EvalContext *ctx, AstNode *node)
         node->tag = astBoolLit;
         break;
     case astComptimeOnly:
-        node->boolLiteral.value = node->next != NULL;
+        node->boolLiteral.value = !comptimeIteratorIsEmpty(ctx->pool, ctx->types, node);
         node->tag = astBoolLit;
         break;
     case astAttr:
