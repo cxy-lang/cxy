@@ -136,6 +136,78 @@ pub struct Years {
     const func `!=`[Unit](other: Unit): bool {
         return !(this == other)
     }
+
+    @inline
+    const func `<`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value < other
+        }
+        else #if #Unit == #Years {
+            return value < other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value < other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value < other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value < other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value < other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value < other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value < other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `>`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value > other
+        }
+        else #if #Unit == #Years {
+            return value > other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value > other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value > other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value > other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value > other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value > other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value > other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `<=`[Unit](other: Unit): bool {
+        return !(this > other)
+    }
+
+    @inline
+    const func `>=`[Unit](other: Unit): bool {
+        return !(this < other)
+    }
 }
 
 pub struct Months {
@@ -210,6 +282,78 @@ pub struct Months {
     @inline
     const func `!=`[Unit](other: Unit): bool {
         return !(this == other)
+    }
+
+    @inline
+    const func `<`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value < other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value < other.value
+        }
+        else #if #Unit == #Months {
+            return value < other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value < other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value < other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value < other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value < other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value < other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `>`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value > other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value > other.value
+        }
+        else #if #Unit == #Months {
+            return value > other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value > other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value > other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value > other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value > other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value > other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `<=`[Unit](other: Unit): bool {
+        return !(this > other)
+    }
+
+    @inline
+    const func `>=`[Unit](other: Unit): bool {
+        return !(this < other)
     }
 }
 
@@ -286,6 +430,78 @@ pub struct Days {
     const func `!=`[Unit](other: Unit): bool {
         return !(this == other)
     }
+
+    @inline
+    const func `<`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value < other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value < other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value < other.value
+        }
+        else #if #Unit == #Days {
+            return value < other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value < other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value < other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value < other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value < other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `>`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value > other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value > other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value > other.value
+        }
+        else #if #Unit == #Days {
+            return value > other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value > other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value > other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value > other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value > other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `<=`[Unit](other: Unit): bool {
+        return !(this > other)
+    }
+
+    @inline
+    const func `>=`[Unit](other: Unit): bool {
+        return !(this < other)
+    }
 }
 
 pub struct Hours {
@@ -360,6 +576,78 @@ pub struct Hours {
     @inline
     const func `!=`[Unit](other: Unit): bool {
         return !(this == other)
+    }
+
+    @inline
+    const func `<`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value < other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value < other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value < other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value < other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value < other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value < other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value < other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value < other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `>`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value > other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value > other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value > other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value > other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value > other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value > other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value > other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value > other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `<=`[Unit](other: Unit): bool {
+        return !(this > other)
+    }
+
+    @inline
+    const func `>=`[Unit](other: Unit): bool {
+        return !(this < other)
     }
 }
 
@@ -436,6 +724,78 @@ pub struct Minutes {
     const func `!=`[Unit](other: Unit): bool {
         return !(this == other)
     }
+
+    @inline
+    const func `<`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value < other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value < other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value < other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value < other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value < other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value < other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value < other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value < other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `>`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value > other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value > other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value > other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value > other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value > other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value > other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value > other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value > other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `<=`[Unit](other: Unit): bool {
+        return !(this > other)
+    }
+
+    @inline
+    const func `>=`[Unit](other: Unit): bool {
+        return !(this < other)
+    }
 }
 
 pub struct Seconds {
@@ -511,6 +871,78 @@ pub struct Seconds {
     const func `!=`[Unit](other: Unit): bool {
         return !(this == other)
     }
+
+    @inline
+    const func `<`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value < other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value < other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value < other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value < other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value < other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value < other.value
+        }
+        else #if #Unit == #Seconds {
+            return value < other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value < other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `>`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value > other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value > other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value > other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value > other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value > other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value > other.value
+        }
+        else #if #Unit == #Seconds {
+            return value > other.value
+        }
+        else #if #Unit == #Millis {
+            return (this as Millis).value > other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `<=`[Unit](other: Unit): bool {
+        return !(this > other)
+    }
+
+    @inline
+    const func `>=`[Unit](other: Unit): bool {
+        return !(this < other)
+    }
 }
 
 pub struct Millis {
@@ -585,6 +1017,78 @@ pub struct Millis {
     @inline
     const func `!=`[Unit](other: Unit): bool {
         return !(this == other)
+    }
+
+    @inline
+    const func `<`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value < other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value < other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value < other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value < other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value < other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value < other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value < other.value
+        }
+        else #if #Unit == #Millis {
+            return value < other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `>`[Unit](other: Unit): bool {
+        #if #Unit == #i64 {
+            return value > other
+        }
+        else #if #Unit == #Years {
+            return (this as Years).value > other.value
+        }
+        else #if #Unit == #Months {
+            return (this as Months).value > other.value
+        }
+        else #if #Unit == #Days {
+            return (this as Days).value > other.value
+        }
+        else #if #Unit == #Hours {
+            return (this as Hours).value > other.value
+        }
+        else #if #Unit == #Minutes {
+            return (this as Minutes).value > other.value
+        }
+        else #if #Unit == #Seconds {
+            return (this as Seconds).value > other.value
+        }
+        else #if #Unit == #Millis {
+            return value > other.value
+        }
+        else {
+            error!("unsupported type {t}", #Unit)
+        }
+    }
+
+    @inline
+    const func `<=`[Unit](other: Unit): bool {
+        return !(this > other)
+    }
+
+    @inline
+    const func `>=`[Unit](other: Unit): bool {
+        return !(this < other)
     }
 }
 
@@ -1176,4 +1680,110 @@ test "Duration cross-type inequality comparisons" {
     ok!(Hours{value: 1} != Minutes{value: 61})
     ok!(Minutes{value: 1} != Seconds{value: 61})
     ok!(Seconds{value: 1} != 2`i64)
+}
+
+test "Duration less than operator - same type" {
+    ok!(Days{value: 1} < Days{value: 2})
+    ok!(!(Days{value: 2} < Days{value: 1}))
+    ok!(!(Days{value: 1} < Days{value: 1}))
+
+    ok!(Hours{value: 5} < Hours{value: 10})
+    ok!(Minutes{value: 30} < Minutes{value: 60})
+    ok!(Seconds{value: 10} < Seconds{value: 20})
+    ok!(Millis{value: 100} < Millis{value: 500})
+}
+
+test "Duration less than operator - cross type" {
+    ok!(Hours{value: 1} < Days{value: 1})  // 1 hour < 24 hours
+    ok!(Minutes{value: 30} < Hours{value: 1})  // 30 min < 60 min
+    ok!(Seconds{value: 30} < Minutes{value: 1})  // 30 sec < 60 sec
+    ok!(Millis{value: 500} < Seconds{value: 1})  // 500 ms < 1000 ms
+
+    ok!(!(Days{value: 1} < Hours{value: 1}))  // 24 hours > 1 hour
+    ok!(!(Hours{value: 2} < Minutes{value: 60}))  // 120 min > 60 min
+}
+
+test "Duration less than operator - with i64" {
+    ok!(Seconds{value: 5} < 10`i64)
+    ok!(!(Seconds{value: 10} < 5`i64))
+    ok!(Days{value: 1} < 5`i64)
+    ok!(Hours{value: 10} < 100`i64)
+}
+
+test "Duration greater than operator - same type" {
+    ok!(Days{value: 2} > Days{value: 1})
+    ok!(!(Days{value: 1} > Days{value: 2}))
+    ok!(!(Days{value: 1} > Days{value: 1}))
+
+    ok!(Hours{value: 10} > Hours{value: 5})
+    ok!(Minutes{value: 60} > Minutes{value: 30})
+    ok!(Seconds{value: 20} > Seconds{value: 10})
+    ok!(Millis{value: 500} > Millis{value: 100})
+}
+
+test "Duration greater than operator - cross type" {
+    ok!(Days{value: 1} > Hours{value: 1})  // 24 hours > 1 hour
+    ok!(Hours{value: 1} > Minutes{value: 30})  // 60 min > 30 min
+    ok!(Minutes{value: 1} > Seconds{value: 30})  // 60 sec > 30 sec
+    ok!(Seconds{value: 1} > Millis{value: 500})  // 1000 ms > 500 ms
+
+    ok!(!(Hours{value: 1} > Days{value: 1}))  // 1 hour < 24 hours
+    ok!(!(Minutes{value: 60} > Hours{value: 2}))  // 60 min < 120 min
+}
+
+test "Duration greater than operator - with i64" {
+    ok!(Seconds{value: 10} > 5`i64)
+    ok!(!(Seconds{value: 5} > 10`i64))
+    ok!(Days{value: 5} > 1`i64)
+    ok!(Hours{value: 100} > 10`i64)
+}
+
+test "Duration less than or equal operator - same type" {
+    ok!(Days{value: 1} <= Days{value: 2})
+    ok!(Days{value: 1} <= Days{value: 1})
+    ok!(!(Days{value: 2} <= Days{value: 1}))
+
+    ok!(Hours{value: 5} <= Hours{value: 10})
+    ok!(Hours{value: 5} <= Hours{value: 5})
+    ok!(Minutes{value: 30} <= Minutes{value: 60})
+    ok!(Seconds{value: 10} <= Seconds{value: 10})
+}
+
+test "Duration less than or equal operator - cross type" {
+    ok!(Hours{value: 1} <= Days{value: 1})  // 1 hour <= 24 hours
+    ok!(Minutes{value: 30} <= Hours{value: 1})  // 30 min <= 60 min
+    ok!(Hours{value: 24} <= Days{value: 1})  // 24 hours == 1 day
+
+    ok!(!(Days{value: 2} <= Hours{value: 1}))  // 48 hours > 1 hour
+}
+
+test "Duration less than or equal operator - with i64" {
+    ok!(Seconds{value: 5} <= 10`i64)
+    ok!(Seconds{value: 5} <= 5`i64)
+    ok!(!(Seconds{value: 10} <= 5`i64))
+}
+
+test "Duration greater than or equal operator - same type" {
+    ok!(Days{value: 2} >= Days{value: 1})
+    ok!(Days{value: 1} >= Days{value: 1})
+    ok!(!(Days{value: 1} >= Days{value: 2}))
+
+    ok!(Hours{value: 10} >= Hours{value: 5})
+    ok!(Hours{value: 5} >= Hours{value: 5})
+    ok!(Minutes{value: 60} >= Minutes{value: 30})
+    ok!(Seconds{value: 10} >= Seconds{value: 10})
+}
+
+test "Duration greater than or equal operator - cross type" {
+    ok!(Days{value: 1} >= Hours{value: 1})  // 24 hours >= 1 hour
+    ok!(Hours{value: 1} >= Minutes{value: 30})  // 60 min >= 30 min
+    ok!(Days{value: 1} >= Hours{value: 24})  // 1 day == 24 hours
+
+    ok!(!(Hours{value: 1} >= Days{value: 2}))  // 1 hour < 48 hours
+}
+
+test "Duration greater than or equal operator - with i64" {
+    ok!(Seconds{value: 10} >= 5`i64)
+    ok!(Seconds{value: 5} >= 5`i64)
+    ok!(!(Seconds{value: 5} >= 10`i64))
 }

@@ -4,7 +4,6 @@
 
 #include "eval.h"
 #include "lang/frontend/iterable.h"
-#include <_string.h>
 #include <lang/frontend/flag.h>
 
 static bool evalAstNodeAtIndex(EvalContext *ctx,

@@ -204,7 +204,18 @@ typedef struct {
     f(Copy)                    \
     f(Drop)                    \
     f(Move)                    \
-    f(Assign)
+    f(Assign)                  \
+    f(AtomicLoad)              \
+    f(AtomicStore)             \
+    f(AtomicExchange)          \
+    f(AtomicCompareExchange)   \
+    f(AtomicFetchAdd)          \
+    f(AtomicFetchSub)          \
+    f(AtomicFetchOr)           \
+    f(AtomicFetchAnd)          \
+    f(AtomicFetchXor)          \
+    f(AtomicThreadFence)       \
+    f(AtomicSignalFence)
 
 // clang-format on
 

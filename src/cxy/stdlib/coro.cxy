@@ -1,21 +1,27 @@
 module coro
 
-import "setjmp.h" as jmp
 import "unistd.h" as unistd
 import "sys/mman.h" as vmem
 import "native/evloop/ae.h" as ae
 
+##if (defined __CXY_THREADS_ENABLED__) {
+    import "native/thread/tinythread.h" as tinyThread
+}
+
+import { Atomic } from "./atomic.cxy"
 import { List } from "./list.cxy"
-import CircularBuffer from "./buffer.cxy"
+import { CircularBuffer } from "./buffer.cxy"
 
 @__cc "native/evloop/ae.c"
 
-type Context = ^jmp.sigjmp_buf
 type Stack = ^void
 
 pub type State = ae.State
 
 #if (defined __x86_64) {
+    // rbx, rbp, r12-r15, rsp, rip
+    macro CXY_CTX_SIZE 8
+
     macro __cxy_coro_setjmp(ctx) =({
         @volatile var ret: i32 = 0;
         @volatile asm("""
@@ -71,23 +77,241 @@ pub type State = ae.State
     }
 
 }
-else {
-    #if (defined MACOS) {
-        macro __cxy_coro_setjmp(ctx)  module.jmp.sigsetjmp(ctx! !: ^i32, 0)
-        macro __cxy_coro_longjmp(ctx) module.jmp.siglongjmp(ctx! !: ^i32, 1)
+else #if (defined __aarch64__) {
+    // sp, lr(PC), x19-x29 (11 regs), d8-d15 (8 FP regs) = 22 slots
+    macro CXY_CTX_SIZE 22
+
+    macro __cxy_coro_setjmp(ctx) =({
+        @volatile var ret: i64 = 0;
+        @volatile asm("""
+            adr x17, LJMPRET$=
+            mov $0, #0
+            mov x16, $1
+            mov x2, sp
+            stp x17, x2, [x16]
+            stp x19, x20, [x16, #16]
+            stp x21, x22, [x16, #32]
+            stp x23, x24, [x16, #48]
+            stp x25, x26, [x16, #64]
+            stp x27, x28, [x16, #80]
+            stp x29, x30, [x16, #96]
+            stp d8,  d9,  [x16, #112]
+            stp d10, d11, [x16, #128]
+            stp d12, d13, [x16, #144]
+            stp d14, d15, [x16, #160]
+            LJMPRET$=:
+            """ :
+            "=&r"(ret) :
+            "r"(ctx!) :
+            "memory", "x16", "x17", "x2"
+        )
+        ret;
+    })
+
+    macro __cxy_coro_longjmp(ctx) {
+        @volatile asm("""
+            mov x16, $0
+            ldp x17, x2, [x16]
+            mov sp, x2
+            ldp x19, x20, [x16, #16]
+            ldp x21, x22, [x16, #32]
+            ldp x23, x24, [x16, #48]
+            ldp x25, x26, [x16, #64]
+            ldp x27, x28, [x16, #80]
+            ldp x29, x30, [x16, #96]
+            ldp d8,  d9,  [x16, #112]
+            ldp d10, d11, [x16, #128]
+            ldp d12, d13, [x16, #144]
+            ldp d14, d15, [x16, #160]
+            mov x0, #1
+            br x17
+            """ : :
+            "r"(ctx!) :
+            "memory"
+        )
     }
-    else #if (defined __ALPINE__) {
-        macro __cxy_coro_setjmp(ctx)  module.jmp.sigsetjmp(ctx! !: ^module.jmp.__jmp_buf_tag, 0)
-        macro __cxy_coro_longjmp(ctx) module.jmp.siglongjmp(ctx! !: ^module.jmp.__jmp_buf_tag, 1)
-    }
-    else {
-        macro __cxy_coro_setjmp(ctx)  module.jmp.__sigsetjmp(ctx! !: ^module.jmp.__jmp_buf_tag, 0)
-        macro __cxy_coro_longjmp(ctx) module.jmp.longjmp(ctx! !: ^module.jmp.__jmp_buf_tag, 1)
-    }
+
     macro __cxy_coro_setsp(x) {
-      @volatile asm("": :"r"(alloca!(#u64)))
-      @volatile asm("mov sp, x0" : : "r"(x!) : "x0")
+        @volatile asm("": :"r"(alloca!(#u64)))
+        @volatile asm("mov sp, $0" : : "r"(x!))
     }
+
+}
+else #if (defined __arm__) {
+    // r4-r11 (8 regs), sp, lr = 10 slots (32-bit values in u64 array)
+    macro CXY_CTX_SIZE 10
+
+    #const _ = warn!("arm32 coroutine inline asm is untested - proceed with caution")
+
+    macro __cxy_coro_setjmp(ctx) =({
+        @volatile var ret: i32 = 0;
+        @volatile asm("""
+            adr r2, LJMPRET$=
+            mov $0, #0
+            mov r3, $1
+            str r2, [r3, #0]
+            str sp, [r3, #8]
+            str lr, [r3, #16]
+            str r4, [r3, #24]
+            str r5, [r3, #32]
+            str r6, [r3, #40]
+            str r7, [r3, #48]
+            str r8, [r3, #56]
+            str r9, [r3, #64]
+            str r10, [r3, #72]
+            str r11, [r3, #80]
+            LJMPRET$=:
+            """ :
+            "=&r"(ret) :
+            "r"(ctx!) :
+            "memory", "r2", "r3"
+        )
+        ret;
+    })
+
+    macro __cxy_coro_longjmp(ctx) {
+        @volatile asm("""
+            mov r3, $0
+            ldr r2, [r3, #0]
+            ldr sp, [r3, #8]
+            ldr lr, [r3, #16]
+            ldr r4, [r3, #24]
+            ldr r5, [r3, #32]
+            ldr r6, [r3, #40]
+            ldr r7, [r3, #48]
+            ldr r8, [r3, #56]
+            ldr r9, [r3, #64]
+            ldr r10, [r3, #72]
+            ldr r11, [r3, #80]
+            mov r0, #1
+            bx r2
+            """ : :
+            "r"(ctx!) :
+            "memory"
+        )
+    }
+
+    macro __cxy_coro_setsp(x) {
+        @volatile asm("": :"r"(alloca!(#u64)))
+        @volatile asm("mov sp, $0" : : "r"(x!))
+    }
+
+}
+else #if (defined __powerpc64__) {
+    // r1(sp), lr, r14-r31 (18 regs), f14-f31 (18 FP regs) = 38 slots
+    // + 2 for alignment/padding = 40 slots
+    macro CXY_CTX_SIZE 40
+
+    #const _ = warn!("ppc64v2 coroutine inline asm is untested - proceed with caution")
+
+    macro __cxy_coro_setjmp(ctx) =({
+        @volatile var ret: i64 = 0;
+        @volatile asm("""
+            mflr 0
+            std 0, 0($1)
+            std 1, 8($1)
+            li $0, 0
+            std 14, 16($1)
+            std 15, 24($1)
+            std 16, 32($1)
+            std 17, 40($1)
+            std 18, 48($1)
+            std 19, 56($1)
+            std 20, 64($1)
+            std 21, 72($1)
+            std 22, 80($1)
+            std 23, 88($1)
+            std 24, 96($1)
+            std 25, 104($1)
+            std 26, 112($1)
+            std 27, 120($1)
+            std 28, 128($1)
+            std 29, 136($1)
+            std 30, 144($1)
+            std 31, 152($1)
+            stfd 14, 160($1)
+            stfd 15, 168($1)
+            stfd 16, 176($1)
+            stfd 17, 184($1)
+            stfd 18, 192($1)
+            stfd 19, 200($1)
+            stfd 20, 208($1)
+            stfd 21, 216($1)
+            stfd 22, 224($1)
+            stfd 23, 232($1)
+            stfd 24, 240($1)
+            stfd 25, 248($1)
+            stfd 26, 256($1)
+            stfd 27, 264($1)
+            stfd 28, 272($1)
+            stfd 29, 280($1)
+            stfd 30, 288($1)
+            stfd 31, 296($1)
+            """ :
+            "=&r"(ret) :
+            "b"(ctx!) :
+            "memory", "0"
+        )
+        ret;
+    })
+
+    macro __cxy_coro_longjmp(ctx) {
+        @volatile asm("""
+            ld 0, 0($0)
+            ld 1, 8($0)
+            ld 14, 16($0)
+            ld 15, 24($0)
+            ld 16, 32($0)
+            ld 17, 40($0)
+            ld 18, 48($0)
+            ld 19, 56($0)
+            ld 20, 64($0)
+            ld 21, 72($0)
+            ld 22, 80($0)
+            ld 23, 88($0)
+            ld 24, 96($0)
+            ld 25, 104($0)
+            ld 26, 112($0)
+            ld 27, 120($0)
+            ld 28, 128($0)
+            ld 29, 136($0)
+            ld 30, 144($0)
+            ld 31, 152($0)
+            lfd 14, 160($0)
+            lfd 15, 168($0)
+            lfd 16, 176($0)
+            lfd 17, 184($0)
+            lfd 18, 192($0)
+            lfd 19, 200($0)
+            lfd 20, 208($0)
+            lfd 21, 216($0)
+            lfd 22, 224($0)
+            lfd 23, 232($0)
+            lfd 24, 240($0)
+            lfd 25, 248($0)
+            lfd 26, 256($0)
+            lfd 27, 264($0)
+            lfd 28, 272($0)
+            lfd 29, 280($0)
+            lfd 30, 288($0)
+            lfd 31, 296($0)
+            mtlr 0
+            li 3, 1
+            blr
+            """ : :
+            "b"(ctx!) :
+            "memory"
+        )
+    }
+
+    macro __cxy_coro_setsp(x) {
+        @volatile asm("": :"r"(alloca!(#u64)))
+        @volatile asm("mr 1, $0" : : "r"(x!))
+    }
+
+}
+else {
+    #const _ = error!("Unsupported platform for coroutine context switching - supported architectures: x86_64, aarch64, arm32, ppc64v2")
 }
 
 @align(16)
@@ -97,7 +321,7 @@ struct Coroutine {
     id: i32 = -1;
     result: i32 = 0;
     /* When the coroutine is suspended 'ctx' holds the context (registers and such).*/
-    ctx: jmp.sigjmp_buf
+    ctx: [u64, CXY_CTX_SIZE!]
     ready : bool = false; /* Set when the coroutine has finished its execution. */
     promise: ^void = null
     name: string = null
@@ -139,6 +363,10 @@ class CoroutineScheduler {
     running: ^Coroutine = null; /* Currently running coroutine. */
     /* List of coroutines ready for execution. */
     - ready = List[Coroutine]{};
+    #if (defined __CXY_THREADS_ENABLED__) {
+        - pending = List[Coroutine]{};
+        - pendingMtx = tinyThread.mtx_t{};
+    }
     /* Coroutine that we don't launch */
     - main = Coroutine("main", 0);
     /* Cache some stacks */
@@ -152,8 +380,12 @@ class CoroutineScheduler {
 
     func `init`() {
         // by default the running coroutine should be main
+        main.scheduler = (this !: ^void);
         running = ptrof main
         eventLoop = ae.aeCreateEventLoop(this !: ^void, 1024);
+        #if (defined __CXY_THREADS_ENABLED__) {
+            tinyThread.mtx_init(ptrof pendingMtx, mtx_plain!);
+        }
     }
 
     - func allocStack() {
@@ -198,6 +430,31 @@ class CoroutineScheduler {
         )
     }
 
+    @private
+    func processPending() {
+        #if (defined __CXY_THREADS_ENABLED__) {
+            // Fast path: check without locking
+            if pending.empty() {
+                return
+            }
+
+            // Lock and drain the queue
+            tinyThread.mtx_lock(ptrof pendingMtx)
+            defer tinyThread.mtx_unlock(ptrof pendingMtx)
+
+            while {
+                var coro = pending.pop()
+                if (coro == null)
+                    break
+
+                // Move to ready queue (Coroutine.link reused!)
+                coro.ready = true
+                ready.push(coro)
+            }
+        }
+        // noop if threads are disabled
+    }
+
     @[static]
     func eventLoopCallback(loop: ^ae.aeEventLoop, @unused fd: i32, arg: ^void, mask: i32) {
         // resume the coroutine waiting for the event
@@ -217,6 +474,10 @@ class CoroutineScheduler {
     }
 
     func suspend() : i32 {
+        #if (defined __CXY_THREADS_ENABLED__) {
+            processPending()
+        }
+
         if(counter >= 103) {
             eventLoopWait(0)
             counter = 0
@@ -229,6 +490,9 @@ class CoroutineScheduler {
         }
 
         while {
+            #if (defined __CXY_THREADS_ENABLED__) {
+                processPending()
+            }
             var coro = ready.pop();
             if (coro != null) {
                 counter++;
@@ -248,6 +512,21 @@ class CoroutineScheduler {
         cr.ready = true;
         cr.result = res
         ready.push(cr)
+    }
+
+    #if (defined __CXY_THREADS_ENABLED__) {
+        func resumeAndWake(cr: ^Coroutine, res: i32): void {
+            cr.ready = true;
+            cr.result = res
+
+            // Add to pending queue (thread-safe)
+            tinyThread.mtx_lock(ptrof pendingMtx)
+            pending.push(cr)
+            tinyThread.mtx_unlock(ptrof pendingMtx)
+
+            // Wake up the event loop
+            ae.aeWakeup(eventLoop)
+        }
     }
 
     func yld() {
@@ -348,6 +627,9 @@ class CoroutineScheduler {
     }
 
     func `deinit`() {
+        #if (defined __CXY_THREADS_ENABLED__) {
+            tinyThread.mtx_destroy(ptrof pendingMtx)
+        }
     }
 }
 
@@ -375,9 +657,9 @@ pub func id() => __get_scheduler().running
 
 macro __async(CALL, NAME) {
     // Only create the scheduler when it's needed
-    var sched = module.__get_scheduler();
-    if (__cxy_coro_setjmp!(ptrof sched.running.ctx) == 0) {
-        var cr = sched.prologue(NAME!, file!, line!);
+    var __sched = module.__get_scheduler();
+    if (__cxy_coro_setjmp!(ptrof __sched.running.ctx) == 0) {
+        var cr = __sched.prologue(NAME!, file!, line!);
         __cxy_coro_setsp!(cr !: ^void)
         CALL!
         module.__get_scheduler().epilogue()
@@ -452,36 +734,288 @@ pub struct Channel[T] {
     }
 }
 
-pub struct Mutex {
-    _waiting = List[Coroutine]{};
-    _holder: ^Coroutine = null;
+pub struct CoWaitGroup {
+    _count = Atomic[i32]()
+    _waiters = List[Coroutine]{}
 
-    func `init`() {}
-
-    func lock() {
-        if (_holder == null) {
-            _holder = running()
-            return
-        }
-        _waiting.push(running())
-        suspend()
+    func `init`() {
+        _count.store(0)
     }
 
-    func tryLock() {
-        if (_holder == null) {
-            _holder = running()
-            return true
-        }
-        return false
+    func add() {
+        _count.fetchAdd(1)
     }
 
-    func unlock() {
-        var next = _waiting.pop()
-        if (next == null) {
-            return
+    func done() {
+        var remaining = _count.fetchSub(1)
+        if (remaining == 1) {
+            while !_waiters.empty() {
+                var waiter = _waiters.pop()
+                resume(waiter, 0)
+            }
+        } else if (remaining < 0) {
+            _count.store(0)
         }
-        _holder = next
-        resume(next, 0)
+    }
+
+    func wait() {
+        if (_count.load() != 0) {
+            _waiters.push(running())
+            suspend()
+        }
     }
 }
 
+
+#if (defined __CXY_THREADS_ENABLED__) {
+    pub class Mutex {
+        _osMutex = tinyThread.mtx_t{}      // Protects waiters list
+        _locked = Atomic[bool]()                 // Lock state
+        _holder: ^Coroutine = null             // Current lock holder
+        _waiters = List[Coroutine]{}       // FIFO queue of waiting coroutines
+
+        func `init`() {
+            tinyThread.mtx_init(ptrof _osMutex, mtx_plain!)
+            _locked.store(false)
+        }
+
+        func lock() {
+            if (_locked.compareAndSwap(false, true)) {
+                _holder = running()
+                return
+            }
+            tinyThread.mtx_lock(ptrof _osMutex)
+            _waiters.push(running())
+            tinyThread.mtx_unlock(ptrof _osMutex)
+            suspend()
+        }
+
+        func tryLock() {
+            if (_locked.compareAndSwap(false, true)) {
+                _holder = running()
+                return true
+            }
+            return false
+        }
+
+        func unlock() {
+            // Must hold OS mutex to check/modify waiters list
+            tinyThread.mtx_lock(ptrof _osMutex)
+            var waiter = _waiters.pop()     // Protected by OS mutex
+
+            if (waiter == null) {
+                // No waiters, release lock completely
+                _locked.store(false)
+                _holder = null
+                tinyThread.mtx_unlock(ptrof _osMutex)
+                return
+            }
+            // Transfer lock to waiter
+            _holder = waiter
+            tinyThread.mtx_unlock(ptrof _osMutex)
+
+            // Wake the waiter (lock stays held by them)
+            var waiterScheduler = waiter.scheduler !: CoroutineScheduler
+            var currentScheduler = __get_scheduler()
+            if ((waiterScheduler !: ^void) == (currentScheduler !: ^void)) {
+                // Same thread - direct resume
+                waiterScheduler.resume(waiter, 0)
+            } else {
+                // Different thread - use pending queue and wake event loop
+                waiterScheduler.resumeAndWake(waiter, 0)
+            }
+        }
+    }
+
+    // Helper function for cross-thread aware coroutine resumption
+    @inline
+    func resumeWaiter(waiter: ^Coroutine) {
+        var waiterScheduler = waiter.scheduler !: CoroutineScheduler
+        var currentScheduler = __get_scheduler()
+        if ((waiterScheduler !: ^void) == (currentScheduler !: ^void)) {
+            // Same thread - direct resume
+            waiterScheduler.resume(waiter, 0)
+        } else {
+            // Different thread - use pending queue and wake event loop
+            waiterScheduler.resumeAndWake(waiter, 0)
+        }
+    }
+
+    pub class ConditionVariable {
+        _waiters = List[Coroutine]{}
+        _osMutex = tinyThread.mtx_t{}
+
+        func `init`() {
+            tinyThread.mtx_init(ptrof _osMutex, mtx_plain!)
+        }
+
+        // Wait for condition (must hold mutex when calling)
+        func wait(mutex: &Mutex) {
+            // Add current coroutine to waiters
+            tinyThread.mtx_lock(ptrof _osMutex)
+            _waiters.push(running())
+            tinyThread.mtx_unlock(ptrof _osMutex)
+
+            // Unlock user mutex and suspend
+            mutex.unlock()
+            suspend()
+
+            // Reacquire mutex before returning
+            mutex.lock()
+        }
+
+        // Wait with timeout (returns true if notified, false if timeout)
+        func waitTimeout(mutex: &Mutex, ms: i64): bool {
+            tinyThread.mtx_lock(ptrof _osMutex)
+            _waiters.push(running())
+            tinyThread.mtx_unlock(ptrof _osMutex)
+
+            mutex.unlock()
+            var timedOut = timeout(ms)
+
+            // Note: If timeout occurs, waiter remains in list but won't be resumed
+            // This is acceptable as notify() will wake a potentially timed-out waiter
+
+            mutex.lock()
+            return !timedOut
+        }
+
+        // Wake one waiting coroutine
+        func notify() {
+            tinyThread.mtx_lock(ptrof _osMutex)
+            var waiter = _waiters.pop()
+            tinyThread.mtx_unlock(ptrof _osMutex)
+
+            if (waiter != null) {
+                resumeWaiter(waiter)
+            }
+        }
+
+        // Wake all waiting coroutines
+        func notifyAll() {
+            tinyThread.mtx_lock(ptrof _osMutex)
+            var toWake = List[Coroutine]{}
+            while {
+                var w = _waiters.pop()
+                if (w == null) break
+                toWake.push(w)
+            }
+            tinyThread.mtx_unlock(ptrof _osMutex)
+
+            // Resume all waiters (pop to clear link field)
+            while !toWake.empty() {
+                var waiter = toWake.pop()
+                resumeWaiter(waiter)
+            }
+        }
+
+        func `deinit`() {
+            tinyThread.mtx_destroy(ptrof _osMutex)
+        }
+    }
+
+    pub class Semaphore {
+        _count = Atomic[i32]()
+        _waiters = List[Coroutine]{}
+        _osMutex = tinyThread.mtx_t{}
+
+        func `init`(initial: i32) {
+            _count.store(initial)
+            tinyThread.mtx_init(ptrof _osMutex, mtx_plain!)
+        }
+
+        // Acquire one resource (blocks if count is 0)
+        func acquire() {
+            while (_count.load() <= 0) {
+                tinyThread.mtx_lock(ptrof _osMutex)
+                _waiters.push(running())
+                tinyThread.mtx_unlock(ptrof _osMutex)
+                suspend()
+            }
+            _count.fetchSub(1)
+        }
+
+        // Try to acquire without blocking
+        func tryAcquire(): bool {
+            var current = _count.load()
+            if (current <= 0) {
+                return false
+            }
+            if (_count.compareAndSwap(current, current - 1)) {
+                return true
+            }
+            return false
+        }
+
+        // Release one resource
+        func release() {
+            _count.fetchAdd(1)
+
+            tinyThread.mtx_lock(ptrof _osMutex)
+            var waiter = _waiters.pop()
+            tinyThread.mtx_unlock(ptrof _osMutex)
+
+            if (waiter != null) {
+                resumeWaiter(waiter)
+            }
+        }
+
+        func `deinit`() {
+            tinyThread.mtx_destroy(ptrof _osMutex)
+        }
+    }
+
+    pub class WaitGroup {
+        _count = Atomic[i32]()
+        _waiters = List[Coroutine]{}
+        _osMutex = tinyThread.mtx_t{}
+
+        func `init`() {
+            _count.store(0)
+            tinyThread.mtx_init(ptrof _osMutex, mtx_plain!)
+        }
+
+        // Add to the wait counter
+        func add(n: i32) {
+            _count.fetchAdd(n)
+        }
+
+        // Decrement counter (call when task completes)
+        func done() {
+            var remaining = _count.fetchSub(1)
+
+            if (remaining == 1) {
+                // Last one finished, wake all waiters
+                tinyThread.mtx_lock(ptrof _osMutex)
+                var toWake = List[Coroutine]{}
+                while {
+                    var w = _waiters.pop()
+                    if (w == null) break
+                    toWake.push(w)
+                }
+                tinyThread.mtx_unlock(ptrof _osMutex)
+
+                while !toWake.empty() {
+                    var waiter = toWake.pop()
+                    resumeWaiter(waiter)
+                }
+            }
+        }
+
+        // Wait for counter to reach zero
+        func wait() {
+            if (_count.load() == 0) {
+                return
+            }
+
+            tinyThread.mtx_lock(ptrof _osMutex)
+            _waiters.push(running())
+            tinyThread.mtx_unlock(ptrof _osMutex)
+            suspend()
+        }
+
+        func `deinit`() {
+            tinyThread.mtx_destroy(ptrof _osMutex)
+        }
+    }
+}

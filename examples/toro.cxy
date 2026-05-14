@@ -1,0 +1,269 @@
+// Comprehensive Synchronization Primitives Examples
+// Demonstrates ConditionVariable, Semaphore, and WaitGroup
+
+import { Mutex, ConditionVariable, Semaphore, WaitGroup, yld, Channel } from "stdlib/coro.cxy"
+import { Thread } from "stdlib/thread.cxy"
+import { Vector } from "stdlib/vector.cxy"
+import { Atomic } from "stdlib/atomic.cxy"
+
+
+
+// ============================================================================
+// Example 1: ConditionVariable - Producer-Consumer with proper signaling
+// ============================================================================
+
+struct BoundedQueue {
+    _data: Vector[i32]
+    _mutex: Mutex
+    _notEmpty: ConditionVariable  // Signaled when queue has items
+    _notFull: ConditionVariable   // Signaled when queue has space
+    _capacity: u64
+
+    func `init`(capacity: u64) {
+        _data = Vector[i32]()
+        _mutex = Mutex()
+        _notEmpty = ConditionVariable()
+        _notFull = ConditionVariable()
+        _capacity = capacity
+    }
+
+    func push(value: i32) {
+        _mutex.lock()
+
+        // Wait while queue is full
+        while (_data.size() >= _capacity) {
+            println("  [Queue Full] Producer waiting...")
+            _notFull.wait(&_mutex)
+        }
+
+        _data.push(value)
+        println("  [Push] ", value, " (size: ", _data.size(), ")")
+
+        _notEmpty.notify()  // Wake one consumer
+        _mutex.unlock()
+    }
+
+    func pop(): i32 {
+        _mutex.lock()
+
+        // Wait while queue is empty
+        while (_data.size() == 0) {
+            println("  [Queue Empty] Consumer waiting...")
+            _notEmpty.wait(&_mutex)
+        }
+
+        var item = _data.pop()
+        println("  [Pop] ", item, " (size: ", _data.size(), ")")
+
+        _notFull.notify()  // Wake one producer
+        _mutex.unlock()
+        return item
+    }
+}
+
+func condVarExample(): !void {
+    println("╔════════════════════════════════════════╗")
+    println("║  ConditionVariable Example            ║")
+    println("║  Bounded Producer-Consumer Queue      ║")
+    println("╚════════════════════════════════════════╝\n")
+
+    var queue = BoundedQueue(3)  // Small capacity to trigger blocking
+
+    // Producer
+    var t1 = launch {
+        var chan = Channel[bool]()
+        async {
+            for i in 0..10 {
+                queue.push(100 + i)
+                sleepAsync(100)  // Slow producer
+            }
+            println("Producer finished!")
+            chan.send(true)
+        }
+        chan.receive()
+    }
+
+    // Consumer
+    var t2 = launch {
+        var chan = Channel[bool]()
+        async {
+            for _ in 0..10 {
+                var item = queue.pop()
+                println("✓ Consumed: ", item)
+                sleepAsync(200)  // Slower consumer
+            }
+            println("Consumer finished!")
+            chan.send(true)
+        }
+        chan.receive()
+    }
+
+    t1.join()
+    t2.join()
+    println()
+}
+
+// ============================================================================
+// Example 2: Semaphore - Connection Pool Management
+// ============================================================================
+
+struct ConnectionPool {
+    _semaphore: Semaphore
+    _activeCount = Atomic[i32]()
+
+    func `init`(maxConnections: i32) {
+        _semaphore = Semaphore(maxConnections)
+        _activeCount.store(0)
+    }
+
+    func acquire(): i32 {
+        _semaphore.acquire()
+        var id = _activeCount.fetchAdd(1) + 1
+        println("  [Pool] Connection ", id, " acquired")
+        return id
+    }
+
+    func release(id: i32) {
+        _activeCount.fetchSub(1)
+        println("  [Pool] Connection ", id, " released")
+        _semaphore.release()
+    }
+}
+
+func semaphoreExample(): !void {
+    println("╔════════════════════════════════════════╗")
+    println("║  Semaphore Example                    ║")
+    println("║  Connection Pool (Max 3)              ║")
+    println("╚════════════════════════════════════════╝\n")
+
+    var pool = ConnectionPool(3)  // Max 3 concurrent connections
+
+    // Simulate 10 clients trying to use connections
+    var threads = Vector[Thread]()
+
+    for i in 0..10 {
+        var t = launch {
+            var chan = Channel[bool]()
+            async {
+                println("Client ", i, " requesting connection...")
+                var conn = pool.acquire()
+
+                println("  → Client ", i, " using connection ", conn)
+                sleepAsync(500)  // Simulate work
+
+                pool.release(conn)
+                println("Client ", i, " done")
+                chan.send(true)
+            }
+            chan.receive()
+        }
+        threads.push(&&t)
+    }
+
+    // Wait for all clients
+    for t, _ in threads {
+        t.join()
+    }
+    println()
+}
+
+// ============================================================================
+// Example 3: WaitGroup - Coordinating Multiple Workers
+// ============================================================================
+
+func worker(id: i32, wg: &WaitGroup, results: &Vector[i32], mutex: &Mutex) {
+    println("  Worker ", id, " starting...")
+    sleepAsync(100 * (id + 1))  // Variable work time
+
+    var result = id * id
+
+    // Add result to shared vector
+    mutex.lock()
+    results.push(result)
+    mutex.unlock()
+
+    println("  Worker ", id, " finished with result: ", result)
+    wg.done()
+}
+
+func waitGroupExample(): !void {
+    println("╔════════════════════════════════════════╗")
+    println("║  WaitGroup Example                    ║")
+    println("║  Coordinating Multiple Workers        ║")
+    println("╚════════════════════════════════════════╝\n")
+
+    var wg = WaitGroup()
+    var results = Vector[i32]()
+    var mutex = Mutex()
+
+    const workerCount = 5
+    wg.add(workerCount)
+
+    println("Launching ", workerCount, " workers...\n")
+
+    // Launch workers in separate threads
+    var threads = Vector[Thread]()
+    for i in 0..workerCount {
+        var t = launch {
+            var chan = Channel[bool]()
+            async {
+                worker(i, &wg, &results, &mutex)
+                chan.send(true)
+            }
+            chan.receive()
+        }
+        threads.push(&&t)
+    }
+
+    // Main thread can do other work here...
+    println("Main: Doing other work while workers run...\n")
+
+    // Wait for all workers
+    println("Main: Waiting for all workers to complete...")
+
+    var t = launch {
+        var chan = Channel[bool]()
+        async {
+            wg.wait()
+            chan.send(true)
+        }
+        chan.receive()
+    }
+    t.join()
+
+    // Join all worker threads
+    for thread, _ in threads {
+        thread.join()
+    }
+
+    println("\nAll workers completed!")
+    println("Results: ")
+    for result, i in results {
+        println("  [", i, "] = ", result)
+    }
+    println()
+}
+
+// ============================================================================
+// Main - Run all examples
+// ============================================================================
+
+func main(): !void {
+    println("\n")
+    println("═══════════════════════════════════════════════════════")
+    println("  Synchronization Primitives Demonstration")
+    println("═══════════════════════════════════════════════════════")
+    println()
+
+    condVarExample()
+    sleepAsync(500)
+
+    semaphoreExample()
+    sleepAsync(500)
+
+    waitGroupExample()
+
+    println("═══════════════════════════════════════════════════════")
+    println("✅ All examples completed successfully!")
+    println("═══════════════════════════════════════════════════════\n")
+}

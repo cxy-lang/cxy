@@ -103,6 +103,7 @@ typedef struct aeEventLoop {
     void *apidata; /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;
     aeBeforeSleepProc *aftersleep;
+    int wakeupFd[2]; /* pipe/eventfd for cross-thread wakeup */
 } aeEventLoop;
 
 /* Prototypes */
@@ -151,5 +152,7 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize);
 void aeGetTime(long *seconds, long *milliseconds);
 
 int64_t aeOsTime();
+
+void aeWakeup(aeEventLoop *eventLoop);
 
 #endif

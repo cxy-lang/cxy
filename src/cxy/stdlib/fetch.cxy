@@ -668,6 +668,13 @@ pub class Session {
         TRC1!(f"Connected to host: '{proto}://{host}:{port}'")
         return This(proto, hostStr, port, &&addr)
     }
+
+    func resetConnection() {
+        if (_sock != null) {
+            _sock.close()
+            _sock = null
+        }
+    }
 }
 
 pub func fetch(url: __string, builder: RequestBuilder = null): !Response {

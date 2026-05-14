@@ -718,6 +718,24 @@ static void aeFileEventTimeout(aeEventLoop *eventLoop, int fd, aeFileEvent *fe)
         fe->wfileProc(eventLoop, fd, fe->clientData, AE_TIMEOUT);
 }
 
+/* Wakeup callback - just drains the pipe/eventfd */
+static void wakeupCallback(aeEventLoop *eventLoop, int fd, void *clientData, int mask)
+{
+    (void)eventLoop;
+    (void)clientData;
+    (void)mask;
+    
+    uint64_t buf;
+#ifdef __linux__
+    /* On Linux with eventfd, read 8 bytes */
+    read(fd, &buf, sizeof(buf));
+#else
+    /* On other systems with pipe, drain it */
+    char drain[64];
+    while (read(fd, drain, sizeof(drain)) > 0);
+#endif
+}
+
 aeEventLoop *aeCreateEventLoop(void *context, int setsize)
 {
     aeEventLoop *eventLoop;
@@ -740,6 +758,30 @@ aeEventLoop *aeCreateEventLoop(void *context, int setsize)
     eventLoop->context = context;
     if (aeApiCreate(eventLoop) == -1)
         goto err;
+    
+    /* Create wakeup pipe/eventfd for cross-thread signaling */
+#ifdef __linux__
+    /* On Linux, use eventfd (more efficient) */
+    #include <sys/eventfd.h>
+    eventLoop->wakeupFd[0] = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (eventLoop->wakeupFd[0] == -1)
+        goto err;
+    eventLoop->wakeupFd[1] = eventLoop->wakeupFd[0]; /* eventfd uses same fd for read/write */
+#else
+    /* On other systems, use pipe */
+    #include <fcntl.h>
+    if (pipe(eventLoop->wakeupFd) == -1)
+        goto err;
+    /* Set non-blocking on both ends */
+    fcntl(eventLoop->wakeupFd[0], F_SETFL, O_NONBLOCK);
+    fcntl(eventLoop->wakeupFd[1], F_SETFL, O_NONBLOCK);
+#endif
+    
+    /* Register wakeup callback on read end */
+    if (aeCreateFileEvent(eventLoop, eventLoop->wakeupFd[0], AE_READABLE,
+                          wakeupCallback, NULL, 0) == AE_ERR)
+        goto err;
+    
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
     for (i = 0; i < setsize; i++)
@@ -792,6 +834,17 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize)
 void aeDeleteEventLoop(aeEventLoop *eventLoop)
 {
     aeApiFree(eventLoop);
+    
+    /* Close wakeup pipe/eventfd */
+    if (eventLoop->wakeupFd[0] != -1) {
+        close(eventLoop->wakeupFd[0]);
+#ifndef __linux__
+        /* On non-Linux systems using pipe, close write end too */
+        if (eventLoop->wakeupFd[1] != -1 && eventLoop->wakeupFd[1] != eventLoop->wakeupFd[0])
+            close(eventLoop->wakeupFd[1]);
+#endif
+    }
+    
     zfree(eventLoop->events);
     zfree(eventLoop->fired);
     zfree(eventLoop);
@@ -1234,4 +1287,12 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop,
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep)
 {
     eventLoop->aftersleep = aftersleep;
+}
+
+/* Wake up the event loop from another thread */
+void aeWakeup(aeEventLoop *eventLoop)
+{
+    uint64_t val = 1;
+    ssize_t ret = write(eventLoop->wakeupFd[1], &val, sizeof(val));
+    (void)ret; /* Suppress unused warning - we don't care if write fails */
 }

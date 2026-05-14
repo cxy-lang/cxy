@@ -1,13 +1,18 @@
+import "stdlib/coro.cxy"
 
+func say(msg: String) {
+    println("Hello, ", msg, "!")
+    fdWaitWrite(1)
+}
 
-struct Hello {
-    func say(...args: auto) : !void {
-        println("Saying: ", #{args.[0]})
-    }
+func message() {
+    var msg = "Hello, World!".S
+    say(msg)
+    sleepAsync(100) // Give the async task time to execute
+    println("Message sent to async task.")
 }
 
 func main(): !void {
-   var x = Hello{}
-   x.say("Hello, World!", 3)
+    message()
 }
 

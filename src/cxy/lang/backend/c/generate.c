@@ -1566,6 +1566,112 @@ static void visitBackendCallExpr(ConstAstVisitor *visitor, const AstNode *node)
         astConstVisit(visitor, args->binaryExpr.rhs);
         break;
     }
+    case bfiAtomicLoad:
+        // args: ptr, memorder
+        format(getState(ctx), "__atomic_load_n(", NULL);
+        astConstVisit(visitor, args);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next);
+        format(getState(ctx), ")", NULL);
+        break;
+    case bfiAtomicStore:
+        // args: ptr, value, memorder
+        format(getState(ctx), "__atomic_store_n(", NULL);
+        astConstVisit(visitor, args);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next->next);
+        format(getState(ctx), ")", NULL);
+        break;
+    case bfiAtomicExchange:
+        // args: ptr, value, memorder
+        format(getState(ctx), "__atomic_exchange_n(", NULL);
+        astConstVisit(visitor, args);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next->next);
+        format(getState(ctx), ")", NULL);
+        break;
+    case bfiAtomicCompareExchange:
+        // args: ptr, expected_ptr, desired, weak, success_order, failure_order
+        format(getState(ctx), "__atomic_compare_exchange_n(", NULL);
+        astConstVisit(visitor, args);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next->next);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next->next->next);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next->next->next->next);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next->next->next->next->next);
+        format(getState(ctx), ")", NULL);
+        break;
+    case bfiAtomicFetchAdd:
+        // args: ptr, value, memorder
+        format(getState(ctx), "__atomic_fetch_add(", NULL);
+        astConstVisit(visitor, args);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next->next);
+        format(getState(ctx), ")", NULL);
+        break;
+    case bfiAtomicFetchSub:
+        // args: ptr, value, memorder
+        format(getState(ctx), "__atomic_fetch_sub(", NULL);
+        astConstVisit(visitor, args);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next->next);
+        format(getState(ctx), ")", NULL);
+        break;
+    case bfiAtomicFetchOr:
+        // args: ptr, value, memorder
+        format(getState(ctx), "__atomic_fetch_or(", NULL);
+        astConstVisit(visitor, args);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next->next);
+        format(getState(ctx), ")", NULL);
+        break;
+    case bfiAtomicFetchAnd:
+        // args: ptr, value, memorder
+        format(getState(ctx), "__atomic_fetch_and(", NULL);
+        astConstVisit(visitor, args);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next->next);
+        format(getState(ctx), ")", NULL);
+        break;
+    case bfiAtomicFetchXor:
+        // args: ptr, value, memorder
+        format(getState(ctx), "__atomic_fetch_xor(", NULL);
+        astConstVisit(visitor, args);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next);
+        format(getState(ctx), ", ", NULL);
+        astConstVisit(visitor, args->next->next);
+        format(getState(ctx), ")", NULL);
+        break;
+    case bfiAtomicThreadFence:
+        // args: memorder
+        format(getState(ctx), "__atomic_thread_fence(", NULL);
+        astConstVisit(visitor, args);
+        format(getState(ctx), ")", NULL);
+        break;
+    case bfiAtomicSignalFence:
+        // args: memorder
+        format(getState(ctx), "__atomic_signal_fence(", NULL);
+        astConstVisit(visitor, args);
+        format(getState(ctx), ")", NULL);
+        break;
     default:
         // csAssert(false, "Unsupported bfi");
         break;

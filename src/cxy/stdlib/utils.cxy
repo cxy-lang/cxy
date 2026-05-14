@@ -84,7 +84,7 @@ pub func split(s: __string, delims: __string): Vector[__string] {
     var len = s.size() as i64
     for i: 0..len {
         if delims.contains(s.[i]) {
-            if start < i {
+            if start <= i {
                 parts.push(s.substr(start, i - start))
             }
             start = i + 1

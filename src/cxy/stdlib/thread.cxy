@@ -67,4 +67,3 @@ func __launch(fn: func() -> i32): !Thread {
     }
     return Thread(handle)
 }
-

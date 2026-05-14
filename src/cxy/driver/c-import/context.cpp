@@ -54,6 +54,7 @@ AstNode *IncludeContext::buildModules(llvm::StringRef mainModulePath)
         if (path == mainModulePath)
             mainModule = program;
     }
+    
     if (mainModule == nullptr) {
         AstNodeList decls = {nullptr};
         mainModule = buildModule(mainModulePath, decls);

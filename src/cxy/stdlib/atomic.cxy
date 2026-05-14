@@ -1,0 +1,366 @@
+module atomic
+
+// Memory ordering for atomic operations
+// Values match __ATOMIC_* constants in GCC/Clang
+pub enum MemoryOrder {
+    Relaxed = 0,    // __ATOMIC_RELAXED - No synchronization, only atomicity
+    Acquire = 2,    // __ATOMIC_ACQUIRE - Synchronize with Release stores
+    Release = 3,    // __ATOMIC_RELEASE - Synchronize with Acquire loads
+    AcqRel = 4,     // __ATOMIC_ACQ_REL - Both Acquire and Release
+    SeqCst = 5      // __ATOMIC_SEQ_CST - Sequentially consistent (default, strongest)
+}
+
+// Generic atomic type using compiler built-ins via BFI
+pub struct Atomic[T] {
+    require!(T.isInteger || T.isBoolean || T.isPointer,
+        "Atomic {t} must be an integer, boolean, or pointer",
+        #T)
+
+    - _value: T
+
+    @inline
+    func `init`(value: T) {
+        _value = value
+    }
+
+    @inline
+    func `init`() {
+        #if T.isInteger {
+            _value = 0
+        } else #if T.isBoolean {
+            _value = false
+        } else #if T.isPointer {
+            _value = null
+        }
+    }
+
+
+    // Load with memory ordering
+    @inline
+    func load(order: MemoryOrder = MemoryOrder.SeqCst): T {
+        return mk_bc!(bfiAtomicLoad!, #T, ptrof _value, order as i32)
+    }
+
+    // Store with memory ordering
+    @inline
+    func store(value: T, order: MemoryOrder = MemoryOrder.SeqCst): void {
+        mk_bc!(bfiAtomicStore!, #void, ptrof _value, value, order as i32)
+    }
+
+    // Exchange (swap) - returns old value
+    @inline
+    func exchange(value: T, order: MemoryOrder = MemoryOrder.SeqCst): T {
+        return mk_bc!(bfiAtomicExchange!, #T, ptrof _value, value, order as i32)
+    }
+
+    // Compare-and-swap (strong) - most common
+    @inline
+    func compareAndSwap(
+        expected: T,
+        desired: T,
+        order: MemoryOrder = MemoryOrder.SeqCst
+    ): bool {
+        return mk_bc!(bfiAtomicCompareExchange!, #bool,
+            ptrof _value,
+            ptrof expected,
+            desired,
+            false,          // strong (not weak)
+            order as i32,   // success order
+            order as i32    // failure order
+        )
+    }
+
+    // Compare-and-swap (weak) - use in loops, may spuriously fail
+    @inline
+    func compareAndSwapWeak(
+        expected: T,
+        desired: T,
+        order: MemoryOrder = MemoryOrder.SeqCst
+    ): bool {
+        return mk_bc!(bfiAtomicCompareExchange!, #bool,
+            ptrof _value,
+            ptrof expected,
+            desired,
+            true,           // weak (may spuriously fail)
+            order as i32,   // success order
+            order as i32    // failure order
+        )
+    }
+
+    #if (T.isInteger || T.isBoolean) {
+        // Fetch-and-add - returns old value
+        @inline
+        func fetchAdd(value: T, order: MemoryOrder = MemoryOrder.SeqCst): T {
+            return mk_bc!(bfiAtomicFetchAdd!, #T, ptrof _value, value, order as i32)
+        }
+
+        // Fetch-and-subtract - returns old value
+        @inline
+        func fetchSub(value: T, order: MemoryOrder = MemoryOrder.SeqCst): T {
+            return mk_bc!(bfiAtomicFetchSub!, #T, ptrof _value, value, order as i32)
+        }
+
+        // Fetch-and-OR - returns old value
+        @inline
+        func fetchOr(value: T, order: MemoryOrder = MemoryOrder.SeqCst): T {
+            return mk_bc!(bfiAtomicFetchOr!, #T, ptrof _value, value, order as i32)
+        }
+
+        // Fetch-and-AND - returns old value
+        @inline
+        func fetchAnd(value: T, order: MemoryOrder = MemoryOrder.SeqCst): T {
+            return mk_bc!(bfiAtomicFetchAnd!, #T, ptrof _value, value, order as i32)
+        }
+
+        // Fetch-and-XOR - returns old value
+        @inline
+        func fetchXor(value: T, order: MemoryOrder = MemoryOrder.SeqCst): T {
+            return mk_bc!(bfiAtomicFetchXor!, #T, ptrof _value, value, order as i32)
+        }
+
+        #if (T.isInteger) {
+            // Convenience: increment (post-increment)
+            @inline
+            func increment(order: MemoryOrder = MemoryOrder.SeqCst): T {
+                return fetchAdd(1 as T, order)
+            }
+
+            // Convenience: decrement (post-decrement)
+            @inline
+            func decrement(order: MemoryOrder = MemoryOrder.SeqCst): T {
+                return fetchSub(1 as T, order)
+            }
+        }
+    }
+}
+
+// Atomic fence - establish memory ordering without atomic operation
+@inline
+pub func fence(order: MemoryOrder = MemoryOrder.SeqCst): void {
+    mk_bc!(bfiAtomicThreadFence!, #void, order as i32)
+}
+
+// Signal fence - ordering constraint only (compiler barrier)
+@inline
+pub func signalFence(order: MemoryOrder = MemoryOrder.SeqCst): void {
+    mk_bc!(bfiAtomicSignalFence!, #void, order as i32)
+}
+
+// Atomic flag - for simple boolean flags (optimized)
+pub struct AtomicFlag {
+    - _flag: Atomic[bool]
+
+    @inline
+    func `init`(initial: bool = false) {
+        _flag = Atomic[bool](initial)
+    }
+
+    // Test and set - returns old value
+    @inline
+    func testAndSet(order: MemoryOrder = MemoryOrder.SeqCst): bool {
+        return _flag.exchange(true, order)
+    }
+
+    // Clear
+    @inline
+    func clear(order: MemoryOrder = MemoryOrder.SeqCst): void {
+        _flag.store(false, order)
+    }
+
+    // Test without setting
+    @inline
+    func isSet(order: MemoryOrder = MemoryOrder.SeqCst): bool {
+        return _flag.load(order)
+    }
+}
+
+test "Atomic[i32] basic operations" {
+    var counter = Atomic[i32](0`i32)
+
+    ok!(counter.load() == 0)
+
+    counter.store(42)
+    ok!(counter.load() == 42)
+
+    var old = counter.exchange(100)
+    ok!(old == 42)
+    ok!(counter.load() == 100)
+}
+
+test "Atomic[i32] compare-and-swap" {
+    var value = Atomic[i32](10`i32)
+
+    // Successful swap
+    ok!(value.compareAndSwap(10, 20))
+    ok!(value.load() == 20)
+
+    // Failed swap (expected doesn't match)
+    ok!(!value.compareAndSwap(10, 30))
+    ok!(value.load() == 20)  // Unchanged
+
+    // Successful swap again
+    ok!(value.compareAndSwap(20, 30))
+    ok!(value.load() == 30)
+}
+
+test "Atomic[i32] fetch operations" {
+    var counter = Atomic[i32](10`i32)
+
+    // Fetch-add returns old value
+    var old = counter.fetchAdd(5)
+    ok!(old == 10)
+    ok!(counter.load() == 15)
+
+    // Fetch-sub returns old value
+    old = counter.fetchSub(3)
+    ok!(old == 15)
+    ok!(counter.load() == 12)
+
+    // Increment/decrement
+    old = counter.increment()
+    ok!(old == 12)
+    ok!(counter.load() == 13)
+
+    old = counter.decrement()
+    ok!(old == 13)
+    ok!(counter.load() == 12)
+}
+
+test "Atomic[bool] operations" {
+    var flag = Atomic[bool](false)
+
+    ok!(!flag.load())
+
+    flag.store(true)
+    ok!(flag.load())
+
+    var old = flag.exchange(false)
+    ok!(old)
+    ok!(!flag.load())
+
+    ok!(flag.compareAndSwap(false, true))
+    ok!(flag.load())
+}
+
+test "Atomic[u64] operations" {
+    var value = Atomic[u64](100`u64)
+
+    ok!(value.load() == 100)
+
+    value.store(200)
+    ok!(value.load() == 200)
+
+    value.fetchAdd(50)
+    ok!(value.load() == 250)
+}
+
+test "Atomic[i32] bitwise operations" {
+    var bits = Atomic[i32](0b1010`i32)
+
+    // Fetch-or
+    var old = bits.fetchOr(0b0101)
+    ok!(old == 0b1010)
+    ok!(bits.load() == 0b1111)
+
+    // Fetch-and
+    old = bits.fetchAnd(0b1100)
+    ok!(old == 0b1111)
+    ok!(bits.load() == 0b1100)
+
+    // Fetch-xor
+    old = bits.fetchXor(0b0011)
+    ok!(old == 0b1100)
+    ok!(bits.load() == 0b1111)
+}
+
+test "AtomicFlag operations" {
+    var flag = AtomicFlag(false)
+
+    ok!(!flag.isSet())
+
+    // Test and set
+    var was_set = flag.testAndSet()
+    ok!(!was_set)  // Was false
+    ok!(flag.isSet())  // Now true
+
+    // Test and set again
+    was_set = flag.testAndSet()
+    ok!(was_set)  // Was true
+    ok!(flag.isSet())  // Still true
+
+    // Clear
+    flag.clear()
+    ok!(!flag.isSet())
+}
+
+test "Atomic[i32] memory ordering" {
+    var value = Atomic[i32](0`i32)
+
+    // Relaxed ordering (no sync)
+    value.store(10, MemoryOrder.Relaxed)
+    var x = value.load(MemoryOrder.Relaxed)
+    ok!(x == 10)
+
+    // Acquire/Release
+    value.store(20, MemoryOrder.Release)
+    var y = value.load(MemoryOrder.Acquire)
+    ok!(y == 20)
+
+    // SeqCst (default)
+    value.store(30, MemoryOrder.SeqCst)
+    var z = value.load(MemoryOrder.SeqCst)
+    ok!(z == 30)
+}
+
+test "Atomic CAS in loop (weak)" {
+    var counter = Atomic[i32](0`i32)
+
+    // Simulate atomic increment using CAS
+    var expected: i32
+    var desired: i32
+
+    while true {
+        expected = counter.load(MemoryOrder.Relaxed)
+        desired = expected + 1
+
+        if (counter.compareAndSwapWeak(expected, desired, MemoryOrder.AcqRel)) {
+            break
+        }
+    }
+
+    ok!(counter.load() == 1)
+}
+
+test "Atomic[^i32] pointer operations" {
+    var value1: i32 = 42
+    var value2: i32 = 100
+    var value3: i32 = 200
+
+    var ptr = Atomic[^i32](ptrof value1)
+
+    // Load
+    var loaded = ptr.load()
+    ok!(loaded == ptrof value1)
+    ok!(*loaded == 42)
+
+    // Store
+    ptr.store(ptrof value2)
+    loaded = ptr.load()
+    ok!(loaded == ptrof value2)
+    ok!(*loaded == 100)
+
+    // Exchange
+    var old = ptr.exchange(ptrof value3)
+    ok!(old == ptrof value2)
+    ok!(*old == 100)
+    ok!(*ptr.load() == 200)
+
+    // Compare-and-swap
+    var expected = ptrof value3
+    ok!(ptr.compareAndSwap(expected, ptrof value1))
+    ok!(*ptr.load() == 42)
+
+    // Failed CAS
+    ok!(!ptr.compareAndSwap(ptrof value2, ptrof value3))
+    ok!(*ptr.load() == 42)  // Unchanged
+}

@@ -1,0 +1,139 @@
+// Simple Producer-Consumer Example
+// Demonstrates Mutex usage for protecting shared data
+
+import { Mutex, yld, Channel } from "stdlib/coro.cxy"
+import { Thread } from "stdlib/thread.cxy"
+import { Vector } from "stdlib/vector.cxy"
+
+// Thread-safe queue protected by Mutex
+struct SharedQueue {
+    _data: Vector[i32]
+    _mutex: Mutex
+
+    func `init`() {
+        _data = Vector[i32]()
+        _mutex = Mutex()
+    }
+
+    // Add item to queue (thread-safe)
+    func push(value: i32) {
+        _mutex.lock()
+        defer _mutex.unlock()  // Automatically unlock when function returns
+
+        _data.push(value)
+        println("  [Queue] Pushed: ", value, " (size: ", _data.size(), ")")
+    }
+
+    // Remove item from queue (thread-safe)
+    func pop(): i32? {
+        _mutex.lock()
+        defer _mutex.unlock()
+
+        if (_data.size() == 0) {
+            return null
+        }
+
+        var item = _data.pop()
+        println("  [Queue] Popped: ", item, " (size: ", _data.size(), ")")
+        return item
+    }
+
+    func size(): u64 {
+        _mutex.lock()
+        defer _mutex.unlock()
+        return _data.size()
+    }
+}
+
+// Producer: adds items to queue
+func producer(id: i32, queue: &SharedQueue, count: i32) {
+    println("Producer ", id, " starting...")
+
+    for i in 0..count {
+        var value = id * 100 + i
+        queue.push(value)
+
+        // Yield to let other coroutines run
+        yld()
+    }
+
+    println("Producer ", id, " finished!")
+}
+
+// Consumer: removes items from queue
+func consumer(id: i32, queue: &SharedQueue, count: i32) {
+    println("Consumer ", id, " starting...")
+
+    var consumed = 0
+    while (consumed < count) {
+        var item = queue.pop()
+        if (!!item) {
+            println("Consumer ", id, " got: ", *item)
+            consumed++
+        }
+
+        // Yield to let other coroutines run
+        yld()
+    }
+
+    println("Consumer ", id, " finished!")
+}
+
+func main(): !void {
+    println("╔════════════════════════════════════════╗")
+    println("║  Producer-Consumer with Mutex         ║")
+    println("╚════════════════════════════════════════╝\n")
+
+    var queue = SharedQueue()
+
+    println("=== Single-Threaded (Coroutines) ===\n")
+
+    // Launch producer and consumer as coroutines
+    async {
+        producer(1, &queue, 5)
+    }
+
+    async {
+        consumer(1, &queue, 5)
+    }
+
+    // Let coroutines run
+    for _ in 0..100 {
+        yld()
+    }
+
+    println("\nFinal queue size: ", queue.size(), "\n")
+
+    println("=== Multi-Threaded ===\n")
+
+    var queue2 = SharedQueue()
+
+    // Producer thread
+    var t1 = launch {
+        var chan = Channel[bool]()
+        async {
+            producer(2, &queue2, 20)
+            chan.send(true)  // Signal consumer to start after producing
+        }
+        chan.receive()  // Wait for producer to finish before exiting thread
+        return 0
+    }
+
+    // Consumer thread
+    var t2 = launch {
+        var chan = Channel[bool]()
+        async {
+            consumer(2, &queue2, 10)
+            chan.send(true)  // Signal consumer to start after producing
+        }
+        chan.receive()  // Wait for producer to finish before exiting thread
+        return 0
+    }
+
+    // Wait for threads to complete
+    t1.join()
+    t2.join()
+
+    println("\nFinal queue size: ", queue2.size())
+    println("\n✅ Done! Mutex protected the shared queue successfully.")
+}

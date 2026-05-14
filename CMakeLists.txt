@@ -387,6 +387,7 @@ target_compile_definitions(cxy PRIVATE
 set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/native
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/args.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/atomic.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/base64.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/coro.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/crypto.cxy

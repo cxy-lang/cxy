@@ -180,11 +180,41 @@ pub class DotEnv {
         return getenv(key.str(), null) catch __string()
     }
 
-    @inline
-    const func get(key: string) => vars.[key]
+    func get[T](key: string): T? {
+        if !vars.contains(key) {
+            var val = getenv(key) catch {
+                return None[T]()
+            }
+            vars.[key] = String(val)
+        }
+        var value = vars.[key]
+        #if T.isString {
+            #if #T == #string {
+                return value&.str()
+            }
+            else #if T.isStruct {
+                return value&.__str()
+            }
+            else {
+                return __copy!(*value)
+            }
+        }
+        else #if T.isBoolean {
+            return value&.__str().tob()
+        }
+        else #if T.isInteger {
+            return value&.__str().toi[i64]() as T
+        }
+        else #if T.isFloat {
+            return value&.__str().tof[f64]() as T
+        }
+        else {
+            error!("Unsupported type for dotenv get: {t}", #T)
+        }
+    }
 
     func required(key: string): !String {
-        var value = get(key)
+        var value = vars.[key]
         if !value {
             var val = String(getenv(key))  // this will raise if not found
             vars.[key] = val
@@ -268,11 +298,11 @@ test "DotEnv basic parsing" {
     ok!(env.has("KEY1"))
     ok!(env.has("KEY2"))
 
-    var val1 = env.get("KEY1")
+    var val1 = env.get[__string]("KEY1")
     ok!(!!val1)
     ok!(*val1 == "value1")
 
-    var val2 = env.get("KEY2")
+    var val2 = env.get[__string]("KEY2")
     ok!(!!val2)
     ok!(*val2 == "value2")
 }
@@ -307,11 +337,11 @@ test "DotEnv handles quoted values" {
         return
     }
 
-    var single = env.get("SINGLE")
+    var single = env.get[__string]("SINGLE")
     ok!(!!single)
     ok!(*single == "single quoted")
 
-    var dbl = env.get("DOUBLE")
+    var dbl = env.get[__string]("DOUBLE")
     ok!(!!dbl)
     ok!(*dbl == "double quoted")
 }
@@ -323,7 +353,7 @@ test "DotEnv variable expansion" {
         return
     }
 
-    var url = env.get("URL")
+    var url = env.get[__string]("URL")
     ok!(!!url)
     ok!(*url == "http://localhost:5432")
 }
@@ -335,11 +365,11 @@ test "DotEnv expansion with defaults" {
         return
     }
 
-    var port = env.get("PORT")
+    var port = env.get[__string]("PORT")
     ok!(!!port)
     ok!(*port == "3000")
 
-    var host = env.get("HOST")
+    var host = env.get[__string]("HOST")
     ok!(!!host)
     ok!(*host == "0.0.0.0")
 }
@@ -351,7 +381,7 @@ test "DotEnv single quotes prevent expansion" {
         return
     }
 
-    var literal = env.get("LITERAL")
+    var literal = env.get[__string]("LITERAL")
     ok!(!!literal)
     ok!(*literal == "${VAR}")
 }
@@ -374,7 +404,7 @@ test "DotEnv explicit empty with quotes" {
         return
     }
 
-    var empty = env.get("EMPTY")
+    var empty = env.get[__string]("EMPTY")
     ok!(!!empty)
     ok!((*empty).size() == 0)
 
@@ -399,7 +429,7 @@ test "DotEnv handles whitespace around equals" {
         return
     }
 
-    var val = env.get("KEY")
+    var val = env.get[__string]("KEY")
     ok!(!!val)
     ok!(*val == "value")
 }
@@ -411,7 +441,7 @@ test "DotEnv complex expansion" {
         return
     }
 
-    var dbUrl = env.get("DATABASE_URL")
+    var dbUrl = env.get[__string]("DATABASE_URL")
     ok!(!!dbUrl)
     ok!(*dbUrl == "postgres://admin@localhost:5432/myapp")
 }
