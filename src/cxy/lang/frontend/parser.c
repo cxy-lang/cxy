@@ -2134,14 +2134,15 @@ static AstNode *invokePluginActionsOnEntity(Parser *P, AstNode *entity)
             }
 
             // Invoke action with entity as argument
-            result = invokeCxyPluginAction(plugin, actionName, result, NULL);
-            if (result == NULL) {
+            AstNode *actionResult = invokeCxyPluginAction(plugin, actionName, result, NULL);
+            if (actionResult == NULL) {
                 parserError(P,
                             &attr->loc,
                             "plugin '{s}' action '{s}' failed",
                             (FormatArg[]){{.s = pluginName}, {.s = actionName}});
                 return entity; // Keep original on error
             }
+            result = actionResult;
         }
         else {
             // Keep regular attribute

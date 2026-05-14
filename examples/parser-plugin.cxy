@@ -1,4 +1,28 @@
 import plugin "parser-plugin" as parser
 
+// Test attribute syntax - applies trace to the struct
+@parser::trace
+struct Counter {
+    count: i32
+    
+    func `init`(initial: i32) {
+        this.count = initial
+    }
+}
+
+// Test attribute syntax on function
+@parser::trace
+func increment(c: &Counter) {
+    c.count = c.count + 1
+}
+
 func main() {
+    // Test expression syntax - sum action
+    var total = parser::sum(1, 2, 3, 4, 5)
+    println("Sum: ", total)
+    
+    // Use the traced struct
+    var counter = Counter(0)
+    increment(&counter)
+    println("Counter: ", counter.count)
 }

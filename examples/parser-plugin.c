@@ -35,6 +35,65 @@ static AstNode *parserSum(CxyPluginContext *ctx,
     return result;
 }
 
+/**
+ * trace - logs when applied to an entity via attribute syntax
+ * Example: @parser::trace
+ * Returns the entity unchanged
+ */
+static AstNode *parserTrace(CxyPluginContext *ctx,
+                            const AstNode *node,
+                            AstNode *args)
+{
+    const char *nodeType = "unknown";
+    const char *nodeName = NULL;
+    
+    // Extract name based on node type
+    switch (node->tag) {
+    case astStructDecl:
+        nodeType = "struct";
+        nodeName = node->structDecl.name;
+        break;
+    case astClassDecl:
+        nodeType = "class";
+        nodeName = node->classDecl.name;
+        break;
+    case astFuncDecl:
+        nodeType = "function";
+        nodeName = node->funcDecl.name;
+        break;
+    case astVarDecl:
+        nodeType = "variable";
+        nodeName = node->varDecl.names->ident.value;
+        break;
+    case astFieldDecl:
+        nodeType = "field";
+        nodeName = node->structField.name;
+        break;
+    case astEnumOptionDecl:
+        nodeType = "enum option";
+        nodeName = node->enumOption.name;
+        break;
+    default:
+        nodeType = "entity";
+        break;
+    }
+    
+    if (nodeName) {
+        logNote(ctx->L,
+                &node->loc,
+                "[TRACE] {s} '{s}'",
+                (const FormatArg[]){{.s = nodeType}, {.s = nodeName}});
+    } else {
+        logNote(ctx->L,
+                &node->loc,
+                "[TRACE] {s}",
+                (const FormatArg[]){{.s = nodeType}});
+    }
+    
+    // Return the entity unchanged (cast away const)
+    return (AstNode *)node;
+}
+
 bool pluginInit(CxyPluginContext *ctx, const FileLoc *loc)
 {
     // Declare this as a parser-level plugin — actions run during parsing,
@@ -46,8 +105,13 @@ bool pluginInit(CxyPluginContext *ctx, const FileLoc *loc)
             "parser-plugin loaded {s}",
             (const FormatArg[]){{.s = S_Redirect ? "(redirect)" : "(static)"}});
 
-    cxyPluginRegisterAction(
-        ctx, loc, (CxyPluginAction[]){{.name = "sum", .fn = parserSum}}, 1);
+    cxyPluginRegisterAction(ctx,
+                            loc,
+                            (CxyPluginAction[]){
+                                {.name = "sum", .fn = parserSum},
+                                {.name = "trace", .fn = parserTrace}
+                            },
+                            2);
 
     return true;
 }
