@@ -1,0 +1,24 @@
+// Test case for literal suffix bug fix
+
+struct Message {
+    text: string
+    
+    func `init`(text: string) {
+        this.text = text
+    }
+}
+
+func testFunc() {
+    var tuple = (Message("hello"), "world", 3.14)
+    
+    // This should now work: tuple.0.text
+    // Previously failed because parser treated `0.text` as literal with suffix
+    var x = tuple.0.text
+    
+    println("First element text: ", x)
+    println("Second element: ", tuple.1)
+}
+
+func main() {
+    testFunc()
+}

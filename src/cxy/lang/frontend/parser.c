@@ -612,6 +612,34 @@ static inline AstNode *parseInteger(Parser *P, bool isNegative)
     return node;
 }
 
+static inline AstNode *parseIntegerWithoutSuffix(Parser *P, bool isNegative)
+{
+    const Token prev = *previous(P);
+    const Token tok = *consume0(P, tokIntLiteral);
+    AstNode *type = NULL;
+    AstNode *node = newAstNode(
+        P,
+        (isNegative ? &prev : &tok),
+        &(AstNode){.tag = astIntegerLit, .intLiteral.uValue = tok.iVal});
+
+    if (isNegative) {
+        node->intLiteral.isNegative = true;
+        node->intLiteral.value = -tok.iVal;
+    }
+
+    // NO suffix parsing - used in member expression context
+
+    if (match(P, tokQuote)) {
+        type = parseType(P);
+        return newAstNode(
+            P,
+            (isNegative ? &tok : &prev),
+            &(AstNode){.tag = astTypedExpr,
+                       .typedExpr = {.expr = node, .type = type}});
+    }
+    return node;
+}
+
 static inline AstNode *parseFloat(Parser *P, bool isNegative)
 {
     const Token prev = *previous(P);
@@ -742,7 +770,7 @@ static AstNode *member(Parser *P, const Token *begin, AstNode *operand)
         flags = flgAnnotation | flgComptime;
 
     if (check(P, tokIntLiteral))
-        member = parseInteger(P, false);
+        member = parseIntegerWithoutSuffix(P, false);
     else if (check(P, tokSubstitutue))
         member = substitute(P, false);
     else if (flags & flgAnnotation) {

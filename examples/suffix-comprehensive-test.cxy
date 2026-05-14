@@ -1,0 +1,56 @@
+// Comprehensive test for literal suffix bug fix
+
+struct Point {
+    x: i32
+    y: i32
+    
+    func `init`(x: i32, y: i32) {
+        this.x = x
+        this.y = y
+    }
+    
+    func toString(): string {
+        return "Point"
+    }
+}
+
+func testChainedMemberAccess() {
+    // Test 1: tuple.0.field
+    var tuple1 = (Point(10, 20), "test", 3.14)
+    var px = tuple1.0.x
+    var py = tuple1.0.y
+    println("Test 1 - tuple.0.x: ", px)
+    println("Test 1 - tuple.0.y: ", py)
+    
+    // Test 2: tuple.0.method()
+    var result = tuple1.0.toString()
+    println("Test 2 - tuple.0.toString(): ", result)
+    
+    // Test 3: nested tuples
+    var nested = ((1, 2), (3, 4))
+    var val = nested.0.1
+    println("Test 3 - nested.0.1: ", val)
+}
+
+func testLiteralSuffixStillWorks() {
+    // Test 4: Integer type suffixes (should still work)
+    var a: i64 = 42`i64
+    var b: u32 = 100`u32
+    var c: f32 = 3.14`f32
+    println("Test 4 - type suffixes work: ", a, ", ", b, ", ", c)
+}
+
+func testMixedChains() {
+    // Test 5: Complex chaining
+    var data = (Point(5, 10), Point(15, 20))
+    var sum = data.0.x + data.1.y
+    println("Test 5 - mixed chain: ", sum)
+}
+
+func main() {
+    println("=== Testing Literal Suffix Bug Fix ===")
+    testChainedMemberAccess()
+    testLiteralSuffixStillWorks()
+    testMixedChains()
+    println("=== All tests passed! ===")
+}
