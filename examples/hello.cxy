@@ -1,6 +1,45 @@
-func ns(x: i32) => x * 1000000000.i64
+
+@rtl:component
+struct Counter {
+    @in clk: rtl:clock!
+    @in reset: rtl:signal!(1)
+    @out count: rtl:signal!(32)
+
+    _count: u32
+
+    @method(clk: "posedge")
+    func update() {
+        if reset {
+            _count = 0
+        }
+        else {
+            _count += 1
+        }
+        // write count
+        count << _count
+    }
+}
+
+@rtl:testbench
+test "Testbench" {
+    var clk = rtl.clock("clk", 10.ns)
+    @rtl:signal rst = false
+    @rtl:signal count = 0.u32
+    var counter = Counter(&clk, &rst, &count)
+    var tf = rtl:startTrace("waveform.vcd")
+    rtl:trace(tf, clk, rst, count)
+
+    rst << true
+    rtl:simulate(clk, 20.ns)
+    rst << false
+    rtl:simulate(clk, 60.ns)
+    assert count == 6
+    rst << true
+    rtl:simulate(clk, 10.ns)
+    assert count == 0
+}
 
 func main(): !void {
     println(10.ns)
-    println("Hello".s)
+    println("Hello".s, ", World".S)
 }

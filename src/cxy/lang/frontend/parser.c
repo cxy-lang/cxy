@@ -90,6 +90,7 @@ static AstNode *comptimeDeclaration(Parser *P);
 
 #ifndef CXY_PLUGIN_LIB
 static AstNode *pluginActionExpression(Parser *P, AstNode *callee);
+static AstNode *invokePluginActionsOnEntity(Parser *P, AstNode *entity);
 static cstring calleePluginName(const AstNode *callee);
 static Plugin *findPluginByAlias(Parser *P, cstring alias);
 static bool comparePluginAliases(const void *a, const void *b)
@@ -1142,13 +1143,18 @@ static AstNode *functionParam(Parser *P)
         def = expression(P, true);
     }
 
-    return newAstNode(
+    AstNode *param = newAstNode(
         P,
         &tok,
         &(AstNode){.tag = astFuncParamDecl,
                    .attrs = attrs,
                    .flags = flags,
                    .funcParam = {.name = name, .type = type, .def = def}});
+#ifndef CXY_PLUGIN_LIB
+    // Invoke plugin actions on the parsed param
+    param = invokePluginActionsOnEntity(P, param);
+#endif
+    return param;
 }
 
 static AstNode *implicitCast(Parser *P)
@@ -1995,6 +2001,25 @@ static AstNode *attribute(Parser *P)
 {
     Token tok = *consume0(P, tokIdent);
     const char *name = getTokenString(P, &tok, false);
+    
+    // Check for plugin-scoped attribute: @plugin::action
+    if (match(P, tokDColon)) {
+        Token actionTok = *consume0(P, tokIdent);
+        const char *actionName = getTokenString(P, &actionTok, false);
+        
+        // Return plugin attribute: name=action, plugin=plugin_name
+        return newAstNode(
+            P,
+            &tok,
+            &(AstNode){.tag = astAttr,
+                       .attr = {.name = actionName,
+                                .plugin = name,  // Plugin name
+                                .args = NULL,
+                                .count = 0,
+                                .kvpArgs = false}});
+    }
+    
+    // Regular attribute parsing
     AstNodeList args = {NULL};
     bool isKvp = false;
     if (match(P, tokLParen) && !isEoF(P)) {
@@ -2071,8 +2096,67 @@ static AstNode *attribute(Parser *P)
         &tok,
         &(AstNode){
             .tag = astAttr,
-            .attr = {.name = name, .args = args.first, .kvpArgs = isKvp}});
+            .attr = {.name = name, .args = args.first, .kvpArgs = isKvp, .plugin = NULL}});
 }
+
+#ifndef CXY_PLUGIN_LIB
+static AstNode *invokePluginActionsOnEntity(Parser *P, AstNode *entity)
+{
+    if (!entity || !entity->attrs)
+        return entity;
+
+    AstNode *result = entity;
+    AstNode *newAttrs = NULL;
+
+    // Process each attribute
+    for (AstNode *attr = entity->attrs; attr; attr = attr->next) {
+        if (attr->attr.plugin != NULL) {
+            // This is a plugin attribute
+            cstring pluginName = attr->attr.plugin;
+            cstring actionName = attr->attr.name;
+
+            // Lookup plugin
+            Plugin *plugin = findPluginByAlias(P, pluginName);
+            if (!plugin) {
+                parserError(P,
+                            &attr->loc,
+                            "plugin '{s}' not found",
+                            (FormatArg[]){{.s = pluginName}});
+                continue;
+            }
+
+            if (plugin->ip != pipParser) {
+                parserError(P,
+                            &attr->loc,
+                            "plugin '{s}' is not a parse-time plugin",
+                            (FormatArg[]){{.s = pluginName}});
+                continue;
+            }
+
+            // Invoke action with entity as argument
+            result = invokeCxyPluginAction(plugin, actionName, result, NULL);
+            if (result == NULL) {
+                parserError(P,
+                            &attr->loc,
+                            "plugin '{s}' action '{s}' failed",
+                            (FormatArg[]){{.s = pluginName}, {.s = actionName}});
+                return entity; // Keep original on error
+            }
+        }
+        else {
+            // Keep regular attribute
+            attr->next = newAttrs;
+            newAttrs = attr;
+        }
+    }
+
+    // Update attributes (only regular ones remain)
+    if (result)
+        result->attrs = newAttrs;
+
+    return result;
+}
+#endif // CXY_PLUGIN_LIB
 
 static AstNode *attributes(Parser *P)
 {
@@ -3247,6 +3331,10 @@ static AstNode *parseClassOrStructMember(Parser *P)
     }
     member->flags |= (isConst ? flgConst : flgNone);
     member->attrs = attrs;
+#ifndef CXY_PLUGIN_LIB
+    // Invoke plugin actions on the parsed member
+    member = invokePluginActionsOnEntity(P, member);
+#endif
     return member;
 }
 
@@ -3542,11 +3630,16 @@ static AstNode *enumOption(Parser *P)
     if (match(P, tokAssign)) {
         value = expression(P, false);
     }
-    return newAstNode(P,
+    AstNode *option = newAstNode(P,
                       &tok,
                       &(AstNode){.tag = astEnumOptionDecl,
                                  .attrs = attrs,
                                  .enumOption = {.name = name, .value = value}});
+#ifndef CXY_PLUGIN_LIB
+    // Invoke plugin actions on the parsed enum option
+    option = invokePluginActionsOnEntity(P, option);
+#endif
+    return option;
 }
 
 static AstNode *enumDecl(Parser *P, bool isPublic)
@@ -3731,6 +3824,10 @@ static AstNode *declaration(Parser *P)
     if (decl) {
         decl->flags |= flgTopLevelDecl;
         decl->attrs = attrs;
+#ifndef CXY_PLUGIN_LIB
+        // Invoke plugin actions on the parsed entity
+        decl = invokePluginActionsOnEntity(P, decl);
+#endif
     }
     return decl;
 }

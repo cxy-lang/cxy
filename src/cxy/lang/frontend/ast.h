@@ -435,6 +435,7 @@ struct AstNode {
             AstNode *args;
             u32 count;
             bool kvpArgs;
+            cstring plugin;  // If set, this is a plugin attribute (@plugin::action)
         } attr;
 
         struct {
