@@ -490,7 +490,8 @@ static inline AstNode *parseNull(Parser *P)
 // If suffix is primitive type → CastExpr, otherwise → CallExpr
 static inline AstNode *wrapLiteralWithSuffix(Parser *P,
                                              AstNode *literalNode,
-                                             const FileLoc *literalLoc)
+                                             const FileLoc *literalLoc,
+                                             bool isStringLiteral)
 {
     if (!match(P, tokDot))
         return literalNode;
@@ -522,6 +523,17 @@ static inline AstNode *wrapLiteralWithSuffix(Parser *P,
                                          suffixTok->buffer->fileData + start,
                                          len);
 
+        // Special handling for string literals with .s or .S suffix
+        if (isStringLiteral && len == 1) {
+            const char c = suffixTok->buffer->fileData[start];
+            if (c == 's') {
+                suffix = S___string;  // __string type
+            }
+            else if (c == 'S') {
+                suffix = S_String;  // String type
+            }
+        }
+
         AstNode *callee = makePath(P->memPool, &suffixTok->fileLoc, suffix, flgNone, NULL);
         return newAstNode(
             P,
@@ -546,7 +558,7 @@ static inline AstNode *parseBool(Parser *P)
                       tok,
                       &(AstNode){.tag = astBoolLit,
                                  .boolLiteral.value = tok->tag == tokTrue});
-    return wrapLiteralWithSuffix(P, node, &tok->fileLoc);
+    return wrapLiteralWithSuffix(P, node, &tok->fileLoc, false);
 }
 
 static inline AstNode *parseChar(Parser *P)
@@ -556,7 +568,7 @@ static inline AstNode *parseChar(Parser *P)
         P, tok, &(AstNode){.tag = astCharLit, .charLiteral.value = tok->cVal});
 
     // Handle suffix first (e.g., 'a'.upper)
-    node = wrapLiteralWithSuffix(P, node, &tok->fileLoc);
+    node = wrapLiteralWithSuffix(P, node, &tok->fileLoc, false);
 
     if (match(P, tokQuote)) {
         AstNode *type = parseType(P);
@@ -586,7 +598,7 @@ static inline AstNode *parseInteger(Parser *P, bool isNegative)
     }
 
     // Handle suffix first (e.g., 10.ns or 10.i64)
-    node = wrapLiteralWithSuffix(P, node, &tok.fileLoc);
+    node = wrapLiteralWithSuffix(P, node, &tok.fileLoc, false);
 
     if (match(P, tokQuote)) {
         type = parseType(P);
@@ -610,7 +622,7 @@ static inline AstNode *parseFloat(Parser *P, bool isNegative)
                    .floatLiteral.value = isNegative ? -tok->fVal : tok->fVal});
 
     // Handle suffix first (e.g., 3.14.f32 or 100.6.ms)
-    node = wrapLiteralWithSuffix(P, node, &tok->fileLoc);
+    node = wrapLiteralWithSuffix(P, node, &tok->fileLoc, false);
 
     if (match(P, tokQuote)) {
         AstNode *type = parseType(P);
@@ -631,7 +643,7 @@ static inline AstNode *parseString(Parser *P)
         P, &tok, &(AstNode){.tag = astStringLit, .stringLiteral.value = value});
 
     // Check for suffix (e.g., "hello".s or "world".S or "data".custom)
-    node = wrapLiteralWithSuffix(P, node, &tok.fileLoc);
+    node = wrapLiteralWithSuffix(P, node, &tok.fileLoc, true);
 
     return node;
 }
