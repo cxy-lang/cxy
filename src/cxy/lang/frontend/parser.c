@@ -2029,12 +2029,12 @@ static AstNode *attribute(Parser *P)
 {
     Token tok = *consume0(P, tokIdent);
     const char *name = getTokenString(P, &tok, false);
-    
+
     // Check for plugin-scoped attribute: @plugin::action
     if (match(P, tokDColon)) {
         Token actionTok = *consume0(P, tokIdent);
         const char *actionName = getTokenString(P, &actionTok, false);
-        
+
         // Return plugin attribute: name=action, plugin=plugin_name
         return newAstNode(
             P,
@@ -2046,7 +2046,7 @@ static AstNode *attribute(Parser *P)
                                 .count = 0,
                                 .kvpArgs = false}});
     }
-    
+
     // Regular attribute parsing
     AstNodeList args = {NULL};
     bool isKvp = false;
@@ -2134,20 +2134,24 @@ static AstNode *invokePluginActionsOnEntity(Parser *P, AstNode *entity)
         return entity;
 
     AstNode *result = entity;
-    AstNode *newAttrs = NULL;
+    AstNodeList newAttrs = {};
 
-    // Process each attribute
-    for (AstNode *attr = entity->attrs; attr; attr = attr->next) {
-        if (attr->attr.plugin != NULL) {
+    // Process each attribute - advance iterator before modifying current node
+    for (AstNode *attr = entity->attrs; attr; ) {
+        AstNode *current = attr;
+        attr = attr->next;      // Advance before modifying
+        current->next = NULL;   // Isolate current node
+        
+        if (current->attr.plugin != NULL) {
             // This is a plugin attribute
-            cstring pluginName = attr->attr.plugin;
-            cstring actionName = attr->attr.name;
+            cstring pluginName = current->attr.plugin;
+            cstring actionName = current->attr.name;
 
             // Lookup plugin
             Plugin *plugin = findPluginByAlias(P, pluginName);
             if (!plugin) {
                 parserError(P,
-                            &attr->loc,
+                            &current->loc,
                             "plugin '{s}' not found",
                             (FormatArg[]){{.s = pluginName}});
                 continue;
@@ -2155,7 +2159,7 @@ static AstNode *invokePluginActionsOnEntity(Parser *P, AstNode *entity)
 
             if (plugin->ip != pipParser) {
                 parserError(P,
-                            &attr->loc,
+                            &current->loc,
                             "plugin '{s}' is not a parse-time plugin",
                             (FormatArg[]){{.s = pluginName}});
                 continue;
@@ -2165,7 +2169,7 @@ static AstNode *invokePluginActionsOnEntity(Parser *P, AstNode *entity)
             AstNode *actionResult = invokeCxyPluginAction(plugin, actionName, result, NULL);
             if (actionResult == NULL) {
                 parserError(P,
-                            &attr->loc,
+                            &current->loc,
                             "plugin '{s}' action '{s}' failed",
                             (FormatArg[]){{.s = pluginName}, {.s = actionName}});
                 return entity; // Keep original on error
@@ -2173,15 +2177,14 @@ static AstNode *invokePluginActionsOnEntity(Parser *P, AstNode *entity)
             result = actionResult;
         }
         else {
-            // Keep regular attribute
-            attr->next = newAttrs;
-            newAttrs = attr;
+            // Keep regular attribute - preserves order
+            insertAstNode(&newAttrs, current);
         }
     }
 
     // Update attributes (only regular ones remain)
     if (result)
-        result->attrs = newAttrs;
+        result->attrs = newAttrs.first;
 
     return result;
 }
@@ -2189,14 +2192,12 @@ static AstNode *invokePluginActionsOnEntity(Parser *P, AstNode *entity)
 
 static AstNode *attributes(Parser *P)
 {
-    AstNode *first = NULL;
-    AstNode *last = NULL;
-    
+    AstNodeList attrList = {};
+
     // Collect all consecutive @attribute lines
-    while (check(P, tokAt)) {
-        consume0(P, tokAt);
+    while (match(P, tokAt)) {
         AstNode *attrs;
-        
+
         if (match(P, tokLBracket)) {
             // @[attr1, attr2] syntax
             attrs = parseAtLeastOne(P, "attribute", tokRBracket, tokComma, attribute);
@@ -2206,23 +2207,10 @@ static AstNode *attributes(Parser *P)
             // @attr syntax
             attrs = attribute(P);
         }
-        
-        // Append to list
-        if (!first) {
-            first = attrs;
-            last = attrs;
-        } else {
-            // Find end of new attributes
-            AstNode *newLast = attrs;
-            while (newLast && newLast->next)
-                newLast = newLast->next;
-            if (last)
-                last->next = attrs;
-            last = newLast;
-        }
+        insertAstNode(&attrList, attrs);
     }
-    
-    return first;
+
+    return attrList.first;
 }
 
 static AstNode *define(Parser *P)

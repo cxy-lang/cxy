@@ -1,0 +1,10 @@
+// Test __override_builtin attribute
+
+@[inline, __override_builtin("test_func")]
+func __test() {
+    println("Override works!")
+}
+
+func main() {
+    test_func()
+}
