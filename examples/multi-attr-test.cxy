@@ -1,0 +1,35 @@
+import plugin "parser-plugin" as parser
+
+// Test 1: Multiple separate attribute lines
+@parser::trace
+@parser::trace
+struct Counter {
+    count: i32
+}
+
+// Test 2: Bracket syntax (existing)
+@[parser::trace, parser::trace]
+struct Timer {
+    seconds: i32
+}
+
+// Test 3: Mixed syntax
+@parser::trace
+@[parser::trace]
+func reset(c: &Counter) {
+    c.count = 0
+}
+
+// Test 4: Single attribute (should still work)
+@parser::trace
+func tick(t: &Timer) {
+    t.seconds = t.seconds + 1
+}
+
+func main() {
+    println("All attribute syntaxes compiled successfully!")
+    
+    // Expression syntax still works
+    var total = parser::sum(10, 20, 30)
+    println("Sum: ", total)
+}

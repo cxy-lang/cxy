@@ -2161,19 +2161,40 @@ static AstNode *invokePluginActionsOnEntity(Parser *P, AstNode *entity)
 
 static AstNode *attributes(Parser *P)
 {
-    Token tok = *consume0(P, tokAt);
-    AstNode *attrs;
-    if (match(P, tokLBracket)) {
-        attrs =
-            parseAtLeastOne(P, "attribute", tokRBracket, tokComma, attribute);
-
-        consume0(P, tokRBracket);
+    AstNode *first = NULL;
+    AstNode *last = NULL;
+    
+    // Collect all consecutive @attribute lines
+    while (check(P, tokAt)) {
+        consume0(P, tokAt);
+        AstNode *attrs;
+        
+        if (match(P, tokLBracket)) {
+            // @[attr1, attr2] syntax
+            attrs = parseAtLeastOne(P, "attribute", tokRBracket, tokComma, attribute);
+            consume0(P, tokRBracket);
+        }
+        else {
+            // @attr syntax
+            attrs = attribute(P);
+        }
+        
+        // Append to list
+        if (!first) {
+            first = attrs;
+            last = attrs;
+        } else {
+            // Find end of new attributes
+            AstNode *newLast = attrs;
+            while (newLast && newLast->next)
+                newLast = newLast->next;
+            if (last)
+                last->next = attrs;
+            last = newLast;
+        }
     }
-    else {
-        attrs = attribute(P);
-    }
-
-    return attrs;
+    
+    return first;
 }
 
 static AstNode *define(Parser *P)
