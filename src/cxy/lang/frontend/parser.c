@@ -486,16 +486,67 @@ static inline AstNode *parseNull(Parser *P)
     return newAstNode(P, tok, &(AstNode){.tag = astNullLit});
 }
 
+// Helper to create call expr or cast expr from literal suffix
+// If suffix is primitive type → CastExpr, otherwise → CallExpr
+static inline AstNode *wrapLiteralWithSuffix(Parser *P,
+                                             AstNode *literalNode,
+                                             const FileLoc *literalLoc)
+{
+    if (!match(P, tokDot))
+        return literalNode;
+
+    // Accept either an identifier or a primitive type keyword as suffix
+    const Token *suffixTok = current(P);
+
+    if (isPrimitiveTypeTag(suffixTok->tag)) {
+        // Handle primitive type keywords like i64, u32, f32, etc.
+        // Convert directly to CastExpr
+        AstNode *type = newAstNode(
+            P,
+            suffixTok,
+            &(AstNode){.tag = astPrimitiveType,
+                       .primitiveType.id = tokenToPrimitiveTypeId(suffixTok->tag)});
+        advance(P);
+        return newAstNode(
+            P,
+            suffixTok,
+            &(AstNode){.tag = astCastExpr,
+                       .castExpr = {.expr = literalNode, .to = type}});
+    }
+    else if (check(P, tokIdent)) {
+        // Handle identifier suffix - create CallExpr
+        suffixTok = advance(P);
+        size_t start = suffixTok->fileLoc.begin.byteOffset;
+        size_t len = suffixTok->fileLoc.end.byteOffset - start;
+        cstring suffix = makeStringSized(P->strPool,
+                                         suffixTok->buffer->fileData + start,
+                                         len);
+
+        AstNode *callee = makePath(P->memPool, &suffixTok->fileLoc, suffix, flgNone, NULL);
+        return newAstNode(
+            P,
+            suffixTok,
+            &(AstNode){.tag = astCallExpr,
+                       .callExpr = {.callee = callee, .args = literalNode}});
+    }
+    else {
+        parserError(P, &suffixTok->fileLoc,
+                   "expected identifier or type as literal suffix", NULL);
+        return literalNode;
+    }
+}
+
 static inline AstNode *parseBool(Parser *P)
 {
     const Token *tok = match(P, tokTrue, tokFalse);
     if (tok == NULL) {
         reportUnexpectedToken(P, "bool literals i.e 'true'/'false'");
     }
-    return newAstNode(P,
+    AstNode *node = newAstNode(P,
                       tok,
                       &(AstNode){.tag = astBoolLit,
                                  .boolLiteral.value = tok->tag == tokTrue});
+    return wrapLiteralWithSuffix(P, node, &tok->fileLoc);
 }
 
 static inline AstNode *parseChar(Parser *P)
@@ -503,6 +554,9 @@ static inline AstNode *parseChar(Parser *P)
     const Token *tok = consume0(P, tokCharLiteral);
     AstNode *node = newAstNode(
         P, tok, &(AstNode){.tag = astCharLit, .charLiteral.value = tok->cVal});
+
+    // Handle suffix first (e.g., 'a'.upper)
+    node = wrapLiteralWithSuffix(P, node, &tok->fileLoc);
 
     if (match(P, tokQuote)) {
         AstNode *type = parseType(P);
@@ -531,6 +585,9 @@ static inline AstNode *parseInteger(Parser *P, bool isNegative)
         node->intLiteral.value = -tok.iVal;
     }
 
+    // Handle suffix first (e.g., 10.ns or 10.i64)
+    node = wrapLiteralWithSuffix(P, node, &tok.fileLoc);
+
     if (match(P, tokQuote)) {
         type = parseType(P);
         return newAstNode(
@@ -551,6 +608,10 @@ static inline AstNode *parseFloat(Parser *P, bool isNegative)
         tok,
         &(AstNode){.tag = astFloatLit,
                    .floatLiteral.value = isNegative ? -tok->fVal : tok->fVal});
+
+    // Handle suffix first (e.g., 3.14.f32 or 100.6.ms)
+    node = wrapLiteralWithSuffix(P, node, &tok->fileLoc);
+
     if (match(P, tokQuote)) {
         AstNode *type = parseType(P);
         return newAstNode(
@@ -569,36 +630,9 @@ static inline AstNode *parseString(Parser *P)
     AstNode *node = newAstNode(
         P, &tok, &(AstNode){.tag = astStringLit, .stringLiteral.value = value});
 
-    if (match(P, tokDot)) {
-        Token kind = *consume0(P, tokIdent);
-        size_t start = kind.fileLoc.begin.byteOffset;
-        size_t len = kind.fileLoc.end.byteOffset - start;
-        const char c = kind.buffer->fileData[start];
+    // Check for suffix (e.g., "hello".s or "world".S or "data".custom)
+    node = wrapLiteralWithSuffix(P, node, &tok.fileLoc);
 
-        cstring type = NULL;
-        if (c == 's' && len == 1) {
-            type = S___string;
-        }
-        else if (c == 'S' && len == 1) {
-            type = S_String;
-        }
-        else {
-            parserError(
-                P,
-                &kind.fileLoc,
-                "unexpected string literal suffix, expecting and `s` or `S`",
-                NULL);
-            unreachable();
-        }
-        node = newAstNode(
-            P,
-            &tok,
-            &(AstNode){
-                .tag = astCallExpr,
-                .callExpr = {.callee = makePath(
-                                 P->memPool, &tok.fileLoc, type, flgNone, NULL),
-                             node}});
-    }
     return node;
 }
 

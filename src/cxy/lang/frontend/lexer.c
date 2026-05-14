@@ -697,7 +697,10 @@ Token advanceLexer(Lexer *lexer)
                 skipChar(lexer);
 
             bool hasDot = false;
-            if (getCurChar(lexer) == '.' && peekNextChar(lexer) != '.' &&
+            // Only treat as float if dot is followed by a digit or if we're in float context
+            if (getCurChar(lexer) == '.' && 
+                isdigit(peekNextChar(lexer)) &&
+                peekNextChar(lexer) != '.' &&
                 peekNextChar(lexer) != '[' &&
                 !(lexer->flags & lxMaybeNotFloat)) {
                 skipChar(lexer);

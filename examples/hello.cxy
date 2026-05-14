@@ -1,18 +1,5 @@
-import "stdlib/coro.cxy"
-
-func say(msg: String) {
-    println("Hello, ", msg, "!")
-    fdWaitWrite(1)
-}
-
-func message() {
-    var msg = "Hello, World!".S
-    say(msg)
-    sleepAsync(100) // Give the async task time to execute
-    println("Message sent to async task.")
-}
+func ns(x: i32) => x * 1000000000.i64
 
 func main(): !void {
-    message()
+    println(10.ns)
 }
-
