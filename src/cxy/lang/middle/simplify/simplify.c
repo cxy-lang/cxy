@@ -376,6 +376,23 @@ static void simplifyCondition(SimplifyContext *ctx, AstNode *cond)
     cond->binaryExpr.rhs = rhs;
 }
 
+static AstNode *wrapLogicalOperandInStmtExpr(SimplifyContext *ctx, AstNode *expr)
+{
+    AstNode *exprStmt =
+        makeExprStmt(ctx->pool, &expr->loc, flgNone, expr, NULL, expr->type);
+    AstNode *block =
+        makeBlockStmt(ctx->pool, &expr->loc, exprStmt, NULL, expr->type);
+    AstNode *stmtExpr =
+        makeStmtExpr(ctx->pool, &expr->loc, flgNone, block, NULL, expr->type);
+
+    block->flags |= flgBlockReturns;
+    expr->parentScope = exprStmt;
+    exprStmt->parentScope = block;
+    block->parentScope = stmtExpr;
+
+    return stmtExpr;
+}
+
 static bool isRedundantExpressionMany(AstNode *node)
 {
     AstNode *it = node;
@@ -883,67 +900,17 @@ static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
             lhs->memberExpr.target = target;
         }
     }
+    else if (node->binaryExpr.op == opLOr || node->binaryExpr.op == opLAnd) {
+        bool whileCondVisiting = ctx->whileCond.visiting;
+        node->binaryExpr.lhs = wrapLogicalOperandInStmtExpr(ctx, lhs);
+        node->binaryExpr.rhs = wrapLogicalOperandInStmtExpr(ctx, rhs);
+
+        ctx->whileCond.visiting = false;
+        astVisit(visitor, node->binaryExpr.lhs);
+        astVisit(visitor, node->binaryExpr.rhs);
+        ctx->whileCond.visiting = whileCondVisiting;
+    }
     else {
-        // else if (node->binaryExpr.op == opLOr || node->binaryExpr.op ==
-        // opLAnd) {
-        //     AstNode *tmp = makeVarDecl(
-        //         ctx->pool,
-        //         &lhs->loc,
-        //         flgMove,
-        //         makeAnonymousVariable(ctx->strings, "_or"),
-        //         makeTypeReferenceNode(ctx->pool, node->type, &node->loc),
-        //         lhs,
-        //         NULL,
-        //         node->type);
-        //     astVisit(visitor, tmp);
-        //     astModifierAdd(&ctx->block, tmp);
-        //     AstNode *body = makeExprStmt(
-        //         ctx->pool,
-        //         &node->loc,
-        //         flgNone,
-        //         makeAssignExpr(
-        //             ctx->pool,
-        //             &node->loc,
-        //             flgNone,
-        //             makeResolvedIdentifier(
-        //                 ctx->pool, &tmp->loc, tmp->_name, 0, tmp, NULL,
-        //                 tmp->type),
-        //             opAssign,
-        //             rhs,
-        //             NULL,
-        //             node->type),
-        //         NULL,
-        //         node->type);
-        //     AstNode *cond = makeResolvedIdentifier(
-        //         ctx->pool, &tmp->loc, tmp->_name, 0, tmp, NULL, tmp->type);
-        //     if (node->binaryExpr.op == opLOr)
-        //         cond = makeUnaryExpr(ctx->pool,
-        //                              &tmp->loc,
-        //                              flgNone,
-        //                              true,
-        //                              opNot,
-        //                              cond,
-        //                              NULL,
-        //                              cond->type);
-        //     AstNode *if_ = makeIfStmt(
-        //         ctx->pool,
-        //         &node->loc,
-        //         flgNone,
-        //         cond,
-        //         makeBlockStmt(
-        //             ctx->pool, &body->loc, body, NULL,
-        //             makeVoidType(ctx->types)),
-        //         NULL,
-        //         NULL);
-        //     astVisit(visitor, if_);
-        //     astModifierAdd(&ctx->block, if_);
-        //
-        //     node->tag = astIdentifier;
-        //     clearAstBody(node);
-        //     node->ident.value = tmp->_name;
-        //     node->ident.resolvesTo = tmp;
-        // }
-        // else {
         astVisitFallbackVisitAll(visitor, node);
     }
 }
@@ -1112,7 +1079,11 @@ static void visitStmtExpr(AstVisitor *visitor, AstNode *node)
             astModifierRemoveCurrent(&ctx->block);
         }
         else if (stmt->blockStmt.stmts->next == NULL) {
-            replaceAstNode(node, stmt->blockStmt.stmts);
+            AstNode *inner = stmt->blockStmt.stmts;
+            if (hasFlag(stmt, BlockReturns) && nodeIs(inner, ExprStmt))
+                replaceAstNode(node, inner->exprStmt.expr);
+            else
+                replaceAstNode(node, inner);
             node->flags &= ~flgBlockValue;
         }
     }

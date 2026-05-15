@@ -1,0 +1,10 @@
+func main() {
+    var trimmed = "hello#".s
+
+    if !trimmed.empty() && trimmed.[trimmed.size() - 1] == '#' {
+    }
+
+    var end = trimmed.size()
+    while (end > 0 && trimmed.[<u32>(end - 1)] == '#' as char)
+        end--
+}

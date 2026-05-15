@@ -1,0 +1,31 @@
+pub extern func __smart_ptr_get(ptr: sptr): sptr
+
+pub extern func __smart_ptr_drop(ptr: sptr): bool
+
+pub extern func __string_size(this: const ^__string): u64
+
+pub extern func __string_op__idx(this: const ^__string, idx: u64): char
+
+pub extern func __string_empty(this: const ^__string): bool
+
+extern func __string_op__initCoverI_sE(s: string): __string
+
+func main() {
+  var trimmed = op__initCoverI_sE("hello#")
+  if (!__string_empty(ptrof trimmed) && ({
+    var _a141 = __string_size(ptrof trimmed) - 1
+    __string_op__idx(ptrof trimmed, _a141) == '#'
+  })) { }
+  
+  var end = __string_size(ptrof trimmed)
+  while (end > 0 && ({
+    var _a142 = <u32>(end - 1)
+    __string_op__idx(ptrof trimmed, <u64>_a142) == '#'
+  }))
+  {
+    end--
+  }
+}
+
+[K[1;32m✓[1;37m Compilation success
+[0m
