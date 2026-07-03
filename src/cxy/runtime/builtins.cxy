@@ -54,10 +54,10 @@ pub func __cxy_assert(cond: bool, file: string, line: u64, column: u64) {
 }
 
 #if (!defined DISABLE_ASSERT) {
-    macro assert(cond) { __cxy_assert(cond!, file!, line!, column!) }
+    macro assert(cond, ...msg) { __cxy_assert(cond!, file!, line!, column!) }
 }
 else {
-    macro assert(cond) ()
+    macro assert(cond, ...msg) ()
 }
 
 #if (defined MACOS) {
@@ -1689,6 +1689,25 @@ pub struct Repeat {
             os << c
     }
 }
+
+struct _Fmt[T] {
+    require!(T.isPrimitive, "type {t} is not a primitive type", #T)
+    - value: T
+    - fmt: string
+    func `init`(value: T, fmt: string) {
+        this.value = value
+        this.fmt = fmt
+    }
+    @inline
+    const func `str`(os: &OutputStream) {
+        var buf: [char, 64] = [];
+        var len = snprintf(buf, 64, fmt, value)
+        os << __string(buf !: string, len)
+    }
+}
+
+@inline
+pub func Fmt[T](fmt: string, value: T) => _Fmt[T](value, fmt)
 
 @[pure, inline]
 pub func panicUnhandledException(ex: Exception) {

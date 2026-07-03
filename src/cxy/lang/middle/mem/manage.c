@@ -528,7 +528,13 @@ static void visitIdentifier(AstVisitor *visitor, AstNode *node)
 
     if (isLocalVariable(resolved)) {
         VariableTrace *vt = findVariableTrace(ctx, resolved);
-        csAssert0(vt);
+        if (vt == NULL) {
+            logError(ctx->L,
+                     &node->loc,
+                     "compiler critical error - expected local variable {s}",
+                     (FormatArg[]){{.s = node->_name}});
+            csAssert0(false);
+        }
         vt->used = true;
         reportUseUnassigned(ctx, node, vt);
     }

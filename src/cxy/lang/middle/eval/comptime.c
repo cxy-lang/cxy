@@ -121,17 +121,20 @@ static bool isTypePrintable(const Type *type)
                 return false;
         }
         return true;
-    case typStruct:
+    case typStruct: {
         if (findClassMember(type, S_StringOverload) != NULL)
             return true;
         for (int i = 0; i < type->tStruct.members->count; i++) {
             const AstNode *decl = type->tStruct.members->members[i].decl;
             if (!nodeIs(decl, FieldDecl))
                 continue;
+            if (isPointerType(decl->type) && stripPointer(decl->type) == type)
+                return false;
             if (!isTypePrintable(type->tStruct.members->members[i].type))
                 return false;
         }
         return true;
+    }
     case typClass:
         return findClassMember(type, S_StringOverload) != NULL;
     default:

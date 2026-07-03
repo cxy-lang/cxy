@@ -315,7 +315,7 @@ else {
 }
 
 @align(16)
-struct Coroutine {
+pub struct Coroutine {
     link: ^This = null;
     scheduler: ^void = null;
     id: i32 = -1;

@@ -39,7 +39,7 @@ static AstNode *findMemberInUntaggedUnion(TypingContext *ctx,
             AstNode *found =
                 findMemberInUntaggedUnion(ctx, node, member->type, name);
             if (found == NULL) {
-                return NULL;
+                continue;
             }
             if (nodeIs(found, FieldDecl)) {
                 // Special case, we need to build our member

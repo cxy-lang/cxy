@@ -93,7 +93,11 @@ static void castLiteral(TypingContext *ctx, AstNode *node)
             replaceAstNodeWith(node, expr);
         }
         else if (isFloatType(node->type)) {
-            if (!nodeIs(expr, FloatLit)) {
+            if (isLiteralExpr(expr)) {
+                expr->floatLiteral.value = getEnumLiteralValue(expr);
+                expr->tag = astFloatLit;
+            }
+            else if (!nodeIs(expr, FloatLit)) {
                 expr->floatLiteral.value = (f64)integerLiteralValue(expr);
                 expr->tag = astFloatLit;
             }

@@ -84,6 +84,7 @@ AstNode *makeDefaultValue(MemPool *pool, const Type *type, FileLoc *loc);
 bool transformToTruthyOperator(AstVisitor *visitor, AstNode *node);
 bool transformToAwaitOperator(AstVisitor *visitor, AstNode *node);
 bool transformToDerefOperator(AstVisitor *visitor, AstNode *node);
+bool transformToComplOperator(AstVisitor *visitor, AstNode *node);
 bool transformOptionalType(AstVisitor *visitor,
                            AstNode *node,
                            const Type *type);

@@ -113,6 +113,13 @@ pub class Vector[T] {
         _data.[index] = &&value
     }
 
+    func swap(a: i32, b: i32) {
+        assert!(a < _size && b < _size)
+        var tmp = &&_data.[a];
+        _data.[a] = &&_data.[b];
+        _data.[b] = &&tmp;
+    }
+
     @inline
     func back() {
         assert!(_size > 0)

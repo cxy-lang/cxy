@@ -79,7 +79,19 @@ static const Type *checkPrefixExpr(AstVisitor *visitor,
         }
         break;
     case opCompl:
-        if (!isIntegerType(operand)) {
+        if (isClassOrStructType(operand)) {
+            if (transformToComplOperator(visitor, node)) {
+                operand = node->type;
+            }
+            else {
+                logError(ctx->L,
+                         &node->unaryExpr.operand->loc,
+                         "struct '{t}' does not implement `compl` operator",
+                         (FormatArg[]){{.t = operand}});
+                operand = ERROR_TYPE(ctx);
+            }
+        }
+        else if (!isIntegerType(operand)) {
             logError(ctx->L,
                      &node->unaryExpr.operand->loc,
                      "prefix expression '{s}' no supported on type '{t}'",

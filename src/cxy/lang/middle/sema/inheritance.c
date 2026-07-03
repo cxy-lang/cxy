@@ -191,6 +191,25 @@ static void inheritanceChainBuildVTableType(TypingContext *ctx,
                 member,
                 NULL));
     }
+
+    AstNode *vTableMember = getVTableMember(node);
+    if (hasFlag(vTableMember, VTable)) {
+        AstNode *decl = getTypeDecl(stripPointer(vTableMember->type));
+        if (decl != NULL) {
+            member = decl->structDecl.members->next;
+            AstNode *expr =
+                vTableMember->structField.value->unaryExpr.operand->ident
+                    .resolvesTo->varDecl.init->structExpr.fields->next;
+            for (; member; member = member->next) {
+                AstNode *field = vTableMembersFind(ctx, members->first, member);
+                if (field != NULL)
+                    continue;
+                insertAstNode(members, deepCloneAstNode(ctx->pool, member));
+                insertAstNode(init, deepCloneAstNode(ctx->pool, expr));
+                expr = expr->next;
+            }
+        }
+    }
 }
 
 AstNode *inheritanceBuildVTableType(AstVisitor *visitor, AstNode *node)

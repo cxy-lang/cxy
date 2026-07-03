@@ -497,6 +497,31 @@ bool transformToTruthyOperator(AstVisitor *visitor, AstNode *node)
     return typeIs(type, Primitive);
 }
 
+bool transformToComplOperator(AstVisitor *visitor, AstNode *node)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    AstNode *operand = node->unaryExpr.operand;
+    const Type *type = operand->type ?: checkType(visitor, operand);
+    type = stripReference(unwrapType(type, NULL));
+    if (!isClassOrStructType(type))
+        return false;
+
+    do {
+        const Type *member = findMemberInType(type, S_Compl);
+        if (member != NULL)
+            break;
+        type = getTypeBase(type);
+    } while (type);
+
+    transformToMemberCallExpr(visitor,
+                              node,
+                              transformRValueToLValue(visitor, operand),
+                              S_Compl,
+                              NULL);
+    type = checkType(visitor, node);
+    return !typeIs(type, Error);
+}
+
 bool transformToAwaitOperator(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);

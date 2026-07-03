@@ -503,11 +503,12 @@ static inline AstNode *wrapLiteralWithSuffix(Parser *P,
     if (isPrimitiveTypeTag(suffixTok->tag)) {
         // Handle primitive type keywords like i64, u32, f32, etc.
         // Convert directly to CastExpr
-        AstNode *type = newAstNode(
-            P,
-            suffixTok,
-            &(AstNode){.tag = astPrimitiveType,
-                       .primitiveType.id = tokenToPrimitiveTypeId(suffixTok->tag)});
+        AstNode *type =
+            newAstNode(P,
+                       suffixTok,
+                       &(AstNode){.tag = astPrimitiveType,
+                                  .primitiveType.id =
+                                      tokenToPrimitiveTypeId(suffixTok->tag)});
         advance(P);
         return newAstNode(
             P,
@@ -520,22 +521,22 @@ static inline AstNode *wrapLiteralWithSuffix(Parser *P,
         suffixTok = advance(P);
         size_t start = suffixTok->fileLoc.begin.byteOffset;
         size_t len = suffixTok->fileLoc.end.byteOffset - start;
-        cstring suffix = makeStringSized(P->strPool,
-                                         suffixTok->buffer->fileData + start,
-                                         len);
+        cstring suffix = makeStringSized(
+            P->strPool, suffixTok->buffer->fileData + start, len);
 
         // Special handling for string literals with .s or .S suffix
         if (isStringLiteral && len == 1) {
             const char c = suffixTok->buffer->fileData[start];
             if (c == 's') {
-                suffix = S___string;  // __string type
+                suffix = S___string; // __string type
             }
             else if (c == 'S') {
-                suffix = S_String;  // String type
+                suffix = S_String; // String type
             }
         }
 
-        AstNode *callee = makePath(P->memPool, &suffixTok->fileLoc, suffix, flgNone, NULL);
+        AstNode *callee =
+            makePath(P->memPool, &suffixTok->fileLoc, suffix, flgNone, NULL);
         return newAstNode(
             P,
             suffixTok,
@@ -543,8 +544,10 @@ static inline AstNode *wrapLiteralWithSuffix(Parser *P,
                        .callExpr = {.callee = callee, .args = literalNode}});
     }
     else {
-        parserError(P, &suffixTok->fileLoc,
-                   "expected identifier or type as literal suffix", NULL);
+        parserError(P,
+                    &suffixTok->fileLoc,
+                    "expected identifier or type as literal suffix",
+                    NULL);
         return literalNode;
     }
 }
@@ -555,10 +558,11 @@ static inline AstNode *parseBool(Parser *P)
     if (tok == NULL) {
         reportUnexpectedToken(P, "bool literals i.e 'true'/'false'");
     }
-    AstNode *node = newAstNode(P,
-                      tok,
-                      &(AstNode){.tag = astBoolLit,
-                                 .boolLiteral.value = tok->tag == tokTrue});
+    AstNode *node =
+        newAstNode(P,
+                   tok,
+                   &(AstNode){.tag = astBoolLit,
+                              .boolLiteral.value = tok->tag == tokTrue});
     return wrapLiteralWithSuffix(P, node, &tok->fileLoc, false);
 }
 
@@ -2036,15 +2040,14 @@ static AstNode *attribute(Parser *P)
         const char *actionName = getTokenString(P, &actionTok, false);
 
         // Return plugin attribute: name=action, plugin=plugin_name
-        return newAstNode(
-            P,
-            &tok,
-            &(AstNode){.tag = astAttr,
-                       .attr = {.name = actionName,
-                                .plugin = name,  // Plugin name
-                                .args = NULL,
-                                .count = 0,
-                                .kvpArgs = false}});
+        return newAstNode(P,
+                          &tok,
+                          &(AstNode){.tag = astAttr,
+                                     .attr = {.name = actionName,
+                                              .plugin = name, // Plugin name
+                                              .args = NULL,
+                                              .count = 0,
+                                              .kvpArgs = false}});
     }
 
     // Regular attribute parsing
@@ -2119,12 +2122,13 @@ static AstNode *attribute(Parser *P)
         consume0(P, tokRParen);
     }
 
-    return newAstNode(
-        P,
-        &tok,
-        &(AstNode){
-            .tag = astAttr,
-            .attr = {.name = name, .args = args.first, .kvpArgs = isKvp, .plugin = NULL}});
+    return newAstNode(P,
+                      &tok,
+                      &(AstNode){.tag = astAttr,
+                                 .attr = {.name = name,
+                                          .args = args.first,
+                                          .kvpArgs = isKvp,
+                                          .plugin = NULL}});
 }
 
 #ifndef CXY_PLUGIN_LIB
@@ -2137,11 +2141,11 @@ static AstNode *invokePluginActionsOnEntity(Parser *P, AstNode *entity)
     AstNodeList newAttrs = {};
 
     // Process each attribute - advance iterator before modifying current node
-    for (AstNode *attr = entity->attrs; attr; ) {
+    for (AstNode *attr = entity->attrs; attr;) {
         AstNode *current = attr;
-        attr = attr->next;      // Advance before modifying
-        current->next = NULL;   // Isolate current node
-        
+        attr = attr->next;    // Advance before modifying
+        current->next = NULL; // Isolate current node
+
         if (current->attr.plugin != NULL) {
             // This is a plugin attribute
             cstring pluginName = current->attr.plugin;
@@ -2166,12 +2170,14 @@ static AstNode *invokePluginActionsOnEntity(Parser *P, AstNode *entity)
             }
 
             // Invoke action with entity as argument
-            AstNode *actionResult = invokeCxyPluginAction(plugin, actionName, result, NULL);
+            AstNode *actionResult =
+                invokeCxyPluginAction(plugin, actionName, result, result);
             if (actionResult == NULL) {
-                parserError(P,
-                            &current->loc,
-                            "plugin '{s}' action '{s}' failed",
-                            (FormatArg[]){{.s = pluginName}, {.s = actionName}});
+                parserError(
+                    P,
+                    &current->loc,
+                    "plugin '{s}' action '{s}' failed",
+                    (FormatArg[]){{.s = pluginName}, {.s = actionName}});
                 return entity; // Keep original on error
             }
             result = actionResult;
@@ -2200,7 +2206,8 @@ static AstNode *attributes(Parser *P)
 
         if (match(P, tokLBracket)) {
             // @[attr1, attr2] syntax
-            attrs = parseAtLeastOne(P, "attribute", tokRBracket, tokComma, attribute);
+            attrs = parseAtLeastOne(
+                P, "attribute", tokRBracket, tokComma, attribute);
             consume0(P, tokRBracket);
         }
         else {
@@ -2553,6 +2560,9 @@ static OperatorOverload operatorOverload(Parser *P)
             break;
         case tokAs:
             op = (OperatorOverload){.f = opCast, .s = S_Cast};
+            break;
+        case tokBNot:
+            op = (OperatorOverload){.f = opCompl, .s = S_Compl};
             break;
 #define f(O, PP, T, S, N)                                                      \
     case tok##T:                                                               \
@@ -3668,11 +3678,12 @@ static AstNode *enumOption(Parser *P)
     if (match(P, tokAssign)) {
         value = expression(P, false);
     }
-    AstNode *option = newAstNode(P,
-                      &tok,
-                      &(AstNode){.tag = astEnumOptionDecl,
-                                 .attrs = attrs,
-                                 .enumOption = {.name = name, .value = value}});
+    AstNode *option =
+        newAstNode(P,
+                   &tok,
+                   &(AstNode){.tag = astEnumOptionDecl,
+                              .attrs = attrs,
+                              .enumOption = {.name = name, .value = value}});
 #ifndef CXY_PLUGIN_LIB
     // Invoke plugin actions on the parsed enum option
     option = invokePluginActionsOnEntity(P, option);
