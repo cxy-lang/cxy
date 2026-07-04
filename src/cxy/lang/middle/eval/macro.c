@@ -1750,6 +1750,122 @@ static AstNode *makePointerOfNode(AstVisitor *visitor,
     return args;
 }
 
+static AstNode *makeClzNode(AstVisitor *visitor,
+                            const AstNode *node,
+                            AstNode *args)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (!validateMacroArgumentCount(ctx, &node->loc, args, 1))
+        return NULL;
+
+    if (!evaluate(visitor, args))
+        return NULL;
+
+    if (!nodeIs(args, IntegerLit)) {
+        logError(ctx->L,
+                 &args->loc,
+                 "clz! requires an integer literal argument",
+                 NULL);
+        return NULL;
+    }
+
+    u64 value = integerLiteralValue(args);
+    int result;
+    if (value == 0) {
+        result = 64;  // All bits are leading zeros for 64-bit
+    }
+    else {
+        result = __builtin_clzll(value);
+    }
+
+    return makeIntegerLiteral(
+        ctx->pool, &node->loc, result, NULL, getPrimitiveType(ctx->types, prtI32));
+}
+
+static AstNode *makeCtzNode(AstVisitor *visitor,
+                            const AstNode *node,
+                            AstNode *args)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (!validateMacroArgumentCount(ctx, &node->loc, args, 1))
+        return NULL;
+
+    if (!evaluate(visitor, args))
+        return NULL;
+
+    if (!nodeIs(args, IntegerLit)) {
+        logError(ctx->L,
+                 &args->loc,
+                 "ctz! requires an integer literal argument",
+                 NULL);
+        return NULL;
+    }
+
+    u64 value = integerLiteralValue(args);
+    int result;
+    if (value == 0) {
+        result = 64;  // All bits are trailing zeros for 64-bit
+    }
+    else {
+        result = __builtin_ctzll(value);
+    }
+
+    return makeIntegerLiteral(
+        ctx->pool, &node->loc, result, NULL, getPrimitiveType(ctx->types, prtI32));
+}
+
+static AstNode *makePopcountNode(AstVisitor *visitor,
+                                 const AstNode *node,
+                                 AstNode *args)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (!validateMacroArgumentCount(ctx, &node->loc, args, 1))
+        return NULL;
+
+    if (!evaluate(visitor, args))
+        return NULL;
+
+    if (!nodeIs(args, IntegerLit)) {
+        logError(ctx->L,
+                 &args->loc,
+                 "popcount! requires an integer literal argument",
+                 NULL);
+        return NULL;
+    }
+
+    u64 value = integerLiteralValue(args);
+    int result = __builtin_popcountll(value);
+
+    return makeIntegerLiteral(
+        ctx->pool, &node->loc, result, NULL, getPrimitiveType(ctx->types, prtI32));
+}
+
+static AstNode *makeParityNode(AstVisitor *visitor,
+                               const AstNode *node,
+                               AstNode *args)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (!validateMacroArgumentCount(ctx, &node->loc, args, 1))
+        return NULL;
+
+    if (!evaluate(visitor, args))
+        return NULL;
+
+    if (!nodeIs(args, IntegerLit)) {
+        logError(ctx->L,
+                 &args->loc,
+                 "parity! requires an integer literal argument",
+                 NULL);
+        return NULL;
+    }
+
+    u64 value = integerLiteralValue(args);
+    int result = __builtin_parityll(value);
+
+    return makeIntegerLiteral(
+        ctx->pool, &node->loc, result, NULL, getPrimitiveType(ctx->types, prtI32));
+}
+
 static int compareBuiltinMacros(const void *lhs, const void *rhs)
 {
     return strcmp(((BuiltinMacro *)lhs)->name, ((BuiltinMacro *)rhs)->name);
@@ -1768,8 +1884,10 @@ static const BuiltinMacro builtinMacros[] = {
     {.name = "ast_list_add", actionAstListAdd},
     {.name = "ast_paste", makeAstPasteNode},
     {.name = "base_of", makeBaseOfNode},
+    {.name = "clz", makeClzNode},
     {.name = "column", makeColumnNumberNode},
     {.name = "cstr", makeCstrNode},
+    {.name = "ctz", makeCtzNode},
     {.name = "data", makeDataNode},
     {.name = "destructor", makeDestructorNode},
     {.name = "error", makeAstLogErrorNode},
@@ -1797,6 +1915,8 @@ static const BuiltinMacro builtinMacros[] = {
     {.name = "mk_struct_expr", makeAstStructExprNode},
     {.name = "mk_tuple_expr", makeAstTupleExprNode},
     {.name = "offset", makeOffsetNumberNode},
+    {.name = "parity", makeParityNode},
+    {.name = "popcount", makePopcountNode},
     {.name = "ptroff", makePointerOfNode},
     {.name = "require", makeRequireNode},
     {.name = "select", makeSelectNode},
