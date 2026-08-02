@@ -1021,41 +1021,13 @@ static AstNode *prefix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
                                                    .isPrefix = true}});
     }
 
-    AstNode *un = newAstNode(
+    return newAstNode(
         P,
         &tok,
         &(AstNode){.tag = astUnaryExpr,
                    .unaryExpr = {.operand = operand,
                                  .op = tokenToUnaryOperator(tok.tag),
                                  .isPrefix = true}});
-
-    /* Re-associate casts/typed expressions so prefix unary binds tighter than
-       postfix casts. If operand is a cast/typed node produced by postfixCast()
-       (e.g. "a as T"), transform unary(cast(a)) -> cast(unary(a)). This is a
-       localized fix that preserves existing postfix parsing while correcting
-       precedence for cases like "*a as u32" to become "(*a) as u32". */
-    if (nodeIs(operand, CastExpr)) {
-        AstNode *cast = operand;
-        AstNode *inner = cast->castExpr.expr;
-        if (inner) {
-            /* unary now applies to inner */
-            un->unaryExpr.operand = inner;
-            /* cast now wraps the unary */
-            cast->castExpr.expr = un;
-            return cast;
-        }
-    }
-    if (nodeIs(operand, TypedExpr)) {
-        AstNode *typed = operand;
-        AstNode *inner = typed->typedExpr.expr;
-        if (inner) {
-            un->unaryExpr.operand = inner;
-            typed->typedExpr.expr = un;
-            return typed;
-        }
-    }
-
-    return un;
 }
 
 static AstNode *assign(Parser *P, AstNode *(parsePrimary)(Parser *, bool));
