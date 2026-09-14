@@ -1,0 +1,34 @@
+import { WebSocketClient, WebSocket } from "stdlib/ws.cxy"
+
+struct ClientContext {
+    count: i64 = 0
+
+    func onOpen(ws: &WebSocket[ClientContext]): bool => {
+        println("[Cxy Client] Connected! Sending message...")
+        ws.send("Hello from Cxy WebSocketClient!") catch {
+            println("Send failed: ", ex!.what())
+        }
+        return true
+    }
+
+    func onMessage(ws: &WebSocket[ClientContext], msg: __string): void => {
+        println("[Cxy Client] Received: ", msg)
+        count++
+        if (count < 3) {
+            ws.send("Client ping #{count}".s) catch discard
+        } else {
+            println("[Cxy Client] Done, closing...")
+            ws.close(1000, "Done") catch discard
+        }
+    }
+
+    func onClose(@unused ws: &WebSocket[ClientContext], code: u16, reason: __string): void => {
+        println("[Cxy Client] Closed: code = ", code, " reason = ", reason)
+    }
+}
+
+func main(): !void {
+    var client = WebSocketClient[ClientContext].connect("ws://127.0.0.1:8004/wss", ClientContext{})
+    println("WebSocketClient connected!")
+    client.start()
+}

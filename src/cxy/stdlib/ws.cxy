@@ -1,11 +1,15 @@
 module ws
 
-import { TcpSocket } from "./tcp.cxy"
+import { TcpSocket, tcpConnect } from "./tcp.cxy"
+import { getRemoteAddress, Socket } from "./net.cxy"
 import { Upgrade, Request, Response, Status } from "./http.cxy"
+import { Session } from "./fetch.cxy"
+import { Method } from "./http.cxy"
 import { SHA1, SHA1Digest } from "./crypto.cxy"
 import { encodeBuffer } from "./base64.cxy"
 import { htons, ntohs, htonll, ntohll } from "./endian.cxy"
 
+import "openssl/rand.h" as OpenSSLRand
 import "./log.cxy"
 
 const WS_MAGIC_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -30,40 +34,68 @@ pub func computeAcceptHeader(key: __string): String {
     return digest.b64()
 }
 
-func sendFrame(sock: &TcpSocket, opcode: Opcode, data: ^const void, size: u64): !void {
-    var header: [u8, 10] = []
+func sendFrame(sock: &Socket, opcode: Opcode, data: ^const void, size: u64, mask: bool = false): !void {
+    var header: [u8, 14] = []
     var op = <u8>opcode
     header.[0] = 0x80.u8 | (op & 0x0F.u8)
     var headerLen = 2.u64
+    var maskBit = mask ? 0x80.u8 : 0x00.u8
+
     if size <= 125 {
-        header.[1] = <u8>size
+        header.[1] = maskBit | <u8>size
     }
     else if size <= 65535 {
-        header.[1] = 126.u8
+        header.[1] = maskBit | 126.u8
         var len16 = htons(<u16>size)
         memcpy(ptrof header.[2], ptrof len16, 2)
         headerLen = 4
     }
     else {
-        header.[1] = 127.u8
+        header.[1] = maskBit | 127.u8
         var len64 = htonll(size)
         memcpy(ptrof header.[2], ptrof len64, 8)
         headerLen = 10
     }
 
-    var sent = sock.sendBuffer(ptrof header.[0], headerLen)
-    if !sent || *sent != headerLen {
-        raise WebSocketError(String("Failed to send frame header"))
+    if mask {
+        var maskKey: [u8, 4] = []
+        OpenSSLRand.RAND_bytes(ptrof maskKey.[0], 4)
+        memcpy(ptrof header.[headerLen], ptrof maskKey.[0], 4)
+        headerLen += 4
+
+        var sent = sock.sendBuffer(ptrof header.[0], headerLen)
+        if !sent || *sent != headerLen {
+            raise WebSocketError(String("Failed to send frame header"))
+        }
+
+        if size > 0 && data != null {
+            var maskedBuf: ^u8 = malloc(size) !: ^u8
+            defer free(maskedBuf !: ^void)
+            var src = data !: ^const u8
+            for (var i: 0.u64..size) {
+                maskedBuf.[i] = src.[i] ^ maskKey.[i % 4]
+            }
+            sent = sock.sendBuffer(maskedBuf !: ^const void, size)
+            if !sent || *sent != size {
+                raise WebSocketError(String("Failed to send frame payload"))
+            }
+        }
     }
-    if size > 0 && data != null {
-        sent = sock.sendBuffer(data, size)
-        if !sent || *sent != size {
-            raise WebSocketError(String("Failed to send frame payload"))
+    else {
+        var sent = sock.sendBuffer(ptrof header.[0], headerLen)
+        if !sent || *sent != headerLen {
+            raise WebSocketError(String("Failed to send frame header"))
+        }
+        if size > 0 && data != null {
+            sent = sock.sendBuffer(data, size)
+            if !sent || *sent != size {
+                raise WebSocketError(String("Failed to send frame payload"))
+            }
         }
     }
 }
 
-func readExact(sock: &TcpSocket, buf: ^void, size: u64): bool {
+func readExact(sock: &Socket, buf: ^void, size: u64): bool {
     var ptr = buf !: ^char
     var total = 0.u64
     while total < size {
@@ -77,13 +109,15 @@ func readExact(sock: &TcpSocket, buf: ^void, size: u64): bool {
 }
 
 pub class WebSocket[Context] {
-    - _sock: TcpSocket
-    - _context: &Context
-    - _closed: bool = false
+    _sock: Socket
+    _context: &Context
+    _closed: bool = false
+    _isClient: bool = false
 
-    func `init`(sock: TcpSocket, context: &Context) {
+    func `init`(sock: Socket, context: &Context, isClient: bool = false) {
         _sock = &&sock
         _context = context
+        _isClient = isClient
     }
 
     @[prop, inline]
@@ -97,32 +131,32 @@ pub class WebSocket[Context] {
 
     func send(msg: __string): !void {
         if _closed { return }
-        sendFrame(&_sock, Opcode.Text, msg.data(), msg.size())
+        sendFrame(&_sock, Opcode.Text, msg.data(), msg.size(), _isClient)
     }
 
     func send(msg: String): !void {
         if _closed { return }
-        sendFrame(&_sock, Opcode.Text, msg.data(), msg.size())
+        sendFrame(&_sock, Opcode.Text, msg.data(), msg.size(), _isClient)
     }
 
     func send(msg: string): !void {
         if _closed { return }
-        sendFrame(&_sock, Opcode.Text, msg !: ^const void, len!(msg))
+        sendFrame(&_sock, Opcode.Text, msg !: ^const void, len!(msg), _isClient)
     }
 
     func sendBinary(data: ^const void, size: u64): !void {
         if _closed { return }
-        sendFrame(&_sock, Opcode.Binary, data, size)
+        sendFrame(&_sock, Opcode.Binary, data, size, _isClient)
     }
 
     func ping(data: __string = "".s): !void {
         if _closed { return }
-        sendFrame(&_sock, Opcode.Ping, data.data(), data.size())
+        sendFrame(&_sock, Opcode.Ping, data.data(), data.size(), _isClient)
     }
 
     func pong(data: __string = "".s): !void {
         if _closed { return }
-        sendFrame(&_sock, Opcode.Pong, data.data(), data.size())
+        sendFrame(&_sock, Opcode.Pong, data.data(), data.size(), _isClient)
     }
 
     func close(code: u16 = 1000, reason: string = ""): !void {
@@ -136,13 +170,14 @@ pub class WebSocket[Context] {
         if reasonLen > 0 {
             memcpy(ptrof payload.[2], reason !: ^const void, reasonLen)
         }
-        sendFrame(&_sock, Opcode.Close, ptrof payload.[0], 2 + reasonLen) catch discard
+        sendFrame(&_sock, Opcode.Close, ptrof payload.[0], 2 + reasonLen, _isClient) catch discard
         _sock.close()
     }
 }
 
 pub class WebSocketServer[Context] : Upgrade {
-    _context:   Context
+    _context: Context
+
     func `init`(context: Context) {
         _context = &&context
     }
@@ -164,8 +199,14 @@ pub class WebSocketServer[Context] : Upgrade {
 
     @override
     func start(sock: TcpSocket): !void {
-        var client = WebSocket[Context](&&sock, &_context)
+        var client = WebSocket[Context](&&sock, &_context, false)
 
+        #if (has_member!(#Context, "onOpen", #func(_: &WebSocket[Context]) -> bool)) {
+            if !_context.onOpen(&client) {
+                client.close(1008, "Policy Violation")
+                return
+            }
+        }
         #if (has_member!(#Context, "onConnect", #func(_: &WebSocket[Context]) -> bool)) {
             if !_context.onConnect(&client) {
                 client.close(1008, "Policy Violation")
@@ -231,7 +272,7 @@ pub class WebSocketServer[Context] : Upgrade {
 
             switch op {
                 case Opcode.Ping => {
-                    sendFrame(client.socket(), Opcode.Pong, payload !: ^const void, payloadLen) catch discard
+                    sendFrame(client.socket(), Opcode.Pong, payload !: ^const void, payloadLen, false) catch discard
                 }
                 case Opcode.Pong => {}
                 case Opcode.Close => {
@@ -286,6 +327,246 @@ pub class WebSocketServer[Context] : Upgrade {
                 _context.onClose(client, 1006`u16, "Abnormal Closure".s)
             }
             client.close(1006) catch {
+                ERR!("Failed to close WebSocket: " << ex!.what())
+            }
+        }
+    }
+}
+
+pub class WebSocketClient[Context] {
+    _client: WebSocket[Context] = null
+    _context: Context
+
+    func `init`(context: Context) {
+        _context = &&context
+    }
+
+    func `init`() {
+        #if (!Context.isVoid) {
+            _context = Context{}
+        }
+    }
+
+    @[prop, inline]
+    func context() => &_context
+
+    @static
+    func connect(url: __string, context: Context = Context{}): !This {
+        var sessUrl: String = null
+        if (url.startswith("ws://".s)) {
+            sessUrl = String("http://")
+            sessUrl << url.substr(5)
+        }
+        else if (url.startswith("wss://".s)) {
+            sessUrl = "https://".S
+            sessUrl << url.substr(6)
+        }
+        else {
+            sessUrl = String(url)
+        }
+
+        var sess = Session.create(sessUrl.s())
+        var rawKey: [u8, 16] = []
+        OpenSSLRand.RAND_bytes(ptrof rawKey.[0], 16)
+        var keyStr = String()
+        encodeBuffer(&keyStr, ptrof rawKey.[0], 16)
+
+        var path = "/".s
+        var idx = sessUrl.find("://")
+        if (idx) {
+            var hostAndPath = sessUrl.substr(*idx + 3)
+            var slashIdx = hostAndPath.find("/".s)
+            if (slashIdx) {
+                path = hostAndPath.substr(*slashIdx)
+            }
+        }
+
+        sess.header("Upgrade".S, "websocket".S)
+        sess.header("Connection".S, "Upgrade".S)
+        sess.header("Sec-WebSocket-Key".S, keyStr)
+        sess.header("Sec-WebSocket-Version".S, "13".S)
+
+        println("WebSocketClient connecting to ", path)
+        var resp = sess.perform(Method.Get, path)
+        if (resp.status() != .SwitchingProtocols) {
+            raise WebSocketError(f"WebSocket handshake failed: {resp.statusCode()}")
+        }
+
+        var expectedAccept = computeAcceptHeader(keyStr.__str())
+        var acceptHeader = resp.header("Sec-WebSocket-Accept".S)
+        if (!acceptHeader || *acceptHeader != expectedAccept) {
+            raise WebSocketError("Invalid Sec-WebSocket-Accept received from server")
+        }
+
+        var sock = sess.takeSocket()
+        var clientInstance = This(&&context)
+        clientInstance._client = WebSocket[Context](sock, clientInstance.context(), true)
+
+        #if (has_member!(#Context, "onOpen", #func(_: &WebSocket[Context]) -> bool)) {
+            if !clientInstance._context.onOpen(clientInstance._client) {
+                clientInstance._client.close(1008, "Policy Violation")
+                return &&clientInstance
+            }
+        }
+        #if (has_member!(#Context, "onConnect", #func(_: &WebSocket[Context]) -> bool)) {
+            if !clientInstance._context.onConnect(clientInstance._client) {
+                clientInstance._client.close(1008, "Policy Violation")
+                return &&clientInstance
+            }
+        }
+
+        return &&clientInstance
+    }
+
+    func send(msg: __string): !void {
+        if _client != null {
+            _client.send(msg)
+        }
+    }
+
+    func send(msg: String): !void {
+        if _client != null {
+            _client.send(msg)
+        }
+    }
+
+    func send(msg: string): !void {
+        if _client != null {
+            _client.send(msg)
+        }
+    }
+
+    func sendBinary(data: ^const void, size: u64): !void {
+        if _client != null {
+            _client.sendBinary(data, size)
+        }
+    }
+
+    func ping(data: __string = "".s): !void {
+        if _client != null {
+            _client.ping(data)
+        }
+    }
+
+    func close(code: u16 = 1000, reason: string = ""): !void {
+        if _client != null {
+            _client.close(code, reason)
+        }
+    }
+
+    func start(): void {
+        if _client == null { return }
+        var msgBuf = String()
+        var curOpcode = Opcode.Continuation
+
+        while !_client.isClosed() && !!_client.socket() {
+            var hdr: [u8, 2] = []
+            if !readExact(_client.socket(), ptrof hdr.[0], 2) {
+                break
+            }
+
+            var fin = (hdr.[0] & 0x80.u8) != 0
+            var op = <Opcode>(hdr.[0] & 0x0F.u8)
+            var masked = (hdr.[1] & 0x80.u8) != 0
+            var payloadLen = <u64>(hdr.[1] & 0x7F.u8)
+
+            if payloadLen == 126 {
+                var lenBuf: [u8, 2] = []
+                if !readExact(_client.socket(), ptrof lenBuf.[0], 2) {
+                    break
+                }
+                payloadLen = <u64>ntohs(*(ptrof lenBuf.[0] !: ^u16))
+            }
+            else if payloadLen == 127 {
+                var lenBuf: [u8, 8] = []
+                if !readExact(_client.socket(), ptrof lenBuf.[0], 8) {
+                    break
+                }
+                payloadLen = ntohll(*(ptrof lenBuf.[0] !: ^u64))
+            }
+
+            var mask: [u8, 4] = []
+            if masked {
+                if !readExact(_client.socket(), ptrof mask.[0], 4) {
+                    break
+                }
+            }
+
+            var payload: ^char = null
+            if payloadLen > 0 {
+                msgBuf.reserve(payloadLen)
+                payload = msgBuf.data() as ^char
+                if !readExact(_client.socket(), payload !: ^void, payloadLen) {
+                    break
+                }
+
+                if masked {
+                    var p = payload !: ^u8
+                    for (var i: 0..payloadLen) {
+                        p.[i] = p.[i] ^ mask.[i % 4]
+                    }
+                }
+            }
+
+            switch op {
+                case Opcode.Ping => {
+                    sendFrame(_client.socket(), Opcode.Pong, payload !: ^const void, payloadLen, true) catch discard
+                }
+                case Opcode.Pong => {}
+                case Opcode.Close => {
+                    var code = 1000.u16
+                    @unused var reason = "".s
+                    if payloadLen >= 2 {
+                        code = ntohs(*(payload !: ^u16))
+                        if payloadLen > 2 {
+                            reason = __string(ptroff!(payload + 2) !: string, payloadLen - 2)
+                        }
+                    }
+                    #if (has_member!(#Context, "onClose", #func(_: &WebSocket[Context], _: u16, _: __string) -> void)) {
+                        _context.onClose(_client, code, reason)
+                    }
+                    _client.close(code) catch {
+                        ERR!("Failed to close WebSocket: " << ex!.what())
+                    }
+                    if payload != null {
+                        return
+                    }
+                }
+                case Opcode.Text, Opcode.Binary => {
+                    curOpcode = op
+                    if payloadLen > 0 {
+                        msgBuf.resize(payloadLen)
+                    }
+                }
+                case Opcode.Continuation => {
+                    if payloadLen > 0 {
+                        msgBuf.resize(msgBuf.size() + payloadLen)
+                    }
+                }
+                ... => {}
+            }
+
+            if fin && curOpcode != Opcode.Continuation {
+                if curOpcode == Opcode.Text {
+                    #if (has_member!(#Context, "onMessage", #func(_: &WebSocket[Context], _: __string) -> void)) {
+                        _context.onMessage(_client, msgBuf.__str())
+                    }
+                }
+                else if curOpcode == Opcode.Binary {
+                    #if (has_member!(#Context, "onBinary", #func(_: &WebSocket[Context], _: ^const void, _: u64) -> void)) {
+                        _context.onBinary(_client, msgBuf.data(), msgBuf.size())
+                    }
+                }
+                msgBuf.clear()
+                curOpcode = Opcode.Continuation
+            }
+        }
+
+        if !_client.isClosed() {
+            #if (has_member!(#Context, "onClose", #func(_: &WebSocket[Context], _: u16, _: __string) -> void)) {
+                _context.onClose(_client, 1006.u16, "Abnormal Closure".s)
+            }
+            _client.close(1006) catch {
                 ERR!("Failed to close WebSocket: " << ex!.what())
             }
         }

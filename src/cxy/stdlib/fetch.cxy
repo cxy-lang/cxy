@@ -414,6 +414,9 @@ pub class Response {
     @[inline, prop]
     const func statusCode() => _parser.status_code
 
+    @inline
+    const func status() => _parser.status_code as Status
+
     @[prop, inline]
     const func contentLength() => _parser.content_length
 
@@ -460,6 +463,10 @@ pub class Response {
 
     func feed(buf: ^const char, len: u64): bool {
         const ret = parser.llhttp_execute(_parser, buf !: ^const char, len)
+        if (ret == parser.llhttp_errno.HPE_PAUSED_UPGRADE) {
+            _isComplete = true
+            return true
+        }
         if (ret != parser.llhttp_errno.HPE_OK) {
             const s = parser.llhttp_errno_name(ret) !: string
             const reason = parser.llhttp_get_error_reason(_parser) !: string;
@@ -670,6 +677,12 @@ pub class Session {
         var addr = getRemoteAddress(hostStr.str(), port);
         TRC1!(f"Connected to host: '{proto}://{host}:{port}'")
         return This(proto, hostStr, port, &&addr)
+    }
+
+    func takeSocket(): Socket {
+        var sock = &&_sock
+        _sock = null
+        return &&sock
     }
 
     func resetConnection() {
