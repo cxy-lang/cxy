@@ -4,6 +4,7 @@ import { Value } from "stdlib/value.cxy"
 import "stdlib/base64.cxy"
 
 import test { Vector } from "stdlib/vector.cxy"
+import test { HashMap } from "stdlib/hash.cxy"
 
 pub class YamlSerializer {
     _output: &OutputStream
@@ -211,14 +212,19 @@ pub class YamlSerializer {
         #if Mm.isOptional {
             #{Mm = Mm.targetType}
         }
-        #const needsNewline = Mm.isStruct || Mm.isTuple ||
+        #const needsNewline = !Mm.isString && (Mm.isStruct || Mm.isTuple ||
                               Mm.isSlice || Mm.isArray ||
-                              Mm.`isVector
+                              Mm.`isVector || Mm.`isMap)
 
         if !item || !first {
             _writeIndent()
         }
-        _output << #{name} << ":"
+        #if jsonAttr && !!jsonAttr.[:name] {
+            _output << #{jsonAttr.[:name]} << ":"
+        }
+        else {
+            _output << #{name} << ":"
+        }
 
         #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
             // Base64 encode string fields with @json(b64: true)
@@ -262,7 +268,7 @@ pub class YamlSerializer {
                 }
             }
             else {
-                _serializeScalar(it)
+                _serializeScalar(__copy!(it))
             }
         }
         else #if (T.isOptional) {
@@ -338,6 +344,40 @@ pub class YamlSerializer {
                 toYaml[#{M}](&member, true)
             }
         }
+        else #if (T.annotations.[:isMap]) {
+            #const K = typeof!(T.KeyType)
+            #const V = typeof!(T.ValueType)
+            #const needsNewline = !V.isString && (V.isStruct || V.isTuple || V.isSlice || V.isArray ||
+                                  V.annotations.[:isVector] || V.annotations.[:isMap])
+
+            var first = true
+            for (const key, value: it) {
+                if (!first) {
+                    _output << '\n'
+                }
+                first = false
+                _writeIndent()
+
+                #if (K.isClass) {
+                    _serializeScalar(key.__str())
+                }
+                else {
+                    _serializeScalar(key)
+                }
+
+                _output << ":"
+                #if needsNewline {
+                    _output << '\n'
+                    _currentIndent += _indent
+                    toYaml[#{V}](&value)
+                    _currentIndent -= _indent
+                }
+                else {
+                    _output << " "
+                    toYaml[#{V}](&value)
+                }
+            }
+        }
         else #if (T.isClass && has_member!(#T, "toYaml", #const func(_: &OutputStream) -> void)) {
             it.toYaml(_output, true)
         }
@@ -378,6 +418,10 @@ test {
 
     struct List {
         items = Vector[User]()
+    }
+
+    struct Labels {
+        tags = HashMap[__string, __string]()
     }
 
     func toYaml[T](os: &OutputStream, it: &const T, @unused item: bool = false): !void {
@@ -544,6 +588,35 @@ test "toYaml - collections" {
   - name: Jane
     id: 25"""
     ok!(output == expected)
+}
+
+test "toYaml - map field" {
+    var labels = Labels{}
+    labels.tags.["env"] = "prod".s
+
+    var output = String()
+    toYaml(&output, &labels)
+    ok!(output.contains("tags:"))
+    ok!(output.contains("env: prod"))
+}
+
+test "toYaml - map root" {
+    var tags = HashMap[__string, __string]()
+    tags.["env"] = "prod".s
+    tags.["region"] = "us-east".s
+
+    var output = String()
+    toYaml(&output, &tags)
+    ok!(output.contains("env: prod"))
+    ok!(output.contains("region: us-east"))
+}
+
+test "toYaml - empty map field" {
+    var labels = Labels{}
+
+    var output = String()
+    toYaml(&output, &labels)
+    ok!(output.contains("tags:"))
 }
 
 test "Serializer - empty collections" {

@@ -647,6 +647,22 @@ static void visitIndexExpr(ConstAstVisitor *visitor, const AstNode *node)
         nodeToYaml(visitor, "index", node->indexExpr.index);
 }
 
+static void visitXformExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    YamlDumpContext *ctx = getConstAstVisitorContext(visitor);
+    nodeAddHeader(visitor, node);
+
+    nodeToYaml(visitor, "target", node->xFormExpr.target);
+    manyNodesToYaml(visitor, "arg", node->xFormExpr.arg);
+    nodeToYaml(visitor, "xform", node->xFormExpr.xform);
+    if (node->xFormExpr.cond)
+        nodeToYaml(visitor, "cond", node->xFormExpr.cond);
+    if (node->xFormExpr.isArray) {
+        emitMapKey(ctx, node, "arr");
+        emitBool(ctx, node, node->xFormExpr.isArray);
+    }
+}
+
 static void visitGenericParam(ConstAstVisitor *visitor, const AstNode *node)
 {
     YamlDumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -1095,6 +1111,7 @@ AstNode *dumpAstToYaml(CompilerDriver *driver, AstNode *node, FILE *file)
         [astNewExpr] = visitNewExpr,
         [astCastExpr] = visitCastExpr,
         [astIndexExpr] = visitIndexExpr,
+        [astXformExpr] = visitXformExpr,
         [astGenericParam] = visitGenericParam,
         [astGenericDecl] = visitGenericDecl,
         [astPathElem] = visitPathElement,

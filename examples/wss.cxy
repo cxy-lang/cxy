@@ -1,0 +1,33 @@
+import { WebSocketServer, WebSocket } from "stdlib/ws.cxy"
+import { Server,  Request, Response, Config } from "stdlib/http.cxy"
+import { Address } from "stdlib/net.cxy"
+
+struct MyContext {
+    count: i64
+    func `init`() => {}
+
+    func onOpen(@unused ws: &WebSocket[MyContext]): bool => {
+        println("onOpen: count = ", count)
+        return true
+    }
+
+    func onMessage(ws: &WebSocket[MyContext], msg: __string): void => {
+        println("onMessage: count = ", count, " msg = ", msg)
+        ws.send(msg) catch {
+            println("send failed: ", ex!.what())
+        }
+    }
+
+    func onClose(@unused ws: &WebSocket[MyContext], code: u16, reason: __string): void => {
+        println("onClose: count = ", count, " code = ", code, " reason = ", reason)
+    }
+}
+
+func main(): !void {
+    var wss = WebSocketServer[MyContext](MyContext())
+    var server = Server[](Config{address: Address("0.0.0.0", 8004)});
+    server("GET /wss", (req: &const Request, resp: &Response) => {
+        wss.upgrade(req, resp)
+    })
+    server.start()
+}

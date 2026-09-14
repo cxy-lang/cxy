@@ -181,9 +181,9 @@ void bindPath(AstVisitor *visitor, AstNode *node)
     if (!base->pathElement.isKeyword) {
         AstNode *resolved =
             hasFlag(base, Module)
-                ? ( base->pathElement.resolvesTo ?:
-                    findSymbolInRoot(ctx->env, ctx->L, base->_name, &base->loc)
-                   )
+                ? (base->pathElement.resolvesTo
+                       ?: findSymbolInRoot(
+                              ctx->env, ctx->L, base->_name, &base->loc))
                 : resolvePathBaseUpChain(visitor, node);
         if (resolved == NULL)
             return;
@@ -485,12 +485,18 @@ void bindStructField(AstVisitor *visitor, AstNode *node)
 void bindStructDecl(AstVisitor *visitor, AstNode *node)
 {
     BindContext *ctx = getAstVisitorContext(visitor);
+    AstNode *annotation = node->classDecl.annotations;
 
     pushScope(ctx->env, node);
     defineSymbol(ctx->env, ctx->L, S_This, node);
 
     if (node->structDecl.base) {
         bindInheritBaseFields(visitor, node);
+    }
+
+    for (; annotation; annotation = annotation->next) {
+        // Bind annotation
+        astVisit(visitor, annotation->annotation.value);
     }
 
     AstNode *member = node->structDecl.members;
@@ -526,6 +532,7 @@ void bindClassDecl(AstVisitor *visitor, AstNode *node)
 {
     BindContext *ctx = getAstVisitorContext(visitor);
     AstNode *member = node->classDecl.members;
+    AstNode *annotation = node->classDecl.annotations;
 
     if (nodeIs(node, ClassDecl)) {
         astVisit(visitor, node->classDecl.base);
@@ -534,6 +541,11 @@ void bindClassDecl(AstVisitor *visitor, AstNode *node)
 
     pushScope(ctx->env, node);
     defineSymbol(ctx->env, ctx->L, S_This, node);
+
+    for (; annotation; annotation = annotation->next) {
+        // Bind annotation
+        astVisit(visitor, annotation->annotation.value);
+    }
 
     for (; member; member = member->next) {
         if (isCallableDecl(member)) {
@@ -799,6 +811,19 @@ void bindMemberExpr(AstVisitor *visitor, AstNode *node)
         astVisitFallbackVisitAll(visitor, member);
 }
 
+void bindXformExpr(AstVisitor *visitor, AstNode *node)
+{
+    BindContext *ctx = getAstVisitorContext(visitor);
+    astVisit(visitor, node->xFormExpr.target);
+    pushScope(ctx->env, node);
+    AstNode *v = node->xFormExpr.arg;
+    defineSymbol(ctx->env, ctx->L, v->varDecl.name, v);
+    if (node->xFormExpr.cond)
+        astVisit(visitor, node->xFormExpr.cond);
+    astVisit(visitor, node->xFormExpr.xform);
+    popScope(ctx->env);
+}
+
 void bindProgram(AstVisitor *visitor, AstNode *node)
 {
     BindContext *ctx = getAstVisitorContext(visitor);
@@ -871,7 +896,8 @@ void bindAstPhase2(CompilerDriver *driver, Env *env, AstNode *node)
         [astCaseStmt] = bindCaseStmt,
         [astMacroCallExpr] = bindMacroCallExpr,
         [astCallExpr] = bindCallExpr,
-        [astMemberExpr] = bindMemberExpr
+        [astMemberExpr] = bindMemberExpr,
+        [astXformExpr]  = bindXformExpr,
     }, .fallback = astVisitFallbackVisitAll, .dispatch = withParentScope);
     // clang-format on
 

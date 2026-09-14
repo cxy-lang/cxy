@@ -220,13 +220,12 @@ pub class Vector[T] {
         return null
     }
 
-    #if (!(T.isTuple || T.isUnion || T.isUnresolved || T.isPointer) &&
-         !((T.isStruct || T.isClass) || has_member!(#T, "op__eq", #const func(_: &const T) ->bool)))
-    {
+    #if (T.isLiteral || has_member!(#T, "op__eq", #const func(_: &const T) -> bool)) {
         const func indexOf(elem: T) : u64? {
             for (var i: 0.._size) {
-                if (elem == &_data.[i])
+                if elem == &_data.[i] {
                     return (<u64> i)
+                }
             }
             return null
         }
@@ -243,7 +242,13 @@ pub class Vector[T] {
             sb << ']'
         }
     }
-
+    const func clone() {
+        var vec = This(_size);
+        for i in 0.._size {
+            vec.push(_data.[i])
+        }
+        return vec
+    }
     @inline const func capacity() => _capacity
     @inline const func size() => _size
     @inline const func empty() => _size == 0

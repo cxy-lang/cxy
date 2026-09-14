@@ -48,6 +48,8 @@ pub enum Method : u32 {
     Options,
     @str("TRACE")
     Trace,
+    @str("PATCH")
+    Patch,
     Unknown
 }
 
@@ -56,6 +58,7 @@ pub enum Status : i32 {
     SwitchingProtocols          = 101,
     Ok                          = 200,
     Create                      = 201,
+    Created                     = 201,
     Accepted                    = 202,
     NonAuthoritative            = 203,
     NoContent                   = 204,
@@ -109,6 +112,8 @@ pub func methodFromString(method: __string) {
         case 'P' => {
             if (toupper(method.[1]) == 'O')
                 maybe = (Method.Post, "POST")
+            else if (toupper(method.[1]) == 'A')
+                maybe = (Method.Patch, "PATCH")
             else
                 maybe = (Method.Put, "PUT")
         }
@@ -236,6 +241,8 @@ pub func methodName(method: Method) {
             return "OPTIONS"
         case .Trace =>
             return "TRACE"
+        case .Patch =>
+            return "PATCH"
         default =>
             return "Invalid"
     }
@@ -283,6 +290,10 @@ pub struct SendTempFile {
 
 pub type ResponseChunk = string | __string | String | SendTempFile | SendFile
 
+pub class Upgrade {
+    virtual func start(sock: TcpSocket): !void
+}
+
 pub class Response {
     @static
     LOG_TAG = "RESPONSE";
@@ -290,6 +301,7 @@ pub class Response {
     - _headers = HeaderMap();
     - _chunks: Vector[ResponseChunk] = null;
     - _body: String = null;
+    - _upgrade: Upgrade = null;
     - _isComplete = false;
 
     func `init`() {
@@ -401,8 +413,19 @@ pub class Response {
     @inline
     const func header(name: String) => _headers.[&&name]
 
-    @[inline, prop]
+    @[prop, inline]
     const func isComplete() => _isComplete
+
+    @[prop, inline]
+    func isUpgrade() => _upgrade != null
+
+    @[prop, inline]
+    func upgrade() => _upgrade
+
+    func upgrade(up: Upgrade) {
+        _upgrade = &&up
+        end(Status.SwitchingProtocols)
+    }
 
     @inline
     func clear() {
@@ -412,6 +435,8 @@ pub class Response {
             _body = null
         if (_chunks != null)
             _chunks = null
+        if (_upgrade != null)
+            _upgrade = null
         _isComplete = false
     }
 }
@@ -480,6 +505,7 @@ pub class Request {
             case 5`u8 /* HTTP_CONNECT */ => return Method.Connect
             case 6`u8 /* HTTP_OPTIONS */ => return Method.Options
             case 7`u8 /* HTTP_TRACE */ => return Method.Trace
+            case 28`u8 /* HTTP_PATCH */ => return Method.Patch
             default => return Method.Unknown
         }
     }
@@ -500,7 +526,7 @@ pub class Request {
     const func isComplete() => _isComplete
 
     @[prop, inline]
-    const func body() => &_body
+    const func body() => (_body == null)? "".s : _body.__str()
 
     @[prop, inline]
     const func header(name: String) => _headers.[name]
@@ -543,6 +569,10 @@ pub class Request {
 
     func feed(buf: ^const char, len: u64) {
         const ret = parser.llhttp_execute(_parser, buf !: ^const char, len)
+        if (ret == parser.llhttp_errno.HPE_PAUSED_UPGRADE) {
+            _isComplete = true
+            return true
+        }
         if (ret != parser.llhttp_errno.HPE_OK) {
             const s = parser.llhttp_errno_name(ret) !: string
             const reason = parser.llhttp_get_error_reason(_parser) !: string;
@@ -689,6 +719,11 @@ pub class Request {
     @inline
     func qparams() {
         parseQParams()
+        return &_qparams
+    }
+
+    @inline
+    const func qparams() {
         return &_qparams
     }
 }
@@ -1162,6 +1197,13 @@ class Connection[Middlewares] {
         resp = Response()
         while (!_close && !!sock) {
             handleConnection()
+            if (resp.status() == .SwitchingProtocols && resp.upgrade() != null) {
+                var up = resp.upgrade()
+                up.start(&&sock) catch {
+                    ERR!("Failed to start upgrade: " << ex!.what())
+                }
+                break
+            }
             req.clear()
             resp.clear()
         }
@@ -1272,7 +1314,7 @@ class Connection[Middlewares] {
         var sos = BufferedSocketOutputStream(sock);
         var line0 = __string(statusText(resp.status()));
         sos << line0 << "\r\n"
-        if (resp.status() != .Ok && resp.empty() && resp.status() != .NoContent) {
+        if (resp.status() != .Ok && resp.empty() && resp.status() != .NoContent && resp.status() != .SwitchingProtocols) {
             resp.body() << line0.substr(9)
         }
 
@@ -1281,7 +1323,7 @@ class Connection[Middlewares] {
             _close = *conn == "Close"
         }
 
-        if (!_close && config.keepAliveTime > 0) {
+        if (!_close && !resp.header(CONNECTION_S) && config.keepAliveTime > 0) {
             sos << "Connection: Keep-Alive\r\n"
             sos << "Keep-Alive: " << config.keepAliveTime << "\r\n"
         }
@@ -1303,12 +1345,13 @@ class Connection[Middlewares] {
         if (!resp.header(DATE_S))
             sos << "Date: " << Time() << "\r\n"
 
-        if (!resp.header(CONTENT_LENGTH_S)) {
+        if (resp.status() != .SwitchingProtocols && !resp.header(CONTENT_LENGTH_S)) {
             sos << "Content-Length: " << resp.size() << "\r\n"
         }
 
         sos << "\r\n"
         resp.stream(&sos)
+        sos.sync()
     }
 }
 

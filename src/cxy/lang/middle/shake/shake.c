@@ -386,7 +386,8 @@ static void shakeVariableDecl(AstVisitor *visitor, AstNode *node)
     AstNode *names = node->varDecl.names, *init = node->varDecl.init,
             *type = node->varDecl.type, *name = names;
     bool isReference = findAttribute(node, S_transient) != NULL;
-
+    if (names == NULL)
+        return;
     if (names->next == NULL) {
         node->flags |= isReference ? flgReference : flgNone;
         node->varDecl.name = names->ident.value;
@@ -913,6 +914,30 @@ static void shakeGenericDecl(AstVisitor *visitor, AstNode *node)
     astVisit(visitor, decl);
 }
 
+static FunctionSignature *makeTestFunctionSignature(ShakeAstContext *ctx,
+                                                    const FileLoc *loc)
+{
+    return makeFunctionSignature(
+        ctx->pool,
+        &(FunctionSignature){
+            // Void|Exception
+            .ret = makeUnionDeclAst(
+                ctx->pool,
+                loc,
+                flgNone,
+                makeResolvedPath(
+                    ctx->pool,
+                    loc,
+                    S_Void,
+                    flgNone,
+                    NULL,
+                    makeResolvedPath(
+                        ctx->pool, loc, S_Exception, flgNone, NULL, NULL, NULL),
+                    NULL),
+                NULL,
+                NULL)});
+}
+
 static void shakeTestDecl(AstVisitor *visitor, AstNode *node)
 {
     ShakeAstContext *ctx = getAstVisitorContext(visitor);
@@ -922,10 +947,6 @@ static void shakeTestDecl(AstVisitor *visitor, AstNode *node)
     else
         ctx->lastTestId = idx;
 
-    char buf[64];
-    snprintf(buf, 64, "%" PRIu64, idx);
-    cstring name = makeStringConcat(ctx->strings, "test", buf);
-    cstring testName = node->testDecl.name ?: name;
     AstNode *body = node->testDecl.body;
     astVisit(visitor, body);
     csAssert0(nodeIs(body, BlockStmt));
@@ -933,43 +954,94 @@ static void shakeTestDecl(AstVisitor *visitor, AstNode *node)
     node->tag = astFuncDecl;
     node->flags |= flgTestContext;
     node->funcDecl.body = body;
-    node->funcDecl.name = name;
-    node->funcDecl.signature = makeFunctionSignature(
-        ctx->pool,
-        &(FunctionSignature){// Void|Exception
-                             .ret = makeUnionDeclAst(
-                                 ctx->pool,
-                                 &node->loc,
-                                 flgNone,
-                                 makeResolvedPath(ctx->pool,
-                                                  &node->loc,
-                                                  S_Void,
-                                                  flgNone,
-                                                  NULL,
-                                                  makeResolvedPath(ctx->pool,
-                                                                   &node->loc,
-                                                                   S_Exception,
-                                                                   flgNone,
-                                                                   NULL,
-                                                                   NULL,
-                                                                   NULL),
-                                                  NULL),
-                                 NULL,
-                                 NULL)});
-    if (!findAttribute(node, S_disabled)) {
+    node->funcDecl.signature = makeTestFunctionSignature(ctx, &node->loc);
+
+    if (findAttribute(node, S_setup)) {
+        if (ctx->testSetup != NULL) {
+            logError(ctx->L,
+                     &node->loc,
+                     "multiple test setup functions are not allowed",
+                     NULL);
+            return;
+        }
+
+        node->funcDecl.name = S_testSetup;
+        ctx->testSetup = makeTupleExpr(
+            ctx->pool,
+            &node->loc,
+            flgNone,
+            makeStringLiteral(ctx->pool,
+                              &node->loc,
+                              node->testDecl.name ?: S_testSetup,
+                              makeResolvedIdentifier(
+                                  ctx->pool,
+                                  &node->loc,
+                                  S_testSetup,
+                                  0,
+                                  node,
+                                  makeUnsignedIntegerLiteral(
+                                      ctx->pool, &node->loc, 0x1, NULL, NULL),
+                                  NULL),
+                              NULL),
+            NULL,
+            NULL);
+    }
+    else if (findAttribute(node, S_cleanup)) {
+        if (ctx->testCleanup != NULL) {
+            logError(ctx->L,
+                     &node->loc,
+                     "multiple test cleanup functions are not allowed",
+                     NULL);
+            return;
+        }
+
+        node->funcDecl.name = S_testCleanup;
+        ctx->testCleanup = makeTupleExpr(
+            ctx->pool,
+            &node->loc,
+            flgNone,
+            makeStringLiteral(ctx->pool,
+                              &node->loc,
+                              node->testDecl.name ?: S_testCleanup,
+                              makeResolvedIdentifier(
+                                  ctx->pool,
+                                  &node->loc,
+                                  S_testCleanup,
+                                  0,
+                                  node,
+                                  makeUnsignedIntegerLiteral(
+                                      ctx->pool, &node->loc, 0x2, NULL, NULL),
+                                  NULL),
+                              NULL),
+            NULL,
+            NULL);
+    }
+    else if (!findAttribute(node, S_disabled)) {
+        char buf[64];
+        snprintf(buf, 64, "%" PRIu64, idx);
+        cstring name = makeStringConcat(ctx->strings, "test", buf);
+        cstring testName = node->testDecl.name ?: name;
+
+        node->funcDecl.name = name;
         insertAstNode(
             &ctx->testCases,
             makeTupleExpr(
                 ctx->pool,
                 &node->loc,
                 flgNone,
-                makeStringLiteral(
-                    ctx->pool,
-                    &node->loc,
-                    testName,
-                    makeResolvedIdentifier(
-                        ctx->pool, &node->loc, name, 0, node, NULL, NULL),
-                    NULL),
+                makeStringLiteral(ctx->pool,
+                                  &node->loc,
+                                  testName,
+                                  makeResolvedIdentifier(
+                                      ctx->pool,
+                                      &node->loc,
+                                      name,
+                                      0,
+                                      node,
+                                      makeUnsignedIntegerLiteral(
+                                          ctx->pool, &node->loc, 0, NULL, NULL),
+                                      NULL),
+                                  NULL),
                 NULL,
                 NULL));
     }
@@ -1199,6 +1271,14 @@ static void withSavedStack(Visitor func, AstVisitor *visitor, AstNode *node)
 
 static bool buildTestsVariable(ShakeAstContext *ctx, AstNode *program)
 {
+    if (ctx->testSetup) {
+        insertAstNodeFront(&ctx->testCases, ctx->testSetup);
+    }
+
+    if (ctx->testCleanup) {
+        insertAstNode(&ctx->testCases, ctx->testCleanup);
+    }
+
     if (!ctx->testCases.first) {
         // there are no test cases to run
         return false;
@@ -1259,7 +1339,8 @@ AstNode *shakeAstNode(CompilerDriver *driver, AstNode *node)
     // clang-format on
 
     astVisit(&visitor, node);
-    if (!hasFlag(node, ImportedModule))
+    if (!hasFlag(node, ImportedModule)) {
         driver->hasTestCases = buildTestsVariable(&context, node);
+    }
     return node;
 }

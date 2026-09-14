@@ -44,7 +44,8 @@ struct Plugin;
     f(SpreadExpr)                           \
     f(BackendCall)                          \
     f(AliasExpr)                            \
-    f(UnionValueExpr)
+    f(UnionValueExpr)                       \
+    f(XformExpr)
 
 #define CXY_LANG_AST_STMT_TAGS(f)           \
     f(ExprStmt)                             \
@@ -386,10 +387,11 @@ struct AstNode {
         } xForm;
 
         struct {
-            AstNode *tuple;
-            AstNode *args;
+            AstNode *target;
+            AstNode *arg;
             AstNode *cond;
             AstNode *xform;
+            bool isArray;
         } xFormExpr;
 
         struct {
@@ -435,7 +437,8 @@ struct AstNode {
             AstNode *args;
             u32 count;
             bool kvpArgs;
-            cstring plugin;  // If set, this is a plugin attribute (@plugin::action)
+            cstring
+                plugin; // If set, this is a plugin attribute (@plugin::action)
         } attr;
 
         struct {
@@ -893,8 +896,8 @@ struct AstNode {
         } gep;
 
         struct {
-            AstNode *node;      // member list, first vararg, etc.
-            const Type *type;   // unwrapped, resolved, unthis type
+            AstNode *node;    // member list, first vararg, etc.
+            const Type *type; // unwrapped, resolved, unthis type
         } comptimeOnly;
     };
 };
@@ -1507,14 +1510,14 @@ AstNode *makeAstClosureCapture(MemPool *pool, AstNode *captured);
 AstNode *makeAstNop(MemPool *pool, const FileLoc *loc);
 
 AstNode *makeAstComptimeOnly(MemPool *pool,
-                              const FileLoc *loc,
-                              AstNode *node,
-                              const Type *type);
+                             const FileLoc *loc,
+                             AstNode *node,
+                             const Type *type);
 
 AstNode *makeAstComptimeIterable(MemPool *pool,
-                                  const FileLoc *loc,
-                                  AstNode *node,
-                                  const Type *type);
+                                 const FileLoc *loc,
+                                 AstNode *node,
+                                 const Type *type);
 
 AstNode *copyAstNode(MemPool *pool, const AstNode *node);
 
@@ -1619,6 +1622,8 @@ const AstNode *getParentScopeWithTagConst(const AstNode *node, AstTag tag);
 void insertAstNodeAfter(AstNode *before, AstNode *after);
 
 AstNode *insertAstNode(AstNodeList *list, AstNode *node);
+
+AstNode *insertAstNodeFront(AstNodeList *list, AstNode *node);
 
 void unlinkAstNode(AstNode **head, AstNode *prev, AstNode *node);
 

@@ -191,6 +191,7 @@ static bool compareUnionMembers(const UnionMember *left,
 
 static bool compareAstNodes(const AstNode *lhs, const AstNode *rhs)
 {
+
     if (lhs->tag != rhs->tag)
         return false;
     switch (lhs->tag) {

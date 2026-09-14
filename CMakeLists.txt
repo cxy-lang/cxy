@@ -406,6 +406,7 @@ set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/path.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/redis.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/ssl.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/table.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/tcp.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/thread.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/time.cxy

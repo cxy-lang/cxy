@@ -7,6 +7,7 @@ import "errno.h" as errno
 import "unistd.h" as unistd
 import "fcntl.h" as fcntl
 import "sys/wait.h" as syswait
+import "signal.h" as signal
 
 import "native/nos.h" as nos
 @__cc "native/nos.c"
@@ -352,10 +353,25 @@ pub class FileInputStream: InputStream {
     }
 
     @inline
-    func readAsync(buf: ^void, size: u64, timeout: u64 = 0): !u64 {
-        var mos = stackAlloc!(#MemoryOutputStream, buf, size);
-        readAsync(&mos, timeout)
-        return mos.size()
+    func readToBufferAsync(buf: ^void, size: u64, timeout: u64 = 0): !u64 {
+        var nread = 0.u64
+        var s = buf !: ^char
+        while {
+            var tmp = read(ptroff!(s + nread), (size-nread))
+            if (!tmp) {
+                if (errno! == EAGAIN!) {
+                    const ret = fdWaitRead(fd, timeout)
+                    if (ret != State.AE_READABLE)
+                        raise IOError(f"Waiting for file {fd} to be readable failed: {strerr()}")
+                    continue
+                }
+                raise IOError(f"reading from file {fd} failed: {strerr()}")
+            }
+
+            nread += *tmp
+            if (*tmp == 0 || nread == size)
+                return nread
+        }
     }
 
     @inline
@@ -572,6 +588,13 @@ pub struct Process {
             return WEXITSTATUS!(status)
         }
         return -1`i32
+    }
+
+    // Send a signal to the process, defaulting to SIGTERM (graceful
+    // termination). Pass SIGKILL! for a forceful kill.
+    func kill(sig: i32 = SIGTERM!): !void {
+        if (signal.kill(_pid, sig) != 0)
+            raise IOError(f"kill process {_pid} failed: {strerr()}")
     }
 
     func waitAsync(): !i32 {
@@ -809,3 +832,17 @@ pub func execute[T](
 }
 
 macro sh(cmd, ...env) module.execute(cmd!, varargs_def!(env!, {}))
+
+test "Process::kill terminates a running child process" {
+    var proc = execvp("sleep", ["sleep", "5", null]) catch {
+        return
+    }
+    ok!(!proc.isExited())
+
+    proc.kill() catch discard
+    var code = proc.wait() catch -1
+
+    ok!(proc.isExited())
+    // Killed by SIGTERM rather than exiting normally
+    ok!(code == -1)
+}

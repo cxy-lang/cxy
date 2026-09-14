@@ -120,10 +120,14 @@ pub class YamlParser {
             .Number, .True, .False, .Null => {
                 value = parseScalar()
             }
-            .Indent => {
+            .Indent, .IndentFlowArray => {
+                // IndentFlowArray (`[...]`) is a distinct token so we can
+                // recognize an empty array (`[]`) even when there's no
+                // item to produce a following Dash token.
+                var isFlowArray = currentToken() == .IndentFlowArray
                 advance()
                 // Look at current token to determine type
-                if currentToken() == .Dash {
+                if currentToken() == .Dash || isFlowArray {
                     value = parseArray()
                 } else {
                     value = parseObject(true)  // Nested object after Indent
@@ -134,9 +138,27 @@ pub class YamlParser {
                 value = parseArray()
             }
             .Newline => {
-                // Skip newline and parse the actual value
-                advance()
-                value = parseValue()
+                // A bare newline here means either a nested value follows
+                // (an indented block, or a same-level flow/block sequence
+                // dash) or there's nothing at all - e.g. "hello:\n" with no
+                // further indented content, or "hello:\nworld: 1\n" where
+                // "world" is a sibling key, not hello's value. In the latter
+                // case hello is implicitly null; leave the Newline token
+                // unconsumed so the enclosing object/array's own "what's
+                // next" handling still sees it.
+                if nextToken() == .Indent || nextToken() == .IndentFlowArray || nextToken() == .Dash {
+                    advance()
+                    value = parseValue()
+                } else {
+                    value = Value()
+                }
+            }
+            .EOF, .Dedent, .DedentFlowArray => {
+                // Key/item with no value at all, e.g. "hello:" at the very
+                // end of input, or an empty flow entry like "{a:}". Don't
+                // consume the token - the caller's own EOF/Dedent handling
+                // still needs to see it.
+                value = Value()
             }
             ... => {
                 raise YamlError("Unexpected token in parseValue", _lexer.line(), _lexer.column())
@@ -151,29 +173,46 @@ pub class YamlParser {
         return &&value
     }
 
+    // A plain (unquoted) scalar value can span multiple space-separated
+    // words on the same source line (e.g. `run: echo installing`). The
+    // lexer tokenizes word-by-word, so a real line break always shows up
+    // as an explicit Newline/Indent/Dedent/EOF token between words. That
+    // means if the token right after a scalar word is *another* scalar
+    // word token, they must have been separated only by whitespace on the
+    // same line, so we greedily merge them into a single string value.
+    @private
+    func _isScalarWordToken(tok: YamlToken): bool {
+        switch tok {
+            .String, .Number, .True, .False, .Null => return true
+            ... => return false
+        }
+    }
+
     func parseScalar(): !Value {
         switch currentToken() {
-            .String => {
-                var val = Value(&&current().1)
+            .String, .Number, .True, .False, .Null => {
+                var kind = currentToken()
+                var text = &&current().1
                 advance()
-                return &&val
-            }
-            .Number => {
-                var str = current().1.__str()
-                advance()
-                return Value(str.tof[f64]())
-            }
-            .True => {
-                advance()
-                return Value(true)
-            }
-            .False => {
-                advance()
-                return Value(false)
-            }
-            .Null => {
-                advance()
-                return Value()
+
+                var merged = false
+                while _isScalarWordToken(currentToken()) {
+                    merged = true
+                    text << " " << current().1
+                    advance()
+                }
+
+                if merged {
+                    return Value(&&text)
+                }
+
+                switch kind {
+                    .Number => { return Value(text.__str().tof[f64]()) }
+                    .True => { return Value(true) }
+                    .False => { return Value(false) }
+                    .Null => { return Value() }
+                    ... => { return Value(&&text) }
+                }
             }
             ... => {
                 raise YamlError("Expected scalar value", _lexer.line(), _lexer.column())
@@ -183,7 +222,7 @@ pub class YamlParser {
 
     func parseObject(isNested: bool = false, listItem: bool = false): !Value {
         var obj = Value.Object()
-        var firstIteration = true
+        var listItemIndented = false
 
         while currentToken() == .String {
             // Read key
@@ -217,33 +256,32 @@ pub class YamlParser {
                 var value = parseValue()
                 obj.[&&key] = &&value
             }
-            // Check what's next
-            if currentToken() == .Newline {
-                advance()
-                // If this is the first key after a dash, consume one Indent
-                if listItem {
-                    if firstIteration && currentToken() == .Indent {
-                        advance()
-                    }
-                    else if !firstIteration && currentToken() == .Dedent {
-                        advance()
-                    }
-                }
 
-                firstIteration = false
+            if currentToken() == .String {
                 continue
-            } else if currentToken() == .Dedent {
-                if isNested {
+            } else if currentToken() == .Newline {
+                advance()
+                if listItem && !listItemIndented && (currentToken() == .Indent || currentToken() == .IndentFlowArray) {
+                    listItemIndented = true
                     advance()
+                }
+                continue
+            } else if currentToken() == .Dedent || currentToken() == .DedentFlowArray {
+                if isNested || listItemIndented {
+                    advance()
+                    break
+                } else if listItem {
                     break
                 } else {
                     advance()
+                    if currentToken() == .Newline {
+                        advance()
+                    }
                     continue
                 }
             } else if currentToken() == .EOF {
                 break
             } else {
-                // Unexpected token
                 raise YamlError("Expected newline or dedent in object", _lexer.line(), _lexer.column())
             }
         }
@@ -269,9 +307,27 @@ pub class YamlParser {
             // Check what's next
             if currentToken() == .Newline {
                 advance()
+                if currentToken() == .Dedent || currentToken() == .DedentFlowArray {
+                    if currentToken() == .DedentFlowArray {
+                        advance()
+                        break
+                    }
+                    advance()
+                    if currentToken() == .Dash {
+                        continue
+                    }
+                    break
+                }
                 continue
-            } else if currentToken() == .Dedent {
+            } else if currentToken() == .Dedent || currentToken() == .DedentFlowArray {
+                if currentToken() == .DedentFlowArray {
+                    advance()
+                    break
+                }
                 advance()
+                if currentToken() == .Dash {
+                    continue
+                }
                 break
             } else if currentToken() == .EOF {
                 break
@@ -344,12 +400,293 @@ pub class YamlParser {
 }
 
 // Tests
+test "Parser - multi-key dash item followed by sibling content" {
+    var input = """env:
+  USER: software
+  NAME: crunch
+
+before:
+  steps:
+    - run: echo \"Setting up $USER with $NAME\"
+      name: Cat
+steps:
+  - name: install
+    env:
+      ID: install
+      NAME: special
+    run: echo $NAME
+  - name: test
+    run: echo $NAME
+"""
+    var parser = YamlParser(input)
+    var value = parser.parse()
+
+    ok!(value.isObject())
+
+    var env = value.["env"]
+    ok!(!!env && env&.isObject())
+    ok!(!!env&.get("USER") && env&.get("USER")&.asString() == "software")
+
+    var before = value.["before"]
+    ok!(!!before && before&.isObject())
+    var beforeSteps = before&.get("steps")
+    ok!(!!beforeSteps && beforeSteps&.isArray() && beforeSteps&.size() == 1)
+    var beforeStep0 = beforeSteps&.get(0)
+    ok!(!!beforeStep0 && beforeStep0&.isObject())
+    ok!(!!beforeStep0&.get("name") && beforeStep0&.get("name")&.asString() == "Cat")
+
+    var steps = value.["steps"]
+    ok!(!!steps && steps&.isArray() && steps&.size() == 2)
+
+    var step0 = steps&.get(0)
+    ok!(!!step0 && step0&.isObject())
+    ok!(!!step0&.get("name") && step0&.get("name")&.asString() == "install")
+    var step0Env = step0&.get("env")
+    ok!(!!step0Env && step0Env&.isObject())
+    ok!(!!step0&.get("run") && step0&.get("run")&.asString() == "echo $NAME")
+
+    var step1 = steps&.get(1)
+    ok!(!!step1 && step1&.isObject())
+    ok!(!!step1&.get("name") && step1&.get("name")&.asString() == "test")
+}
+
+test "Parser - multi-key dash item at top level followed by sibling key" {
+    var parser = YamlParser("steps:\n  - run: echo hi\n    name: Cat\nnext: value\n")
+    var value = parser.parse()
+
+    ok!(value.isObject())
+
+    var steps = value.["steps"]
+    ok!(!!steps && steps&.isArray() && steps&.size() == 1)
+    var item0 = steps&.get(0)
+    ok!(!!item0 && item0&.isObject())
+    ok!(!!item0&.get("run") && item0&.get("run")&.asString() == "echo hi")
+    ok!(!!item0&.get("name") && item0&.get("name")&.asString() == "Cat")
+
+    var next = value.["next"]
+    ok!(!!next && next&.isString() && next&.asString() == "value")
+}
+
+test "Parser - dash item with nested mapping value then sibling key" {
+    var input = """cleanup:
+    - run: echo $NAME
+    - env:
+        NAME: cleanup
+      run: echo \"Cleaning up from $NAME\"
+"""
+    var parser = YamlParser(input)
+    var value = parser.parse()
+
+    ok!(value.isObject())
+    var cleanup = value.["cleanup"]
+    ok!(!!cleanup && cleanup&.isArray() && cleanup&.size() == 2)
+
+    var item0 = cleanup&.get(0)
+    ok!(!!item0 && item0&.isObject())
+    ok!(!!item0&.get("run") && item0&.get("run")&.asString() == "echo $NAME")
+
+    var item1 = cleanup&.get(1)
+    ok!(!!item1 && item1&.isObject())
+    var item1Env = item1&.get("env")
+    ok!(!!item1Env && item1Env&.isObject())
+    ok!(!!item1Env&.get("NAME") && item1Env&.get("NAME")&.asString() == "cleanup")
+    ok!(!!item1&.get("run") && item1&.get("run")&.asString() == "echo Cleaning up from $NAME")
+}
+
+test "Parser - mixed single-key and multi-key dash items" {
+    var input = """items:
+  - name: install
+  - name: test
+    run: echo hi
+  - name: cleanup
+"""
+    var parser = YamlParser(input)
+    var value = parser.parse()
+
+    var items = value.["items"]
+    ok!(!!items && items&.isArray() && items&.size() == 3)
+
+    var item0 = items&.get(0)
+    ok!(!!item0&.get("name") && item0&.get("name")&.asString() == "install")
+
+    var item1 = items&.get(1)
+    ok!(!!item1&.get("name") && item1&.get("name")&.asString() == "test")
+    ok!(!!item1&.get("run") && item1&.get("run")&.asString() == "echo hi")
+
+    var item2 = items&.get(2)
+    ok!(!!item2&.get("name") && item2&.get("name")&.asString() == "cleanup")
+}
+
+test "Parser - dash item with three continuation keys" {
+    var input = """items:
+  - a: 1
+    b: 2
+    c: 3
+next: value
+"""
+    var parser = YamlParser(input)
+    var value = parser.parse()
+
+    var items = value.["items"]
+    ok!(!!items && items&.isArray() && items&.size() == 1)
+
+    var item0 = items&.get(0)
+    ok!(!!item0&.get("a") && item0&.get("a")&.asFloat() == 1)
+    ok!(!!item0&.get("b") && item0&.get("b")&.asFloat() == 2)
+    ok!(!!item0&.get("c") && item0&.get("c")&.asFloat() == 3)
+
+    var next = value.["next"]
+    ok!(!!next && next&.asString() == "value")
+}
+
+test "Parser - block scalar followed by sibling top-level keys" {
+    var input = """vcsScript: |
+  parameters:
+    SOURCE_DIR:
+      description: "The directory to copy from"
+    scripts:
+      clone: cp -rf ${SOURC_DIR} ${WORKSPACE_DIR}
+      head: echo latest
+
+parameters:
+  SOURCE_DIR: "/Users/dc/projects/mono-cxy/crunch/examples/test-project"
+
+rootDir: .cxy/crunch
+crunchFile: "crunch.yaml"
+"""
+    var parser = YamlParser(input)
+    var value = parser.parse()
+
+    ok!(value.isObject())
+
+    var vcsScript = value.["vcsScript"]
+    ok!(!!vcsScript && vcsScript&.isString())
+    ok!(!!vcsScript&.asString().find("parameters:"))
+
+    var parameters = value.["parameters"]
+    ok!(!!parameters && parameters&.isObject())
+    var sourceDir = parameters&.get("SOURCE_DIR")
+    ok!(!!sourceDir && sourceDir&.asString() == "/Users/dc/projects/mono-cxy/crunch/examples/test-project")
+
+    var rootDir = value.["rootDir"]
+    ok!(!!rootDir && rootDir&.asString() == ".cxy/crunch")
+
+    var crunchFile = value.["crunchFile"]
+    ok!(!!crunchFile && crunchFile&.asString() == "crunch.yaml")
+}
+
+test "Parser - block scalar followed by dedent to sibling key" {
+    var input = """outer:
+  script: |
+    line1
+    line2
+other: value
+"""
+    var parser = YamlParser(input)
+    var value = parser.parse()
+
+    var outer = value.["outer"]
+    ok!(!!outer && outer&.isObject())
+    var script = outer&.get("script")
+    ok!(!!script && script&.isString() && script&.asString() == "line1\nline2\n")
+
+    var other = value.["other"]
+    ok!(!!other && other&.isString() && other&.asString() == "value")
+}
+
 test "Parser - simple scalar" {
     var parser = YamlParser("hello")
     var value = parser.parse()
 
     ok!(value.isString())
     ok!(value.asString() == "hello")
+}
+
+test "Parser - empty input" {
+    var parser = YamlParser("")
+    var value = parser.parse()
+
+    ok!(value.isNull())
+}
+
+test "Parser - key with no value at end of input" {
+    var parser = YamlParser("hello:")
+    var value = parser.parse()
+
+    ok!(value.isObject())
+    var hello = value.["hello"]
+    ok!(!!hello && hello&.isNull())
+}
+
+test "Parser - key with no value followed by newline" {
+    var parser = YamlParser("hello:\n")
+    var value = parser.parse()
+
+    ok!(value.isObject())
+    var hello = value.["hello"]
+    ok!(!!hello && hello&.isNull())
+}
+
+test "Parser - key with no value followed by sibling key" {
+    var parser = YamlParser("hello:\nworld: foo\n")
+    var value = parser.parse()
+
+    ok!(value.isObject())
+    var hello = value.["hello"]
+    ok!(!!hello && hello&.isNull())
+
+    var world = value.["world"]
+    ok!(!!world && world&.isString() && world&.asString() == "foo")
+}
+
+test "Parser - flow mapping key with no value" {
+    var parser = YamlParser("a: {b:}")
+    var value = parser.parse()
+
+    var a = value.["a"]
+    ok!(!!a && a&.isObject())
+
+    var b = a&.get("b")
+    ok!(!!b && b&.isNull())
+}
+
+test "Parser - unquoted multi-word scalar value" {
+    var parser = YamlParser("run: echo installing")
+    var value = parser.parse()
+
+    ok!(value.isObject())
+    var run = value.["run"]
+    ok!(!!run && run&.isString() && run&.asString() == "echo installing")
+}
+
+test "Parser - unquoted multi-word scalar as list item" {
+    var parser = YamlParser("- echo installing\n- next step")
+    var value = parser.parse()
+
+    ok!(value.isArray())
+    ok!(value.size() == 2)
+
+    var item0 = value.[0]
+    ok!(!!item0 && item0&.isString() && item0&.asString() == "echo installing")
+
+    var item1 = value.[1]
+    ok!(!!item1 && item1&.isString() && item1&.asString() == "next step")
+}
+
+test "Parser - unquoted multi-word scalar with trailing comment" {
+    var parser = YamlParser("run: echo installing # comment")
+    var value = parser.parse()
+
+    var run = value.["run"]
+    ok!(!!run && run&.isString() && run&.asString() == "echo installing")
+}
+
+test "Parser - quoted scalar still matches unquoted equivalent" {
+    var parser = YamlParser("run: \"echo installing\"")
+    var value = parser.parse()
+
+    var run = value.["run"]
+    ok!(!!run && run&.isString() && run&.asString() == "echo installing")
 }
 
 test "Parser - simple object" {
@@ -410,6 +747,58 @@ test "Parser - flow style array" {
     var items = value.["items"]
     ok!(!!items && items&.isArray())
     ok!(items&.size() == 3)
+}
+
+test "Parser - empty flow array with content after it" {
+    var parser = YamlParser("steps: []\nname: build\n")
+    var value = parser.parse()
+
+    ok!(value.isObject())
+    var steps = value.["steps"]
+    ok!(!!steps && steps&.isArray())
+    ok!(steps&.size() == 0)
+
+    var name = value.["name"]
+    ok!(!!name && name&.isString() && name&.asString() == "build")
+}
+
+test "Parser - empty flow array with internal space" {
+    var parser = YamlParser("steps: [ ]\n")
+    var value = parser.parse()
+
+    var steps = value.["steps"]
+    ok!(!!steps && steps&.isArray())
+    ok!(steps&.size() == 0)
+}
+
+test "Parser - empty flow object still works" {
+    var parser = YamlParser("opts: {}\n")
+    var value = parser.parse()
+
+    var opts = value.["opts"]
+    ok!(!!opts && opts&.isObject())
+    ok!(opts&.size() == 0)
+}
+
+test "Parser - empty flow object with content after it" {
+    var parser = YamlParser("opts: {}\nname: build\n")
+    var value = parser.parse()
+
+    var opts = value.["opts"]
+    ok!(!!opts && opts&.isObject())
+
+    var name = value.["name"]
+    ok!(!!name && name&.isString() && name&.asString() == "build")
+}
+
+test "Parser - empty flow array" {
+    var parser = YamlParser("steps: []\n")
+    var value = parser.parse()
+
+    ok!(value.isObject())
+    var steps = value.["steps"]
+    ok!(!!steps && steps&.isArray())
+    ok!(steps&.size() == 0)
 }
 
 test "Parser - complex nested structure" {

@@ -102,6 +102,10 @@ extern "C" {
     f(atomic)                   \
     f(forced)                   \
     f(val)                      \
+    f(value)                    \
+    f(testSetup)                \
+    f(testCleanup)              \
+    f(testonly)                 \
     f(disabled)                 \
     f(__init)                   \
     f(__defaults_init)          \
@@ -130,6 +134,8 @@ extern "C" {
     f(hint)                     \
     f(mm)                       \
     f(valid)                    \
+    f(setup)                    \
+    f(cleanup)                  \
     ff(__LLVM_global_ctors, "llvm.global_ctors") \
     ff(ctor_section,        ".ctor")             \
     ff(sptr_ref,            "__smart_ptr_get")   \

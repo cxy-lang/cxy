@@ -329,6 +329,14 @@ static AstNode *makeExNode(AstVisitor *visitor,
                         ex->type);
     }
 
+    if (typer->catcher.ex == NULL) {
+        logError(ctx->L,
+                 &node->loc,
+                 "`ex!` macro only allowed in catch blocks",
+                 NULL);
+        return NULL;
+    }
+
     return makeResolvedPath(ctx->pool,
                             &node->loc,
                             typer->catcher.ex->_name,
@@ -767,6 +775,62 @@ static AstNode *makeSizeofNode(AstVisitor *visitor,
                                bfiSizeOf,
                                args,
                                getPrimitiveType(ctx->types, prtU64));
+}
+
+static AstNode *makeTupleOfNode(AstVisitor *visitor,
+                                attr(unused) const AstNode *node,
+                                attr(unused) AstNode *args)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (!validateMacroArgumentCount(ctx, &node->loc, args, 2))
+        return NULL;
+
+    const Type *type =
+        resolveUnThisUnwrapType(args->type ?: evalType(ctx, args));
+    if (type == NULL) {
+        return NULL;
+    }
+    AstNode *size = args->next;
+    if (!evaluate(visitor, size)) {
+        if (!nodeIs(size, Error))
+            logError(ctx->L,
+                     &size->loc,
+                     "size argument of `tuple_of!` macro must be comptime "
+                     "evaluable",
+                     NULL);
+        return NULL;
+    }
+    if (!nodeIs(size, IntegerLit)) {
+        logError(
+            ctx->L,
+            &size->loc,
+            "size argument of `tuple_of!` macro must evaluate to an integer",
+            NULL);
+        return NULL;
+    }
+    u64 flags = flgNone;
+    if (isClassType(type)) {
+        flags |= flgReferenceMembers;
+    }
+    else if (isStructType(type)) {
+        AstNode *decl = getTypeDecl(type);
+        flags |= (decl->flags & flgReferenceMembers);
+    }
+    else if (isTupleType(type) || isUnionType(type)) {
+        flags |= (type->flags & flgReferenceMembers);
+    }
+
+    const Type **members =
+        mallocOrDie(sizeof(Type *) * size->intLiteral.uValue);
+    for (u64 i = 0; i < size->intLiteral.uValue; i++) {
+        members[i] = type;
+    }
+    type = makeTupleType(ctx->types, members, size->intLiteral.uValue, flags);
+    free(members);
+
+    args = makeTypeReferenceNode(ctx->pool, type, &node->loc);
+    implementTupleTypeCopyAndDestructor(ctx->typer, args);
+    return args;
 }
 
 static AstNode *makeAstFieldStmtNode(AstVisitor *visitor,
@@ -1772,14 +1836,17 @@ static AstNode *makeClzNode(AstVisitor *visitor,
     u64 value = integerLiteralValue(args);
     int result;
     if (value == 0) {
-        result = 64;  // All bits are leading zeros for 64-bit
+        result = 64; // All bits are leading zeros for 64-bit
     }
     else {
         result = __builtin_clzll(value);
     }
 
-    return makeIntegerLiteral(
-        ctx->pool, &node->loc, result, NULL, getPrimitiveType(ctx->types, prtI32));
+    return makeIntegerLiteral(ctx->pool,
+                              &node->loc,
+                              result,
+                              NULL,
+                              getPrimitiveType(ctx->types, prtI32));
 }
 
 static AstNode *makeCtzNode(AstVisitor *visitor,
@@ -1804,14 +1871,17 @@ static AstNode *makeCtzNode(AstVisitor *visitor,
     u64 value = integerLiteralValue(args);
     int result;
     if (value == 0) {
-        result = 64;  // All bits are trailing zeros for 64-bit
+        result = 64; // All bits are trailing zeros for 64-bit
     }
     else {
         result = __builtin_ctzll(value);
     }
 
-    return makeIntegerLiteral(
-        ctx->pool, &node->loc, result, NULL, getPrimitiveType(ctx->types, prtI32));
+    return makeIntegerLiteral(ctx->pool,
+                              &node->loc,
+                              result,
+                              NULL,
+                              getPrimitiveType(ctx->types, prtI32));
 }
 
 static AstNode *makePopcountNode(AstVisitor *visitor,
@@ -1836,8 +1906,11 @@ static AstNode *makePopcountNode(AstVisitor *visitor,
     u64 value = integerLiteralValue(args);
     int result = __builtin_popcountll(value);
 
-    return makeIntegerLiteral(
-        ctx->pool, &node->loc, result, NULL, getPrimitiveType(ctx->types, prtI32));
+    return makeIntegerLiteral(ctx->pool,
+                              &node->loc,
+                              result,
+                              NULL,
+                              getPrimitiveType(ctx->types, prtI32));
 }
 
 static AstNode *makeParityNode(AstVisitor *visitor,
@@ -1862,8 +1935,11 @@ static AstNode *makeParityNode(AstVisitor *visitor,
     u64 value = integerLiteralValue(args);
     int result = __builtin_parityll(value);
 
-    return makeIntegerLiteral(
-        ctx->pool, &node->loc, result, NULL, getPrimitiveType(ctx->types, prtI32));
+    return makeIntegerLiteral(ctx->pool,
+                              &node->loc,
+                              result,
+                              NULL,
+                              getPrimitiveType(ctx->types, prtI32));
 }
 
 static int compareBuiltinMacros(const void *lhs, const void *rhs)
@@ -1921,6 +1997,7 @@ static const BuiltinMacro builtinMacros[] = {
     {.name = "require", makeRequireNode},
     {.name = "select", makeSelectNode},
     {.name = "sizeof", makeSizeofNode},
+    {.name = "tupleof", makeTupleOfNode},
     {.name = "typeat", makeTypeAtIdxNode},
     {.name = "typeof", makeTypeofNode},
     {.name = "unchecked", makeUncheckedNode},

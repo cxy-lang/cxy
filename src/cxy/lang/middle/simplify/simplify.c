@@ -376,7 +376,8 @@ static void simplifyCondition(SimplifyContext *ctx, AstNode *cond)
     cond->binaryExpr.rhs = rhs;
 }
 
-static AstNode *wrapLogicalOperandInStmtExpr(SimplifyContext *ctx, AstNode *expr)
+static AstNode *wrapLogicalOperandInStmtExpr(SimplifyContext *ctx,
+                                             AstNode *expr)
 {
     AstNode *exprStmt =
         makeExprStmt(ctx->pool, &expr->loc, flgNone, expr, NULL, expr->type);

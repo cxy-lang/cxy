@@ -59,7 +59,7 @@ llvm::TargetMachine *createTargetMachine(Log *L)
     }
 
     llvm::TargetMachine *TM = target->createTargetMachine(
-        triple.getTriple(),
+        triple,
         "generic",
         "",
         llvm::TargetOptions{},
@@ -133,10 +133,14 @@ LLVMBackend::LLVMBackend(CompilerDriver *driver, llvm::TargetMachine *TM)
     updateType(types->primitiveTypes[prtF64],
                llvm::Type::getDoubleTy(*_context));
     updateType(types->stringType,
-               llvm::Type::getInt8Ty(*_context)->getPointerTo());
+               llvm::PointerType::get(
+                   *_context,
+                   llvm::Type::getInt8Ty(*_context)->getPointerAddressSpace()));
     updateType(types->voidType, llvm::Type::getVoidTy(*_context));
     updateType(types->nullType,
-               llvm::Type::getVoidTy(*_context)->getPointerTo());
+               llvm::PointerType::get(
+                   *_context,
+                   llvm::Type::getVoidTy(*_context)->getPointerAddressSpace()));
 
     // DI types
     updateDebug(types->primitiveTypes[prtBool],
@@ -382,7 +386,7 @@ bool LLVMBackend::emitMachineCode(llvm::SmallString<128> outputPath,
 
     llvm::Triple triple(llvm::sys::getDefaultTargetTriple());
     const std::string &targetTriple = triple.str();
-    _linkedModule->setTargetTriple(TM->getTargetTriple().getTriple());
+    _linkedModule->setTargetTriple(TM->getTargetTriple());
     _linkedModule->setDataLayout(TM->createDataLayout());
 
     std::error_code error;
@@ -541,7 +545,7 @@ bool LLVMBackend::makeExecutable()
     }
 
     bool treatAsLibrary = hasFlag(driver->mainModule, Executable) &&
-                          (driver->options.cmd != cmdRun);
+                          (driver->options.cmd != cmdTest);
     if (treatAsLibrary) {
         compileOnly = true;
     }

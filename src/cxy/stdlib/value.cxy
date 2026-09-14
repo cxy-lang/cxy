@@ -3,6 +3,8 @@ module value
 import { Vector } from "./vector.cxy"
 import { HashMap } from "./hash.cxy"
 
+import "./base64.cxy"
+
 // Simple null type for representing JSON null
 pub struct Null { }
 
@@ -445,8 +447,30 @@ pub struct Value {
         }
     }
 
+    const func castBase64[Target](): !Target {
+        #if Target.isOptional {
+            #const M = Target.targetType;
+            match (_value) {
+                Null => return None[M]()
+                ... => return castBase64[M]()
+            }
+        }
+        else {
+            require!(Target.isString, "castBase64 can only be used with string types")
+            match (_value) {
+                String as s => {
+                    var decoded = String()
+                    base64.decode(&decoded, &s)
+                    return &&decoded
+                }
+                Null => return null as String
+                ... => raise TypeError(f"Expected base64 string, got {typeName()}")
+            }
+        }
+    }
+
     // Cast function for converting Value to target types
-    const func cast[Target](): !Target {
+    const func cast[Target](@unused b64: bool = true): !Target {
         #if (#Target == #Value) {
             return <Target>(*this)
         }
@@ -473,7 +497,33 @@ pub struct Value {
             #const M = Target.targetType;
             match (_value) {
                 Null => return None[M]()
-                ... => return Some(this.cast[M]())
+                ... => return Some(this.cast[M](b64))
+            }
+        }
+        else #if (Target.annotations.[:isVector]) {
+            const _name = #{Target.name}
+            match (_value) {
+                Vector[Value] as arr => {
+                    var value = Target()
+                    for (const item, _: arr) {
+                        value.push(item.cast[Target.ElementType](b64))
+                    }
+                    return &&value
+                }
+                ... => raise TypeError(f"Expected array for vector cast, got {typeName()}/{_name}")
+            }
+        }
+        else #if (Target.annotations.[:isMap]) {
+            const _name = #{Target.name}
+            match (_value) {
+                HashMap[String, Value] as obj => {
+                    var value = Target()
+                    for key, val: obj {
+                        value.[__copy!(key)] = val.cast[Target.ValueType](b64)
+                    }
+                    return &&value
+                }
+                ... => raise TypeError(f"Expected object for map cast, got {typeName()}/{_name}")
             }
         }
         else #if (Target.isStruct || Target.isClass) {
@@ -494,25 +544,39 @@ pub struct Value {
                     #for (const member: Target.members) {
                         #if (member.isField) {{
                             #const M = member.Tinfo;
-                            const val = obj.[#{member.name}];
+                            #const jsonAttr = member.attributes.[:json]
+                            #const name = member.name
+                            #if jsonAttr && !!jsonAttr.[:name] {
+                                #{name = jsonAttr.[:name]}
+                            }
+
+                            const val = obj.[#{name}]
                             #if (!M.isOptional) {
-                                #const jsonAttr = member.attributes.[:json]
-                                #if !jsonAttr || !jsonAttr.[:optional] {
+                                #if jsonAttr && jsonAttr.[:b64] {
+                                    // base64 encoding requested
+                                    if (b64) {
+                                        value.#{mk_ident!(member.name)} = val&.castBase64[M]()
+                                    }
+                                    else {
+                                        value.#{mk_ident!(member.name)} = val&.cast[M]()
+                                    }
+                                }
+                                else #if !jsonAttr || !jsonAttr.[:optional] {
                                     if (!val) {
-                                        var msg = String("cast failed, missing required member ");
-                                        msg << #{member.name}
+                                        var msg = String("cast failed, missing required member '");
+                                        msg << #{member.name} << "' for type '" << #{Target.name} << "'";
                                         raise TypeError(&&msg)
                                     }
-                                    value.#{mk_ident!(member.name)} = val&.cast[M]()
+                                    value.#{mk_ident!(member.name)} = val&.cast[M](b64)
                                 }
                                 else {
                                     if (!!val)
-                                        value.#{mk_ident!(member.name)} = val&.cast[M]()
+                                        value.#{mk_ident!(member.name)} = val&.cast[M](b64)
                                 }
                             }
                             else {
                                 if (!!val && !val&.isNull())
-                                    value.#{mk_ident!(member.name)} = val&.cast[M]()
+                                    value.#{mk_ident!(member.name)} = val&.cast[M](b64)
                             }
                         }}
                     }
@@ -671,6 +735,11 @@ test {
         cfg2 = Config2()
         func `init`() {}
     }
+
+    struct Config4 {
+        items = Vector[i64]()
+        tags = HashMap[String, String]()
+    }
 }
 
 test "Value casting" {
@@ -702,4 +771,86 @@ test "Value casting nested" {
     ok!(casted.cfg1.key == "test")
     ok!(casted.cfg2.name == "test")
     ok!(casted.cfg2.age == 42)
+}
+
+test "Value cast to Vector" {
+    var arr = Value.Array()
+    arr.push(Value(1 as i64))
+    arr.push(Value(2 as i64))
+    arr.push(Value(3 as i64))
+
+    var casted = arr.cast[Vector[i64]]()
+    ok!(casted.size() == 3)
+    ok!(casted.[0] == 1)
+    ok!(casted.[1] == 2)
+    ok!(casted.[2] == 3)
+}
+
+test "Value cast to Vector of strings" {
+    var arr = Value.Array()
+    arr.push(Value("a".S))
+    arr.push(Value("b".S))
+
+    var casted = arr.cast[Vector[String]]()
+    ok!(casted.size() == 2)
+    ok!(casted.[0] == "a")
+    ok!(casted.[1] == "b")
+}
+
+test "Value cast to Vector fails for non-array" {
+    var obj = Value.Object()
+    obj.set("value", Value(42))
+
+    var casted = obj.cast[Vector[i64]]() catch null
+    ok!(casted == null)
+}
+
+test "Value cast to Map" {
+    var obj = Value.Object()
+    obj.set("a", Value(1 as i64))
+    obj.set("b", Value(2 as i64))
+
+    var casted = obj.cast[HashMap[String, i64]]()
+    ok!(casted.size() == 2)
+    ok!(*casted.["a"] == 1)
+    ok!(*casted.["b"] == 2)
+}
+
+test "Value cast to Map of strings" {
+    var obj = Value.Object()
+    obj.set("name", Value("cxy".S))
+    obj.set("kind", Value("language".S))
+
+    var casted = obj.cast[HashMap[String, String]]()
+    ok!(casted.size() == 2)
+    ok!(*casted.["name"] == "cxy")
+    ok!(*casted.["kind"] == "language")
+}
+
+test "Value cast to Map fails for non-object" {
+    var arr = Value.Array()
+    arr.push(Value(1 as i64))
+
+    var casted = arr.cast[HashMap[String, i64]]() catch null
+    ok!(casted == null)
+}
+
+test "Value casting struct with vector and map members" {
+    var items = Value.Array()
+    items.push(Value(1 as i64))
+    items.push(Value(2 as i64))
+
+    var tags = Value.Object()
+    tags.set("env", Value("prod".S))
+
+    var obj = Value.Object()
+    obj.set("items", items)
+    obj.set("tags", tags)
+
+    var casted = obj.cast[Config4]()
+    ok!(casted.items.size() == 2)
+    ok!(casted.items.[0] == 1)
+    ok!(casted.items.[1] == 2)
+    ok!(casted.tags.size() == 1)
+    ok!(*casted.tags.["env"] == "prod")
 }

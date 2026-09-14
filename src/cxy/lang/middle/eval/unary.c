@@ -133,7 +133,7 @@ void evalUnaryExpr(AstVisitor *visitor, AstNode *node)
     case opNot:
         evalLogicNotOperation(ctx, node);
         break;
-    case opBAnd:
+    case opCompl:
         evalBitNotOperation(ctx, node);
         break;
     default:

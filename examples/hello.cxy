@@ -1,53 +1,20 @@
-class Base {
+module xxx
+import "./test.cxy"
 
-//    valueChanged: Event
-
-    func `init`() {
-//        valueChanged = Event()
-    }
-
-    // Returns true if value changed during update
-    virtual func _update(): bool {
-        return false
-    }
-
-    virtual func isDirty(): bool {
-        return false
-    }
-
-    // Mark as dirty without scheduling a write (for sibling propagation)
-    virtual func markDirty() { }
-
-    virtual func dump(_: &OutputStream) { }
-
-    virtual func vcdValue(): u64 {
-        return 0
-    }
-    virtual func mark(){}
+struct Cal[U] {
+    `Value = #{U.value}
+    func `init`(){}
 }
 
-class Middle : Base {
-    virtual func add() {}
+struct Age {
+    type Calc = Cal[10]
+    age = Cal[#{Calc.`Value}]()
 }
 
-class Child : Middle {
-    func `init`() {
-        print("Child::init")
-    }
-
-    func mark() {
-        print("Child::mark")
-    }
-
-    func add() {
-        print("Child::add")
-    }
+struct Int[T] {
+    `Min = typeof!(#T).min
 }
 
-func main(): !void {
-    var child = Child()
-    child.mark()
-    child.add()
-    var mid: Middle = child
-    mid.mark()
+func main() {
+    {#i64}.min
 }

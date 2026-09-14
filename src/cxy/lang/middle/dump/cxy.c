@@ -690,6 +690,27 @@ static void dumpUnionValueExpr(ConstAstVisitor *visitor, const AstNode *node)
     astConstVisit(visitor, node->unionValue.value);
 }
 
+static void dumpXformExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    DumpContext *ctx = getConstAstVisitorContext(visitor);
+    AstNode *arg = node->xFormExpr.arg;
+    format(ctx->state, "`", NULL);
+    if (node->xFormExpr.isArray) {
+        format(ctx->state, "[", NULL);
+    }
+    astConstVisit(visitor, node->xFormExpr.target);
+    format(ctx->state, " as {s} => ", (FormatArg[]){{.s = arg->_name}});
+    astConstVisit(visitor, node->xFormExpr.xform);
+    if (node->xFormExpr.cond) {
+        format(ctx->state, ", ", NULL);
+        astConstVisit(visitor, node->xFormExpr.cond);
+    }
+    if (node->xFormExpr.isArray) {
+        format(ctx->state, "]", NULL);
+    }
+    format(ctx->state, "`", NULL);
+}
+
 static void dumpTupleExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     dumpManyAstNodesEnclosed(visitor, node->tupleExpr.elements, "(", ", ", ")");
@@ -717,8 +738,7 @@ static void dumpStructExpr(ConstAstVisitor *visitor, const AstNode *node)
 static void dumpAliasExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     DumpContext *ctx = getConstAstVisitorContext(visitor);
-    format(ctx->state, "{s}",
-            (FormatArg[]){{.s = node->aliasExpr.name}});
+    format(ctx->state, "{s}", (FormatArg[]){{.s = node->aliasExpr.name}});
     if (node->aliasExpr.expr != NULL) {
         format(ctx->state, " := ", NULL);
         astConstVisit(visitor, node->aliasExpr.expr);
@@ -1340,6 +1360,7 @@ AstNode *dumpCxySource(CompilerDriver *driver, AstNode *node, FILE *file)
         [astAliasExpr] = dumpAliasExpr,
         [astMacroCallExpr] = dumpMacroCallExpr,
         [astUnionValueExpr] = dumpUnionValueExpr,
+        [astXformExpr] = dumpXformExpr,
         [astPointerOf] = dumpPointerOfExpr,
         [astReferenceOf] = dumpUnaryExpr,
         [astPrimitiveType] = dumpPrimitiveType,

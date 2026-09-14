@@ -52,6 +52,7 @@ i64 getEnumLiteralValue(const AstNode *node)
 
 void nodeSetNumericLiteral(AstNode *node, AstNode *lhs, AstNode *rhs, f64 value)
 {
+    clearAstBody(node);
     switch (lhs->tag) {
     case astBoolLit:
         if (nodeIs(rhs, BoolLit)) {
@@ -141,7 +142,8 @@ bool evalBooleanCast(EvalContext *ctx, AstNode *node)
         node->tag = astBoolLit;
         break;
     case astComptimeOnly:
-        node->boolLiteral.value = !comptimeIteratorIsEmpty(ctx->pool, ctx->types, node);
+        node->boolLiteral.value =
+            !comptimeIteratorIsEmpty(ctx->pool, ctx->types, node);
         node->tag = astBoolLit;
         break;
     case astAttr:

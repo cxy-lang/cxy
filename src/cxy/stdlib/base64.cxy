@@ -86,6 +86,10 @@ pub func decodeBuffer(os: &OutputStream, data: ^const void, size: u64): !void {
     var i = 0`u64;
     const p = data !: ^const u8;
 
+    if data == null || size == 0 {
+        return
+    }
+
     while (sz > 4) {
         const it = ptroff!(p + i)
         if (ASCII_LOOKUP.[it.[0]] == 64 ||

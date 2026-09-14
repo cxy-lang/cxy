@@ -5,6 +5,7 @@
 #include "eval.h"
 
 #include "lang/frontend/flag.h"
+#include "lang/frontend/strings.h"
 #include "lang/frontend/ttable.h"
 #include "lang/middle/sema/check.h"
 
@@ -44,6 +45,21 @@ void evalPathEpilogue(AstVisitor *visitor,
                 return;
             }
             symbol = member;
+        }
+        else if (typeIs(symbol->type, Literal)) {
+            cstring name = elem->pathElement.alt ?: elem->pathElement.name;
+            if (name == S_value) {
+                symbol =
+                    deepCloneAstNode(ctx->pool, symbol->type->literal.value);
+            }
+            else {
+                logError(ctx->L,
+                         &node->loc,
+                         "literal type does not have a member named '{s}'",
+                         (FormatArg[]){{.s = name}});
+                node->tag = astError;
+                return;
+            }
         }
         else {
             while (elem) {
@@ -143,6 +159,11 @@ void evalPathEpilogue(AstVisitor *visitor,
         node->ident.value = symbol->funcParam.name;
         node->ident.resolvesTo = symbol;
         node->flags |= (symbol->flags & flgVariadic);
+    }
+    else if (nodeIs(symbol, GenericParam) && typeIs(symbol->type, Literal)) {
+        replaceAstNode(
+            node, deepCloneAstNode(ctx->pool, symbol->type->literal.value));
+        node->flags &= ~flgComptime;
     }
     else {
         replaceAstNodeWith(

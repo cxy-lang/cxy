@@ -8,6 +8,7 @@ import "pwd.h" as pwd
 import "dirent.h" as dirent
 import "native/nos.h" as nos
 import "sys/stat.h" as sysstat
+import "limits.h" as limits // for PATH_MAX! macro
 
 #if (defined UNIX) {
     macro DIR_SEPARATOR "/"
@@ -129,6 +130,7 @@ pub func cast[T](path: &PathLike): T {
     else #if (#T == #String) {
         var str = String();
         str << path
+        return &&str
     }
     else #if (#T == #Path) {
         match (path) {
@@ -290,7 +292,6 @@ pub func mkdir(path: PathLike, mode: u16 = 0o777): !void {
     var spath = cast[__string](&path);
     const status = withNullTermination[i32](
         &spath, (p: ^const char) => {
-            println(f"mkdir: p='{p !: string}'")
             return sysstat.mkdir(p, mode)
         }
     )
@@ -389,7 +390,7 @@ pub func remove(path: PathLike, recursive: bool = false): !void {
 }
 
 pub func getFileSize(path: PathLike): !u64 {
-    var spath = cast[__string](&path);
+    var spath = cast[__string](&path)
     var result = withNullTermination[bool|u64](&spath, (p: ^const char): bool|u64 => {
         var s = Stat{};
         if (stat(p !: string, ptrof s) != 0) {
@@ -401,4 +402,19 @@ pub func getFileSize(path: PathLike): !u64 {
     if (result is #bool)
         raise IOError(f"Getting file '{path}' size failed: {strerr()}")
     return result as u64
+}
+
+pub func absolute(path: PathLike): !String {
+    var spath = cast[__string](&path)
+    var result = withNullTermination[String](&spath, (p: ^const char): String => {
+        var resolved: [char, 2048] = [];
+        if (stdlib.realpath(p, resolved) == null) {
+            return null
+        }
+        return String(resolved !: string)
+    })
+
+    if (result == null)
+        raise IOError(f"Getting absolute path for '{path}' failed: {strerr()}")
+    return result
 }

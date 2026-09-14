@@ -2187,9 +2187,18 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
     case astProgram:
         CLONE_MANY(program, decls);
         break;
+    case astAnnotation:
+        CLONE_ONE(annotation, value);
+        break;
     case astCastExpr:
         CLONE_ONE(castExpr, expr);
         CLONE_ONE(castExpr, to);
+        break;
+    case astXformExpr:
+        CLONE_ONE(xFormExpr, target);
+        CLONE_ONE(xFormExpr, arg);
+        CLONE_ONE(xFormExpr, xform);
+        CLONE_ONE(xFormExpr, cond);
         break;
     case astPathElem:
         CLONE_MANY(pathElement, args);
@@ -2282,10 +2291,12 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
         COPY_SORTED(unionDecl, sortedMembers);
 
     case astStructDecl:
+        CLONE_MANY(structDecl, annotations);
         CLONE_MANY(structDecl, members);
         break;
 
     case astClassDecl:
+        CLONE_MANY(classDecl, annotations);
         CLONE_MANY(classDecl, members);
         CLONE_ONE(classDecl, base);
         CLONE_MANY(classDecl, implements);
@@ -2393,6 +2404,12 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
     case astMemberExpr:
         CLONE_ONE(memberExpr, target);
         CLONE_ONE(memberExpr, member);
+        break;
+
+    case astRangeExpr:
+        CLONE_ONE(rangeExpr, start);
+        CLONE_ONE(rangeExpr, end);
+        CLONE_ONE(rangeExpr, step);
         break;
 
     case astAliasExpr:
@@ -2542,6 +2559,19 @@ AstNode *insertAstNode(AstNodeList *list, AstNode *node)
         list->last->next = node;
     }
     list->last = getLastAstNode(node);
+    return list->last;
+}
+
+AstNode *insertAstNodeFront(AstNodeList *list, AstNode *node)
+{
+    if (node == NULL)
+        return NULL;
+    AstNode *last = getLastAstNode(node);
+    last->next = list->first;
+    list->first = node;
+    if (list->last == NULL) {
+        list->last = last;
+    }
     return list->last;
 }
 
@@ -2859,23 +2889,25 @@ AstNode *findInComptimeIterable(AstNode *node, cstring name)
 {
     if (node == NULL || name == NULL)
         return NULL;
-    
+
     // Handle new comptimeOnly format
     if (nodeIs(node, ComptimeOnly) && hasFlag(node, ComptimeIterable)) {
         AstNode *current = node->comptimeOnly.node;
         for (; current; current = current->next) {
             if (name == getNamedNodeName(current)) {
-                return nodeIs(current, Annotation) ? current->annotation.value : current;
+                return nodeIs(current, Annotation) ? current->annotation.value
+                                                   : current;
             }
         }
         return NULL;
     }
-    
+
     // Old format: use node->next
     AstNode *current = node->next;
     for (; current; current = current->next) {
         if (name == getNamedNodeName(current)) {
-            return nodeIs(current, Annotation) ? current->annotation.value : current;
+            return nodeIs(current, Annotation) ? current->annotation.value
+                                               : current;
         }
     }
     return NULL;

@@ -28,6 +28,10 @@ struct HashMapNode[K] {
 }
 
 pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
+    `isMap = true;
+    type KeyType = K;
+    type ValueType = V;
+
     - _nodes: ^HashMapNode[K] = null;
     #if (#V != #void) {
         - _values: ^V = null;
@@ -459,7 +463,10 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
     }
 }
 
-pub class HashSet[K, Hasher = Hash[K], Cmp = Equals[K]]: HashMap[K, void, Hasher, Cmp] {
+pub class HashSet[V, Hasher = Hash[V], Cmp = Equals[V]]: HashMap[V, void, Hasher, Cmp] {
+    `isSet = true
+    type ValueType = V
+
     func `init`(initialCapacity: u64 = 0) {
         super(initialCapacity)
     }

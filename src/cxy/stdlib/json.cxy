@@ -503,6 +503,33 @@ class JsonParser {
     }
 }
 
+func fieldFromJSONB64[T](
+    parser: &JsonParser
+): !T {
+    #if T.isOptional {
+        #const M = T.targetType;
+        if (parser.currentToken() == JsonToken.Null) {
+            parser.advance()
+            return None[M]()
+        }
+        else {
+            var value = fieldFromJSONB64[M](parser)
+            return Some(value)
+        }
+    }
+    else {
+        require!(T.isString && T.isClass, "JSON parser supports class string types only")
+        if parser.currentToken() == JsonToken.Null {
+            parser.advance()
+            return null as String
+        }
+        var jstr = parser.expectString()
+        var str = String()
+        base64.decode(&str, &jstr)
+        return &&str
+    }
+}
+
 // Field parsing function like existing json.cxy
 func fieldFromJSON[T](
     parser: &JsonParser,
@@ -526,12 +553,8 @@ func fieldFromJSON[T](
                 parser.skipValue()
                 return
             } else {
-                #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
-                    require!(M.isClass, "JSON parser supports class string types only")
-                    var jstr = parser.expectString()
-                    var str = String()
-                    base64.decode(&str, &jstr)
-                    obj.#{mk_ident!(member.name)} = &&str
+                #if (jsonAttr && jsonAttr.["b64"]) {
+                    obj.#{mk_ident!(member.name)} = fieldFromJSONB64[M](parser)
                 }
                 else #if jsonAttr && jsonAttr.[:optional] {
                     if parser.currentToken() != JsonToken.Null {
@@ -638,7 +661,7 @@ pub func fromJSON[T](parser: &JsonParser): !T {
             parser.advance()
             return result
         }
-        else #if (T.annotations.[:isVector]) {
+        else #if (T.annotations.[:isVector] || T.annotations.[:isSet]) {
             var tmp = T()
             parser.expectToken(JsonToken.LeftBracket)
             parser.advance()
@@ -647,9 +670,31 @@ pub func fromJSON[T](parser: &JsonParser): !T {
                     parser.expectToken(JsonToken.Comma)
                     parser.advance()
                 }
-                tmp.push(fromJSON[T.ElementType](parser))
+                #if (T.annotations.[:isSet]) {
+                    tmp.insert(fromJSON[T.ElementType](parser))
+                } else {
+                    tmp.push(fromJSON[T.ElementType](parser))
+                }
             }
             parser.expectToken(JsonToken.RightBracket)
+            parser.advance()
+            return tmp
+        }
+        else #if (T.annotations.[:isMap]) {
+            var tmp = T()
+            parser.expectToken(JsonToken.LeftBrace)
+            parser.advance()
+            while (parser.currentToken() != JsonToken.RightBrace) {
+                if (tmp.size() != 0) {
+                    parser.expectToken(JsonToken.Comma)
+                    parser.advance()
+                }
+                var key = parser.expectString().__str()
+                parser.expectToken(JsonToken.Colon)
+                parser.advance()
+                tmp.[String(key)] = fromJSON[T.ValueType](parser)
+            }
+            parser.expectToken(JsonToken.RightBrace)
             parser.advance()
             return tmp
         }
@@ -681,7 +726,7 @@ func getIndent(os: &OutputStream, level: u32) {
     }
 }
 
-func escapeJsonString(os: &OutputStream, s: &const String) {
+func escapeJsonString(os: &OutputStream, s: __string) {
     for i: 0..s.size() {
         var c = s.[i as u32]
         switch (c) {
@@ -718,7 +763,7 @@ func serializeValue(
         }
         String as s => {
             os << "\""
-            escapeJsonString(os, &s)
+            escapeJsonString(os, s.__str())
             os << "\""
         }
         Vector[Value] as arr => {
@@ -767,7 +812,7 @@ func serializeValue(
                 }
 
                 os << "\""
-                escapeJsonString(os, &key)
+                escapeJsonString(os, key.__str())
                 os << "\":"
                 if (pretty) {
                     os << " "
@@ -785,6 +830,32 @@ func serializeValue(
     }
 }
 
+func toJSONB64[T](os: &OutputStream, it: &const T) : void {
+    #if T.isOptional {
+        if (it) {
+            const value = *it;
+            toJSONB64[#{typeof!(value)}](os, &value)
+        }
+        else {
+            os << "null"
+            return
+        }
+    }
+    else {
+        require!(T.isString, "toJSONB64 only supports string types")
+        #if T.isClass || #T == #string {
+            if (it == null) {
+                os << "null"
+                return
+            }
+        }
+
+        os << '"'
+        base64.encode(os, it)
+        os << '"'
+    }
+}
+
 // Generic serialization to OutputStream (exact copy from json.cxy)
 pub func toJSON[T](os: &OutputStream, it: &const T) : void {
     #if #T == #Value {
@@ -798,13 +869,12 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
     }
     else #if (T.isString) {
         #if T.isClass || #T == #string {
-            if (it == null)
+            if (it == null) {
                 os << "null"
-            else
-                os << '"' << it << '"'
+                return
+            }
         }
-        else
-            os << '"' << it << '"'
+        os << '"' << it << '"'
     }
     else #if (T.isOptional) {
         if (it) {
@@ -829,11 +899,10 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
                 #if jsonAttr && !!jsonAttr.[:name] {
                     #{name = jsonAttr.[:name]}
                 }
-                os << '"' << #{name} << "\": ";
-                #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
-                    os << '"'
-                    base64.encode(os, &it.#{mk_ident!(member.name)})
-                    os << '"'
+
+                os << '"' << #{name} << "\": "
+                #if (jsonAttr && jsonAttr.["b64"]) {
+                    toJSONB64[#{M}](os, &it.#{mk_ident!(member.name)})
                 }
                 else {
                     toJSON[#{M}](os, &it.#{mk_ident!(member.name)})
@@ -857,6 +926,12 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
         os << "]"
     }
     else #if (T.isSlice || T.isArray || T.annotations.[:isVector]) {
+        #if T.`isVector {
+            if it == null {
+                os << "null"
+                return
+            }
+        }
         os << '[';
         for (const member, i: it) {
             if (i != 0) os << ", "
@@ -869,6 +944,22 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
             }
         }
         os << ']'
+    }
+    else #if T.annotations.[:isMap] {
+        if it == null {
+            os << "null"
+            return
+        }
+        os << '{'
+        var i = 0
+        for (const key, value: it) {
+            if (i != 0) os << ", "
+            toJSON(os, &key)
+            os << ": "
+            toJSON(os, &value)
+            i += 1
+        }
+        os << '}'
     }
     else #if (T.isClass && has_member!(#T, "toJSON", #const func(_: &OutputStream) -> void)) {
         it.toJSON(os)
@@ -987,4 +1078,25 @@ test "Json encode" {
     s.clear()
     toJSON(&s, &z)
     ok!(s == "[10, 20]")
+}
+
+test {
+    struct MyValue {
+        map: HashMap[String, String] = null
+    }
+}
+
+test "Map encoding" {
+    var m = HashMap[String, String]()
+    m.insert("a", "b")
+    m.insert("c", "d")
+    var s = String()
+    toJSON(&s, &m)
+    ok!(s == "{\"a\": \"b\", \"c\": \"d\"}")
+}
+
+test "Map decoding" {
+    var m = parse[HashMap[String, String]]("{\"a\": \"b\", \"c\": \"d\"}")
+    ok!(m.["a"]&.__str() == "b")
+    ok!(m.["c"]&.__str() == "d")
 }

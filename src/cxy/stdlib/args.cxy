@@ -3,12 +3,16 @@ module args
 import { Vector }  from "./vector.cxy"
 import { HashMap } from "./hash.cxy"
 import { getenv }  from "./os.cxy"
+
+import test { setenv, unsetenv } from "./os.cxy"
 // Basic exceptions
 exception ParseError(msg: String) => msg != null? msg.str() : ""
 
 pub exception ValidationError(msg: String) => msg != null? msg.str() : ""
 
-pub type FlagValue = __string | bool | i64
+// Only __string values are accumulated for repeatable flags (both the
+// list form used today, and a possible future "key=value" map form).
+pub type FlagValue = __string | bool | i64 | Vector[__string] | HashMap[__string, __string]
 
 // Flag group types
 pub enum FlagGroupType {
@@ -39,6 +43,20 @@ pub struct Flag {
     defaultValue: FlagValue
     required = false
     envVar = __string()
+    // Terminal flags (like --help) short-circuit validation (flag groups,
+    // positional args, required subcommand) and signal the caller should
+    // handle the request itself instead of executing the command's action.
+    terminal = false
+    // Repeatable flags (e.g. `--param p1 --param p2=100`) accumulate every
+    // occurrence instead of overwriting the previous one. Only supported
+    // for string flags - read them back with FlagValues.getList
+    // instead of getString.
+    multiple = false
+    // Map-valued flags accept entries via `--name:key value` (or
+    // `--name:key=value`), e.g. `--params:a 1 --params:b 2` builds
+    // {a: "1", b: "2"}. Only supported for string flags - read them back
+    // with FlagValues.getMap instead of getString.
+    isMap = false
 
     func `init`(name: __string, usage: __string, defaultValue: __string = "".s) {
         this.name = name
@@ -123,6 +141,50 @@ pub struct Flag {
         this.defaultValue = defaultValue
         this.envVar = envVar
     }
+
+    @private
+    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: FlagValue) {
+        this.name = name
+        this.shorthand = shorthand
+        this.usage = usage
+        this.defaultValue = &&defaultValue
+    }
+
+    @static func map(name: __string, usage: __string): This {
+        var flag = This(name, '\0', usage, HashMap[__string, __string]())
+        flag.isMap = true
+        return &&flag
+    }
+
+    @static func list(name: __string, usage: __string): This {
+        var flag = This(name, '\0', usage, Vector[__string]())
+        flag.multiple = true
+        return &&flag
+    }
+}
+
+// Declared positional argument (validated after parsing, shown in help)
+pub struct PositionalArg {
+    name: __string
+    usage: __string
+    required: bool = true
+    variadic: bool = false
+    defaultValue = __string()
+
+    func `init`(name: __string, usage: __string, required: bool = true, variadic: bool = false) {
+        this.name = name
+        this.usage = usage
+        this.required = required
+        this.variadic = variadic
+    }
+
+    // Declaring a default value implies the argument is optional
+    func `init`(name: __string, usage: __string, defaultValue: __string) {
+        this.name = name
+        this.usage = usage
+        this.required = false
+        this.defaultValue = defaultValue
+    }
 }
 
 // Storage for parsed flag values
@@ -132,8 +194,77 @@ pub struct FlagValues {
         values.[name] = &&value
     }
 
+    // Append a value for a repeatable flag instead of overwriting it.
+    func append(name: __string, value: __string): void {
+        var existing = values.[name]
+        if existing {
+            match (*existing) {
+                Vector[__string] as list => list.push(value)
+                ... => {}
+            }
+        } else {
+            var list = Vector[__string]()
+            list.push(value)
+            values.[__copy!(name)] = &&list
+        }
+    }
+
     @inline
     func has(name: __string) => values.contains(name)
+
+    // Number of values recorded for a repeatable flag (0 if never set).
+    func count(name: __string): u64 {
+        var val = values.[name]
+        if val {
+            match (*val) {
+                Vector[__string] as list => return list.size()
+                ... => {}
+            }
+        }
+        return 0
+    }
+
+    // Read back all values recorded for a repeatable flag, or null if the
+    // flag was never set.
+    func getList(name: __string): Vector[__string] {
+        var val = values.[name]
+        if val {
+            match (*val) {
+                Vector[__string] as list => return list
+                ... => {}
+            }
+        }
+        return null
+    }
+
+    // Set an entry for a map-valued flag instead of overwriting the whole
+    // flag value.
+    func set(name: __string, key: __string, value: __string): void {
+        var existing = values.[name]
+        if existing {
+            match (*existing) {
+                HashMap[__string, __string] as m => m.[key] = value
+                ... => {}
+            }
+        } else {
+            var m = HashMap[__string, __string]()
+            m.[key] = value
+            values.[__copy!(name)] = &&m
+        }
+    }
+
+    // Read back all entries recorded for a map-valued flag, or null if the
+    // flag was never set.
+    func getMap(name: __string): HashMap[__string, __string] {
+        var val = values.[name]
+        if val {
+            match (*val) {
+                HashMap[__string, __string] as m => return m
+                ... => {}
+            }
+        }
+        return null
+    }
 
     func getString(name: __string): __string {
         var val = values.[name]
@@ -173,10 +304,12 @@ pub struct FlagValues {
 pub class Command {
     name: __string
     description: __string
+    version = __string()
     flags = HashMap[__string, Flag]()
     flagsByShorthand = HashMap[char, __string]()
     flagValues = FlagValues{}
     args = Vector[__string]()
+    positionalArgs = Vector[PositionalArg]()
 
     // Hierarchical command structure
     parent: Optional[&This] = null
@@ -212,6 +345,26 @@ pub class Command {
         }
     }
 
+    // Repeatable flags (multiple = true) only make sense for string flags
+    @private
+    func checkFlagModifiers(flag: &Flag): !void {
+        if flag.multiple && flag.isMap {
+            raise ParseError(f"flag '{flag.name}' cannot be both multiple and map")
+        }
+        if flag.multiple {
+            match (flag.defaultValue) {
+                Vector[__string] as _ => {}
+                ... => raise ParseError(f"flag '{flag.name}' is marked multiple but only list flags support that")
+            }
+        }
+        if flag.isMap {
+            match (flag.defaultValue) {
+                HashMap[__string, __string] as _ => {}
+                ... => raise ParseError(f"flag '{flag.name}' is marked map but only map flags support that")
+            }
+        }
+    }
+
     // Add a flag to this command
     func addFlag(flag: Flag): !void {
         if flags.contains(flag.name) {
@@ -220,6 +373,7 @@ pub class Command {
         if flag.shorthand != '\0' && flagsByShorthand.contains(flag.shorthand) {
             raise ParseError(f"shorthand '{flag.shorthand}' already exists")
         }
+        checkFlagModifiers(&flag)
         if flag.shorthand != '\0' {
             flagsByShorthand.[flag.shorthand] = flag.name
         }
@@ -230,10 +384,41 @@ pub class Command {
     func addFlag(name: __string, shorthand: char, def: __string, help: __string): !void {
         addFlag(Flag(name, shorthand, def, help))
     }
-    
+
     @inline
     func addFlag(name: __string, shorthand: char, def: __string, help: __string, envVar: __string): !void {
         addFlag(Flag(name, shorthand, def, help, envVar))
+    }
+
+    @inline
+    func add[T, Opts](name: __string, help: __string, def: __string, @unused opts: Opts): !void {
+        require!(T.isStruct, "conf must be a struct")
+        #if #T == #Flag {
+            var flag = Flag(name, '\0', help, def)
+            #if (has_member!(#Opts, "shorthand", #__string)) {
+                flag.shorthand = opts.shorthand
+            }
+            #if (has_member!(#Opts, "env", #__string)) {
+                flag.envVar = opts.env
+            }
+            #if (has_member!(#Opts, "required", #bool)) {
+                flag.required = opts.required
+            }
+            #if (has_member!(#Opts, "persistent", #bool)) {
+                if opts.persistent {
+                    addPersistentFlag(&&flag)
+                }
+                else {
+                    addFlag(&&flag)
+                }
+            }
+            else {
+                addFlag(&&flag)
+            }
+        }
+        else {
+            error!("type must be Flag, got {t}", #T)
+        }
     }
 
     // Find flag by shorthand character
@@ -264,11 +449,53 @@ pub class Command {
         if flag.shorthand != '\0' && persistentFlagsByShorthand.contains(flag.shorthand) {
             raise ParseError(f"persistent shorthand '{flag.shorthand}' already exists")
         }
+        checkFlagModifiers(&flag)
 
         if flag.shorthand != '\0' {
             persistentFlagsByShorthand.[flag.shorthand] = flag.name
         }
         persistentFlags.[flag.name] = &&flag
+    }
+
+    // Add a persistent, terminal "--version" flag. Like --help, this bypasses
+    // validation (flag groups, positional args, required subcommand) so the
+    // caller can print the version and exit instead of running any action.
+    func addVersionFlag(version: __string, shorthand: char = '\0'): !void {
+        this.version = version
+        var flag = Flag("version", shorthand, "Show version information", false)
+        flag.terminal = true
+        addPersistentFlag(flag)
+    }
+
+    // Write "<name> <version>" to the given stream
+    func printVersion(os: &OutputStream): void {
+        os << name << " " << version << "\n"
+    }
+
+    // Declare a positional argument for this command. Required arguments must
+    // be declared before optional ones, and a variadic argument (captures all
+    // remaining values) must be the last one declared.
+    func addArg(arg: PositionalArg): !void {
+        var hasVariadic = false
+        var hasOptional = false
+        for existing, _ : positionalArgs {
+            if existing.name == arg.name {
+                raise ParseError(f"positional argument '{arg.name}' already exists")
+            }
+            if existing.variadic {
+                hasVariadic = true
+            }
+            if !existing.required {
+                hasOptional = true
+            }
+        }
+        if hasVariadic {
+            raise ParseError(f"cannot add positional argument '{arg.name}' after a variadic argument")
+        }
+        if hasOptional && arg.required {
+            raise ParseError(f"required positional argument '{arg.name}' cannot follow an optional argument")
+        }
+        positionalArgs.push(arg)
     }
 
     // Add a subcommand to this command
@@ -278,9 +505,11 @@ pub class Command {
         }
         cmd.parent = this
 
-        // Inherit persistent flags from parent
+        // Inherit persistent flags from parent. Re-registering them as
+        // persistent (not local) on the child ensures they keep propagating
+        // to grandchildren when the child later adds its own subcommands.
         for (const _, flag: persistentFlags) {
-            cmd.addFlag(flag) catch discard  // Ignore conflicts
+            cmd.addPersistentFlag(flag) catch discard  // Ignore conflicts
         }
 
         commands.[cmd.name] = &&cmd
@@ -300,6 +529,25 @@ pub class Command {
             return __copy!(tmp)
         }
         return null
+    }
+
+    // Check if any terminal flag (local or persistent) was set, e.g. --help
+    // or a user-declared --version. Terminal flags bypass validation and
+    // signal that the caller should handle the request instead of running
+    // the command's action.
+    @private
+    func hasTerminalFlagSet(): bool {
+        for (const _, flag: flags) {
+            if flag.terminal && flagValues.getBool(flag.name) {
+                return true
+            }
+        }
+        for (const _, flag: persistentFlags) {
+            if flag.terminal && flagValues.getBool(flag.name) {
+                return true
+            }
+        }
+        return false
     }
 
     // Check if string looks like a boolean value
@@ -386,13 +634,33 @@ pub class Command {
         // Apply environment variable values for flags not set by command line
         applyEnvVars()
 
+        // Check if a terminal flag (e.g. --help, --version) was requested
+        // before validating, so it isn't blocked by missing required
+        // flags/arguments or a missing subcommand
+        if hasTerminalFlagSet() {
+            return (__copy!(this), false)  // Don't execute, let the caller handle it
+        }
+
+        // If this command has subcommands, one must have been invoked above
+        // (which returns early). Otherwise it's an error.
+        if !commands.empty() {
+            raise ParseError(f"'{name}' requires a subcommand")
+        }
+
+        // Fill in defaults for optional positional args not provided
+        applyPositionalArgs()
+
+        // Ensure required flags were provided before filling in defaults
+        validateRequiredFlags()
+
+        // Fill in default values for flags not set via command line or env var
+        applyFlagDefaults()
+
         // Validate flag groups after parsing
         validateFlagGroups()
 
-        // Check if help was requested
-        if flagValues.getBool("help") {
-            return (__copy!(this), false)  // Don't execute, just show help
-        }
+        // Validate declared positional arguments
+        validatePositionalArgs()
 
         return (__copy!(this), true)  // Execute this command
     }
@@ -420,12 +688,23 @@ pub class Command {
         if (index + 1 < argv.size()) {
             var nextArg = __string(argv.[index + 1])
             if !nextArg.startswith("-") {
-                // Only treat as value if this flag type requires a value
-                var flag = flags.[flagName]
+                // Only treat as value if this flag type requires a value.
+                // Look up by the base name, stripping any ":key" suffix
+                // used for map-valued flags (e.g. "params:a" -> "params").
+                var baseName = baseFlagName(flagName)
+                var flag = flags.[baseName]
                 if !flag {
-                    flag = persistentFlags.[flagName]
+                    flag = persistentFlags.[baseName]
                 }
                 if flag {
+                    if flag&.isMap {
+                        // Map entries (--name:key value) always consume
+                        // the next arg as a raw string value.
+                        flagValue = nextArg
+                        hasValue = true
+                        parseLongFlag(flagName, flagValue, hasValue)
+                        return index + 2
+                    }
                     match (flag&.defaultValue) {
                         bool as _ => {
                             // Check if next arg is a boolean value
@@ -540,8 +819,39 @@ pub class Command {
     }
 
     // Parse a single long flag
+    // Strip a ":key" suffix (used for map-valued flags) from a flag name,
+    // e.g. "params:a" -> "params". Returns the name unchanged if there's
+    // no colon.
+    @private
+    func baseFlagName(flagName: __string): __string {
+        var colonPos = flagName.indexOf(':')
+        if colonPos {
+            return flagName.substr(0, <i64>*colonPos)
+        }
+        return flagName
+    }
+
     @private
     func parseLongFlag(flagName: __string, flagValue: __string, hasValue: bool): !void {
+        // Map entry syntax: --name:key (value) / --name:key=value
+        var colonPos = flagName.indexOf(':')
+        if colonPos {
+            var baseName = flagName.substr(0, <i64>*colonPos)
+            var key = flagName.substr(<i64>*colonPos + 1)
+            var flag = flags.[baseName]
+            if !flag {
+                flag = persistentFlags.[baseName]
+            }
+            if !flag {
+                raise ParseError(f"unknown flag: --{baseName}")
+            }
+            if !flag&.isMap {
+                raise ParseError(f"flag '--{baseName}' does not support ':key' syntax")
+            }
+            flagValues.set(baseName, key, flagValue)
+            return
+        }
+
         // Check local flags first, then persistent flags
         var flag = flags.[flagName]
         if !flag {
@@ -580,7 +890,20 @@ pub class Command {
                 if !hasValue {
                     raise ParseError(f"flag --{flagName} requires a value")
                 }
-                flagValues.set(flagName, flagValue)
+                if flag&.multiple {
+                    flagValues.append(flagName, flagValue)
+                } else {
+                    flagValues.set(flagName, flagValue)
+                }
+            }
+            Vector[__string] as _ => {
+                if !hasValue {
+                    raise ParseError(f"flag --{flagName} requires a value")
+                }
+                flagValues.append(flagName, flagValue)
+            }
+            ... => {
+                raise ParseError(f"flag --{flagName} is invalid")
             }
         }
     }
@@ -590,10 +913,52 @@ pub class Command {
         os << description << "\n\n"
 
         // Usage line
-        if commands.empty() {
-            os << "Usage: " << name << " [flags]\n"
-        } else {
-            os << "Usage: " << name << " [flags] [command]\n"
+        os << "Usage: " << name << " [flags]"
+        if !commands.empty() {
+            os << " [command]"
+        }
+        for arg, _ : positionalArgs {
+            os << " "
+            if arg.required {
+                os << "<" << arg.name
+            } else {
+                os << "[" << arg.name
+            }
+            if arg.variadic {
+                os << "..."
+            }
+            if arg.required {
+                os << ">"
+            } else {
+                os << "]"
+            }
+        }
+        os << "\n"
+
+        // Positional arguments
+        if !positionalArgs.empty() {
+            os << "\nArguments:\n"
+
+            var maxArgLen = 0 as u64
+            for arg, _ : positionalArgs {
+                if arg.name.size() > maxArgLen {
+                    maxArgLen = arg.name.size()
+                }
+            }
+            var argPadWidth = maxArgLen + 4
+
+            for arg, _ : positionalArgs {
+                os << "  " << arg.name
+                var padding = argPadWidth - arg.name.size()
+                for i : 0..padding {
+                    os << " "
+                }
+                os << arg.usage
+                if !arg.required {
+                    os << " (optional)"
+                }
+                os << "\n"
+            }
         }
 
         // Available commands
@@ -649,7 +1014,13 @@ pub class Command {
                 for i : 0..padding {
                     os << " "
                 }
-                os << flag.usage << "\n"
+                os << flag.usage
+                if flag.multiple {
+                    os << " (can be repeated)"
+                } else if flag.isMap {
+                    os << " (use --" << flag.name << ":key value, can be repeated)"
+                }
+                os << "\n"
             }
 
             // Show persistent flags
@@ -659,7 +1030,13 @@ pub class Command {
                 for i : 0..padding {
                     os << " "
                 }
-                os << flag.usage << "\n"
+                os << flag.usage
+                if flag.multiple {
+                    os << " (can be repeated)"
+                } else if flag.isMap {
+                    os << " (use --" << flag.name << ":key value, can be repeated)"
+                }
+                os << "\n"
             }
         }
 
@@ -705,6 +1082,92 @@ pub class Command {
             if group.required && setFlags.empty() {
                 raise ValidationError(f"required flag group '{group.name}' must have at least one flag set")
             }
+        }
+    }
+
+    // Ensure every flag marked required was actually provided, either on the
+    // command line or via its bound environment variable. Must run before
+    // applyFlagDefaults(), otherwise every flag would appear "set" once its
+    // default is filled in and this check would never fire.
+    @private
+    func validateRequiredFlags(): !void {
+        for (const _, flag: flags) {
+            if flag.required && !flagValues.has(flag.name) {
+                raise ValidationError(f"required flag not provided: --{flag.name}")
+            }
+        }
+        for (const _, flag: persistentFlags) {
+            if flag.required && !flagValues.has(flag.name) {
+                raise ValidationError(f"required flag not provided: --{flag.name}")
+            }
+        }
+    }
+
+    // Fill in a single flag's registered default value if it wasn't set via
+    // the command line or an environment variable. Only scalar flag types
+    // have a meaningful default here - list/map flags are left unset so
+    // getList/getMap correctly report null when never provided.
+    @private
+    func applyFlagDefault(flag: Flag): void {
+        if flagValues.has(flag.name) {
+            return
+        }
+        match (flag.defaultValue) {
+            bool as b => flagValues.set(flag.name, b)
+            i64 as iv => flagValues.set(flag.name, iv)
+            __string as s => flagValues.set(flag.name, s)
+            ... => {}
+        }
+    }
+
+    // Fill in default values for flags not set via command line or env var
+    @private
+    func applyFlagDefaults(): void {
+        for (const _, flag: flags) {
+            applyFlagDefault(flag)
+        }
+        for (const _, flag: persistentFlags) {
+            applyFlagDefault(flag)
+        }
+    }
+
+    // Fill in default values for optional positional args that weren't provided
+    @private
+    func applyPositionalArgs(): void {
+        if positionalArgs.empty() {
+            return
+        }
+
+        var i = 0 as u64
+        for arg, _ : positionalArgs {
+            if !arg.required && !arg.variadic && i >= args.size() && !arg.defaultValue.empty() {
+                args.push(arg.defaultValue)
+            }
+            i++
+        }
+    }
+
+    // Validate declared positional arguments after parsing
+    @private
+    func validatePositionalArgs(): !void {
+        if positionalArgs.empty() {
+            return
+        }
+
+        var provided = args.size()
+        var declared = 0 as u64
+        var variadic = false
+
+        for arg, _ : positionalArgs {
+            if arg.required && declared >= provided {
+                raise ValidationError(f"missing required argument: {arg.name}")
+            }
+            variadic = arg.variadic
+            declared++
+        }
+
+        if !variadic && provided > declared {
+            raise ValidationError(f"too many arguments: expected at most {declared}, got {provided}")
         }
     }
 
@@ -812,6 +1275,113 @@ test "Command flag parsing --flag value" {
     ok!(cmd.flagValues.getInt("count") == 25)
 }
 
+test "Repeated flag accumulates values" {
+    var cmd = Command("test", "Test command")
+    var flag = Flag.list("param", "Parameter")
+    cmd.addFlag(flag) catch discard
+
+    var args = ["--param", "p1", "--param", "p2=100"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.count("param") == 2)
+    var values = cmd.flagValues.getList("param")
+    ok!(values.size() == 2)
+    ok!(values.[0] == "p1")
+    ok!(values.[1] == "p2=100")
+}
+
+test "Repeated flag with --flag=value syntax" {
+    var cmd = Command("test", "Test command")
+    var flag = Flag.list("param", "Parameter")
+    cmd.addFlag(flag) catch discard
+
+    var args = ["--param=p1", "--param=p2"]
+    cmd.parse(args) catch discard
+
+    var values = cmd.flagValues.getList("param")
+    ok!(values.size() == 2)
+    ok!(values.[0] == "p1")
+    ok!(values.[1] == "p2")
+}
+
+test "Repeated flag not provided returns empty list" {
+    var cmd = Command("test", "Test command")
+    var flag = Flag.list("param", "Parameter")
+    cmd.addFlag(flag) catch discard
+
+    var args: [string] = []
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.count("param") == 0)
+    ok!(cmd.flagValues.getList("param") == null)
+}
+
+test "Map flag builds entries from --name:key value" {
+    var cmd = Command("test", "Test command")
+    var flag = Flag.map("params", "Parameters")
+    cmd.addFlag(flag) catch discard
+
+    var args = ["--params:key", "value", "--params:key2", "--params:key3", "10"]
+    cmd.parse(args) catch discard
+
+    var params = cmd.flagValues.getMap("params")
+    ok!(params.size() == 3)
+    var keyVal = params.["key"]
+    ok!(!!keyVal && *keyVal == "value")
+    var key2Val = params.["key2"]
+    ok!(!!key2Val && *key2Val == "")
+    var key3Val = params.["key3"]
+    ok!(!!key3Val && *key3Val == "10")
+}
+
+test "Map flag supports --name:key=value syntax" {
+    var cmd = Command("test", "Test command")
+    var flag = Flag.map("params", "Parameters")
+    cmd.addFlag(flag) catch discard
+
+    var args = ["--params:a=1", "--params:b=2"]
+    cmd.parse(args) catch discard
+
+    var params = cmd.flagValues.getMap("params")
+    ok!(params.size() == 2)
+    var aVal = params.["a"]
+    ok!(!!aVal && *aVal == "1")
+    var bVal = params.["b"]
+    ok!(!!bVal && *bVal == "2")
+}
+
+test "Map flag not provided returns null" {
+    var cmd = Command("test", "Test command")
+    var flag = Flag.map("params", "Parameters")
+    cmd.addFlag(flag) catch discard
+
+    var args: [string] = []
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getMap("params") == null)
+}
+
+test "Colon syntax on a non-map flag fails" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("name", "Service name", "".s)) catch discard
+
+    var args = ["--name:key", "value"]
+    var _, failed = cmd.parse(args) catch (null as Command, true)
+    ok!(failed)
+}
+
+test "addFlag rejects a flag that is both multiple and map" {
+    var cmd = Command("test", "Test command")
+    var flag = Flag.map("params", "Parameters")
+    flag.multiple = true
+
+    var failed = false
+    cmd.addFlag(flag) catch {
+        failed = true
+    }
+    ok!(failed)
+}
+
 test "Command positional arguments" {
     var cmd = Command("test", "Test command")
     cmd.addFlag(Flag("verbose", "Enable verbose", false)) catch discard
@@ -822,6 +1392,84 @@ test "Command positional arguments" {
     ok!(cmd.args.size() == 2)
     ok!(cmd.args.[0] == "file1.txt")
     ok!(cmd.args.[1] == "file2.txt")
+}
+
+test "Declared required positional argument is captured" {
+    var cmd = Command("test", "Test command")
+    cmd.addArg(PositionalArg("file", "Input file")) catch discard
+
+    var args = ["input.txt"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.args.size() == 1)
+    ok!(cmd.args.[0] == "input.txt")
+}
+
+test "Missing required positional argument fails validation" {
+    var cmd = Command("test", "Test command")
+    cmd.addArg(PositionalArg("file", "Input file")) catch discard
+
+    var args: [string] = []
+    var _, failed = cmd.parse(args) catch (null as Command, true)
+    ok!(failed)
+}
+
+test "Too many positional arguments fails validation" {
+    var cmd = Command("test", "Test command")
+    cmd.addArg(PositionalArg("file", "Input file")) catch discard
+
+    var args = ["a.txt", "b.txt"]
+    var _, failed = cmd.parse(args) catch (null as Command, true)
+    ok!(failed)
+}
+
+test "Optional positional argument uses default value when omitted" {
+    var cmd = Command("test", "Test command")
+    cmd.addArg(PositionalArg("src", "Source file")) catch discard
+    cmd.addArg(PositionalArg("dst", "Destination file", "out.txt".s)) catch discard
+
+    var args = ["in.txt"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.args.size() == 2)
+    ok!(cmd.args.[0] == "in.txt")
+    ok!(cmd.args.[1] == "out.txt")
+}
+
+test "Variadic positional argument captures remaining args" {
+    var cmd = Command("test", "Test command")
+    cmd.addArg(PositionalArg("action", "Action to run")) catch discard
+    cmd.addArg(PositionalArg("files", "Files to process", true, true)) catch discard
+
+    var args = ["run", "a.txt", "b.txt", "c.txt"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.args.size() == 4)
+    ok!(cmd.args.[0] == "run")
+    ok!(cmd.args.[3] == "c.txt")
+}
+
+test "addArg rejects invalid declarations" {
+    var cmd = Command("test", "Test command")
+    cmd.addArg(PositionalArg("file", "Input file")) catch discard
+    ok!(cmd.positionalArgs.size() == 1)
+
+    // Duplicate name is rejected
+    cmd.addArg(PositionalArg("file", "Duplicate")) catch discard
+    ok!(cmd.positionalArgs.size() == 1)
+
+    // Required argument cannot follow an optional one
+    cmd.addArg(PositionalArg("opt", "Optional file", "default.txt".s)) catch discard
+    ok!(cmd.positionalArgs.size() == 2)
+    cmd.addArg(PositionalArg("required", "Should fail")) catch discard
+    ok!(cmd.positionalArgs.size() == 2)
+
+    // Nothing can be declared after a variadic argument
+    var cmd2 = Command("test2", "Test command 2")
+    cmd2.addArg(PositionalArg("files", "Files", true, true)) catch discard
+    ok!(cmd2.positionalArgs.size() == 1)
+    cmd2.addArg(PositionalArg("extra", "Should fail")) catch discard
+    ok!(cmd2.positionalArgs.size() == 1)
 }
 
 test "Boolean flag without value defaults to true" {
@@ -1005,6 +1653,74 @@ test "Subcommand routing" {
     ok!(rootCmd.args.empty())
 }
 
+test "Command with subcommands requires one to be specified" {
+    var rootCmd = Command("docker", "Container management")
+    var containerCmd = Command("container", "Manage containers")
+    rootCmd.addCommand(containerCmd) catch discard
+
+    var args: [string] = []
+    var _, failed = rootCmd.parse(args) catch (null as Command, true)
+    ok!(failed)
+
+    // Specifying the subcommand still works fine
+    var args2 = ["container"]
+    var finalCmd, shouldExecute = rootCmd.parse(args2) catch (null as Command, false)
+    ok!(finalCmd != null)
+    ok!(shouldExecute)
+    ok!(finalCmd.name == "container")
+}
+
+test "Unregistered --version flag fails with unknown flag error" {
+    var rootCmd = Command("docker", "Container management")
+    var containerCmd = Command("container", "Manage containers")
+    rootCmd.addCommand(containerCmd) catch discard
+
+    var args = ["--version"]
+    var _, failed = rootCmd.parse(args) catch (null as Command, true)
+    ok!(failed)
+}
+
+test "--version flag bypasses the required-subcommand check" {
+    var rootCmd = Command("docker", "Container management")
+    rootCmd.addVersionFlag("1.2.3".s) catch discard
+
+    var containerCmd = Command("container", "Manage containers")
+    rootCmd.addCommand(containerCmd) catch discard
+
+    var args = ["--version"]
+    var finalCmd, shouldExecute = rootCmd.parse(args) catch (null as Command, false)
+
+    ok!(finalCmd != null)
+    ok!(!shouldExecute)
+    ok!(finalCmd.flagValues.getBool("version") == true)
+    ok!(finalCmd.version == "1.2.3")
+
+    var versionOutput = String()
+    finalCmd.printVersion(&versionOutput)
+    ok!(!!versionOutput.__str().find("1.2.3"))
+}
+
+test "Custom terminal flag bypasses validation" {
+    var cmd = Command("test", "Test command")
+    cmd.addArg(PositionalArg("file", "Input file")) catch discard
+
+    var listFlag = Flag("list-plugins", "List available plugins", false)
+    listFlag.terminal = true
+    cmd.addFlag(listFlag) catch discard
+
+    // Normally, a missing required positional arg fails validation...
+    var args1: [string] = []
+    var _, failed = cmd.parse(args1) catch (null as Command, true)
+    ok!(failed)
+
+    // ...but a terminal flag bypasses that validation entirely
+    var args2 = ["--list-plugins"]
+    var finalCmd, shouldExecute = cmd.parse(args2) catch (null as Command, false)
+    ok!(finalCmd != null)
+    ok!(!shouldExecute)
+    ok!(finalCmd.flagValues.getBool("list-plugins") == true)
+}
+
 test "Multi-level command hierarchy" {
     var rootCmd = Command("kubectl", "Kubernetes CLI")
     var getCmd = Command("get", "Get resources")
@@ -1037,6 +1753,31 @@ test "Persistent flags with subcommand execution" {
 
     ok!(serveCmd.flagValues.getString("config") == "/etc/app.conf")
     ok!(serveCmd.flagValues.getInt("port") == 9000)
+}
+
+test "Persistent flags propagate to grandchildren" {
+    var rootCmd = Command("kubectl", "Kubernetes CLI")
+    rootCmd.addPersistentFlag(Flag("namespace", 'n', "Namespace", "default".s)) catch discard
+
+    var getCmd = Command("get", "Get resources")
+    rootCmd.addCommand(getCmd) catch discard
+
+    var podsCmd = Command("pods", "Get pods")
+    getCmd.addCommand(podsCmd) catch discard
+
+    // Flag declared two levels up should still be recognized by the
+    // grandchild, whether passed before or after the nested subcommands.
+    var args = ["get", "pods", "--namespace", "kube-system"]
+    var finalCmd, shouldExecute = rootCmd.parse(args) catch (null as Command, false)
+    ok!(shouldExecute)
+    ok!(finalCmd.name == "pods")
+    ok!(finalCmd.flagValues.getString("namespace") == "kube-system")
+
+    // Also works when set before the subcommand chain
+    var args2 = ["--namespace", "kube-system", "get", "pods"]
+    var finalCmd2, shouldExecute2 = rootCmd.parse(args2) catch (null as Command, false)
+    ok!(shouldExecute2)
+    ok!(finalCmd2.flagValues.getString("namespace") == "kube-system")
 }
 
 test "Mutually exclusive flag groups" {
@@ -1129,6 +1870,154 @@ test "Required flag group" {
     ok!(failed)
 }
 
+test "Required flag fails validation when missing" {
+    var cmd = Command("test", "Test command")
+    var flag = Flag("name", "Name flag", "".s)
+    flag.required = true
+    cmd.addFlag(flag) catch discard
+
+    var args: [string] = []
+    var _, failed = cmd.parse(args) catch (null as Command, true)
+    ok!(failed)
+}
+
+test "Required flag passes validation when provided" {
+    var cmd = Command("test", "Test command")
+    var flag = Flag("name", "Name flag", "".s)
+    flag.required = true
+    cmd.addFlag(flag) catch discard
+
+    var args = ["--name", "value"]
+    cmd.parse(args) catch discard
+    ok!(cmd.flagValues.getString("name") == "value")
+}
+
+test "Required flag satisfied by environment variable" {
+    var cmd = Command("test", "Test command")
+    var flag = Flag("name", "Name flag", "".s, "CXY_TEST_REQUIRED_NAME".s)
+    flag.required = true
+    cmd.addFlag(flag) catch discard
+
+    setenv("CXY_TEST_REQUIRED_NAME", "env-value", true) catch discard
+    var args: [string] = []
+    cmd.parse(args) catch discard
+    ok!(cmd.flagValues.getString("name") == "env-value")
+    unsetenv("CXY_TEST_REQUIRED_NAME") catch discard
+}
+
+test "Required persistent flag is validated on subcommand" {
+    var rootCmd = Command("root", "Root command")
+    var flag = Flag("token", "Auth token", "".s)
+    flag.required = true
+    rootCmd.addPersistentFlag(flag) catch discard
+
+    var runCmd = Command("run", "Run command")
+    rootCmd.addCommand(runCmd) catch discard
+
+    var args: [string] = ["run"]
+    var _, failed = rootCmd.parse(args) catch (null as Command, true)
+    ok!(failed)
+
+    var args2 = ["run", "--token", "abc"]
+    var finalCmd, shouldExecute = rootCmd.parse(args2) catch (null as Command, false)
+    ok!(shouldExecute)
+    ok!(finalCmd.flagValues.getString("token") == "abc")
+}
+
+test "Terminal flag bypasses required flag validation" {
+    var cmd = Command("test", "Test command")
+    var flag = Flag("name", "Name flag", "".s)
+    flag.required = true
+    cmd.addFlag(flag) catch discard
+    cmd.addVersionFlag("1.0.0".s) catch discard
+
+    var args = ["--version"]
+    var finalCmd, shouldExecute = cmd.parse(args) catch (null as Command, true)
+    ok!(finalCmd != null)
+    ok!(!shouldExecute)
+}
+
+test "Optional string flag default value is applied when not provided" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("output", "Output path", "out.txt".s)) catch discard
+
+    var args: [string] = []
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getString("output") == "out.txt")
+}
+
+test "Optional bool flag default value is applied when not provided" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("verbose", "Enable verbose", true)) catch discard
+
+    var args: [string] = []
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("verbose") == true)
+}
+
+test "Optional int flag default value is applied when not provided" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("port", "Port number", 8080 as i64)) catch discard
+
+    var args: [string] = []
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getInt("port") == 8080)
+}
+
+test "Explicit flag value overrides its default value" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("port", "Port number", 8080 as i64)) catch discard
+
+    var args = ["--port", "9000"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getInt("port") == 9000)
+}
+
+test "Environment variable overrides default value" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("port", "Port number", 8080 as i64, "CXY_TEST_PORT".s)) catch discard
+
+    setenv("CXY_TEST_PORT", "9500", true) catch discard
+    var args: [string] = []
+    cmd.parse(args) catch discard
+    ok!(cmd.flagValues.getInt("port") == 9500)
+    unsetenv("CXY_TEST_PORT") catch discard
+}
+
+test "Persistent flag default value is inherited by subcommand" {
+    var rootCmd = Command("root", "Root command")
+    rootCmd.addPersistentFlag(Flag("retries", "Retry count", 3 as i64)) catch discard
+
+    var runCmd = Command("run", "Run command")
+    rootCmd.addCommand(runCmd) catch discard
+
+    var args = ["run"]
+    var finalCmd, shouldExecute = rootCmd.parse(args) catch (null as Command, false)
+    ok!(shouldExecute)
+    ok!(finalCmd.flagValues.getInt("retries") == 3)
+}
+
+test "Repeatable and map flag defaults are not eagerly filled in" {
+    var cmd = Command("test", "Test command")
+    var listFlag = Flag("tag", "Tag", "".s)
+    listFlag.multiple = true
+    cmd.addFlag(listFlag) catch discard
+
+    var mapFlag = Flag("label", "Label", "".s)
+    mapFlag.isMap = true
+    cmd.addFlag(mapFlag) catch discard
+
+    var args: [string] = []
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getList("tag") == null)
+    ok!(cmd.flagValues.getMap("label") == null)
+}
+
 // Factory function to create a built-in help command
 pub func createHelpCommand(rootCmd: &Command): void {
     var helpCmd = Command("help", "Show help for commands")
@@ -1172,6 +2061,7 @@ pub func RootCommand(name: __string, description: __string): Command {
 
     // Add persistent help flag that all subcommands inherit
     var helpFlag = Flag("help", 'h', "Show help for this command", false)
+    helpFlag.terminal = true
     cmd.addPersistentFlag(helpFlag) catch discard
 
     // Add built-in help command
@@ -1207,6 +2097,22 @@ test "Help generation validation" {
     ok!(!!s.find("--verbose"))
     ok!(!!s.find("--debug"))
     ok!(!!s.find("Use \"myapp [command] --help\" for more information"))
+}
+
+test "Help output includes positional arguments" {
+    var cmd = Command("cp", "Copy files")
+    cmd.addArg(PositionalArg("src", "Source file")) catch discard
+    cmd.addArg(PositionalArg("dst", "Destination path", "".s)) catch discard
+
+    var helpOutput = String()
+    cmd.help(&helpOutput)
+    var s = helpOutput.__str()
+
+    ok!(!!s.find("Usage: cp [flags] <src> [dst]"))
+    ok!(!!s.find("Arguments:"))
+    ok!(!!s.find("Source file"))
+    ok!(!!s.find("Destination path"))
+    ok!(!!s.find("(optional)"))
 }
 
 test "Help flag detection" {

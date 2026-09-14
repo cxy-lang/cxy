@@ -837,6 +837,27 @@ static void visitStructExpr(ConstAstVisitor *visitor, const AstNode *node)
     Return(ctx, jsonNode);
 }
 
+static void visitXformExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    JsonConverterContext *ctx = getConstAstVisitorContext(visitor);
+    cJSON *jsonNode = nodeCreateJSON(visitor, node);
+
+    cJSON_AddItemToObject(
+        jsonNode, "target", nodeToJson(visitor, node->xFormExpr.target));
+    cJSON_AddItemToObject(
+        jsonNode, "arg", nodeToJson(visitor, node->xFormExpr.arg));
+    cJSON_AddItemToObject(
+        jsonNode, "xform", nodeToJson(visitor, node->xFormExpr.xform));
+    if (node->xFormExpr.cond) {
+        cJSON_AddItemToObject(
+            jsonNode, "cond", nodeToJson(visitor, node->xFormExpr.cond));
+    }
+    if (node->xFormExpr.isArray) {
+        cJSON_AddNumberToObject(jsonNode, "arr", true);
+    }
+    Return(ctx, jsonNode);
+}
+
 static void visitExpressionStmt(ConstAstVisitor *visitor, const AstNode *node)
 {
     JsonConverterContext *ctx = getConstAstVisitorContext(visitor);
@@ -1014,6 +1035,7 @@ AstNode *dumpAstJson(CompilerDriver *driver, AstNode *node, FILE *file)
         [astClosureExpr] = visitClosureExpr,
         [astFieldExpr] = visitFieldExpr,
         [astStructExpr] = visitStructExpr,
+        [astXformExpr] = visitXformExpr,
         [astExprStmt] = visitExpressionStmt,
         [astDeferStmt] = visitExpressionStmt,
         [astGroupExpr] = visitExpressionStmt,

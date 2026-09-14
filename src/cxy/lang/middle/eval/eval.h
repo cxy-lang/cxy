@@ -13,11 +13,7 @@
 extern "C" {
 #endif
 
-typedef enum {
-    jmpNone = 0,
-    jmpContinue,
-    jmpBreak
-} JmpFlags;
+typedef enum { jmpNone = 0, jmpContinue, jmpBreak } JmpFlags;
 
 typedef struct {
     Log *L;
@@ -71,6 +67,7 @@ void evalPathEpilogue(AstVisitor *visitor,
 void evalIfStmt(AstVisitor *visitor, AstNode *node);
 void evalForStmt(AstVisitor *visitor, AstNode *node);
 void evalXformType(AstVisitor *visitor, AstNode *node);
+void evalXformExpr(AstVisitor *visitor, AstNode *node);
 bool isNoopNodeAfterEval(const AstNode *node);
 
 #ifdef __cplusplus

@@ -130,6 +130,12 @@
         MODE##Visit(visitor, node->indexExpr.target);                          \
         MODE##Visit(visitor, node->indexExpr.index);                           \
         break;                                                                 \
+    case astXformExpr:                                                         \
+        MODE##Visit(visitor, node->xFormExpr.target);                          \
+        MODE##Visit(visitor, node->xFormExpr.arg);                             \
+        MODE##Visit(visitor, node->xFormExpr.cond);                            \
+        MODE##Visit(visitor, node->xFormExpr.xform);                           \
+        break;                                                                 \
     case astGenericParam:                                                      \
         MODE##VisitManyNodes(visitor, node->genericParam.constraints);         \
         break;                                                                 \
@@ -260,7 +266,7 @@
     case astForStmt:                                                           \
         MODE##Visit(visitor, node->forStmt.var);                               \
         MODE##Visit(visitor, node->forStmt.range);                             \
-        MODE##Visit(visitor, node->forStmt.cond);                             \
+        MODE##Visit(visitor, node->forStmt.cond);                              \
         MODE##Visit(visitor, node->forStmt.body);                              \
         break;                                                                 \
     case astWhileStmt:                                                         \

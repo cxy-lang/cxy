@@ -6,6 +6,7 @@ import "native/evloop/ae.h" as ae
 
 ##if (defined __CXY_THREADS_ENABLED__) {
     import "native/thread/tinythread.h" as tinyThread
+    __cc "native/thread/tinythread.c"
 }
 
 import { Atomic } from "./atomic.cxy"
@@ -686,7 +687,7 @@ pub struct Channel[T] {
     _in: ^Coroutine = null
     _out: ^Coroutine = null
 
-    func `init`(capacity: i32 = 0) {
+    func `init`(capacity: i32 = 1) {
         _buffer = CircularBuffer[T](capacity)
     }
 

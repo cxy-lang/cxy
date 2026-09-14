@@ -475,6 +475,9 @@ pub class Response {
             var count = sock.receive(buffer, sizeof!(buffer), timeout);
             if (!count)
                 raise HttpError(f"Receiving fetch response failed: {strerr()}")
+            if (*count == 0) {
+                raise HttpError("Connection closed by server before response was complete")
+            }
             if (!feed(buffer, *count)) {
                 const err = parser.llhttp_get_error_reason(_parser) !: string
                 raise HttpError(f"Parsing fetch response failed: {err}")
@@ -543,7 +546,7 @@ const HTTP_PARSER_SETTINGS = parser.llhttp_settings_t{
     on_message_complete: responseParserOnMessageComplete
 };
 
-type RequestBuilder = func(req: &Request) -> !void
+pub type RequestBuilder = func(req: &Request) -> !void
 
 pub class Session {
     - _port = 80`u16;

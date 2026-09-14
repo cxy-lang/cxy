@@ -393,15 +393,18 @@ const Type *checkFunctionBody(AstVisitor *visitor, AstNode *node)
 
     bool currentReturnState = ctx->returnState,
          currentExplicitCatch = ctx->explicitCatch;
+    __typeof(ctx->catcher) currentCatcher = ctx->catcher;
     ctx->returnState = false;
     ctx->explicitCatch = false;
     ctx->currentFunction = node;
     ctx->currentEnclosure = node;
+    ctx->catcher = (__typeof(ctx->catcher)){};
     ctx->fun = getDeclarationName(node);
 
     const Type *body_ = checkType(visitor, body);
     ctx->returnState = currentReturnState;
     ctx->explicitCatch = currentExplicitCatch;
+    ctx->catcher = currentCatcher;
 
     if (typeIs(body_, Error))
         return node->type = ERROR_TYPE(ctx);

@@ -22,7 +22,7 @@ LLVMContext::LLVMContext(llvm::LLVMContext &context,
       builder{context}
 {
     _module = std::make_unique<llvm::Module>(fileName, context);
-    _module->setTargetTriple(TM->getTargetTriple().getTriple());
+    _module->setTargetTriple(TM->getTargetTriple());
     _module->setDataLayout(TM->createDataLayout());
     /* Skip generating DI for builtins */
     if (driver->options.debug) {
@@ -48,12 +48,14 @@ llvm::Type *LLVMContext::convertToLLVMType(const Type *type)
         return getLLVMType(type->tEnum.base);
     case typPointer: {
         auto typ = getLLVMType(type->pointer.pointed);
-        return typ->getPointerTo();
+        return llvm::PointerType::get(context, typ->getPointerAddressSpace());
     }
-    case typReference:
+    case typReference: {
         if (isClassReferenceType(type))
             return getLLVMType(stripReference(type));
-        return getLLVMType(stripReference(type))->getPointerTo();
+        auto typ = getLLVMType(stripReference(type));
+        return llvm::PointerType::get(context, typ->getPointerAddressSpace());
+    }
     case typArray:
         return llvm::ArrayType::get(getLLVMType(type->array.elementType),
                                     type->array.len);

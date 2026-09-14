@@ -1,38 +1,17 @@
-import "stdlib/yaml.cxy"
+import "stdlib/json.cxy"
+
+@json
+struct User {
+    @json(optional, b64)
+    name: String? = null
+    age: i64 = 0
+    func `init`()  {}
+}
 
 func main(): !void {
-    var config = yaml.parse("""
-database:
-  host: localhost
-  port: 5432
-  credentials:
-    user: admin
-    password: secret
-users:
-  - name: John
-    email: john@example.com
-  - name: Jane
-    email: jane@example.com
-""")
-
-    // Navigate dynamic data safely
-    var dbConfig = config.["database"]
-    if dbConfig&.isObject() {
-        var host = dbConfig&.get("host")
-        var port = dbConfig&.get("port")
-
-        if !!host && !!port {
-            println("DB: ", host, ":", port)
-        }
-    }
-
-    // Handle arrays
-    var users = config.["users"]
-    if !!users && users&.isArray() {
-        for user, _ : users&.getArray() {
-            if user.isObject() {
-                println("User: ", user)
-            }
-        }
-    }
+    var s = String()
+    var x = User{name: "The world".S, age: 42}
+    json.toJSON(s, &x)
+    var y = json.parse[User](s.__str())
+    println(s, " Serialized: ", y)
 }

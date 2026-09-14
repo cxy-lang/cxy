@@ -44,6 +44,21 @@ static void evalCastExpr(AstVisitor *visitor, AstNode *node)
     }
 }
 
+static void evalExprStmt(AstVisitor *visitor, AstNode *node)
+{
+    AstNode *expr = node->exprStmt.expr;
+    if (expr->next == NULL) {
+        AstNode *next = node->next;
+        if (!evaluate(visitor, expr)) {
+            node->tag = astError;
+            return;
+        }
+        expr->parentScope = node->parentScope;
+        *node = *expr;
+        node->next = next;
+    }
+}
+
 static void evalFallback(AstVisitor *visitor, AstNode *node)
 {
     EvalContext *ctx = getAstVisitorContext(visitor);
@@ -189,7 +204,7 @@ void evalIfStmt(AstVisitor *visitor, AstNode *node)
 void evalTernaryExpr(AstVisitor *visitor, AstNode *node)
 {
     EvalContext *ctx = getAstVisitorContext(visitor);
-
+    bool isComptime = hasFlag(node, Comptime);
     AstNode *cond = node->ternaryExpr.cond;
     if (!evaluate(visitor, cond) || !evalBooleanCast(ctx, cond)) {
         node->tag = astError;
@@ -201,22 +216,27 @@ void evalTernaryExpr(AstVisitor *visitor, AstNode *node)
 
     if (cond->boolLiteral.value) {
         // select then branch & reclaim else branch if any x
-        AstNode *replacement = node->ternaryExpr.body;
+        AstNode *replacement = nodeIs(node->ternaryExpr.body, ExprStmt)
+                                   ? node->ternaryExpr.body->exprStmt.expr
+                                   : node->ternaryExpr.body;
         replacement->parentScope = node->parentScope;
         *node = *replacement;
         node->next = next;
     }
     else {
         // select otherwise, reclaim if branch
-        AstNode *replacement = node->ternaryExpr.otherwise;
+        AstNode *replacement = nodeIs(node->ternaryExpr.otherwise, ExprStmt)
+                                   ? node->ternaryExpr.otherwise->exprStmt.expr
+                                   : node->ternaryExpr.otherwise;
         // select next statement, reclaim if branch
         replacement->parentScope = node->parentScope;
         *node = *replacement;
         node->next = next;
     }
 
-    while (nodeIs(node, TernaryExpr) || hasFlag(node, Comptime)) {
+    while (isComptime || nodeIs(node, TernaryExpr) || hasFlag(node, Comptime)) {
         node->flags &= ~flgComptime;
+        isComptime = false;
         if (!evaluate(visitor, node)) {
             node->tag = astError;
             return;
@@ -397,6 +417,7 @@ void initEvalVisitor(AstVisitor *visitor, EvalContext *ctx)
         [astForStmt] = evalForStmt,
         [astContinueStmt] = evalContinueStmt,
         [astBreakStmt] = evalBreakStmt,
+        [astExprStmt] = evalExprStmt,
         [astTupleExpr] = evalTupleExpr,
         [astBinaryExpr] = evalBinaryExpr,
         [astAssignExpr] = evalAssignExpr,
@@ -409,8 +430,9 @@ void initEvalVisitor(AstVisitor *visitor, EvalContext *ctx)
         [astTernaryExpr] = evalTernaryExpr,
         [astCastExpr] = evalCastExpr,
         [astTypedExpr] = evalCastExpr,
-        [astEnumDecl] = evalEnumDecl,
         [astMacroCallExpr] = evalMacroCall,
+        [astXformExpr] = evalXformExpr,
+        [astEnumDecl] = evalEnumDecl,
         [astVarDecl] = evalVarDecl,
         [astFuncType] = evalTypeDecl,
         [astUnionDecl] = evalTypeDecl,

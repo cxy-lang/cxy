@@ -20,6 +20,35 @@ pub exception CryptoError(code: u64, msg: String = null) {
     return msg.str()
 }
 
+pub struct SHA1Digest {
+    hash: [u8, SHA_DIGEST_LENGTH!] = null
+
+    const func toString(os: &OutputStream, b64: bool) {
+        if b64 {
+            encodeBuffer(os, hash, SHA_DIGEST_LENGTH!)
+        } else {
+            toHexString(os, hash, SHA_DIGEST_LENGTH!)
+        }
+    }
+
+    @inline
+    const func `str`(os: &OutputStream) {
+        toString(os, false)
+    }
+
+    const func b64(): String {
+        var str = String()
+        toString(&str, true)
+        return &&str
+    }
+
+    const func hex(): String {
+        var str = String()
+        toString(&str, false)
+        return &&str
+    }
+}
+
 pub struct SHA256Digest {
     hash: [u8, SHA256_DIGEST_LENGTH!] = null
 
@@ -75,6 +104,21 @@ pub struct SHA512Digest {
         var str = String()
         toString(&str, false)
         return &&str
+    }
+}
+
+pub func SHA1(digest: &SHA1Digest, data: ^const void, len: u64): !void {
+    var ctx = OpenSSLSHA.SHA_CTX{}
+    if OpenSSLSHA.SHA1_Init(ptrof ctx) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+
+    if OpenSSLSHA.SHA1_Update(ptrof ctx, data, len) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+
+    if OpenSSLSHA.SHA1_Final(digest.hash, ptrof ctx) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
     }
 }
 

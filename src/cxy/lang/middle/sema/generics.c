@@ -149,10 +149,10 @@ static bool inferGenericFunctionTypes(AstVisitor *visitor,
 
     for (; param; param = param->next, index++) {
         if (param->genericParam.inferIndex == 0) {
-            logError(
-                ctx->L,
-                loc, "cannot infer param {s}, it must be explicitly specified",
-                (FormatArg[]){{.s = param->_name}});
+            logError(ctx->L,
+                     loc,
+                     "cannot infer param {s}, it must be explicitly specified",
+                     (FormatArg[]){{.s = param->_name}});
             logNote(ctx->L, loc, "define here", NULL);
             status = false;
             continue;
@@ -322,18 +322,19 @@ const Type *resolveGenericDecl(AstVisitor *visitor,
             return node->type = ERROR_TYPE(ctx);
         }
         variadicCount = argsCount - paramsCount + 1;
-        variadicTupleType =  mallocOrDie(sizeof(Type *) * variadicCount);
+        variadicTupleType = mallocOrDie(sizeof(Type *) * variadicCount);
     }
     else {
         if (isVariadic && argsCount == paramsCount)
             variadicCount = 1;
-        variadicTupleType =  mallocOrDie(sizeof(Type *) * variadicCount);
+        variadicTupleType = mallocOrDie(sizeof(Type *) * variadicCount);
     }
 
     paramTypes = mallocOrDie(sizeof(Type *) * paramsCount);
     for (; arg; index++, arg = arg->next) {
-        if (!evaluate(visitor, arg))
+        if (hasFlag(arg, Comptime) && !evaluate(ctx->evaluator, arg)) {
             return node->type = ERROR_TYPE(ctx);
+        }
 
         if (isLiteralExpr(arg)) {
             AstNode *value = deepCloneAstNode(ctx->pool, arg);
@@ -342,7 +343,8 @@ const Type *resolveGenericDecl(AstVisitor *visitor,
             arg->literal.value = value;
             arg->type = NULL;
         }
-        const Type *argType = maybeUnThisType(checkType(visitor, arg));
+        const Type *argType = arg->type =
+            maybeUnThisType(checkType(visitor, arg));
         if (index < paramsCount) {
             if (isVariadic && paramsCount - index == 1) {
                 variadicTupleType[variadicIndex++] = argType;
@@ -350,14 +352,15 @@ const Type *resolveGenericDecl(AstVisitor *visitor,
             else {
                 paramTypes[index] = argType;
             }
-        } else {
+        }
+        else {
             csAssert0(isVariadic);
             variadicTupleType[variadicIndex++] = argType;
         }
     }
     if (isVariadic) {
-        paramTypes[paramsCount-1] =
-            makeTupleType(ctx->types, variadicTupleType, variadicCount, flgVariadic);
+        paramTypes[paramsCount - 1] = makeTupleType(
+            ctx->types, variadicTupleType, variadicCount, flgVariadic);
         if (index < paramsCount && paramsCount - index == 1) {
             index++;
         }

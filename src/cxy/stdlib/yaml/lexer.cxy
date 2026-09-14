@@ -17,8 +17,10 @@ pub enum YamlToken {
     Colon,       // :
     Dash,        // -
     Newline,     // \n (significant in YAML)
-    Indent,      // indentation increase
-    Dedent,      // indentation decrease
+    Indent,          // indentation increase (block, or flow object '{')
+    IndentFlowArray, // '[' opening a flow array
+    Dedent,          // indentation decrease (block, or flow object '}')
+    DedentFlowArray, // ']' closing a flow array
 
     // Documents
     DocStart,    // ---
@@ -46,6 +48,27 @@ pub class YamlLexer {
     _flowContext = Vector[char]()
     _pendingDash = false
 
+    // A block scalar (`|`/`>`) consumes lines - including their trailing
+    // newlines - directly as part of its own scanning, without ever
+    // returning a Newline token for that transition (unlike normal
+    // tokenization, which always returns Newline for a real '\n'
+    // character). Set once a block scalar finishes, so the very next
+    // nextToken() call synthesizes the Newline that would otherwise be
+    // missing, keeping the invariant that consecutive word tokens with no
+    // structural token between them are on the same source line.
+    _pendingBlockScalarNewline = false
+
+    // Tracks the "virtual" column established when a block sequence dash
+    // is immediately followed by a mapping key on the same line (e.g.
+    // "- run: value"). YAML allows further keys of that same mapping to
+    // continue on later lines aligned with this column instead of with
+    // the dash itself, but that column is never pushed onto
+    // `_indentStack` as a real level (it's inline content, not the start
+    // of a line). This lets a dedent that lands exactly on it be
+    // recognized as valid instead of raising "Invalid indentation".
+    _hasDashKeyColumn = false
+    _dashKeyColumn: u64 = 0
+
     func `init`(input: __string) {
         _input = input
         _indentStack.push(0)
@@ -56,6 +79,14 @@ pub class YamlLexer {
         if _pendingDash {
             _pendingDash = false
             return YamlToken.Dash
+        }
+
+        // Synthesize the Newline a block scalar consumed internally
+        // without ever returning as its own token (see
+        // _pendingBlockScalarNewline above).
+        if _pendingBlockScalarNewline {
+            _pendingBlockScalarNewline = false
+            return YamlToken.Newline
         }
 
         // Handle pending dedents
@@ -102,16 +133,27 @@ pub class YamlLexer {
                 // Check if we landed on valid indentation
                 var finalLevel = _indentStack.[<i32>(_indentStack.size() - 1)]
                 if finalLevel != indent {
-                    raise YamlError("Invalid indentation", _line, _column)
+                    // Not a real block-indent level - but it may be a
+                    // tracked list-item virtual column (see
+                    // _hasDashKeyColumn above), which is still valid.
+                    if !_hasDashKeyColumn || indent != _dashKeyColumn {
+                        raise YamlError("Invalid indentation", _line, _column)
+                    }
                 }
 
                 _atLineStart = false
                 if dedentCount > 1 {
                     _pendingDedents = dedentCount - 1
                 }
+                if indent != _dashKeyColumn {
+                    _hasDashKeyColumn = false
+                }
                 return YamlToken.Dedent
             }
 
+            if indent != _dashKeyColumn {
+                _hasDashKeyColumn = false
+            }
             _atLineStart = false
         }
 
@@ -145,7 +187,30 @@ pub class YamlLexer {
                 }
                 // Check if it's a list item (dash followed by space)
                 if _peek(1) == ' ' || _peek(1) == '\n' || _isAtEnd() {
-                    _advance()
+                    var dashIndent = _indentStack.[<i32>(_indentStack.size() - 1)]
+                    _advance()  // consume '-'
+
+                    // Peek (without consuming) past any spaces after the
+                    // dash to see whether inline content follows, and
+                    // whether it looks like a mapping key ("word:") rather
+                    // than a plain scalar value. YAML allows further keys
+                    // of that mapping to continue on later lines aligned
+                    // with this column instead of with the dash itself -
+                    // track that column so a later dedent onto it can be
+                    // recognized as valid.
+                    var spacesAfterDash: u64 = 0
+                    while _peek(spacesAfterDash) == ' ' {
+                        spacesAfterDash += 1
+                    }
+
+                    if _peek(spacesAfterDash) != '\n' && !_isPastEnd(spacesAfterDash)
+                        && _looksLikeMappingKey(spacesAfterDash) {
+                        _hasDashKeyColumn = true
+                        _dashKeyColumn = dashIndent + 1 + spacesAfterDash
+                    } else {
+                        _hasDashKeyColumn = false
+                    }
+
                     return YamlToken.Dash
                 }
                 // Otherwise it's part of a scalar
@@ -162,7 +227,7 @@ pub class YamlLexer {
                 return _readScalar()
             }
             ':' => {
-                if _flowDepth > 0 || _peek(1) == ' ' || _peek(1) == '\n' || _isAtEnd() {
+                if _flowDepth > 0 || _peek(1) == ' ' || _peek(1) == '\n' || _isPastEnd(1) {
                     _advance()
                     return YamlToken.Colon
                 }
@@ -188,14 +253,32 @@ pub class YamlLexer {
                 this._advance()
                 _flowDepth += 1
                 _flowContext.push('[')
-                _pendingDash = true
-                return YamlToken.Indent
+
+                // Peek ahead (without consuming) to see whether this is an
+                // empty array `[]` - if so, don't synthesize a Dash for a
+                // first item that doesn't exist.
+                var i: u64 = 0
+                while _peek(i) == ' ' || _peek(i) == '\t' || _peek(i) == '\n' {
+                    i += 1
+                }
+                if _peek(i) != ']' {
+                    _pendingDash = true
+                }
+
+                // A distinct token (rather than tagging a generic Indent)
+                // so the parser can recognize an empty flow array (`[]`)
+                // even when there's no following Dash - at zero cost,
+                // unlike stashing a marker string on every token.
+                return YamlToken.IndentFlowArray
             }
             ']' => {
                 this._advance()
                 _flowDepth -= 1
                 _flowContext.pop()
-                return YamlToken.Dedent
+                // A distinct token so the parser can tell this apart from a
+                // block-indentation dedent - it unambiguously closes this
+                // flow array and nothing else.
+                return YamlToken.DedentFlowArray
             }
             ',' => {
                 if _flowDepth > 0 {
@@ -257,6 +340,38 @@ pub class YamlLexer {
     }
 
     func _isAtEnd(): bool => _position >= _input.size()
+
+    // Whether the character `offset` positions ahead of the current one is
+    // past the end of input (used to detect a colon that's the very last
+    // character, e.g. "hello:" with nothing after it - `_isAtEnd()` alone
+    // only tells us the *current* position is done, not that `peek(offset)`
+    // would fall off the end).
+    func _isPastEnd(offset: u64): bool => (_position + offset) >= _input.size()
+
+    // Peeks ahead (without consuming) from the given offset to determine
+    // whether the upcoming content looks like a mapping key (a word
+    // immediately followed by ':' then whitespace/EOF) as opposed to a
+    // plain scalar value. Used right after a block sequence dash to decide
+    // whether to track its "virtual" content column (see
+    // _hasDashKeyColumn).
+    func _looksLikeMappingKey(startOffset: u64): bool {
+        var i = startOffset
+        while true {
+            if _isPastEnd(i) {
+                return false
+            }
+            var c = _peek(i)
+            if c == '\n' || c == ' ' || c == '\t' || c == '#' {
+                return false
+            }
+            if c == ':' {
+                if _peek(i + 1) == ' ' || _peek(i + 1) == '\n' || _isPastEnd(i + 1) {
+                    return true
+                }
+            }
+            i += 1
+        }
+    }
 
     func _skipWhitespace(): void {
         while !_isAtEnd() {
@@ -445,7 +560,7 @@ pub class YamlLexer {
                     }
                 }
                 ':' => {
-                    if this._peek(1) == ' ' || this._peek(1) == '\n' || this._isAtEnd() {
+                    if _flowDepth > 0 || this._peek(1) == ' ' || this._peek(1) == '\n' || this._isPastEnd(1) {
                         done = true
                     }
                 }
@@ -540,6 +655,8 @@ pub class YamlLexer {
         }
 
         if _isAtEnd() {
+            _atLineStart = true
+            _pendingBlockScalarNewline = true
             return YamlToken.String  // No content
         }
 
@@ -547,6 +664,14 @@ pub class YamlLexer {
 
         var isFirstLine = true
         while !_isAtEnd() {
+            // Remember where this line starts in case it turns out not to
+            // be part of the block scalar - its leading whitespace must be
+            // given back so the normal indentation handling can measure it
+            // fresh afterward (see below).
+            var lineStartPos = _position
+            var lineStartLine = _line
+            var lineStartColumn = _column
+
             // Consume up to baseIndent spaces
             var lineIndent = _measureIndent(baseIndent)
             // Check what's after base indentation
@@ -562,6 +687,18 @@ pub class YamlLexer {
 
             // Check if less indented with content
             if lineIndent < baseIndent {
+                // This line isn't part of the block scalar after all - put
+                // back the (partially consumed) leading whitespace so the
+                // normal indentation handling measures it fresh on the
+                // next token, exactly as if this line had never been
+                // looked at here. Without this, that line's real
+                // indentation is never tracked (no Indent/Dedent token is
+                // emitted for it), so the token right after this block
+                // scalar can end up looking like it's still on the same
+                // line as the scalar.
+                _position = lineStartPos
+                _line = lineStartLine
+                _column = lineStartColumn
                 break  // End of block scalar
             }
 
@@ -610,6 +747,14 @@ pub class YamlLexer {
             _tokenValue << '\n'
         }
 
+        // We've stopped at the start of a line (either the one that ended
+        // the scalar, given back above, or EOF) - let the normal
+        // indentation handling take over from here instead of treating
+        // whatever follows as still being on this same line. A block
+        // scalar never surfaces a Newline token for the transition out of
+        // itself (see _pendingBlockScalarNewline), so synthesize one.
+        _atLineStart = true
+        _pendingBlockScalarNewline = true
         return YamlToken.String
     }
 
@@ -833,9 +978,9 @@ test "Lexer - flow style array" {
     token = lexer.nextToken()
     ok!(token == YamlToken.Colon)
 
-    // [ → Indent
+    // [ → IndentFlowArray
     token = lexer.nextToken()
-    ok!(token == YamlToken.Indent)
+    ok!(token == YamlToken.IndentFlowArray)
 
     // First item has Dash before it
     token = lexer.nextToken()
@@ -855,9 +1000,9 @@ test "Lexer - flow style array" {
     token = lexer.nextToken()
     ok!(token == YamlToken.String && lexer.tokenValue() == "orange")
 
-    // ] → Dedent
+    // ] → DedentFlowArray
     token = lexer.nextToken()
-    ok!(token == YamlToken.Dedent)
+    ok!(token == YamlToken.DedentFlowArray)
 
     token = lexer.nextToken()
     ok!(token == YamlToken.EOF)
@@ -872,9 +1017,9 @@ test "Lexer - nested flow style" {
     token = lexer.nextToken()
     ok!(token == YamlToken.Colon)
 
-    // [ → Indent (array)
+    // [ → IndentFlowArray
     token = lexer.nextToken()
-    ok!(token == YamlToken.Indent)
+    ok!(token == YamlToken.IndentFlowArray)
 
     // Dash before first array item
     token = lexer.nextToken()
@@ -916,9 +1061,9 @@ test "Lexer - nested flow style" {
     token = lexer.nextToken()
     ok!(token == YamlToken.Dedent)
 
-    // ] → Dedent (end array)
+    // ] → DedentFlowArray
     token = lexer.nextToken()
-    ok!(token == YamlToken.Dedent)
+    ok!(token == YamlToken.DedentFlowArray)
 
     token = lexer.nextToken()
     ok!(token == YamlToken.EOF)
@@ -928,7 +1073,7 @@ test "Lexer - debug flow array tokens" {
     var lexer = YamlLexer("[apple, banana]")
 
     var token = lexer.nextToken()
-    ok!(token == YamlToken.Indent)
+    ok!(token == YamlToken.IndentFlowArray)
 
     token = lexer.nextToken()
     ok!(token == YamlToken.Dash)
@@ -943,7 +1088,7 @@ test "Lexer - debug flow array tokens" {
     ok!(token == YamlToken.String && lexer.tokenValue() == "banana")
 
     token = lexer.nextToken()
-    ok!(token == YamlToken.Dedent)
+    ok!(token == YamlToken.DedentFlowArray)
 }
 
 test "Lexer - complex nested structure" {

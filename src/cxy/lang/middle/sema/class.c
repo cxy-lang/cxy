@@ -15,7 +15,8 @@
 static inline bool isInheritable(AstNode *member)
 {
     return nodeIs(member, FieldDecl) &&
-           !(hasFlag(member, Static) || hasFlag(member, VTable) || hasFlag(member, Inherited));
+           !(hasFlag(member, Static) || hasFlag(member, VTable) ||
+             hasFlag(member, Inherited));
 }
 
 static void inheritClassMembers(TypingContext *ctx,
@@ -276,7 +277,8 @@ void checkClassDecl(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
     const Type **implements = NULL, *baseType = NULL;
-    AstNode *base = node->classDecl.base, *vTableMember = NULL;
+    AstNode *base = node->classDecl.base, *vTableMember = NULL,
+            *annotations = node->classDecl.annotations;
     ctx->cls = getDeclarationName(node);
     if (node->type)
         return;
@@ -310,6 +312,15 @@ void checkClassDecl(AstVisitor *visitor, AstNode *node)
     node->classDecl.thisType = node->type;
 
     ctx->currentClass = node;
+    if (annotations != NULL) {
+        AstNode *annotation = annotations;
+        for (; annotation; annotation = annotation->next) {
+            if (!evaluate(ctx->evaluator, annotation->annotation.value)) {
+                node->type = ERROR_TYPE(ctx);
+                goto checkClassInterfacesError;
+            }
+        }
+    }
     evalClassMembers(visitor, node);
     ctx->currentClass = NULL;
     if (typeIs(node->type, Error))

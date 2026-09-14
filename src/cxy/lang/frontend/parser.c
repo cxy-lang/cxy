@@ -903,17 +903,14 @@ static AstNode *postfix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
             continue;
         }
         case tokLNot:
+            // `!as ...` is a bit-union cast, handled at the cast precedence
+            // level (above prefix unary operators), not here.
             if (checkPeek(P, 1, tokAs))
-                operand = postfixCast(P, operand, true);
-            else
-                operand = macroExpression(P, operand);
+                return operand;
+            operand = macroExpression(P, operand);
             continue;
         case tokLParen:
             operand = callExpression(P, operand);
-            continue;
-        case tokAs:
-        case tokBangColon:
-            operand = postfixCast(P, operand, true);
             continue;
 #ifndef CXY_PLUGIN_LIB
         case tokDColon:
@@ -1030,6 +1027,31 @@ static AstNode *prefix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
                                  .isPrefix = true}});
 }
 
+// Sits between prefix unary operators and binary operators: binds looser
+// than prefix `- + * ! ~ & &&` (and postfix `. [] () ++ --`, which are
+// already resolved by the time this level runs), but tighter than binary
+// operators. E.g. `*a as u32` parses as `(*a) as u32`, and `a.b as u32`
+// parses as `(a.b) as u32`.
+static AstNode *castExpr(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
+{
+    AstNode *operand = prefix(P, parsePrimary);
+    while (true) {
+        switch (current(P)->tag) {
+        case tokAs:
+        case tokBangColon:
+            operand = postfixCast(P, operand, true);
+            continue;
+        case tokLNot:
+            if (!checkPeek(P, 1, tokAs))
+                return operand;
+            operand = postfixCast(P, operand, true);
+            continue;
+        default:
+            return operand;
+        }
+    }
+}
+
 static AstNode *assign(Parser *P, AstNode *(parsePrimary)(Parser *, bool));
 static AstNode *ternary(Parser *P, AstNode *(parsePrimary)(Parser *, bool));
 
@@ -1039,7 +1061,7 @@ static AstNode *binary(Parser *P,
                        AstNode *(parsePrimary)(Parser *, bool))
 {
     if (lhs == NULL)
-        lhs = prefix(P, parsePrimary);
+        lhs = castExpr(P, parsePrimary);
 
     while (!isEoF(P)) {
         const Token tok = *current(P);
@@ -1073,7 +1095,7 @@ static AstNode *binary(Parser *P,
 
 static AstNode *assign(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
 {
-    AstNode *lhs = prefix(P, parsePrimary);
+    AstNode *lhs = castExpr(P, parsePrimary);
     const Token tok = *current(P);
     if (isAssignmentOperator(tok.tag)) {
         advance(P);
@@ -1912,6 +1934,52 @@ static AstNode *substitute(Parser *P, bool allowStructs)
     return expr;
 }
 
+static AstNode *xformExpr(Parser *P, bool allowStructs)
+{
+    // `i in 0..10  => (cond, )? i*10`  => (0, 10, 20, ..., 90)
+    // `[i in 0..10 => i % 2, i]` => [0, 2, 4, 6, 8]
+    // `[i in nums, x => i % 2, nums.[i]] => [nums.[0], nums.[2], nums.[4], ...]
+    Token tok = *consume0(P, tokQuote);
+    Token *mode = match(P, tokLParen, tokLBracket);
+    TokenTag modeTag = mode ? mode->tag : tokInvalid;
+
+    Token *varToken = consume0(P, tokIdent);
+    AstNode *arg =
+        newAstNode(P,
+                   varToken,
+                   &(AstNode){.tag = astVarDecl,
+                              .flags = flgComptime,
+                              .varDecl = {
+                                  .name = getTokenString(P, varToken, false),
+                              }});
+    consume0(P, tokIn);
+    AstNode *expr = expression(P, allowStructs);
+    expr->flags |= flgComptime;
+    consume0(P, tokFatArrow);
+    AstNode *xForm = expression(P, allowStructs);
+    AstNode *cond = NULL;
+    if (match(P, tokComma)) {
+        cond = expression(P, false);
+        cond->flags |= flgComptime;
+    }
+    if (modeTag != tokInvalid) {
+        // Just consume
+        consume0(P, modeTag == tokLParen ? tokRParen : tokRBracket);
+    }
+    consume0(P, tokQuote);
+
+    return newAstNode(
+        P,
+        &tok,
+        &(AstNode){.tag = astXformExpr,
+                   .flags = flgComptime,
+                   .xFormExpr = {.target = expr,
+                                 .arg = arg,
+                                 .cond = cond,
+                                 .xform = xForm,
+                                 .isArray = (modeTag == tokLBracket)}});
+}
+
 static AstNode *primary_(Parser *P, bool allowStructs)
 {
     switch (current(P)->tag) {
@@ -1942,6 +2010,8 @@ static AstNode *primary_(Parser *P, bool allowStructs)
         return untypedExpr(P, allowStructs);
     case tokSubstitutue:
         return substitute(P, allowStructs);
+    case tokQuote:
+        return xformExpr(P, allowStructs);
     case tokIdent:
     case tokThis:
     case tokThisClass:
@@ -2004,14 +2074,12 @@ static AstNode *postfixCast(Parser *P, AstNode *expr, bool allowStructs)
 
 static AstNode *primary(Parser *P, bool allowStructs)
 {
-    Token tok = *current(P);
-    return postfixCast(P, primary_(P, allowStructs), allowStructs);
+    return primary_(P, allowStructs);
 }
 
 static AstNode *primaryWithoutStructs(Parser *P, bool allowStructs)
 {
-    Token tok = *current(P);
-    return postfixCast(P, primary_(P, false), false);
+    return primary_(P, false);
 }
 
 static AstNode *expression(Parser *P, bool allowStructs)
@@ -2409,13 +2477,14 @@ static AstNode *testContextDeclaration(Parser *P)
 
 static void skipTestDecl(Parser *P)
 {
-    match(P, tokStringLiteral);
+    match(P, tokColon);
+    match(P, tokStringLiteral, tokIdent);
     Token tok = *previous(P);
     consume0(P, tokLBrace);
     i64 count = 1;
     while (!check(P, tokEoF) && count > 0) {
         TokenTag tag = current(P)->tag;
-        if (tag == tokLBrace)
+        if (tag == tokLBrace || tag == tokSubstitutue)
             count++;
         else if (tag == tokRBrace)
             count--;
@@ -2443,18 +2512,23 @@ static AstNode *testDecl(Parser *P)
         consume0(P, tokRBrace);
         return decls;
     }
-    Token name = *consume0(P, tokStringLiteral);
+
+    cstring name = NULL;
+    if (match(P, tokColon)) {
+        name = getTokenString(P, consume0(P, tokIdent), false);
+    }
+    else {
+        name = getStringLiteral(P, consume0(P, tokStringLiteral));
+    }
 
     body = block(P);
     if (body->blockStmt.stmts == NULL)
         parserError(P, &body->loc, "empty test block not allowed", NULL);
 
-    return newAstNode(
-        P,
-        &tok,
-        &(AstNode){
-            .tag = astTestDecl,
-            .testDecl = {.name = getStringLiteral(P, &name), .body = body}});
+    return newAstNode(P,
+                      &tok,
+                      &(AstNode){.tag = astTestDecl,
+                                 .testDecl = {.name = name, .body = body}});
 }
 
 static AstNode *exceptionDecl(Parser *P, u64 flags)
@@ -3126,51 +3200,6 @@ static AstNode *xFormType(Parser *P)
                       &(AstNode){.tag = astTupleXform,
                                  .flags = flgComptime,
                                  .xForm = {.target = tupleType,
-                                           .args = args,
-                                           .cond = cond,
-                                           .xForm = xForm}});
-}
-
-static AstNode *xFormExpr(Parser *P)
-{
-    // `expr : T, i => xform (,cond)?`
-    Token tok = *consume0(P, tokQuote);
-    AstNode *expr = expression(P, true);
-    consume0(P, tokColon);
-    Token *varToken = consume0(P, tokIdent);
-    AstNode *args =
-        newAstNode(P,
-                   varToken,
-                   &(AstNode){.tag = astVarDecl,
-                              .flags = flgComptime,
-                              .varDecl = {
-                                  .name = getTokenString(P, varToken, false),
-                              }});
-    if (match(P, tokComma)) {
-        varToken = consume0(P, tokIdent);
-        args->next = newAstNode(
-            P,
-            varToken,
-            &(AstNode){.tag = astVarDecl,
-                       .flags = flgComptime,
-                       .varDecl = {
-                           .name = getTokenString(P, varToken, false),
-                       }});
-    }
-    consume0(P, tokFatArrow);
-    AstNode *xForm = expression(P, true);
-    AstNode *cond = NULL;
-    if (match(P, tokComma)) {
-        cond = expression(P, false);
-        cond->flags |= flgComptime;
-    }
-    consume0(P, tokQuote);
-
-    return newAstNode(P,
-                      &tok,
-                      &(AstNode){.tag = astTupleXform,
-                                 .flags = flgComptime,
-                                 .xForm = {.target = expr,
                                            .args = args,
                                            .cond = cond,
                                            .xForm = xForm}});

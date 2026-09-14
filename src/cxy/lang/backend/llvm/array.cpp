@@ -33,7 +33,7 @@ static llvm::Constant *makeArrayLiteral(cxy::LLVMContext &ctx, AstNode *node)
         }
         else if (typeIs(elem->type, String)) {
             elements.push_back(
-                ctx.builder.CreateGlobalStringPtr(elem->stringLiteral.value));
+                ctx.builder.CreateGlobalString(elem->stringLiteral.value));
         }
         else if (typeIs(elem->type, Array)) {
             elements.push_back(makeArrayLiteral(ctx, elem));

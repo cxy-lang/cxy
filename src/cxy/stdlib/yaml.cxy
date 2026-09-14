@@ -37,9 +37,9 @@ pub func parse(str: __string): !Value {
  *
  * Throws YamlError on parse errors or cast errors
  */
-pub func fromYaml[T](str: __string): !T {
+pub func fromYaml[T](str: __string, b64: bool = true): !T {
     var value = parse(str)
-    return value.cast[T]()
+    return value.cast[T](b64)
 }
 
 /*
@@ -249,6 +249,36 @@ test "fromYaml - struct casting" {
     ok!(person.age == 30)
 }
 
+test "fromYaml - unquoted multi-word scalar value" {
+    var value = fromYaml[Value]("run: echo installing")
+    ok!(value.isObject())
+
+    var run = value.["run"]
+    ok!(!!run && run&.isString() && run&.asString() == "echo installing")
+}
+
+test "fromYaml - empty flow array" {
+    var value = fromYaml[Value]("steps: []\n")
+    ok!(value.isObject())
+
+    var steps = value.["steps"]
+    ok!(!!steps && steps&.isArray())
+    ok!(steps&.size() == 0)
+}
+
+test "fromYaml - empty document is null" {
+    var value = fromYaml[Value]("")
+    ok!(value.isNull())
+}
+
+test "fromYaml - key with no value is null" {
+    var value = fromYaml[Value]("hello:")
+    ok!(value.isObject())
+
+    var hello = value.["hello"]
+    ok!(!!hello && hello&.isNull())
+}
+
 test "fromYaml - nested struct" {
     var input = """
 version: '1.0'
@@ -271,6 +301,41 @@ test "fromYaml - value type" {
 
     var name = value.["name"]
     ok!(!!name && name&.asString() == "test")
+}
+
+test "parse - complex pipeline with nested list mappings" {
+    var input = """
+cache:
+  key: "app-build-cache-v1"
+  paths:
+    - .cache/build
+
+artifacts:
+  - name: "app-binaries"
+    when: on_success
+    paths:
+      - bin
+  - name: dist-bundle
+    when: always
+    paths:
+      - dist
+
+steps:
+  - name: Run Build Script
+    run: ./build.sh
+  - name: Verify Binary
+    run: ./bin/app
+"""
+    var result = parse(input)
+    ok!(result.isObject())
+
+    var artifacts = result.["artifacts"]
+    ok!(!!artifacts && artifacts&.isArray())
+    ok!(artifacts&.size() == 2)
+
+    var steps = result.["steps"]
+    ok!(!!steps && steps&.isArray())
+    ok!(steps&.size() == 2)
 }
 
 test "stringify - simple scalar" {

@@ -1,0 +1,474 @@
+module table
+
+import { Vector } from "./vector.cxy"
+
+// Column text alignment
+pub enum Align {
+    Left,
+    Right,
+    Center
+}
+
+// Per-column configuration, see `TablePrinter.addColumn`
+pub struct ColumnConfig {
+    align: Align = Align.Left
+    // Minimum column width - the column still grows to fit its content.
+    minWidth: u64 = 0
+    // Maximum column width - content longer than this is truncated and
+    // suffixed with "..." (or hard-truncated with no ellipsis if there
+    // isn't room for one, i.e. maxWidth < 3). 0 = unlimited.
+    maxWidth: u64 = 0
+}
+
+// Table-wide configuration, see `TablePrinter.init`
+pub struct TableConfig {
+    // Spaces surrounding cell content on each side
+    padding: u64 = 1
+    // Vertical '|' bars, both between columns and around the outer edges.
+    columnSeparators: bool = true
+    // Horizontal rule above the header and below the last row.
+    outerBorder: bool = true
+    // Horizontal rule between every data row. The rule separating the
+    // header from the data is always drawn regardless of this setting.
+    rowSeparators: bool = false
+}
+
+pub class TablePrinter {
+    _out: &OutputStream
+    _config = TableConfig{}
+    _columns = Vector[String]()
+    _columnConfigs = Vector[ColumnConfig]()
+    _rows = Vector[Vector[String]]()
+
+    func `init`(out: &OutputStream, config: TableConfig = TableConfig{}) {
+        _out = out
+        _config = config
+    }
+
+    // Declare a column. Columns must be added before `render` is called.
+    func addColumn(name: __string, config: ColumnConfig = ColumnConfig{}): void {
+        _columns.push(_truncate(name, config.maxWidth))
+        _columnConfigs.push(config)
+    }
+
+    // Start a new row. Subsequent `cell` calls populate this row.
+    func row(): void {
+        _rows.push(Vector[String]())
+    }
+
+    // Append a cell to the current row (starting one implicitly if `row`
+    // hasn't been called yet). Accepts anything OutputStream's `<<`
+    // operator supports (numbers, strings, bools, enums, custom `str`
+    // types, etc). Content longer than the column's `maxWidth` is
+    // truncated with an ellipsis.
+    func cell[T](value: T): void {
+        if _rows.empty() {
+            row()
+        }
+        var raw = String()
+        raw << value
+
+        var colIndex = _rows.back().size()
+        var maxWidth = 0`u64
+        if colIndex < _columnConfigs.size() {
+            maxWidth = _columnConfigs.[<i32>colIndex].maxWidth
+        }
+        _rows.back().push(_truncate(raw.__str(), maxWidth))
+    }
+
+    // Write the table out to the configured OutputStream.
+    func render(): void {
+        var n = _columns.size()
+        if n == 0 {
+            return
+        }
+
+        var widths = Vector[u64]()
+        for i : 0..n {
+            var w = _columns.[<i32>i].size()
+            if _columnConfigs.[<i32>i].minWidth > w {
+                w = _columnConfigs.[<i32>i].minWidth
+            }
+            widths.push(w)
+        }
+
+        for cells, _ : _rows {
+            for i : 0..min(n, cells.size()) {
+                var len = cells.[<i32>i].size()
+                if len > widths.[<i32>i] {
+                    widths.[<i32>i] = len
+                }
+            }
+        }
+
+        if _config.outerBorder {
+            _writeRule(&widths)
+        }
+        _writeHeader(&widths)
+        _writeRule(&widths)
+        for cells, i : _rows {
+            _writeRow(&widths, &cells)
+            if _config.rowSeparators && i + 1 < _rows.size() {
+                _writeRule(&widths)
+            }
+        }
+        if _config.outerBorder {
+            _writeRule(&widths)
+        }
+    }
+
+    // Truncate `content` to at most `maxWidth` characters (0 = unlimited),
+    // appending "..." when there's room for it. Always returns an owned
+    // copy, since callers store the result past the lifetime of `content`.
+    @private
+    func _truncate(content: __string, maxWidth: u64): String {
+        var s = String()
+        if maxWidth == 0 || content.size() <= maxWidth {
+            s << content
+        }
+        else if maxWidth >= 3 {
+            s << content.substr(0, <i64>(maxWidth - 3)) << "..."
+        }
+        else {
+            s << content.substr(0, <i64>maxWidth)
+        }
+        return &&s
+    }
+
+    @private
+    func _writeRule(widths: &Vector[u64]): void {
+        if _config.columnSeparators {
+            _out << "+"
+        }
+        var n = widths.size()
+        for i : 0..n {
+            _out << Repeat('-', widths.[<i32>i] + 2 * _config.padding)
+            if _config.columnSeparators {
+                _out << "+"
+            }
+            else if i + 1 < n {
+                _out << " "
+            }
+        }
+        _out << "\n"
+    }
+
+    @private
+    func _writeCell(content: __string, width: u64, align: Align): void {
+        var pad = width > content.size()? width - content.size() : 0`u64
+        switch align {
+            case .Right => _out << Repeat(' ', pad) << content
+            case .Center => {
+                var left = pad / 2
+                _out << Repeat(' ', left) << content << Repeat(' ', pad - left)
+            }
+            ... => _out << content << Repeat(' ', pad)
+        }
+    }
+
+    @private
+    func _writeHeader(widths: &Vector[u64]): void {
+        if _config.columnSeparators {
+            _out << "|"
+        }
+        for name, i : _columns {
+            _out << Repeat(' ', _config.padding)
+            _writeCell(name.__str(), widths.[<i32>i], _columnConfigs.[<i32>i].align)
+            _out << Repeat(' ', _config.padding)
+            if _config.columnSeparators {
+                _out << "|"
+            }
+        }
+        _out << "\n"
+    }
+
+    @private
+    func _writeRow(widths: &Vector[u64], cells: &Vector[String]): void {
+        var n = _columns.size()
+        if _config.columnSeparators {
+            _out << "|"
+        }
+        for i : 0..n {
+            var content = i < cells.size()? cells.[<i32>i].__str() : __string()
+            _out << Repeat(' ', _config.padding)
+            _writeCell(content, widths.[<i32>i], _columnConfigs.[<i32>i].align)
+            _out << Repeat(' ', _config.padding)
+            if _config.columnSeparators {
+                _out << "|"
+            }
+        }
+        _out << "\n"
+    }
+}
+
+test "Simple table with default config" {
+    var output = String()
+    var p = TablePrinter(&output)
+    p.addColumn("Name")
+    p.addColumn("Age")
+
+    p.row()
+    p.cell("Alice")
+    p.cell(30)
+
+    p.row()
+    p.cell("Bob")
+    p.cell(25)
+
+    p.render()
+
+    const expected = """+-------+-----+
+| Name  | Age |
++-------+-----+
+| Alice | 30  |
+| Bob   | 25  |
++-------+-----+
+"""
+    ok!(output.__str() == expected)
+}
+
+test "Column alignment" {
+    var output = String()
+    var p = TablePrinter(&output)
+    p.addColumn("Left")
+    p.addColumn("Right", ColumnConfig{align: Align.Right})
+    p.addColumn("Center", ColumnConfig{align: Align.Center})
+
+    p.row()
+    p.cell("a")
+    p.cell("b")
+    p.cell("c")
+
+    p.render()
+
+    const expected = """+------+-------+--------+
+| Left | Right | Center |
++------+-------+--------+
+| a    |     b |   c    |
++------+-------+--------+
+"""
+    ok!(output.__str() == expected)
+}
+
+test "Minimum column width" {
+    var output = String()
+    var p = TablePrinter(&output)
+    p.addColumn("ID", ColumnConfig{minWidth: 5})
+
+    p.row()
+    p.cell(1)
+
+    p.render()
+
+    const expected = """+-------+
+| ID    |
++-------+
+| 1     |
++-------+
+"""
+    ok!(output.__str() == expected)
+}
+
+test "Cell content truncated with ellipsis when exceeding maxWidth" {
+    var output = String()
+    var p = TablePrinter(&output)
+    p.addColumn("Description", ColumnConfig{maxWidth: 10})
+
+    p.row()
+    p.cell("This is way too long")
+
+    p.row()
+    p.cell("short")
+
+    p.render()
+
+    const expected = """+------------+
+| Descrip... |
++------------+
+| This is... |
+| short      |
++------------+
+"""
+    ok!(output.__str() == expected)
+}
+
+test "Header text is also truncated when it exceeds maxWidth" {
+    var output = String()
+    var p = TablePrinter(&output)
+    p.addColumn("VeryLongColumnName", ColumnConfig{maxWidth: 8})
+
+    p.row()
+    p.cell("x")
+
+    p.render()
+
+    const expected = """+----------+
+| VeryL... |
++----------+
+| x        |
++----------+
+"""
+    ok!(output.__str() == expected)
+}
+
+test "maxWidth too small for ellipsis hard-truncates" {
+    var output = String()
+    var p = TablePrinter(&output)
+    p.addColumn("A", ColumnConfig{maxWidth: 2})
+
+    p.row()
+    p.cell("hello")
+
+    p.render()
+
+    const expected = """+----+
+| A  |
++----+
+| he |
++----+
+"""
+    ok!(output.__str() == expected)
+}
+
+test "No column separators" {
+    var output = String()
+    var p = TablePrinter(&output, TableConfig{columnSeparators: false})
+    p.addColumn("Name")
+    p.addColumn("Age")
+
+    p.row()
+    p.cell("Alice")
+    p.cell(30)
+
+    p.render()
+
+    const expected = """------- -----
+ Name   Age 
+------- -----
+ Alice  30  
+------- -----
+"""
+    ok!(output.__str() == expected)
+}
+
+test "No outer border keeps mandatory header separator" {
+    var output = String()
+    var p = TablePrinter(&output, TableConfig{outerBorder: false})
+    p.addColumn("Name")
+    p.addColumn("Age")
+
+    p.row()
+    p.cell("Alice")
+    p.cell(30)
+
+    p.render()
+
+    const expected = """| Name  | Age |
++-------+-----+
+| Alice | 30  |
+"""
+    ok!(output.__str() == expected)
+}
+
+test "Row separators between every data row" {
+    var output = String()
+    var p = TablePrinter(&output, TableConfig{rowSeparators: true})
+    p.addColumn("Name")
+
+    p.row()
+    p.cell("Alice")
+
+    p.row()
+    p.cell("Bob")
+
+    p.render()
+
+    const expected = """+-------+
+| Name  |
++-------+
+| Alice |
++-------+
+| Bob   |
++-------+
+"""
+    ok!(output.__str() == expected)
+}
+
+test "No borders at all still draws the header separator" {
+    var output = String()
+    var p = TablePrinter(&output, TableConfig{columnSeparators: false, outerBorder: false})
+    p.addColumn("Name")
+
+    p.row()
+    p.cell("Alice")
+
+    p.render()
+
+    const expected = """ Name  
+-------
+ Alice 
+"""
+    ok!(output.__str() == expected)
+}
+
+test "Custom padding" {
+    var output = String()
+    var p = TablePrinter(&output, TableConfig{padding: 2})
+    p.addColumn("X")
+
+    p.row()
+    p.cell(1)
+
+    p.render()
+
+    const expected = """+-----+
+|  X  |
++-----+
+|  1  |
++-----+
+"""
+    ok!(output.__str() == expected)
+}
+
+test "Row shorter than column count fills missing cells with blanks" {
+    var output = String()
+    var p = TablePrinter(&output)
+    p.addColumn("A")
+    p.addColumn("B")
+
+    p.row()
+    p.cell("x")
+
+    p.render()
+
+    const expected = """+---+---+
+| A | B |
++---+---+
+| x |   |
++---+---+
+"""
+    ok!(output.__str() == expected)
+}
+
+test "cell without an explicit row starts one implicitly" {
+    var output = String()
+    var p = TablePrinter(&output)
+    p.addColumn("A")
+    p.cell("x")
+    p.render()
+
+    const expected = """+---+
+| A |
++---+
+| x |
++---+
+"""
+    ok!(output.__str() == expected)
+}
+
+test "Empty table with no columns renders nothing" {
+    var output = String()
+    var p = TablePrinter(&output)
+    p.render()
+    ok!(output.empty())
+}

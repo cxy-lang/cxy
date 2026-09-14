@@ -78,7 +78,8 @@ static llvm::Function *generateFunctionProto(AstVisitor *visitor, AstNode *node)
             break;
         auto paramType = ctx.getLLVMType(param->type);
         if (typeIs(param->type, Func))
-            paramType = paramType->getPointerTo();
+            paramType = llvm::PointerType::get(
+                ctx.context, paramType->getPointerAddressSpace());
         params.push_back(paramType);
     }
 
@@ -164,7 +165,10 @@ static void visitNullLit(AstVisitor *visitor, AstNode *node)
             auto type = ctx.getLLVMType(parent->binaryExpr.lhs->type);
             ctx.returnValue(llvm::ConstantPointerNull::get(
                 llvm::dyn_cast<llvm::PointerType>(
-                    typeIs(lhs, Func) ? type->getPointerTo() : type)));
+                    typeIs(lhs, Func)
+                        ? llvm::PointerType::get(ctx.context,
+                                                 type->getPointerAddressSpace())
+                        : type)));
         }
         else {
             ctx.returnValue(llvm::ConstantPointerNull::get(
@@ -216,8 +220,7 @@ static void visitStringLit(AstVisitor *visitor, AstNode *node)
 {
     auto &ctx = cxy::LLVMContext::from(visitor);
     ctx.emitDebugLocation(node);
-    ctx.returnValue(
-        ctx.builder.CreateGlobalStringPtr(node->stringLiteral.value));
+    ctx.returnValue(ctx.builder.CreateGlobalString(node->stringLiteral.value));
 }
 
 static void visitIdentifierExpr(AstVisitor *visitor, AstNode *node)
@@ -290,8 +293,9 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
         else if (nodeIs(resolvesTo, ExternDecl)) {
             AstNode *func = resolvesTo->externDecl.func;
             if (hasFlag(func, Abstract)) {
-                value = ctx.createUndefined(
-                    ctx.getLLVMType(resolvesTo->type)->getPointerTo());
+                auto llvmType = ctx.getLLVMType(resolvesTo->type);
+                value = ctx.createUndefined(llvm::PointerType::get(
+                    ctx.context, llvmType->getPointerAddressSpace()));
             }
             else if (nodeIs(func, FuncDecl)) {
                 value = llvm::cast<llvm::Function>(
@@ -609,7 +613,10 @@ static void visitUnionValue(AstVisitor *visitor, AstNode *node)
         obj, cxy::codegen(visitor, node->unionValue.value), 1);
     ctx.builder.CreateStore(obj, tmp);
 
-    obj = ctx.builder.CreateBitCast(tmp, unionType->getPointerTo());
+    obj = ctx.builder.CreateBitCast(
+        tmp,
+        llvm::PointerType::get(ctx.context,
+                               unionType->getPointerAddressSpace()));
     if (ctx.stack().loadVariable()) {
         obj = ctx.builder.CreateLoad(unionType, obj);
     }
@@ -861,10 +868,6 @@ static void visitMatchStmt(AstVisitor *visitor, AstNode *node)
 
         func->insert(func->end(), bb);
         ctx.builder.SetInsertPoint(bb);
-        if (case_->caseStmt.variable) {
-            // visit the variable before generate code
-            cxy::codegen(visitor, case_->caseStmt.variable);
-        }
         cxy::codegen(visitor, case_->caseStmt.body);
         // branch to the end
         auto &lastBB = func->back();
@@ -1331,4 +1334,18 @@ AstNode *generateCode(CompilerDriver *driver, AstNode *node)
         return node;
     }
     return node;
+}
+
+bool compilerBackendExecuteTestCase(CompilerDriver *driver)
+{
+    // FormatState cmd = newFormatState("\t", true);
+    // Options *opts = &driver->options;
+    // getOutputPath(&cmd, driver->strings, opts, "");
+    //
+    // char *command = formatStateToString(&cmd);
+    // freeFormatState(&cmd);
+    // int rc = system(command);
+    // free(command);
+    // return rc == 0;
+    return false;
 }

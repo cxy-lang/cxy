@@ -79,7 +79,7 @@ void checkTupleExpr(AstVisitor *visitor, AstNode *node)
             AstNode *decl = getTypeDecl(type);
             node->flags |= (decl->flags & flgReferenceMembers);
         }
-        else if (isTupleType(type)) {
+        else if (isTupleType(type) || isUnionType(type)) {
             node->flags |= (type->flags & flgReferenceMembers);
         }
     }

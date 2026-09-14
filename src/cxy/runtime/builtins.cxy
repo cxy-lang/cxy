@@ -492,7 +492,7 @@ pub struct __string {
         return trimLeft().trimRight()
     }
 
-    const func compare(other: &This) {
+    const func compare(other: &const This) {
         if (_size == other._size)
             return strncmp(this.s, other.s, _size)
         else if (_size < other._size)
@@ -501,12 +501,12 @@ pub struct __string {
             return 1
     }
 
-    @inline const func `==`(other: &This) => compare(other) == 0
-    @inline const func `!=`(other: &This) => compare(other) != 0
-    @inline const func `<`(other: &This) => compare(other) < 0
-    @inline const func `<=`(other: &This) => compare(other) <= 0
-    @inline const func `>`(other: &This) => compare(other) > 0
-    @inline const func `>=`(other: &This) => compare(other) >= 0
+    @inline const func `==`(other: &const This) => compare(other) == 0
+    @inline const func `!=`(other: &const This) => compare(other) != 0
+    @inline const func `<`(other: &const This) => compare(other) < 0
+    @inline const func `<=`(other: &const This) => compare(other) <= 0
+    @inline const func `>`(other: &const This) => compare(other) > 0
+    @inline const func `>=`(other: &const This) => compare(other) >= 0
     @inline const func `==`(other: This) => compare(&other) == 0
     @inline const func `!=`(other: This) => compare(&other) != 0
     @inline const func `<`(other: This) => compare(&other) < 0
@@ -551,6 +551,29 @@ pub struct __string {
         require!(T.isFloat, "type '{t}' unsupported by `__string.tof`", #T)
         var ep: ^const char = null;
         return <T>strtod(s !: ^const char, ptrof ep);
+    }
+
+    func `as`[T]() {
+        #if T.isInteger {
+            return toi[T]()
+        }
+        else #if T.isFloat {
+            return tof[T]()
+        }
+        else #if T.isString {
+            #if T.isClass {
+                return String(s, _size)
+            }
+            else #if T.isStruct {
+                return This(s, _size)
+            }
+            else {
+                return s
+            }
+        }
+        else {
+            error!("type '{t}' unsupported by `__string.as`", #T)
+        }
     }
 
     const func indexOf(ch: char) : Optional[u64] {
@@ -1139,7 +1162,10 @@ pub class String : OutputStream {
     @inline const func data() => _data
     @inline const func empty() => _size == 0
     @inline const func str() => _data !: string
-    @inline const func __str() => __string(_data !: string, _size)
+    @[inline, deprecated] const func __str() => __string(_data !: string, _size)
+    @inline const func s() => __string(_data !: string, _size)
+    @inline const func view() => __string(_data !: string, _size)
+    @inline const func copy() => String(_data, _size)
     @inline const func substr(start: u64, count: i64 = -1) => __str().substr(start, count)
     @inline const func endswith(suffix: String) => __str().endswith(suffix.__str())
     @inline const func endswith(suffix: __string) => __str().endswith(suffix)
@@ -1225,6 +1251,11 @@ pub struct Slice[T] {
     - data: ^T
     - len: u64
 
+    func `init`() {
+        this.data = null
+        this.len = 0
+    }
+
     func `init`(data: ^T, len: u64) {
         this.data = data
         this.len = len
@@ -1283,6 +1314,8 @@ pub struct Slice[T] {
         }
     }
 }
+
+pub func makeSlice[T](data: ^T, len: u64) => Slice[T](data, len)
 
 pub func toHexString(os: &OutputStream, data: ^const void, len: u64, caps: bool = false) {
     const p = data !: ^const u8
@@ -1468,7 +1501,24 @@ pub func min[T](a: T, b: T) => a < b? a : b
 pub func max[T](a: T, b: T) => a > b? a : b
 
 pub struct Equals[K] {
-    func `()`(lhs: &const K, rhs: &const K): bool => lhs == rhs
+    func `()`(lhs: &const K, rhs: &const K): bool {
+        #if (has_member!(#K, "op__eq", #const func(_: &const K) -> bool)) {
+            return lhs == rhs
+        }
+        else #if K.isInteger || K.isFloat || K.isBoolean || K.isEnum || K.isChar || #K == #string {
+            return lhs == rhs
+        }
+        else {
+            error!("type {t} does not implement equality operator", #K)
+        }
+    }
+
+    #if (K == String) {
+        @inline
+        func `()`(lhs: &const String, rhs: &const __string): bool {
+            return lhs == rhs
+        }
+    }
 }
 
 pub struct Hash[K] {
@@ -1838,7 +1888,24 @@ macro ok(cond, ...msg) {
 }
 
 #if (!defined TESTS_RUNNER) {
-    func runTest(testCase: (string, func() -> !void)) {
+    func runFixtureMethod(fixtureMethod: &(string, func() -> !void, u8), tag: u8) {
+        if fixtureMethod.2 == tag {
+            stdout << " ::" << WHT("b") << fixtureMethod.0 << DEF << "\n"
+
+            fixtureMethod.1() catch {
+                // test case failed
+                stdout << "\r" << RED("b") << "\xE2\x9C\x98 " << DEF << "\n"
+                ex!.header( &stdout )
+                stdout << " at:"
+                ex!.dumpStackTrace( &stdout, 1, 4 )
+                stdout << "\n"
+                return false
+            }
+        }
+        return true
+    }
+
+    func runTest(testCase: (string, func() -> !void, u8)) {
         testCase.1() catch {
             // test case failed
             stdout << "\r" << RED("b") << "\xE2\x9C\x98 " << DEF << "\n"
@@ -1855,25 +1922,38 @@ macro ok(cond, ...msg) {
 
     func runTests(args: Slice[string],
                   testFile: string,
-                  tests: Slice[(string, func() -> !void)] ) {
+                  tests: Slice[(string, func() -> !void, u8)] ) {
 
-        var failed = 0;
-        if (len!(tests) == 0) {
+        var passed = 0
+        var total = len!(tests)
+        if (total == 0) {
             stdout << "0 tests defined in " << testFile << "\n";
             return 0
         }
 
         stdout << "Running " << testFile << " tests...\n"
-        for (const testCase, _ : tests) {
-            stdout << "  Running test case '" << WHT("b") << testCase.0 << DEF << "'"
 
-            if (!runTest(testCase))
-                failed++
+        var firstTest = &tests.[0]
+        var lastTest = &tests.[total - 1]
+
+        if runFixtureMethod(firstTest, 0x1) {
+            for (const testCase, _ : tests) {
+                 if testCase.2 == 0 {
+                    stdout << "  Running test case '" << WHT("b") << testCase.0 << DEF << "'"
+                    if (runTest(testCase))
+                        passed++
+                }
+                else {
+                    total--
+                }
+            }
         }
 
-        if (failed != 0) {
+        runFixtureMethod(lastTest, 0x2)
+
+        if (passed != total) {
             stdout << RED("b") << "\xE2\x9C\x98 FAILED - "
-                   << failed << "/" << len!(tests) << " tests failed!"
+                   << (total - passed) << "/" << total << " tests failed!"
                    << DEF << "\n"
             return -1
         }

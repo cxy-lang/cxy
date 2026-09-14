@@ -289,7 +289,9 @@ void checkBinaryExpr(AstVisitor *visitor, AstNode *node)
     }
 
     if (opKind == optCatch) {
+        ctx->catcher = newCatcher;
         checkCatchBinaryOperator(visitor, node, &newCatcher);
+        ctx->catcher = catcher;
         ctx->returnState = currentReturnState;
         return;
     }

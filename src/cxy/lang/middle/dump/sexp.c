@@ -147,25 +147,26 @@ static void emitBool(SexpDumpContext *ctx, bool value)
     emitSymbol(ctx, value ? "true" : "false");
 }
 
-static void emitNil(SexpDumpContext *ctx)
-{
-    emitSymbol(ctx, "nil");
-}
+static void emitNil(SexpDumpContext *ctx) { emitSymbol(ctx, "nil"); }
 
 // Forward declarations
 static void manyNodesToSexp(ConstAstVisitor *visitor, const AstNode *nodes);
 
-static void emitMetadata(ConstAstVisitor *visitor, const AstNode *node)
+static bool emitMetadata(ConstAstVisitor *visitor, const AstNode *node)
 {
     SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
     bool hasMetadata = false;
 
     // Check if we have any metadata to emit
-    if (!ctx->config.withoutAttrs && node->attrs) hasMetadata = true;
-    if (ctx->config.withLocation) hasMetadata = true;
-    if (ctx->config.withNamedEnums && node->flags) hasMetadata = true;
+    if (!ctx->config.withoutAttrs && node->attrs)
+        hasMetadata = true;
+    if (ctx->config.withLocation)
+        hasMetadata = true;
+    if (ctx->config.withNamedEnums && node->flags)
+        hasMetadata = true;
 
-    if (!hasMetadata) return;
+    if (!hasMetadata)
+        return false;
 
     emitNewline(ctx);
     emitOpenParen(ctx);
@@ -203,7 +204,8 @@ static void emitMetadata(ConstAstVisitor *visitor, const AstNode *node)
         emitString(ctx, flagStr);
         free(flagStr);
         emitCloseParen(ctx);
-    } else if (node->flags) {
+    }
+    else if (node->flags) {
         emitNewline(ctx);
         emitOpenParen(ctx);
         emitSymbol(ctx, "Flags");
@@ -212,9 +214,12 @@ static void emitMetadata(ConstAstVisitor *visitor, const AstNode *node)
     }
 
     emitCloseParen(ctx);
+    return true;
 }
 
-static void dispatch(ConstVisitor func, ConstAstVisitor *visitor, const AstNode *node)
+static void dispatch(ConstVisitor func,
+                     ConstAstVisitor *visitor,
+                     const AstNode *node)
 {
     if (node == NULL) {
         SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -278,7 +283,6 @@ static void visitNoop(ConstAstVisitor *visitor, const AstNode *node)
 static void visitLiteral(ConstAstVisitor *visitor, const AstNode *node)
 {
     SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
-    emitMetadata(visitor, node);
 
     switch (node->tag) {
     case astNullLit:
@@ -302,6 +306,7 @@ static void visitLiteral(ConstAstVisitor *visitor, const AstNode *node)
     default:
         emitSymbol(ctx, "unknown-literal");
     }
+    emitMetadata(visitor, node);
 }
 
 static void visitAttr(ConstAstVisitor *visitor, const AstNode *node)
@@ -581,6 +586,23 @@ static void visitUnaryExpr(ConstAstVisitor *visitor, const AstNode *node)
     }
 }
 
+static void visitXformExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
+    emitMetadata(visitor, node);
+    emitBool(ctx, node->xFormExpr.isArray);
+    emitNewline(ctx);
+    astConstVisit(visitor, node->xFormExpr.target);
+    emitNewline(ctx);
+    astConstVisit(visitor, node->xFormExpr.arg);
+    emitNewline(ctx);
+    astConstVisit(visitor, node->xFormExpr.xform);
+    if (node->xFormExpr.cond) {
+        emitNewline(ctx);
+        astConstVisit(visitor, node->xFormExpr.cond);
+    }
+}
+
 static void visitFuncDecl(ConstAstVisitor *visitor, const AstNode *node)
 {
     SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -758,21 +780,21 @@ static void visitTypeRef(ConstAstVisitor *visitor, const AstNode *node)
     emitType(ctx, node->type);
 }
 
-AstNode *dumpAstToSexpState(CompilerDriver *driver, AstNode *node, FormatState *state)
+AstNode *dumpAstToSexpState(CompilerDriver *driver,
+                            AstNode *node,
+                            FormatState *state)
 {
     SexpDumpContext ctx = {
         .state = state,
         .L = driver->L,
         .depth = 0,
         .needsSpace = false,
-        .config = {
-            .withLocation = driver->options.dev.withLocation,
-            .withoutAttrs = driver->options.dev.withoutAttrs,
-            .withNamedEnums = driver->options.dev.withNamedEnums
-        }
-    };
+        .config = {.withLocation = driver->options.dev.withLocation,
+                   .withoutAttrs = driver->options.dev.withoutAttrs,
+                   .withNamedEnums = driver->options.dev.withNamedEnums}};
 
-    ConstAstVisitor visitor = makeConstAstVisitor(&ctx, {
+    // clang-format off
+    ConstAstVisitor visitor = makeConstAstVisitor(&ctx,{
         [astProgram] = visitProgram,
         [astError] = visitError,
         [astNoop] = visitNoop,
@@ -809,6 +831,7 @@ AstNode *dumpAstToSexpState(CompilerDriver *driver, AstNode *node, FormatState *
         [astBinaryExpr] = visitBinaryExpr,
         [astAssignExpr] = visitAssignExpr,
         [astUnaryExpr] = visitUnaryExpr,
+        [astXformExpr] = visitXformExpr,
         [astFuncDecl] = visitFuncDecl,
         [astFuncParamDecl] = visitFuncParamDecl,
         [astVarDecl] = visitVarDecl,
@@ -820,11 +843,13 @@ AstNode *dumpAstToSexpState(CompilerDriver *driver, AstNode *node, FormatState *
         [astExprStmt] = visitExpressionStmt,
         [astIfStmt] = visitIfStmt,
     }, .fallback = visitFallback, .dispatch = dispatch);
+    // clang-format on
 
     // Handle metadata node like YAML dumper does
     if (nodeIs(node, Metadata)) {
         astConstVisit(&visitor, node->metadata.node);
-    } else {
+    }
+    else {
         astConstVisit(&visitor, node);
     }
 

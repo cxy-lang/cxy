@@ -238,6 +238,52 @@ static AstNode *getMembers(EvalContext *ctx,
     return NULL;
 }
 
+static AstNode *getMax(EvalContext *ctx,
+                       attr(unused) const FileLoc *loc,
+                       AstNode *node,
+                       attr(unused) AstNode *args)
+{
+    if (node == NULL)
+        return NULL;
+
+    const Type *type = resolveUnThisUnwrapType(stripAll(node->type));
+    if (isIntegerType(type)) {
+        IntMinMax minMax = getIntegerTypeMinMax(type);
+        if (isUnsignedType(type))
+            return makeUnsignedIntegerLiteral(
+                ctx->pool, loc, minMax.s, NULL, type);
+        return makeIntegerLiteral(ctx->pool, loc, (i128)minMax.s, NULL, type);
+    }
+    logError(ctx->L,
+             loc,
+             "cannot get max value of type '{t}'",
+             (FormatArg[]){{.t = type}});
+    return NULL;
+}
+
+static AstNode *getMin(EvalContext *ctx,
+                       attr(unused) const FileLoc *loc,
+                       AstNode *node,
+                       attr(unused) AstNode *args)
+{
+    if (node == NULL)
+        return NULL;
+
+    const Type *type = resolveUnThisUnwrapType(stripAll(node->type));
+    if (isIntegerType(type)) {
+        IntMinMax minMax = getIntegerTypeMinMax(type);
+        if (isUnsignedType(type))
+            return makeUnsignedIntegerLiteral(
+                ctx->pool, loc, minMax.f, NULL, type);
+        return makeIntegerLiteral(ctx->pool, loc, minMax.f, NULL, type);
+    }
+    logError(ctx->L,
+             loc,
+             "cannot get min value of type '{t}'",
+             (FormatArg[]){{.t = type}});
+    return NULL;
+}
+
 static AstNode *getAttributes(EvalContext *ctx,
                               attr(unused) const FileLoc *loc,
                               AstNode *node,
@@ -1077,8 +1123,9 @@ AstNode *evalAstAnnotationMemberAccess(EvalContext *ctx,
     if (isClassOrStructType(type)) {
         AstNode *decl = getTypeDecl(type), *annot = decl->classDecl.annotations;
         for (; annot; annot = annot->next) {
-            if (annot->_name == name)
+            if (annot->_name == name) {
                 return deepCloneAstNode(ctx->pool, annot->annotation.value);
+            }
         }
     }
     return makeNullLiteral(ctx->pool, loc, NULL, makeNullType(ctx->types));
@@ -1104,6 +1151,8 @@ static void initDefaultMembers(EvalContext *ctx)
     insertAstNodeGetter(&defaultMembers, makeString(ctx->strings, name), G)
 
     ADD_MEMBER("name", getName);
+    ADD_MEMBER("max", getMax);
+    ADD_MEMBER("min", getMin);
     ADD_MEMBER("value", getValue);
     ADD_MEMBER("members", getMembers);
     ADD_MEMBER("attributes", getAttributes);

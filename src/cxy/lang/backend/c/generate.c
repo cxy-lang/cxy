@@ -59,7 +59,7 @@ static void addDebugInfo(CodegenContext *ctx, const AstNode *node)
     if (pos.row == 0)
         return;
     format(getState(ctx),
-           "//  {u32} \"{s}\"\n",
+           "#line  {u32} \"{s}\"\n",
            (FormatArg[]){{.u32 = pos.row}, {.s = node->loc.fileName}});
     ctx->debug.pos = pos;
 }
@@ -2138,15 +2138,18 @@ static void generateTestMainFunction(CodegenContext *ctx,
 
     if (ctx->hasTestCases) {
         format(getState(ctx),
-               "typedef struct {{ __typeof({s}[0]) *data; uint64_t "
-               "len; }"
-               " __TestCases;\n",
+               "\n\n"
+               "typedef struct {{\n"
+               "  __typeof({s}[0]) *data;\n"
+               "  uint64_t len;\n"
+               "  uint8_t  flags; \n"
+               "} __TestCases;\n\n",
                (FormatArg[]){{.s = testsVariable}});
     }
     format(getState(ctx),
            "int main(int argc, char *argv[]) {{{>}\n"
            "return builtins_runTests((SliceI_sE){{.data = argv, .len = argc}, "
-           "\"{s}\", (SliceI_TsFU_ZVoid_ZException____E){{",
+           "\"{s}\", (SliceI_TsFU_ZVoid_ZException___u8_E){{",
            (FormatArg[]){{.s = testFile}});
     if (ctx->hasTestCases) {
         format(getState(ctx),
@@ -2176,13 +2179,13 @@ static void visitProgram(ConstAstVisitor *visitor, const AstNode *node)
         // Create a type graph and generate all the needed types
         TypeGraph g = newTypeGraph(ctx->table, node->type);
         preCodeGen(&g, node);
-        
+
         // Pass 0: Generate all typedefs first (order doesn't matter)
         TypeGraphVisitor typedefVisitor = {
             .previsit = typeGraphPrevisit,
             .visit = NULL,
             .ctx = ctx,
-            .visitAll = true  // Visit all nodes
+            .visitAll = true // Visit all nodes
         };
         visitTypeGraph(&g, &typedefVisitor, 0);
 
@@ -2191,16 +2194,17 @@ static void visitProgram(ConstAstVisitor *visitor, const AstNode *node)
             .previsit = NULL,
             .visit = typeGraphVisit,
             .ctx = ctx,
-            .visitAll = false  // DFS from module only
+            .visitAll = false // DFS from module only
         };
         visitTypeGraph(&g, &defVisitor, 1);
-        
+
         freeTypeGraph(&g);
     }
 
     generateMany(visitor, node->program.decls, NULL, NULL, NULL);
     cstring moduleName =
         node->program.module ? node->program.module->moduleDecl.name : NULL;
+
     if (ctx->backend->testMode && isBuiltinsInitialized() &&
         !hasFlag(node, ImportedModule))
         generateTestMainFunction(ctx, node->loc.fileName, moduleName);

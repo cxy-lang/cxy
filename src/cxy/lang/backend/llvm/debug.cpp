@@ -261,12 +261,15 @@ llvm::DIType *DebugContext::createTupleType(const Type *type)
         auto diType = getDIType(member);
         auto diTypeSize = diType->getSizeInBits();
         auto elLlvmType = getLLVMType(member);
-        auto alignment = layout
-                             .getABITypeAlign(typeIs(member, Func)
-                                                  ? elLlvmType->getPointerTo()
-                                                  : elLlvmType)
-                             .value() *
-                         8;
+        auto alignment =
+            layout
+                .getABITypeAlign(typeIs(member, Func)
+                                     ? llvm::PointerType::get(
+                                           module.getContext(),
+                                           elLlvmType->getPointerAddressSpace())
+                                     : elLlvmType)
+                .value() *
+            8;
 
         membersMetadata.push_back(
             builder.createMemberType(currentScope(),
@@ -317,7 +320,7 @@ llvm::DIType *DebugContext::createUnionType(const Type *type)
         auto size = layout.getTypeAllocSize(elLlvmType);
     }
 
-    auto unionType = llvmType->getContainedType(hasFlag(type, Native) ? 0 : 1);
+    auto unionType = llvmType->getContainedType(hasFlag(type, Extern) ? 0 : 1);
     auto diUnionType =
         builder.createUnionType(currentScope(),
                                 llvm::StringRef() /* Name */,
@@ -328,7 +331,7 @@ llvm::DIType *DebugContext::createUnionType(const Type *type)
                                 llvm::DINode::FlagZero,
                                 builder.getOrCreateArray(metadata));
 
-    if (!hasFlag(type, Native)) {
+    if (!hasFlag(type, Extern)) {
         metadata.clear();
         llvm::DIType *tag = nullptr;
         auto diTagAlign =

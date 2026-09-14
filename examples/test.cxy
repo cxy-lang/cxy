@@ -1,5 +1,21 @@
 module tests
 
-import test { TestException } from "./testing.cxy"
+@setup
+test "Test Cleanup" {
+    println("setup")
+}
 
-pub struct Hello { }
+test "This test will fail" {
+    println("test")
+    ok!(1 == 2)
+}
+
+test "This test will pass" {
+    println("test")
+    ok!(1 == 1)
+}
+
+@cleanup
+test "Test Setup" {
+    println("cleanup")
+}

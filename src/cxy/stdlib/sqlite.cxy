@@ -1,5 +1,6 @@
 module sqlite
 
+import "stdlib/log.cxy"
 import { PathLike, withNullTermination, cast } from "stdlib/path.cxy"
 
 import "sqlite3.h" as sqlite3
@@ -92,7 +93,7 @@ pub struct Statement {
         }
         else #if (T.isEnum) {
             #const B = base_of!(T);
-            return bindImpl(<#{B}>value)
+            return bindImpl(i, <#{B}>value)
         }
         else #if (T.isInteger) {
             #if (#T == #i64 || #T == #u64) {
@@ -109,13 +110,19 @@ pub struct Statement {
             #if (#T == #string) {
                 return sqlite3.sqlite3_bind_text(_stmt, i, value, -1, null)
             }
+            else #if (T.isClass) {
+                if (value == null) {
+                    return sqlite3.sqlite3_bind_null(_stmt, i)
+                }
+                return sqlite3.sqlite3_bind_text(_stmt, i, value.str(), <i32>value.size(), null)
+            }
             else {
                 return sqlite3.sqlite3_bind_text(_stmt, i, value.str(), <i32>value.size(), null)
             }
         }
         else #if (T.isOptional) {
             if (value)
-                return bindImpl(*value)
+                return bindImpl(i, *value)
             else
                 return sqlite3.sqlite3_bind_null(_stmt, i)
         }
@@ -167,7 +174,7 @@ pub struct Statement {
             var res: T = null
             #for (const i: 0..T.membersCount) {
                 #const M = typeat!(#T, i);
-                res.#{i} = readColumn[#{M}](_stmt, #{i})
+                res.#{i} = readColumn[#{M}](_stmt, #{i} as i32)
             }
             return &&res
         }
@@ -246,4 +253,91 @@ pub class Database {
         stmt(...&&args)
         return &&stmt
     }
+}
+
+pub class SqliteTransaction {
+    @static
+    LOG_TAG = "SqliteTransaction"
+    _db: &Database
+    _active: bool = false
+    _autoCommit: bool = true
+
+    func `init`(db: &Database, autoCommit: bool = true) {
+        _db = db
+        _autoCommit = autoCommit
+        this.begin() catch {
+            ERR!( "Transaction begin failed: " << ex!.what() )
+        }
+    }
+
+    func `deinit`() {
+        if (_active && _autoCommit) {
+            this.commit() catch discard
+        }
+        else if (_active) {
+            this.rollback(null) catch discard
+        }
+    }
+
+    func begin(): !void {
+        if (_active) {
+            raise SqliteError("Transaction is already active")
+        }
+
+        _db.exec("BEGIN")
+        _active = true
+    }
+
+    func commit(): !void {
+        if (!_active) {
+            raise SqliteError("No active transaction to commit")
+        }
+
+        _db.exec("COMMIT")
+        _active = false
+    }
+
+    func rollback(savepoint: string = null): !void {
+        if (!_active) {
+            raise SqliteError("No active transaction to rollback")
+        }
+
+        if (savepoint != null) {
+            var sql = f"ROLLBACK TO SAVEPOINT {savepoint}"
+            _db.exec(sql.str())
+        }
+        else {
+            _db.exec("ROLLBACK")
+            _active = false
+        }
+    }
+
+    func savepoint(name: string): !void {
+        if (!_active) {
+            raise SqliteError("No active transaction for savepoint")
+        }
+
+        var sql = f"SAVEPOINT {name}"
+        _db.exec(sql.str())
+    }
+
+    func release(name: string): !void {
+        if (!_active) {
+            raise SqliteError("No active transaction for release")
+        }
+
+        var sql = f"RELEASE SAVEPOINT {name}"
+        _db.exec(sql.str())
+    }
+
+    func exec(sql: string, ...args: auto): !Statement {
+        if (!_active) {
+            raise SqliteError("No active transaction")
+        }
+
+        return _db.exec(sql, ...&&args)
+    }
+
+    @inline
+    func isActive(): bool => _active
 }

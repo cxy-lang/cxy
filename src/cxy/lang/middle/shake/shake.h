@@ -16,6 +16,8 @@ typedef struct {
     MemPool *pool;
     struct StrPool *strings;
     AstNodeList testCases;
+    AstNode *testSetup;
+    AstNode *testCleanup;
     AstModifier block;
     AstModifier root;
     u64 lastTestId;
