@@ -1,33 +1,42 @@
-import { WebSocketServer, WebSocket } from "stdlib/ws.cxy"
-import { Server,  Request, Response, Config } from "stdlib/http.cxy"
+import { wssUpgrade, WebSocket } from "stdlib/ws.cxy"
+import { Server, Request, Response, Config } from "stdlib/http.cxy"
 import { Address } from "stdlib/net.cxy"
 
-struct MyContext {
-    count: i64
+struct WsContext {
+    count: i64 = 0
     func `init`() => {}
+}
 
-    func onOpen(@unused ws: &WebSocket[MyContext]): bool => {
-        println("onOpen: count = ", count)
+class WsApplication {
+    channel: String
+
+    func `init`(channel: String) {
+        this.channel = channel
+    }
+
+    func onOpen(ws: &WebSocket[WsContext]): bool => {
+        println("[WSS Server] onOpen: channel = ", channel, ", count = ", ws.context().count)
         return true
     }
 
-    func onMessage(ws: &WebSocket[MyContext], msg: __string): void => {
-        println("onMessage: count = ", count, " msg = ", msg)
+    func onMessage(ws: &WebSocket[WsContext], msg: __string): void => {
+        ws.context().count++
+        println("[WSS Server] onMessage: count = ", ws.context().count, ", msg = ", msg)
         ws.send(msg) catch {
-            println("send failed: ", ex!.what())
+            println("[WSS Server] send failed: ", ex!.what())
         }
     }
 
-    func onClose(@unused ws: &WebSocket[MyContext], code: u16, reason: __string): void => {
-        println("onClose: count = ", count, " code = ", code, " reason = ", reason)
+    func onClose(ws: &WebSocket[WsContext], code: u16, reason: __string): void => {
+        println("[WSS Server] onClose: count = ", ws.context().count, ", code = ", code, ", reason = ", reason)
     }
 }
 
 func main(): !void {
-    var wss = WebSocketServer[MyContext](MyContext())
+    var app = WsApplication("chat".S)
     var server = Server[](Config{address: Address("0.0.0.0", 8004)});
     server("GET /wss", (req: &const Request, resp: &Response) => {
-        wss.upgrade(req, resp)
+        wssUpgrade(req, resp, app, WsContext())
     })
     server.start()
 }

@@ -427,6 +427,14 @@ pub class Response {
         end(Status.SwitchingProtocols)
     }
 
+    func sse(up: Upgrade) {
+        _headers.["Content-Type".S] = "text/event-stream".S
+        _headers.["Cache-Control".S] = "no-cache".S
+        _headers.["Connection".S] = "keep-alive".S
+        _upgrade = &&up
+        end(Status.Ok)
+    }
+
     @inline
     func clear() {
         _headers.clear()
@@ -462,12 +470,14 @@ pub class Request {
     _route: &Route
     _addr: &Address
     _ip: String = null
+    _sock: TcpSocket = null
 
     @inline
-    func `init`(addr: &Address, settings: ^const parser.llhttp_settings_t) {
+    func `init`(addr: &Address, settings: ^const parser.llhttp_settings_t, sock: TcpSocket = null) {
         _addr = addr
         _parser = parser.llhttp_alloc(parser.llhttp_type_t.HTTP_REQUEST, settings)
         _parser.data = this
+        _sock = &&sock
         _ip = String()
         _addr.toString(&_ip, false)
     }
@@ -483,6 +493,14 @@ pub class Request {
     @inline
     func param(name: __string, value: __string) {
         _params.[name] = value
+    }
+
+    @inline
+    const func isConnected() {
+        if _sock == null {
+            return false
+        }
+        return _sock.isConnected()
     }
 
     @inline
@@ -1193,14 +1211,14 @@ class Connection[Middlewares] {
     }
 
     func handle() {
-        req = Request(sock.address(), ptrof HTTP_PARSER_SETTINGS)
+        req = Request(sock.address(), ptrof HTTP_PARSER_SETTINGS, sock)
         resp = Response()
         while (!_close && !!sock) {
             handleConnection()
-            if (resp.status() == .SwitchingProtocols && resp.upgrade() != null) {
+            if (resp.upgrade() != null) {
                 var up = resp.upgrade()
                 up.start(&&sock) catch {
-                    ERR!("Failed to start upgrade: " << ex!.what())
+                    WRN!("Unhandled upgrade error: " << ex!.what())
                 }
                 break
             }
@@ -1345,7 +1363,7 @@ class Connection[Middlewares] {
         if (!resp.header(DATE_S))
             sos << "Date: " << Time() << "\r\n"
 
-        if (resp.status() != .SwitchingProtocols && !resp.header(CONTENT_LENGTH_S)) {
+        if (resp.status() != .SwitchingProtocols && !resp.isUpgrade() && !resp.header(CONTENT_LENGTH_S)) {
             sos << "Content-Length: " << resp.size() << "\r\n"
         }
 
@@ -1693,6 +1711,31 @@ test "Route pattern matching with multiple middle parameters" {
     router.handle(req._path.__str(), &req, &resp)
     ok!(params.id == "user123")
     ok!(params.commentId == "comment456")
+}
+
+test "Route pattern matching with extension suffix" {
+    var router = Router()
+    var matchedProject = { namespace: __string(), name: __string() }
+
+    router.add("GET /projects/{namespace}/{name}/badge.svg", (req: &const Request, @unused res: &Response) => {
+        var ns = req.param("namespace")
+        if ns {
+            matchedProject.namespace = __copy!(*ns)
+        }
+        var name = req.param("name")
+        if name {
+            matchedProject.name = __copy!(*name)
+        }
+    })
+
+    var addr = Address()
+    var req = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req._path = String("/projects/acme/tagged/badge.svg")
+    req._parser.method = 1`u8  // GET
+    var resp = Response()
+    router.handle(req._path.__str(), &req, &resp)
+    ok!(matchedProject.namespace == "acme")
+    ok!(matchedProject.name == "tagged")
 }
 
 test "Cookie parsing with simple values" {

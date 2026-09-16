@@ -388,6 +388,7 @@ pub class Response {
     - _s1: String = null;
     - _s2: String = null;
     - _isComplete = false;
+    - _headersComplete = false;
 
     @inline
     func `init`(settings: ^const parser.llhttp_settings_t) {
@@ -429,6 +430,17 @@ pub class Response {
     @inline
     func header(name: String) => _headers.[&&name]
 
+    @[inline, prop]
+    const func headersComplete() => _headersComplete
+
+    func isEventStream(): bool {
+        var ct = _headers.[String("Content-Type")]
+        if (!!ct && ct&.contains("text/event-stream".s)) {
+            return true
+        }
+        return false
+    }
+
     func onBodyPart(buf: ^const char, len: u64): i32 {
         if (_writer != null) {
             // Write the body to the writer
@@ -444,7 +456,7 @@ pub class Response {
     }
 
     func onHeadersComplete(): i32 {
-        if (_writer != null)
+        if (_writer == null)
             return 0
 
         // invoke _writer with null and contentLength to initialized
@@ -463,7 +475,7 @@ pub class Response {
 
     func feed(buf: ^const char, len: u64): bool {
         const ret = parser.llhttp_execute(_parser, buf !: ^const char, len)
-        if (ret == parser.llhttp_errno.HPE_PAUSED_UPGRADE) {
+        if (ret == parser.llhttp_errno.HPE_PAUSED_UPGRADE || ret == parser.llhttp_errno.HPE_PAUSED) {
             _isComplete = true
             return true
         }
@@ -523,7 +535,7 @@ func responseParserOnHeaderValue(p: ^parser.llhttp_t, at: ^const char, len: u64)
     return 0`i32
 }
 
-func responseParserOnHeadersComplete(p: ^parser.llhttp_t) {
+func responseParserOnHeadersComplete(p: ^parser.llhttp_t): i32 {
     var resp = p.data !: Response;
     if (resp._s1 != null) {
         assert!(resp._s1 != null)
@@ -531,7 +543,12 @@ func responseParserOnHeadersComplete(p: ^parser.llhttp_t) {
         resp._s1 = null
         resp._s2 = null
     }
-    return 0
+    resp._headersComplete = true
+    if (resp.isEventStream()) {
+        resp._isComplete = true
+        return 2
+    }
+    return resp.onHeadersComplete()
 }
 
 func responseParserOnBody(p: ^parser.llhttp_t, at: ^const char, len: u64) {
@@ -565,11 +582,12 @@ pub class Session {
     - _req: Request = null;
     - _hostname: String = null;
 
-    func `init`(proto: __string, host: String, port: u16, addr: Address) {
+    func `init`(proto: __string, host: String, port: u16, addr: Address, timeout: u64 = 20000`u64) {
         _proto = &&proto
         _port = port
         _addr = &&addr
         _hostname = &&host
+        _timeout = timeout
         header("Host", _hostname)
     }
 
@@ -654,7 +672,7 @@ pub class Session {
     }
 
     @static
-    func create(url: __string) {
+    func create(url: __string, timeout: u64 = 20000.u64): !Session {
         var idx = url.find("://")
         var host = url;
         var proto = "http".s
@@ -676,7 +694,7 @@ pub class Session {
         var hostStr = String(host)
         var addr = getRemoteAddress(hostStr.str(), port);
         TRC1!(f"Connected to host: '{proto}://{host}:{port}'")
-        return This(proto, hostStr, port, &&addr)
+        return This(proto, hostStr, port, &&addr, timeout)
     }
 
     func takeSocket(): Socket {

@@ -440,6 +440,24 @@ pub class Socket {
         }
         return true
     }
+
+    const func isConnected(): bool {
+        if _fd == -1 {
+            return false
+        }
+
+        var buf: char = '\0'
+        var res = socket.recv(_fd, ptrof buf, 1, MSG_PEEK! | MSG_DONTWAIT!)
+        if res == 0 {
+            return false // EOF -> client closed
+        }
+
+        if res < 0 {
+            var err = errno!
+            return err == EAGAIN! || err == EWOULDBLOCK!
+        }
+        return true
+    }
 }
 
 pub class SocketOutputStream : OutputStream {

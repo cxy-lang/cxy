@@ -330,6 +330,16 @@ add_executable(cxy
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/include/cxy/core)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/lib)
 
+add_library(cxy-trace STATIC
+        src/cxy/stdlib/trace/coro.c
+        src/cxy/stdlib/trace/mem.c)
+
+add_custom_command(
+        TARGET cxy-trace POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:cxy-trace>
+        ${CMAKE_CURRENT_BINARY_DIR}/install/lib
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_library(cxy-plugin STATIC
         ${CXY_CORE_SOURCES}
         ${CXY_PLUGIN_LIB_SOURCES})
@@ -386,9 +396,12 @@ target_compile_definitions(cxy PRIVATE
 
 set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/native
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/trace
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/args.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/atomic.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/base64.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/buffer.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/build.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/coro.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/crypto.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/dotenv.cxy
@@ -405,6 +418,7 @@ set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/os.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/path.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/redis.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/sse.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/ssl.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/table.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/tcp.cxy
@@ -413,6 +427,8 @@ set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/trie.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/value.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/vector.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/ws.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/lexer.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/parser.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/serializer.cxy
@@ -498,6 +514,8 @@ endforeach ()
 install(TARGETS cxy DESTINATION bin)
 # Install plugin library
 install(TARGETS cxy-plugin DESTINATION lib)
+# Install trace library
+install(TARGETS cxy-trace DESTINATION lib)
 # Install plugin headers
 install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/include/cxy
         DESTINATION include)

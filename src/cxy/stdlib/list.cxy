@@ -67,9 +67,18 @@ pub struct List[T] {
 
 @poco
 struct ListItem[T] {
-    prev: ^This = null;
-    next: ^This = null;
-    value: T
+    _prev: ^This = null;
+    _next: ^This = null;
+    _value: T
+
+    func `&.`() { return &_value }
+    const func `&.`() { return &_value }
+    func value() => &_value
+    const func value() => &_value
+    func prev() => _prev
+    const func prev() => _prev
+    func next() => _next
+    const func next() => _next
 }
 
 pub class LinkedList[T] {
@@ -84,9 +93,9 @@ pub class LinkedList[T] {
         while (_head != null) {
             var item = _head
             #if T.isDestructible {
-                delete item.value
+                delete item._value
             }
-            _head = item.next
+            _head = item._next
             free(item)
         }
         _tail = null
@@ -99,24 +108,25 @@ pub class LinkedList[T] {
 
     func insert(value: T, it: Iterator = null) {
         var item = __calloc(sizeof!(#ListItem[T])) as ^ListItem[T]
-        item.value = &&value
+        item._value = &&value
         if (_head == null) {
             _head = item
             _tail = item
         } else if (it == null) {
-            item.next = _head
-            _head.prev = item
+            item._next = _head
+            _head._prev = item
             _head = item
         } else {
-            item.next = it.next
-            item.prev = it
-            it.next = item
-            if (item.next != null)
-                item.next.prev = item
+            item._next = it._next
+            item._prev = it
+            it._next = item
+            if (item._next != null)
+                item._next._prev = item
             else
                 _tail = item
         }
         _size += 1
+        return item
     }
 
     func shift() : !T {
@@ -124,10 +134,10 @@ pub class LinkedList[T] {
             raise InvalidOperationError("Cannot shift from an empty list")
         } else {
             var item = _head
-            _head = item.next
+            _head = item._next
             if (_head != null)
-                _head.prev = null
-            var tmp = &&item.value
+                _head._prev = null
+            var tmp = &&item._value
             free(item)
             return &&tmp
         }
@@ -135,16 +145,17 @@ pub class LinkedList[T] {
 
     func push(value: T) {
         var item = __calloc(sizeof!(#ListItem[T])) as ^ListItem[T]
-        item.value = &&value
+        item._value = &&value
         if (_tail == null) {
             _head = item
             _tail = item
         } else {
-            item.prev = _tail
-            _tail.next = item
+            item._prev = _tail
+            _tail._next = item
             _tail = item
         }
         _size += 1
+        return item
     }
 
     func pop() : !T {
@@ -153,11 +164,11 @@ pub class LinkedList[T] {
         }
         else {
             var item = _tail
-            _tail = item.prev
+            _tail = item._prev
             if (_tail != null)
-                _tail.next = null
+                _tail._next = null
             _size -= 1
-            var tmp = &&item.value
+            var tmp = &&item._value
             free(item)
             return &&tmp
         }
@@ -169,8 +180,8 @@ pub class LinkedList[T] {
         return (): (&T, u64)? => {
             if (item == null)
                 return null
-            var tmp = &item.value
-            item = item.next
+            var tmp = &item._value
+            item = item._next
             return (tmp, idx++)
         }
     }
@@ -181,8 +192,8 @@ pub class LinkedList[T] {
         return (): (&const T, u64)? => {
             if (item == null)
                 return null
-            var tmp = &item.value
-            item = item.next
+            var tmp = &item._value
+            item = item._next
             return (tmp, idx++)
         }
     }
@@ -201,18 +212,18 @@ pub class LinkedList[T] {
     func erase(it: Iterator) {
         if (it == null)
             return
-        var prev = it.prev
-        var next = it.next
+        var prev = it._prev
+        var next = it._next
         if (prev != null)
-            prev.next = next
+            prev._next = next
         if (next != null)
-            next.prev = prev
+            next._prev = prev
         if (_head !: ^const void == it !: ^const void)
             _head = next
         if (_tail !: ^const void == it !: ^const void)
             _tail = prev
         _size -= 1
-        delete it.value
+        delete it._value
         free(it)
     }
 }

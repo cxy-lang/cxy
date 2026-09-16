@@ -315,6 +315,43 @@ else {
     #const _ = error!("Unsupported platform for coroutine context switching - supported architectures: x86_64, aarch64, arm32, ppc64v2")
 }
 
+#if (defined __DEBUG && defined TRACE_CORO) {
+    @[pure, linkage("External")]
+    func __trace_coro_stdout(
+        tag: string,
+        path: string,
+        line: u64,
+        coro_name: string,
+        coro_id: i32,
+        sched_id: i32,
+        coro_ptr: ^void,
+        origin_file: string,
+        origin_line: u64,
+        tid: u64
+    ) {
+        if (coro_ptr != null) {
+            printf(" coro(%-7.7s: [tid=%llu] [sched=%d] '%s':%d at %p origin=%s:%llu) @ %s:%llu\n",
+                tag, tid, sched_id, (coro_name != null ? coro_name : "anon"), coro_id, coro_ptr,
+                (origin_file != null ? origin_file : "unknown"), origin_line, path, line)
+        } else {
+            printf(" coro(%-7.7s: (null)) @ %s:%llu\n", tag, path, line)
+        }
+    }
+
+    pub extern func __trace_coro_custom(
+        tag: string,
+        path: string,
+        line: u64,
+        coro_name: string,
+        coro_id: i32,
+        sched_id: i32,
+        coro_ptr: ^void,
+        origin_file: string,
+        origin_line: u64,
+        tid: u64
+    ): void
+}
+
 @align(16)
 pub struct Coroutine {
     link: ^This = null;
@@ -326,6 +363,12 @@ pub struct Coroutine {
     ready : bool = false; /* Set when the coroutine has finished its execution. */
     promise: ^void = null
     name: string = null
+    file: string = null
+    line: u64 = 0
+    schedId: i32 = -1
+    #if (defined __CXY_THREADS_ENABLED__) {
+        tid: u64 = 0;
+    }
 
     #if (defined CORO_VALGRIND) {
         /*
@@ -343,6 +386,20 @@ pub struct Coroutine {
     }
 }
 
+#if (defined __DEBUG && defined TRACE_CORO) {
+    @inline
+    func __trace_coro_fwd(tag: string, cr: ^Coroutine, path: string, line: u64) {
+        if (cr != null) {
+            (TRACE_CORO!)(tag, path, line, cr.name, cr.id, cr.schedId, cr !: ^void, cr.file, cr.line, cr.tid)
+        } else {
+            (TRACE_CORO!)(tag, path, line, null, -1, -1, null, null, 0`u64, 0`u64)
+        }
+    }
+    macro __TRACE_CORO(TAG, CR, FILE, LINE) __trace_coro_fwd(TAG!, CR!, FILE!, LINE!)
+} else {
+    macro __TRACE_CORO(TAG, CR, FILE, LINE) {}
+}
+
 @inline
 func stackAlign(size: u64, align: u64) =>
     ((size + (align - 1)) & ~(align - 1)) + align
@@ -354,6 +411,8 @@ func stackAlign(size: u64, align: u64) =>
 
 var stackSize = stackAlign(CORO_STACK_SIZE!, SysConfPageSize);
 
+var __cxy_coro_sched_id_gen = Atomic[i32]();
+
 struct CachedStack {
     link: ^This
 }
@@ -361,6 +420,7 @@ struct CachedStack {
 macro MAX_CACHED_STACKS 32`u64
 
 class CoroutineScheduler {
+    id: i32 = 0;
     running: ^Coroutine = null; /* Currently running coroutine. */
     /* List of coroutines ready for execution. */
     - ready = List[Coroutine]{};
@@ -368,8 +428,9 @@ class CoroutineScheduler {
         - pending = List[Coroutine]{};
         - pendingMtx = tinyThread.mtx_t{};
     }
+    - mainName: [char, 32] = [];
     /* Coroutine that we don't launch */
-    - main = Coroutine("main", 0);
+    - main = Coroutine(null, 0);
     /* Cache some stacks */
     - stacks = List[CachedStack]{};
     /* Coroutine ID generator */
@@ -378,14 +439,23 @@ class CoroutineScheduler {
     - counter : i32 = 0;
     /* Event loop for handling IO events */
     - eventLoop : ^ae.aeEventLoop = null;
+    #if (defined __CXY_THREADS_ENABLED__) {
+        threadId: u64 = 0;
+    }
 
     func `init`() {
-        // by default the running coroutine should be main
+        this.id = __cxy_coro_sched_id_gen.fetchAdd(1)
+        stdio.sprintf(ptrof mainName.[0] !: ^char, "main-%d", this.id)
+        main.name = ptrof mainName.[0] !: string
+        main.id = 0
+        main.schedId = this.id
         main.scheduler = (this !: ^void);
         running = ptrof main
         eventLoop = ae.aeCreateEventLoop(this !: ^void, 1024);
         #if (defined __CXY_THREADS_ENABLED__) {
             tinyThread.mtx_init(ptrof pendingMtx, mtx_plain!);
+            tinyThread.thrd_id(tinyThread.thrd_current(), ptrof threadId);
+            main.tid = threadId;
         }
     }
 
@@ -485,6 +555,7 @@ class CoroutineScheduler {
         }
 
         if (running != null) {
+            __TRACE_CORO!("suspend", running, file!, line!)
             if (__cxy_coro_setjmp!(ptrof this.running.ctx)) {
                 return running.result
             }
@@ -499,6 +570,7 @@ class CoroutineScheduler {
                 counter++;
                 assert!(coro.ready)
                 coro.ready = false
+                __TRACE_CORO!("switch", coro, file!, line!)
                 running = coro
                 __cxy_coro_longjmp!(ptrof coro.ctx)
             }
@@ -510,6 +582,10 @@ class CoroutineScheduler {
     }
 
     func resume(cr: ^Coroutine, res: i32): void {
+        #if (defined __CXY_THREADS_ENABLED__) {
+            assert!((cr.scheduler !: ^void) == (this !: ^void))
+        }
+        __TRACE_CORO!("resume", cr, file!, line!)
         cr.ready = true;
         cr.result = res
         ready.push(cr)
@@ -517,6 +593,7 @@ class CoroutineScheduler {
 
     #if (defined __CXY_THREADS_ENABLED__) {
         func resumeAndWake(cr: ^Coroutine, res: i32): void {
+            __TRACE_CORO!("wake", cr, file!, line!)
             cr.ready = true;
             cr.result = res
 
@@ -535,14 +612,21 @@ class CoroutineScheduler {
         suspend()
     }
 
-    func prologue(name: string, @unused file: string, @unused line: u64) {
+    func prologue(name: string, file: string, line: u64) {
         var stack = allocStack();
         var cr = ptroff!((stack !: ^Coroutine) + (-1));
         cr.link = null
         cr.scheduler = (this !: ^void);
+        cr.schedId = this.id
         cr.id = idGenerator++
         cr.ready = false;
         cr.name = name
+        cr.file = file
+        cr.line = line
+        #if (defined __CXY_THREADS_ENABLED__) {
+            cr.tid = threadId;
+        }
+        __TRACE_CORO!("spawn", cr, file, line)
         resume(running, 0)
         running = cr
         return cr
@@ -551,6 +635,7 @@ class CoroutineScheduler {
     func epilogue() {
         var cr = running;
         var sp = ptroff!(cr + 1);
+        __TRACE_CORO!("exit", cr, file!, line!)
         running = null
         freeStack(sp !: ^void)
 
@@ -723,8 +808,8 @@ pub struct Channel[T] {
         }
 
         if _in != null {
-            // there sender is sender waiting to send, resuming them
-            // makes the fill up the buffer
+            // there is a sender waiting to send, resuming them
+            // makes the buffer fill up
             resume(_in, 0)
         }
 
@@ -736,10 +821,12 @@ pub struct Channel[T] {
 }
 
 pub struct CoWaitGroup {
+    _name: string
     _count = Atomic[i32]()
     _waiters = List[Coroutine]{}
 
-    func `init`() {
+    func `init`(name: string = "unamed") {
+        _name = name
         _count.store(0)
     }
 
@@ -1017,6 +1104,73 @@ pub struct CoWaitGroup {
 
         func `deinit`() {
             tinyThread.mtx_destroy(ptrof _osMutex)
+        }
+    }
+
+    pub struct SharedChannel[T] {
+        _buffer: CircularBuffer[T]
+        _in: ^Coroutine = null
+        _out: ^Coroutine = null
+        _mtx = tinyThread.mtx_t{}
+
+        func `init`(capacity: i32 = 1) {
+            _buffer = CircularBuffer[T](capacity)
+            tinyThread.mtx_init(ptrof _mtx, mtx_plain!)
+        }
+
+        func send(x: T, dd: i64 = 0): bool {
+            tinyThread.mtx_lock(ptrof _mtx)
+            if _buffer.full() {
+                _in = running()
+                tinyThread.mtx_unlock(ptrof _mtx)
+                if timeout(dd) {
+                    tinyThread.mtx_lock(ptrof _mtx)
+                    _in = null
+                    tinyThread.mtx_unlock(ptrof _mtx)
+                    return false
+                }
+                tinyThread.mtx_lock(ptrof _mtx)
+                _in = null
+            }
+
+            _buffer.push(&&x) catch discard
+            var waiter = _out
+            _out = null
+            tinyThread.mtx_unlock(ptrof _mtx)
+
+            if waiter != null {
+                resumeWaiter(waiter)
+            }
+            return true
+        }
+
+        func receive(dd: i64 = 0): T? {
+            tinyThread.mtx_lock(ptrof _mtx)
+            if _buffer.empty() {
+                _out = running()
+                tinyThread.mtx_unlock(ptrof _mtx)
+                if timeout(dd) {
+                    tinyThread.mtx_lock(ptrof _mtx)
+                    _out = null
+                    tinyThread.mtx_unlock(ptrof _mtx)
+                    return null
+                }
+                tinyThread.mtx_lock(ptrof _mtx)
+                _out = null
+            }
+
+            var val = _buffer.pop() catch {
+                tinyThread.mtx_unlock(ptrof _mtx)
+                return null
+            }
+            var waiter = _in
+            _in = null
+            tinyThread.mtx_unlock(ptrof _mtx)
+
+            if waiter != null {
+                resumeWaiter(waiter)
+            }
+            return Some(&&val)
         }
     }
 }

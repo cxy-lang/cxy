@@ -1,0 +1,46 @@
+import { SseStream, SseClient } from "stdlib/sse.cxy"
+
+class ClientApplication {
+    channel: String
+    eventCount: i64 = 0
+
+    func `init`(channel: String) {
+        this.channel = channel
+    }
+
+    func onOpen(@unused client: &SseClient): bool => {
+        println("[Cxy SSE Client] Connected to channel: ", channel)
+        return true
+    }
+
+    func onEvent(
+        client: &SseClient,
+        event: __string,
+        data: __string,
+        id: __string
+    ): void => {
+        eventCount++
+        println("[Cxy SSE Client] Event: '", event, "', id: '", id, "', data: '", data, "'")
+        if (eventCount >= 5) {
+            println("[Cxy SSE Client] Received 5 events, closing...")
+            client.close()
+        }
+    }
+
+    func onMessage(
+        @unused client: &SseClient,
+        data: __string
+    ): void => {
+        println("[Cxy SSE Client] Message: ", data)
+    }
+
+    func onClose(@unused client: &SseClient): void => {
+        println("[Cxy SSE Client] Disconnected.")
+    }
+}
+
+func main(): !void {
+    var app = ClientApplication("updates".S)
+    var stream = SseStream[ClientApplication].connect("http://127.0.0.1:8005/events", app)
+    stream.listen()
+}

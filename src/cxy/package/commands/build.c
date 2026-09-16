@@ -59,6 +59,8 @@ static cstring findDefaultEntry(const char *packageDir, MemPool *pool, Log *log)
 static cstring constructBuildCommand(const PackageBuildConfig *config,
                                      cstring entryPoint,
                                      bool isPlugin,
+                                     bool debug,
+                                     bool release,
                                      StrPool *strings,
                                      Log *log)
 {
@@ -72,6 +74,12 @@ static cstring constructBuildCommand(const PackageBuildConfig *config,
 
     // Add --no-progress to disable interactive progress indicators when piped
     format(&state, " --no-progress", NULL);
+
+    if (debug)
+        format(&state, " -g", NULL);
+
+    if (release)
+        format(&state, " -O 3", NULL);
 
     // Add output if specified
     if (config->output && config->output[0] != '\0') {
@@ -219,6 +227,8 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
 {
     bool clean = options->package.clean;
     bool verbose = options->package.verbose;
+    bool debug = options->package.debug || options->debug;
+    bool release = options->package.release;
     const char *buildDir = options->package.buildDir;
     const DynArray *restArgs = &options->package.rest;
     const char *buildTarget = options->package.buildTarget;
@@ -468,7 +478,7 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
         bool isPlugin = ext && strcmp(ext, ".c") == 0;
 
         // Construct build command
-        cstring buildCommand = constructBuildCommand(config, entryPoint, isPlugin, strings, log);
+        cstring buildCommand = constructBuildCommand(config, entryPoint, isPlugin, debug, release, strings, log);
         if (!buildCommand) {
             logError(log, NULL, "failed to construct build command for '{s}'",
                     (FormatArg[]){{.s = build->name}});

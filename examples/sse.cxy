@@ -1,0 +1,56 @@
+import { Server, Request, Response, Config } from "stdlib/http.cxy"
+import { SseServer, SseClient, SseConnection } from "stdlib/sse.cxy"
+import { Address } from "stdlib/net.cxy"
+import { Time } from "stdlib/time.cxy"
+import  "stdlib/coro.cxy"
+
+struct SseContext {
+    channel: String = null
+    count: i64 = 0
+    func `init`() {}
+}
+
+class SseApplication {
+    channel: String
+
+    func `init`(channel: String) {
+        this.channel = channel
+    }
+
+    func createContext() => SseContext{ channel: channel }
+
+    func onOpen(client: &SseConnection[SseContext]): bool => {
+        println("[SSE] Client connected on channel: ", client.context().channel)
+        return true
+    }
+
+    func onStream(client: &SseConnection[SseContext]): void => {
+        var context = client.context()
+        while (!client.isClosed() && context.count < 5) {
+            context.count++
+            println("[SSE] Emitting tick #", context.count)
+            var msg = f"message #{context.count} at {Time()}"
+            client.emit("tick", msg.s(), f"{context.count}".s()) catch {
+                println("[SSE] Send failed: ", ex!.what())
+                break
+            }
+            sleepAsync(1000) // 1 second
+        }
+        println("[SSE] Stream closed")
+    }
+
+    func onClose(@unused client: &SseConnection[SseContext]): void => {
+        println("[SSE] Client disconnected")
+    }
+}
+
+func main(): !void {
+    var sse = SseServer[SseApplication, SseContext](SseApplication("updates".S))
+    var server = Server[](Config{address: Address("0.0.0.0", 8005)});
+    server("GET /events", (@unused req: &const Request, resp: &Response) => {
+        resp.sse(__copy!(sse))
+    })
+
+    println("SSE server listening on http://0.0.0.0:8005/events")
+    server.start()
+}

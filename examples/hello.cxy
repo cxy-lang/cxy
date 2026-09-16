@@ -1,20 +1,5 @@
-module xxx
-import "./test.cxy"
 
-struct Cal[U] {
-    `Value = #{U.value}
-    func `init`(){}
-}
-
-struct Age {
-    type Calc = Cal[10]
-    age = Cal[#{Calc.`Value}]()
-}
-
-struct Int[T] {
-    `Min = typeof!(#T).min
-}
 
 func main() {
-    {#i64}.min
+    wss.upgrade(resp, Context())
 }

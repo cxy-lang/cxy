@@ -1,0 +1,342 @@
+module sse
+
+import { TcpSocket } from "./tcp.cxy"
+import { Socket, getRemoteAddress } from "./net.cxy"
+import { Session } from "./fetch.cxy"
+import { Upgrade, Request, Response, Status, Method } from "./http.cxy"
+import "./log.cxy"
+
+const LOG_TAG = "sse"
+
+pub exception SseError(msg: String) => msg == null ? "" : msg.str()
+
+pub struct SseEvent {
+    event: String = null
+    data: String = null
+    id: String = null
+    retry: u32 = 0
+
+    func `init`(data: String = null, event: String = null, id: String = null, retry: u32 = 0) {
+        this.data = &&data
+        this.event = &&event
+        this.id = &&id
+        this.retry = retry
+    }
+
+    const func `str`(os: &OutputStream) {
+        if (event != null && !event.empty()) {
+            os << "event: " << event << "\n"
+        }
+        if (id != null && !id.empty()) {
+            os << "id: " << id << "\n"
+        }
+        if (retry > 0) {
+            os << "retry: " << retry << "\n"
+        }
+        if (data != null) {
+            var s = data.__str()
+            var start = 0.u64
+            var len = s.size()
+            for (var i: 0.u64..len) {
+                if (s.[i] == '\n'.char) {
+                    os << "data: " << s.substr(start, (i - start) as i64) << "\n"
+                    start = i + 1
+                }
+            }
+            if (start < len) {
+                os << "data: " << s.substr(start) << "\n"
+            }
+            os << "\n"
+        } else {
+            os << "\n"
+        }
+        return os
+    }
+}
+
+pub class SseConnection[Context] {
+    - _sock: TcpSocket
+    - _context: &Context
+    - _closed: bool = false
+
+    func `init`(sock: TcpSocket, context: &Context) {
+        _sock = &&sock
+        _context = context
+    }
+
+    @[prop, inline]
+    func context() => _context
+
+    @[prop, inline]
+    func socket() => &_sock
+
+    @[prop, inline]
+    func isClosed() {
+        if _closed || _sock == null || !_sock {
+            return true
+        }
+        return !_sock.isConnected()
+    }
+
+    func send(data: __string): !void {
+        if isClosed() {
+            return
+        }
+
+        var buf = String()
+        buf << "data: " << data << "\n\n"
+        var sent = _sock.sendBuffer(buf.data() !: ^const void, buf.size())
+        if !sent || *sent != buf.size() {
+            close()
+            raise SseError(String("Failed to send SSE data"))
+        }
+    }
+
+    func send(data: String): !void {
+        send(data.__str())
+    }
+
+    func emit(event: __string, data: __string, id: __string = "".s): !void {
+        if isClosed() {
+            return
+        }
+        var buf = String()
+        buf << "event: " << event << "\n"
+        if (id != null && !id.empty()) {
+            buf << "id: " << id << "\n"
+        }
+        buf << "data: " << data << "\n\n"
+        var sent = _sock.sendBuffer(buf.data() !: ^const void, buf.size())
+        if !sent || *sent != buf.size() {
+            close()
+            raise SseError(String("Failed to emit SSE event"))
+        }
+    }
+
+    func sendEvent(ev: &const SseEvent): !void {
+        if isClosed() {
+            return
+        }
+        var buf = String()
+        buf << ev
+        var sent = _sock.sendBuffer(buf.data() !: ^const void, buf.size())
+        if !sent || *sent != buf.size() {
+            close()
+            raise SseError(String("Failed to send SseEvent"))
+        }
+    }
+
+    func comment(text: __string): !void {
+        if isClosed() {
+            return
+        }
+        var buf = String()
+        buf << ": " << text << "\n\n"
+        var sent = _sock.sendBuffer(buf.data() !: ^const void, buf.size())
+        if !sent || *sent != buf.size() {
+            close()
+        }
+    }
+
+    func close(): void {
+        if _closed {
+            return
+        }
+        _closed = true
+        _sock.close()
+    }
+}
+
+pub class SseServer[Application, Context] : Upgrade {
+    require!(Application.isClass, "Application must be a class type")
+    require!(has_member!(#Application, "createContext", #func() -> Context), "Application must have a createContext method")
+
+    - _app: Application
+
+    func `init`(app: Application) {
+        _app = &&app
+    }
+
+    func upgrade(@unused req: &const Request, resp: &Response): bool {
+        resp.sse(__copy!(this))
+        return true
+    }
+
+    @override
+    func start(sock: TcpSocket): !void {
+        var ctx = _app.createContext()
+        var client = SseConnection[Context](&&sock, &ctx)
+
+        #if (has_member!(#Application, "onOpen", #func(_: &SseConnection[Context]) -> bool)) {
+            if !_app.onOpen(&client) {
+                client.close()
+                return
+            }
+        }
+        #if (has_member!(#Application, "onConnect", #func(_: &SseConnection[Context]) -> bool)) {
+            if !_app.onConnect(&client) {
+                client.close()
+                return
+            }
+        }
+
+        #if (has_member!(#Application, "onStream", #func(_: &SseConnection[Context]) -> void)) {
+            _app.onStream(&client)
+        }
+
+        #if (has_member!(#Application, "onClose", #func(_: &SseConnection[Context]) -> void)) {
+            _app.onClose(&client)
+        }
+
+        client.close()
+    }
+}
+
+pub class SseClient {
+    _sock: Socket = null
+    _closed: bool = false
+    _lastEventId: String = null
+
+    func `init`(sock: Socket) {
+        _sock = &&sock
+    }
+
+    @[prop, inline]
+    func socket() => &_sock
+
+    @[prop, inline]
+    func isClosed() => _closed || _sock == null || !_sock
+
+    @[prop, inline]
+    func lastEventId() => _lastEventId
+
+    func close(): void {
+        if (_closed) { return }
+        _closed = true
+        if (_sock != null) {
+            _sock.close()
+            _sock = null
+        }
+    }
+}
+
+pub class SseStream[Application] {
+    _app: Application
+    _client: SseClient = null
+    _lineBuf = String()
+    _curEvent = String()
+    _curData = String()
+    _curId = String()
+
+    func `init`(app: Application) {
+        _app = &&app
+    }
+
+    @static
+    func connect(url: __string, app: Application): !This {
+        var engine = This(&&app)
+        engine._connect(url)
+        return &&engine
+    }
+
+    func _connect(url: __string): !void {
+        var sess = Session.create(url)
+        var path = "/".s
+        var idx = url.find("://")
+        if (idx) {
+            var hostAndPath = url.substr(*idx + 3)
+            var slashIdx = hostAndPath.find("/".s)
+            if (slashIdx) {
+                path = hostAndPath.substr(*slashIdx)
+            }
+        }
+
+        sess.header("Accept".S, "text/event-stream".S)
+        sess.header("Cache-Control".S, "no-cache".S)
+        sess.header("Connection".S, "keep-alive".S)
+
+        var resp = sess.perform(Method.Get, path)
+        if (resp.status() != .Ok) {
+            raise SseError(f"SSE connection failed: {resp.statusCode()}")
+        }
+
+        var sock = sess.takeSocket()
+        _client = SseClient(&&sock)
+
+        #if (has_member!(#Application, "onOpen", #func(_: &SseClient) -> bool)) {
+            if !_app.onOpen(&_client) {
+                _client.close()
+                return
+            }
+        }
+    }
+
+    func _processChunk(chunk: __string): void {
+        for i in 0.u64..chunk.size() {
+            var ch = chunk.[i]
+            if ch == '\r'.char {
+                continue
+            }
+            if ch == '\n'.char {
+                var line = _lineBuf.__str()
+                if line.empty() {
+                    if !_curData.empty() || !_curEvent.empty() {
+                        #if (has_member!(#Application, "onEvent", #func(_: &SseClient, _: __string, _: __string, _: __string) -> void)) {
+                            _app.onEvent(&_client, _curEvent.__str(), _curData.__str(), _curId.__str())
+                        }
+                        #if (has_member!(#Application, "onMessage", #func(_: &SseClient, _: __string) -> void)) {
+                            _app.onMessage(&_client, _curData.__str())
+                        }
+                        _curEvent.clear()
+                        _curData.clear()
+                        _curId.clear()
+                    }
+                }
+                else if line.startswith("data: ".s) {
+                    if (!_curData.empty()) {
+                        _curData << "\n"
+                    }
+                    _curData << line.substr(6)
+                }
+                else if line.startswith("event: ".s) {
+                    _curEvent.clear()
+                    _curEvent << line.substr(7)
+                }
+                else if line.startswith("id: ".s) {
+                    _curId.clear()
+                    _curId << line.substr(4)
+                    _client._lastEventId = _curId.copy()
+                }
+                else if line.startswith(":".s) {
+                    #if (has_member!(#Application, "onComment", #func(_: &SseClient, _: __string) -> void)) {
+                        _app.onComment(&_client, line.substr(1))
+                    }
+                }
+                _lineBuf.clear()
+            }
+            else {
+                _lineBuf.append(ptrof ch, 1)
+            }
+        }
+    }
+
+    func listen(): void {
+        if _client == null || _client.isClosed() {
+            return
+        }
+        var rawBuf: [char, 4096] = []
+
+        while !_client.isClosed() {
+            var n = _client.socket().receive(rawBuf !: string, 4096)
+            if !n || *n == 0 {
+                break
+            }
+            _processChunk(__string(rawBuf !: string, *n))
+        }
+
+        #if (has_member!(#Application, "onClose", #func(_: &SseClient) -> void)) {
+            _app.onClose(&_client)
+        }
+        _client.close()
+    }
+}

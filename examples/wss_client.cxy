@@ -1,34 +1,44 @@
-import { WebSocketClient, WebSocket } from "stdlib/ws.cxy"
+import { WebSocketClient, wsConnect } from "stdlib/ws.cxy"
 
-struct ClientContext {
+class ClientApplication {
+    channel: String
     count: i64 = 0
+    client: WebSocketClient
 
-    func onOpen(ws: &WebSocket[ClientContext]): bool => {
-        println("[Cxy Client] Connected! Sending message...")
-        ws.send("Hello from Cxy WebSocketClient!") catch {
-            println("Send failed: ", ex!.what())
+    func `init`(channel: String) {
+        this.channel = channel
+    }
+
+    func onOpen(client: WebSocketClient): bool => {
+        println("[Cxy WS Client] Connected to channel: ", channel)
+        println("[Cxy WS Client] Sending initial message...")
+        client.send("Hello from Cxy WebSocketStream!") catch {
+            println("[Cxy WS Client] Send failed: ", ex!.what())
+            return false
         }
+
+        this.client = &&client
         return true
     }
 
-    func onMessage(ws: &WebSocket[ClientContext], msg: __string): void => {
-        println("[Cxy Client] Received: ", msg)
+    func onMessage(msg: __string): void => {
+        println("[Cxy WS Client] Received: ", msg)
         count++
-        if (count < 3) {
-            ws.send("Client ping #{count}".s) catch discard
+        if (count < 10) {
+            client.send(f"Client ping #{count}".s()) catch discard
         } else {
-            println("[Cxy Client] Done, closing...")
-            ws.close(1000, "Done") catch discard
+            println("[Cxy WS Client] Reached limit, closing...")
+            client.close(1000, "Done") catch discard
         }
     }
 
-    func onClose(@unused ws: &WebSocket[ClientContext], code: u16, reason: __string): void => {
-        println("[Cxy Client] Closed: code = ", code, " reason = ", reason)
+    func onClose(code: u16, reason: __string): void => {
+        println("[Cxy WS Client] Closed: code = ", code, " reason = ", reason)
     }
 }
 
 func main(): !void {
-    var client = WebSocketClient[ClientContext].connect("ws://127.0.0.1:8004/wss", ClientContext{})
-    println("WebSocketClient connected!")
-    client.start()
+    var app = ClientApplication("chat".S)
+    var client = wsConnect[ClientApplication]("ws://127.0.0.1:8004/wss", app)
+    client.listen()
 }

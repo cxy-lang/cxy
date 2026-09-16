@@ -4134,9 +4134,7 @@ static AstNode *conditionalTopLevelDecl(Parser *P)
 
         if (!cond->boolLiteral.value) {
             // skip compilation block
-            consume0(P, tokLBrace);
-            skipUntil(P, tokRBrace);
-            consume0(P, tokRBrace);
+            skipEnclosedCode(P, tokLBrace, tokRBrace);
             if (match(P, tokElse))
                 return conditionalTopLevelDecl(P);
             else
@@ -4272,6 +4270,7 @@ AstNode *parseProgram(Parser *P)
                 } E4C_CATCH(ParserException) {
                     synchronize(E4C_EXCEPTION.ctx);
                 } E4C_CATCH(ParserAbort) { return NULL; })
+            printf("");
         }
 
         while (!isEoF(P)) {

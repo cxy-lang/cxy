@@ -33,6 +33,17 @@ pub struct FlagGroup {
     }
 
     func `str`(@unused os: &OutputStream) { }
+
+    @static
+    func mutuallyExclusive(name: __string, a: __string, b: __string, ...args: __string): This {
+        var group = This(name, FlagGroupType.MutuallyExclusive)
+        group.flags.push(a)
+        group.flags.push(b)
+        #for arg in args {
+            group.flags.push(#{arg})
+        }
+        return &&group
+    }
 }
 
 // Simple flag definition
@@ -653,11 +664,11 @@ pub class Command {
         // Ensure required flags were provided before filling in defaults
         validateRequiredFlags()
 
+        // Validate flag groups before filling in defaults so defaults don't trigger conflicts
+        validateFlagGroups()
+
         // Fill in default values for flags not set via command line or env var
         applyFlagDefaults()
-
-        // Validate flag groups after parsing
-        validateFlagGroups()
 
         // Validate declared positional arguments
         validatePositionalArgs()

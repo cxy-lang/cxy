@@ -1,6 +1,6 @@
 module ws
 
-import { TcpSocket, tcpConnect } from "./tcp.cxy"
+import { TcpSocket } from "./tcp.cxy"
 import { getRemoteAddress, Socket } from "./net.cxy"
 import { Upgrade, Request, Response, Status } from "./http.cxy"
 import { Session } from "./fetch.cxy"
@@ -175,40 +175,28 @@ pub class WebSocket[Context] {
     }
 }
 
-pub class WebSocketServer[Context] : Upgrade {
-    _context: Context
+class WebSocketConnection[Application, Context]: Upgrade {
+    require!(Application.isClass, "Application must be a class type")
+    _app: &Application
+    _ctx: Context
 
-    func `init`(context: Context) {
-        _context = &&context
-    }
-
-    func upgrade(req: &const Request, resp: &Response): bool {
-        var key = req.header(String("Sec-WebSocket-Key"))
-        if !key {
-            resp.end(Status.BadRequest)
-            return false
-        }
-
-        var accept = computeAcceptHeader(key&.s())
-        resp.header(String("Upgrade"), String("websocket"))
-        resp.header(String("Connection"), String("Upgrade"))
-        resp.header(String("Sec-WebSocket-Accept"), &&accept)
-        resp.upgrade(__copy!(this))
-        return true
+    func `init`(app: &Application, ctx: Context) {
+        _app = app
+        _ctx = ctx
     }
 
     @override
     func start(sock: TcpSocket): !void {
-        var client = WebSocket[Context](&&sock, &_context, false)
+        var client = WebSocket[Context](&&sock, &_ctx, false)
 
-        #if (has_member!(#Context, "onOpen", #func(_: &WebSocket[Context]) -> bool)) {
-            if !_context.onOpen(&client) {
+        #if (has_member!(#Application, "onOpen", #func(_: &WebSocket[Context]) -> bool)) {
+            if !_app.onOpen(&client) {
                 client.close(1008, "Policy Violation")
                 return
             }
         }
-        #if (has_member!(#Context, "onConnect", #func(_: &WebSocket[Context]) -> bool)) {
-            if !_context.onConnect(&client) {
+        #if (has_member!(#Application, "onConnect", #func(_: &WebSocket[Context]) -> bool)) {
+            if !_app.onConnect(&client) {
                 client.close(1008, "Policy Violation")
                 return
             }
@@ -227,9 +215,9 @@ pub class WebSocketServer[Context] : Upgrade {
                 break
             }
 
-            var fin = (hdr.[0] & 0x80`u8) != 0
-            var op = <Opcode>(hdr.[0] & 0x0F`u8)
-            var masked = (hdr.[1] & 0x80`u8) != 0
+            var fin = (hdr.[0] & 0x80.u8) != 0
+            var op = <Opcode>(hdr.[0] & 0x0F.u8)
+            var masked = (hdr.[1] & 0x80.u8) != 0
             var payloadLen = <u64>(hdr.[1] & 0x7F`u8)
 
             if payloadLen == 126 {
@@ -284,8 +272,8 @@ pub class WebSocketServer[Context] : Upgrade {
                             reason = __string(ptroff!(payload + 2) !: string, payloadLen - 2)
                         }
                     }
-                    #if (has_member!(#Context, "onClose", #func(_: &WebSocket[Context], _: u16, _: __string) -> void)) {
-                        _context.onClose(client, code, reason)
+                    #if (has_member!(#Application, "onClose", #func(_: &WebSocket[Context], _: u16, _: __string) -> void)) {
+                        _app.onClose(client, code, reason)
                     }
                     client.close(code) catch {
                         ERR!("Failed to close WebSocket: " << ex!.what())
@@ -308,13 +296,13 @@ pub class WebSocketServer[Context] : Upgrade {
 
             if fin && curOpcode != Opcode.Continuation {
                 if curOpcode == Opcode.Text {
-                    #if (has_member!(#Context, "onMessage", #func(_: &WebSocket[Context], _: __string) -> void)) {
-                        _context.onMessage(client, msgBuf.__str())
+                    #if (has_member!(#Application, "onMessage", #func(_: &WebSocket[Context], _: __string) -> void)) {
+                        _app.onMessage(client, msgBuf.__str())
                     }
                 }
                 else if curOpcode == Opcode.Binary {
-                    #if (has_member!(#Context, "onBinary", #func(_: &WebSocket[Context], _: ^const void, _: u64) -> void)) {
-                        _context.onBinary(client, msgBuf.data(), msgBuf.size())
+                    #if (has_member!(#Application, "onBinary", #func(_: &WebSocket[Context], _: ^const void, _: u64) -> void)) {
+                        _app.onBinary(client, msgBuf.data(), msgBuf.size())
                     }
                 }
                 msgBuf.clear()
@@ -323,8 +311,8 @@ pub class WebSocketServer[Context] : Upgrade {
         }
 
         if !client.isClosed() {
-            #if (has_member!(#Context, "onClose", #func(_: &WebSocket[Context], _: u16, _: __string) -> void)) {
-                _context.onClose(client, 1006`u16, "Abnormal Closure".s)
+            #if (has_member!(#Application, "onClose", #func(_: &WebSocket[Context], _: u16, _: __string) -> void)) {
+                _app.onClose(client, 1006`u16, "Abnormal Closure".s)
             }
             client.close(1006) catch {
                 ERR!("Failed to close WebSocket: " << ex!.what())
@@ -333,25 +321,119 @@ pub class WebSocketServer[Context] : Upgrade {
     }
 }
 
-pub class WebSocketClient[Context] {
-    _client: WebSocket[Context] = null
-    _context: Context
-
-    func `init`(context: Context) {
-        _context = &&context
+pub func wssUpgrade[Application, Context](
+    req: &const Request,
+    resp: &Response,
+    app:  &Application,
+    ctx:  Context
+): bool {
+    var key = req.header(String("Sec-WebSocket-Key"))
+    if !key {
+        resp.end(Status.BadRequest)
+        return false
     }
+    var accept = computeAcceptHeader(key&.s())
+    resp.header(String("Upgrade"), String("websocket"))
+    resp.header(String("Connection"), String("Upgrade"))
+    resp.header(String("Sec-WebSocket-Accept"), &&accept)
 
-    func `init`() {
-        #if (!Context.isVoid) {
-            _context = Context{}
-        }
+    resp.upgrade(WebSocketConnection[Application, Context](app, &&ctx))
+    return true
+}
+
+pub class WebSocketClient {
+    _sock: Socket = null
+    _closed: bool = false
+
+    func `init`(sock: Socket) {
+        _sock = &&sock
     }
 
     @[prop, inline]
-    func context() => &_context
+    func socket() => &_sock
+
+    @[prop, inline]
+    func isClosed() => _closed || _sock == null || !_sock
+
+    func send(msg: __string): !void {
+        if isClosed() { return }
+        sendFrame(&_sock, Opcode.Text, msg.data(), msg.size(), true)
+    }
+
+    func send(msg: String): !void {
+        if isClosed() { return }
+        sendFrame(&_sock, Opcode.Text, msg.data(), msg.size(), true)
+    }
+
+    func send(msg: string): !void {
+        if isClosed() { return }
+        sendFrame(&_sock, Opcode.Text, msg !: ^const void, len!(msg), true)
+    }
+
+    func sendBinary(data: ^const void, size: u64): !void {
+        if isClosed() { return }
+        sendFrame(&_sock, Opcode.Binary, data, size, true)
+    }
+
+    func ping(data: __string = "".s): !void {
+        if isClosed() { return }
+        sendFrame(&_sock, Opcode.Ping, data.data(), data.size(), true)
+    }
+
+    func pong(data: __string = "".s): !void {
+        if isClosed() { return }
+        sendFrame(&_sock, Opcode.Pong, data.data(), data.size(), true)
+    }
+
+    func close(code: u16 = 1000, reason: string = ""): !void {
+        if isClosed() { return }
+        _closed = true
+        var payload: [u8, 128] = []
+        var len16 = htons(code)
+        memcpy(ptrof payload.[0], ptrof len16, 2)
+        var reasonLen = len!(reason)
+        if reasonLen > 125 { reasonLen = 125 }
+        if reasonLen > 0 {
+            memcpy(ptrof payload.[2], reason !: ^const void, reasonLen)
+        }
+        sendFrame(&_sock, Opcode.Close, ptrof payload.[0], 2 + reasonLen, true) catch discard
+        _sock.close()
+    }
+
+    virtual func listen(): void
+}
+
+class WebSocketStream[Application]: WebSocketClient {
+    require!(Application.isClass, "Application must be a class")
+    _app: Application
+
+    func `init`(sock: Socket, app: Application) {
+        super(&&sock)
+        _app = &&app
+    }
 
     @static
-    func connect(url: __string, context: Context = Context{}): !This {
+    func connect(url: __string, app: Application): !This {
+        var sock = _connect(url, app)
+        var client = This(sock, app)
+
+        #if (has_member!(#Application, "onOpen", #func(_: WebSocketClient) -> bool)) {
+            if !app.onOpen(client) {
+                client.close(1008, "Policy Violation")
+                return null as This
+            }
+        }
+        #if (has_member!(#Application, "onConnect", #func() -> bool)) {
+            if !app.onConnect() {
+                client.close(1008, "Policy Violation")
+                return null as This
+            }
+        }
+        return &&client
+    }
+
+    @static
+    func _connect(url: __string, @unused app: Application): !Socket {
         var sessUrl: String = null
         if (url.startswith("ws://".s)) {
             sessUrl = String("http://")
@@ -366,11 +448,6 @@ pub class WebSocketClient[Context] {
         }
 
         var sess = Session.create(sessUrl.s())
-        var rawKey: [u8, 16] = []
-        OpenSSLRand.RAND_bytes(ptrof rawKey.[0], 16)
-        var keyStr = String()
-        encodeBuffer(&keyStr, ptrof rawKey.[0], 16)
-
         var path = "/".s
         var idx = sessUrl.find("://")
         if (idx) {
@@ -381,10 +458,19 @@ pub class WebSocketClient[Context] {
             }
         }
 
+        var rawKey: [u8, 16] = []
+        OpenSSLRand.RAND_bytes(ptrof rawKey.[0], 16)
+        var keyStr = String()
+        encodeBuffer(&keyStr, ptrof rawKey.[0], 16)
+
         sess.header("Upgrade".S, "websocket".S)
         sess.header("Connection".S, "Upgrade".S)
         sess.header("Sec-WebSocket-Key".S, keyStr)
         sess.header("Sec-WebSocket-Version".S, "13".S)
+
+        #if (has_member!(#Application, "configureSession", #func(_: &Session) -> void)) {
+            app.configureSession(&sess)
+        }
 
         println("WebSocketClient connecting to ", path)
         var resp = sess.perform(Method.Get, path)
@@ -398,88 +484,38 @@ pub class WebSocketClient[Context] {
             raise WebSocketError("Invalid Sec-WebSocket-Accept received from server")
         }
 
-        var sock = sess.takeSocket()
-        var clientInstance = This(&&context)
-        clientInstance._client = WebSocket[Context](sock, clientInstance.context(), true)
-
-        #if (has_member!(#Context, "onOpen", #func(_: &WebSocket[Context]) -> bool)) {
-            if !clientInstance._context.onOpen(clientInstance._client) {
-                clientInstance._client.close(1008, "Policy Violation")
-                return &&clientInstance
-            }
-        }
-        #if (has_member!(#Context, "onConnect", #func(_: &WebSocket[Context]) -> bool)) {
-            if !clientInstance._context.onConnect(clientInstance._client) {
-                clientInstance._client.close(1008, "Policy Violation")
-                return &&clientInstance
-            }
-        }
-
-        return &&clientInstance
+        return sess.takeSocket()
     }
 
-    func send(msg: __string): !void {
-        if _client != null {
-            _client.send(msg)
+    func listen(): void {
+        if _closed {
+            return
         }
-    }
 
-    func send(msg: String): !void {
-        if _client != null {
-            _client.send(msg)
-        }
-    }
-
-    func send(msg: string): !void {
-        if _client != null {
-            _client.send(msg)
-        }
-    }
-
-    func sendBinary(data: ^const void, size: u64): !void {
-        if _client != null {
-            _client.sendBinary(data, size)
-        }
-    }
-
-    func ping(data: __string = "".s): !void {
-        if _client != null {
-            _client.ping(data)
-        }
-    }
-
-    func close(code: u16 = 1000, reason: string = ""): !void {
-        if _client != null {
-            _client.close(code, reason)
-        }
-    }
-
-    func start(): void {
-        if _client == null { return }
         var msgBuf = String()
         var curOpcode = Opcode.Continuation
 
-        while !_client.isClosed() && !!_client.socket() {
+        while !isClosed() {
             var hdr: [u8, 2] = []
-            if !readExact(_client.socket(), ptrof hdr.[0], 2) {
+            if !readExact(_sock, ptrof hdr.[0], 2) {
                 break
             }
 
-            var fin = (hdr.[0] & 0x80.u8) != 0
-            var op = <Opcode>(hdr.[0] & 0x0F.u8)
-            var masked = (hdr.[1] & 0x80.u8) != 0
-            var payloadLen = <u64>(hdr.[1] & 0x7F.u8)
+            var fin = (hdr.[0] & 0x80`u8) != 0
+            var op = <Opcode>(hdr.[0] & 0x0F`u8)
+            var masked = (hdr.[1] & 0x80`u8) != 0
+            var payloadLen = <u64>(hdr.[1] & 0x7F`u8)
 
             if payloadLen == 126 {
                 var lenBuf: [u8, 2] = []
-                if !readExact(_client.socket(), ptrof lenBuf.[0], 2) {
+                if !readExact(_sock, ptrof lenBuf.[0], 2) {
                     break
                 }
                 payloadLen = <u64>ntohs(*(ptrof lenBuf.[0] !: ^u16))
             }
             else if payloadLen == 127 {
                 var lenBuf: [u8, 8] = []
-                if !readExact(_client.socket(), ptrof lenBuf.[0], 8) {
+                if !readExact(_sock, ptrof lenBuf.[0], 8) {
                     break
                 }
                 payloadLen = ntohll(*(ptrof lenBuf.[0] !: ^u64))
@@ -487,7 +523,7 @@ pub class WebSocketClient[Context] {
 
             var mask: [u8, 4] = []
             if masked {
-                if !readExact(_client.socket(), ptrof mask.[0], 4) {
+                if !readExact(_sock, ptrof mask.[0], 4) {
                     break
                 }
             }
@@ -496,7 +532,7 @@ pub class WebSocketClient[Context] {
             if payloadLen > 0 {
                 msgBuf.reserve(payloadLen)
                 payload = msgBuf.data() as ^char
-                if !readExact(_client.socket(), payload !: ^void, payloadLen) {
+                if !readExact(_sock, payload !: ^void, payloadLen) {
                     break
                 }
 
@@ -510,11 +546,15 @@ pub class WebSocketClient[Context] {
 
             switch op {
                 case Opcode.Ping => {
-                    sendFrame(_client.socket(), Opcode.Pong, payload !: ^const void, payloadLen, true) catch discard
+                    sendFrame(_sock, Opcode.Pong, payload !: ^const void, payloadLen, true) catch discard
                 }
-                case Opcode.Pong => {}
+                case Opcode.Pong => {
+                    #if (has_member!(#Application, "onPong", #func(_: __string) -> void)) {
+                        _app.onPong(__string(payload !: string, payloadLen))
+                    }
+                }
                 case Opcode.Close => {
-                    var code = 1000.u16
+                    var code = 1000`u16
                     @unused var reason = "".s
                     if payloadLen >= 2 {
                         code = ntohs(*(payload !: ^u16))
@@ -522,15 +562,14 @@ pub class WebSocketClient[Context] {
                             reason = __string(ptroff!(payload + 2) !: string, payloadLen - 2)
                         }
                     }
-                    #if (has_member!(#Context, "onClose", #func(_: &WebSocket[Context], _: u16, _: __string) -> void)) {
-                        _context.onClose(_client, code, reason)
+                    #if (has_member!(#Application, "onClose", #func(_: u16, _: __string) -> void)) {
+                        _app.onClose(code, reason)
                     }
-                    _client.close(code) catch {
+
+                    close(code) catch {
                         ERR!("Failed to close WebSocket: " << ex!.what())
                     }
-                    if payload != null {
-                        return
-                    }
+                    return
                 }
                 case Opcode.Text, Opcode.Binary => {
                     curOpcode = op
@@ -548,13 +587,13 @@ pub class WebSocketClient[Context] {
 
             if fin && curOpcode != Opcode.Continuation {
                 if curOpcode == Opcode.Text {
-                    #if (has_member!(#Context, "onMessage", #func(_: &WebSocket[Context], _: __string) -> void)) {
-                        _context.onMessage(_client, msgBuf.__str())
+                    #if (has_member!(#Application, "onMessage", #func(_: __string) -> void)) {
+                        _app.onMessage(msgBuf.__str())
                     }
                 }
                 else if curOpcode == Opcode.Binary {
-                    #if (has_member!(#Context, "onBinary", #func(_: &WebSocket[Context], _: ^const void, _: u64) -> void)) {
-                        _context.onBinary(_client, msgBuf.data(), msgBuf.size())
+                    #if (has_member!(#Application, "onBinary", #func(_: __string) -> void)) {
+                        _app.onBinary(msgBuf.data(), msgBuf.size())
                     }
                 }
                 msgBuf.clear()
@@ -562,13 +601,19 @@ pub class WebSocketClient[Context] {
             }
         }
 
-        if !_client.isClosed() {
-            #if (has_member!(#Context, "onClose", #func(_: &WebSocket[Context], _: u16, _: __string) -> void)) {
-                _context.onClose(_client, 1006.u16, "Abnormal Closure".s)
+        if !isClosed() {
+            #if (has_member!(#Application, "onClose", #func(_: u16, _: __string) -> void)) {
+                _app.onClose(1006`u16, "Abnormal Closure".s)
             }
-            _client.close(1006) catch {
+            close(1006) catch {
                 ERR!("Failed to close WebSocket: " << ex!.what())
             }
         }
     }
+}
+
+@inline
+pub func wsConnect[Application](url: __string, app: Application): !WebSocketClient {
+    var stream: WebSocketClient = WebSocketStream[Application].connect(url, &&app)
+    return &&stream
 }

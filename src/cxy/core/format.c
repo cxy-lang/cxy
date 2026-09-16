@@ -207,7 +207,10 @@ static const char *formatArg(FormatState *state,
         n = snprintf(bufPtr, MAX_FORMAT_CHARS, "%p", arg->p);
         break;
     case 't':
-        printType(state, arg->t);
+        if (arg->t == NULL)
+            writeStr(state, "<null>");
+        else
+            printType(state, arg->t);
         break;
     default:
         assert(false && "unknown formatting command");
@@ -425,21 +428,17 @@ uint32_t decodeUtf8Char(const char **pp)
         *pp += 1;
     }
     else if ((p[0] & 0xE0) == 0xC0) {
-        ch = ((uint32_t)(p[0] & 0x1F) << 6) |
-             (uint32_t)(p[1] & 0x3F);
+        ch = ((uint32_t)(p[0] & 0x1F) << 6) | (uint32_t)(p[1] & 0x3F);
         *pp += 2;
     }
     else if ((p[0] & 0xF0) == 0xE0) {
-        ch = ((uint32_t)(p[0] & 0x0F) << 12) |
-             ((uint32_t)(p[1] & 0x3F) << 6) |
+        ch = ((uint32_t)(p[0] & 0x0F) << 12) | ((uint32_t)(p[1] & 0x3F) << 6) |
              (uint32_t)(p[2] & 0x3F);
         *pp += 3;
     }
     else if ((p[0] & 0xF8) == 0xF0) {
-        ch = ((uint32_t)(p[0] & 0x07) << 18) |
-             ((uint32_t)(p[1] & 0x3F) << 12) |
-             ((uint32_t)(p[2] & 0x3F) << 6) |
-             (uint32_t)(p[3] & 0x3F);
+        ch = ((uint32_t)(p[0] & 0x07) << 18) | ((uint32_t)(p[1] & 0x3F) << 12) |
+             ((uint32_t)(p[2] & 0x3F) << 6) | (uint32_t)(p[3] & 0x3F);
         *pp += 4;
     }
     else {
