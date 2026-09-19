@@ -88,6 +88,9 @@ static void bindPluginDecl(AstVisitor *visitor, AstNode *node)
 void bindDeclaration(AstVisitor *visitor, AstNode *node)
 {
     BindContext *ctx = getAstVisitorContext(visitor);
+    bool isBuiltinsModule =
+        ctx->env->first && hasFlag(ctx->env->first->node, BuiltinsModule);
+    checkBuiltinAttribute(ctx->L, node, isBuiltinsModule);
     defineDeclaration(ctx, getDeclarationName(node), node);
     switch (node->tag) {
     case astStructDecl:
@@ -103,6 +106,9 @@ void bindDeclaration(AstVisitor *visitor, AstNode *node)
 void bindVariableDecl(AstVisitor *visitor, AstNode *node)
 {
     BindContext *ctx = getAstVisitorContext(visitor);
+    bool isBuiltinsModule =
+        ctx->env->first && hasFlag(ctx->env->first->node, BuiltinsModule);
+    checkBuiltinAttribute(ctx->L, node, isBuiltinsModule);
     overrideBuiltinDecl(ctx, node);
 }
 

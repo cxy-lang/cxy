@@ -220,27 +220,8 @@ void checkCastExpr(AstVisitor *visitor, AstNode *node)
         csAssert0(node->castExpr.idx != UINT32_MAX);
     }
 
+    node->type = target;
     castLiteral(ctx, node);
-    if (isReferenceType(expr))
-        expr = stripReference(expr);
-    if (!hasFlag(target, Optional) || hasFlag(expr, Optional))
-        return;
-
-    target = getOptionalTargetType(target);
-    if (nodeIs(node->castExpr.expr, NullLit)) {
-        if (!transformOptionalNone(visitor, node, target)) {
-            node->type = ERROR_TYPE(ctx);
-            return;
-        }
-    }
-    else {
-        node->castExpr.expr->type = target;
-        if (!transformOptionalSome(visitor, node, node->castExpr.expr)) //
-        {
-            node->type = ERROR_TYPE(ctx);
-            return;
-        }
-    }
 }
 
 void checkTypedExpr(AstVisitor *visitor, AstNode *node)
@@ -274,19 +255,5 @@ void checkTypedExpr(AstVisitor *visitor, AstNode *node)
         node->castExpr.idx = findUnionTypeIndex(
             expr, typeIs(type, Pointer) ? type->pointer.pointed : type);
         csAssert0(node->castExpr.idx != UINT32_MAX);
-    }
-
-    if (!hasFlag(type, Optional) || hasFlag(expr, Optional))
-        return;
-
-    type = getOptionalTargetType(type);
-    if (nodeIs(node->typedExpr.expr, NullLit)) {
-        if (!transformOptionalNone(visitor, node, type))
-            node->type = ERROR_TYPE(ctx);
-    }
-    else {
-        node->typedExpr.expr->type = type;
-        if (!transformOptionalSome(visitor, node, node->typedExpr.expr))
-            node->type = ERROR_TYPE(ctx);
     }
 }

@@ -13,14 +13,14 @@ extern func __string_op__initCoverI_sE(s: string): __string
 func main() {
   var trimmed = op__initCoverI_sE("hello#")
   if (!__string_empty(ptrof trimmed) && ({
-    var _a141 = __string_size(ptrof trimmed) - 1
-    __string_op__idx(ptrof trimmed, _a141) == '#'
+    var _a139 = __string_size(ptrof trimmed) - 1
+    __string_op__idx(ptrof trimmed, _a139) == '#'
   })) { }
   
   var end = __string_size(ptrof trimmed)
   while (end > 0 && ({
-    var _a142 = <u32>(end - 1)
-    __string_op__idx(ptrof trimmed, <u64>_a142) == '#'
+    var _a140 = <u32>(end - 1)
+    __string_op__idx(ptrof trimmed, <u64>_a140) == '#'
   }))
   {
     end--

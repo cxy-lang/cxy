@@ -11,14 +11,13 @@
 
 static cstring getAliasName(const AstNode *node)
 {
-    if (!hasFlag(node, Extern))
-        return NULL;
     const AstNode *alias = findAttribute(node, S_alias);
-
     if (alias == NULL)
         return NULL;
 
     const AstNode *name = findAttributeArgument(alias, S_name);
+    if (name == NULL)
+        name = getAttributeArgument(NULL, NULL, alias, 0);
 
     return (nodeIs(name, StringLit)) ? name->stringLiteral.value : NULL;
 }
@@ -37,7 +36,7 @@ void defineDeclaration(BindContext *ctx, cstring name, AstNode *node)
     defineDeclaration_(ctx->env, ctx->L, name, node);
     cstring alias = getAliasName(node);
     if (alias && alias != name) {
-        defineDeclaration(ctx, alias, node);
+        defineDeclaration_(ctx->env, ctx->L, alias, node);
     }
 }
 

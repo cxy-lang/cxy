@@ -94,11 +94,6 @@ AstNode *transformToUnionValue(TypingContext *ctx,
                                const Type *lhs,
                                const Type *rhs);
 
-bool transformOptionalSome(AstVisitor *visitor, AstNode *node, AstNode *value);
-bool transformOptionalNone(AstVisitor *visitor,
-                           AstNode *node,
-                           const Type *type);
-
 bool isExplicitConstructableFrom(Log *L, const Type *type, const Type *from);
 bool evalExplicitConstruction(AstVisitor *visitor,
                               const Type *type,
@@ -113,8 +108,6 @@ bool checkMemberFunctions(AstVisitor *visitor,
 bool exceptionVerifyRaiseExpr(TypingContext *ctx,
                               const AstNode *ret,
                               AstNode *node);
-
-AstNode *makeCastResultTo(TypingContext *ctx, AstNode *var, bool except);
 
 void implementClassOrStructBuiltins(AstVisitor *visitor, AstNode *node);
 AstNode *implementDefaultInitializer(AstVisitor *visitor,
@@ -143,17 +136,7 @@ AstNode *makeCopyReferenceCall(TypingContext *ctx,
                                AstNode *member,
                                const FileLoc *loc);
 
-AstNode *makeSliceConstructor(TypingContext *ctx,
-                              const Type *slice,
-                              AstNode *expr);
-
-AstNode *transformArrayExprToSliceCall(TypingContext *ctx,
-                                       const Type *slice,
-                                       AstNode *expr);
-void transformArrayExprToSlice(AstVisitor *visitor,
-                               const Type *slice,
-                               AstNode *expr);
-
+void checkArrayType(AstVisitor *visitor, AstNode *node);
 AstNode *createAllocateClass(TypingContext *ctx,
                              const Type *type,
                              const FileLoc *loc);

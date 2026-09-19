@@ -152,6 +152,17 @@ static void generateUntaggedUnionTypeDef(CodegenContext *ctx,
     format(state, ";\n", NULL);
 }
 
+static void generateOptionalTypeDef(CodegenContext *ctx,
+                                    FormatState *state,
+                                    const Type *type)
+{
+    format(state, "typedef struct ", NULL);
+    generateCustomTypeName(ctx, state, type, "Optional");
+    format(state, " ", NULL);
+    generateCustomTypeName(ctx, state, type, "Optional");
+    format(state, ";\n", NULL);
+}
+
 static void generateResultTypeDef(CodegenContext *ctx,
                                   FormatState *state,
                                   const Type *type)
@@ -227,6 +238,9 @@ static void generateTypeDef(CodegenContext *ctx,
         break;
     case typResult:
         generateResultTypeDef(ctx, state, type);
+        break;
+    case typOptional:
+        generateOptionalTypeDef(ctx, state, type);
         break;
     default:
         break;
@@ -381,6 +395,21 @@ static void generateUnionType(CodegenContext *ctx, const Type *type)
     format(typeState(ctx), "{<}\n};\n\n", NULL);
 }
 
+static void generateOptionalType(CodegenContext *ctx, const Type *type)
+{
+    if (!type->optional.target->generated)
+        generateType(ctx, type->optional.target);
+
+    format(typeState(ctx), "struct ", NULL);
+    generateStructAttributes(ctx, type);
+    generateCustomTypeName(ctx, typeState(ctx), type, "Optional");
+    format(typeState(ctx), " {{{>}\n", NULL);
+    format(typeState(ctx), "bool ok;\n", NULL);
+    generateTypeName(ctx, typeState(ctx), type->optional.target);
+    format(typeState(ctx), " val;\n", NULL);
+    format(typeState(ctx), "{<}\n};\n\n", NULL);
+}
+
 static void generateResultType(CodegenContext *ctx, const Type *type)
 {
     if (!type->result.target->generated)
@@ -484,6 +513,9 @@ static void generateType(CodegenContext *ctx, const Type *type)
         break;
     case typResult:
         generateResultType(ctx, type);
+        break;
+    case typOptional:
+        generateOptionalType(ctx, type);
         break;
     case typUntaggedUnion:
         generateUntaggedUnionType(ctx, type);
@@ -619,6 +651,10 @@ static void generateTypeName(CodegenContext *ctx,
         format(state, "struct ", NULL);
         generateCustomTypeName(ctx, state, type, "Result");
         break;
+    case typOptional:
+        format(state, "struct ", NULL);
+        generateCustomTypeName(ctx, state, type, "Optional");
+        break;
     case typEnum:
         generateCustomTypeName(ctx, state, type, "Enum");
         break;
@@ -653,7 +689,7 @@ static void generateTypeName(CodegenContext *ctx,
 
 static cstring getModuleNamespace(const AstNode *node)
 {
-    if (!isBuiltinsInitialized() || hasFlag(node, BuiltinsModule))
+    if (hasFlag(node, BuiltinsModule))
         return "builtins";
     return node->program.module ? node->program.module->moduleDecl.name : "";
 }
@@ -2056,6 +2092,8 @@ static void visitExternDecl(ConstAstVisitor *visitor, const AstNode *node)
     if (decl->codegen)
         return;
     if (nodeIs(decl, FuncDecl)) {
+        if (findAttribute(decl, S_hint))
+            return;
         if (hasFlag(decl, Extern))
             decl->codegen = (void *)true;
 

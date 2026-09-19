@@ -25,7 +25,7 @@ static inline bool isIteratorFunction(const Type *type)
         return false;
 
     const Type *ret = iter->func.retType;
-    return typeIs(ret, Struct) && hasFlag(ret, Optional);
+    return typeIs(ret, Optional);
 }
 
 static bool validateMainFunction(TypingContext *ctx,
@@ -45,7 +45,7 @@ static bool validateMainFunction(TypingContext *ctx,
     }
 
     const Type *param = type->func.params[0];
-    if (!hasFlag(param, Slice)) {
+    if (!isSliceType(param)) {
         logError(ctx->L,
                  &node->loc,
                  "main function parameter must be a slice of strings",
@@ -53,10 +53,8 @@ static bool validateMainFunction(TypingContext *ctx,
         node->type = ERROR_TYPE(ctx);
         return false;
     }
-    param = param->tStruct.members->members[0].type;
-    csAssert0(typeIs(param, Pointer));
-    param = param->pointer.pointed;
-    if (!typeIs(param, String)) {
+    const Type *elem = getSliceTargetType(param);
+    if (!typeIs(elem, String)) {
         logError(ctx->L,
                  &node->loc,
                  "main function parameter must be a slice of strings",

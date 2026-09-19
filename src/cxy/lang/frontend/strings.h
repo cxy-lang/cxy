@@ -91,6 +91,10 @@ extern "C" {
     f(linkage)                  \
     f(section)                  \
     f(packed)                   \
+    f(strview)                  \
+    f(builtin)                  \
+    f(append)                   \
+    f(OutputStream)             \
     f(Exception)                \
     f(Void)                     \
     f(what)                     \

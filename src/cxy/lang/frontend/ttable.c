@@ -800,6 +800,7 @@ const Type *makeArrayType(TypeTable *table,
 {
     Type type = make(Type,
                      .tag = typArray,
+                     .flags = (size == UINT64_MAX ? flgSlice : flgNone),
                      .array = {.elementType = elementType, .len = size});
 
     return getOrInsertType(table, &type).s;

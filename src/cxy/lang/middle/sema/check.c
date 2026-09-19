@@ -251,21 +251,6 @@ static void checkReturnStmt(AstVisitor *visitor, AstNode *node)
             node->returnStmt.expr = makeUnionValueExpr(
                 ctx->pool, &expr->loc, expr->flags, expr, idx, NULL, retType);
         }
-
-        if (!hasFlag(retType, Optional) || hasFlag(expr_, Optional))
-            return;
-
-        const Type *target = getOptionalTargetType(retType);
-        if (nodeIs(expr, NullLit)) {
-            if (!transformOptionalNone(visitor, expr, target))
-                node->type = ERROR_TYPE(ctx);
-        }
-        else {
-            expr->type = target;
-            if (!transformOptionalSome(
-                    visitor, expr, copyAstNode(ctx->pool, expr)))
-                node->type = ERROR_TYPE(ctx);
-        }
     }
     else {
         node->type = expr_;

@@ -170,8 +170,12 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
     }
 
     if (isSliceType(to) && isArrayType(from)) {
-        return unwrapType(getSliceTargetType(to), NULL) ==
-               unwrapType(from->array.elementType, NULL);
+        const Type *toElem = getSliceTargetType(to);
+        const Type *fromElem = from->array.elementType;
+        return unwrapType(toElem, NULL) == unwrapType(fromElem, NULL) ||
+               isTypeAssignableFrom(toElem, fromElem) ||
+               (isIntegerType(toElem) && isIntegerType(fromElem)) ||
+               (isFloatType(toElem) && isFloatType(fromElem));
     }
     u64 flags = flgNone;
     const Type *_to = unwrapType(to, &flags), *_from = unwrapType(from, NULL);
@@ -269,12 +273,19 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
         return typeIs(from, Pointer) && typeIs(from->pointer.pointed, Null);
 
     case typArray:
-        if (!typeIs(from, Array) ||
-            !isTypeAssignableFrom(to->array.elementType,
+        if (!typeIs(from, Array))
+            return false;
+        if (to->array.len == UINT64_MAX) {
+            const Type *toElem = to->array.elementType;
+            const Type *fromElem = from->array.elementType;
+            return unwrapType(toElem, NULL) == unwrapType(fromElem, NULL) ||
+                   isTypeAssignableFrom(toElem, fromElem) ||
+                   (isIntegerType(toElem) && isIntegerType(fromElem)) ||
+                   (isFloatType(toElem) && isFloatType(fromElem));
+        }
+        if (!isTypeAssignableFrom(to->array.elementType,
                                   from->array.elementType))
             return false;
-        if (to->array.len == UINT64_MAX)
-            return true;
         return to->array.len == from->array.len;
 
     case typOptional:
@@ -676,7 +687,10 @@ bool isArrayType(const Type *type)
 
 bool isSliceType(const Type *type)
 {
-    return typeIs(type, Struct) && hasFlag(type, Slice);
+    if (type == NULL)
+        return false;
+    type = resolveAndUnThisType(type);
+    return typeIs(type, Array) && hasFlag(type, Slice);
 }
 
 bool isPointerType(const Type *type)
@@ -1318,11 +1332,12 @@ const Type *getOptionalTargetType(const Type *type)
 
 const Type *getSliceTargetType(const Type *type)
 {
-    if (!hasFlag(type, Slice))
+    if (type == NULL)
         return NULL;
-    const Type *target = type->tStruct.members->members[0].type;
-    csAssert0(typeIs(target, Pointer));
-    return target->pointer.pointed;
+    type = resolveAndUnThisType(type);
+    if (!isSliceType(type))
+        return NULL;
+    return type->array.elementType;
 }
 
 const Type *getResultTargetType(const Type *type)

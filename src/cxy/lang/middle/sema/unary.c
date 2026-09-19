@@ -137,7 +137,10 @@ static const Type *checkPrefixExpr(AstVisitor *visitor,
     case opNot:
         operand =
             resolveUnThisUnwrapType(stripPointerOrReferenceOnce(operand, NULL));
-        if (isClassOrStructType(operand)) {
+        if (typeIs(operand, Optional)) {
+            operand = getPrimitiveType(ctx->types, prtBool);
+        }
+        else if (isClassOrStructType(operand)) {
             if (transformToTruthyOperator(visitor, node->unaryExpr.operand)) {
                 operand = node->unaryExpr.operand->type;
             }
@@ -160,7 +163,10 @@ static const Type *checkPrefixExpr(AstVisitor *visitor,
         }
         break;
     case opDeref:
-        if (isClassOrStructType(stripReference(operand))) {
+        if (typeIs(operand, Optional)) {
+            operand = operand->optional.target;
+        }
+        else if (isClassOrStructType(stripReference(operand))) {
             FileLoc loc = node->unaryExpr.operand->loc;
             if (transformToDerefOperator(visitor, node)) {
                 operand = node->type;

@@ -1,5 +1,3 @@
 
-
 func main() {
-    wss.upgrade(resp, Context())
 }

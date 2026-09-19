@@ -387,24 +387,6 @@ void checkStructExpr(AstVisitor *visitor, AstNode *node)
             value->type = member->type;
         }
 
-        if (hasFlag(member->type, Optional) && !hasFlag(type, Optional)) {
-            const Type *optionalTarget = getOptionalTargetType(member->type);
-            if (nodeIs(value, NullLit)) {
-                if (!transformOptionalNone(visitor, value, optionalTarget)) {
-                    node->type = ERROR_TYPE(ctx);
-                    continue;
-                }
-            }
-            else {
-                value->type = optionalTarget;
-                if (!transformOptionalSome(
-                        visitor, value, copyAstNode(ctx->pool, value))) //
-                {
-                    node->type = ERROR_TYPE(ctx);
-                }
-            }
-        }
-
         field->type = member->type;
         initialized[member->decl->structField.index] = true;
     }

@@ -203,7 +203,7 @@ void checkOptionalType(AstVisitor *visitor, AstNode *node)
         return;
     }
 
-    transformOptionalType(visitor, node, target);
+    node->type = makeOptionalType(ctx->types, target, flgNone);
 }
 
 void checkPointerType(AstVisitor *visitor, AstNode *node)

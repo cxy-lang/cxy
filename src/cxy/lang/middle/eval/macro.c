@@ -317,16 +317,16 @@ static AstNode *makeExNode(AstVisitor *visitor,
             isVoidResultType(type) ? lhs : shallowCloneAstNode(ctx->pool, lhs),
             NULL,
             type);
-        AstNode *ex = makeCastResultTo(typer, typer->catcher.result, true);
+        const Type *exType = findBuiltinType(S_Exception);
         typer->catcher.ex =
             makeVarDecl(ctx->pool,
                         builtinLoc(),
                         flgNone,
                         makeAnonymousVariable(ctx->strings, "_ex"),
                         NULL,
-                        ex,
                         NULL,
-                        ex->type);
+                        NULL,
+                        exType);
     }
 
     if (typer->catcher.ex == NULL) {

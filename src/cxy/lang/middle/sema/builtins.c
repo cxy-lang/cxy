@@ -580,38 +580,6 @@ static void implementStringFunction(AstVisitor *visitor,
         makeExprStmt(ctx->pool, &str->loc, flgNone, call, NULL, NULL);
 }
 
-AstNode *makeSliceConstructor(TypingContext *ctx,
-                              const Type *slice,
-                              AstNode *expr)
-{
-    return makeCallExpr(
-        ctx->pool,
-        &expr->loc,
-        makeResolvedPath(ctx->pool,
-                         &expr->loc,
-                         slice->name,
-                         flgNone,
-                         slice->tStruct.decl,
-                         NULL,
-                         slice),
-        makeResolvedPath(
-            ctx->pool,
-            &expr->loc,
-            expr->varDecl.name,
-            expr->flags,
-            expr,
-            makeIntegerLiteral(ctx->pool,
-                               &expr->loc,
-                               (i64)expr->type->array.len,
-                               NULL,
-                               getPrimitiveType(ctx->types, prtU64)),
-            makePointerType(
-                ctx->types, expr->type->array.elementType, flgNone)),
-        flgNone,
-        NULL,
-        NULL);
-}
-
 AstNode *createClassOrStructBuiltins(MemPool *pool, AstNode *node)
 {
     FileLoc loc = node->loc;

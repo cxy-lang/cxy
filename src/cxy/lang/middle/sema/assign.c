@@ -153,19 +153,4 @@ void checkAssignExpr(AstVisitor *visitor, AstNode *node)
     }
 
     node->assignExpr.rhs = transformToUnionValue(ctx, right, lhs, rhs);
-
-    if (!hasFlag(lhs, Optional) || hasFlag(rhs, Optional))
-        return;
-
-    const Type *target = getOptionalTargetType(lhs);
-    if (nodeIs(right, NullLit)) {
-        if (!transformOptionalNone(visitor, right, target))
-            node->type = ERROR_TYPE(ctx);
-    }
-    else {
-        right->type = target;
-        if (!transformOptionalSome(
-                visitor, right, copyAstNode(ctx->pool, right)))
-            node->type = ERROR_TYPE(ctx);
-    }
 }

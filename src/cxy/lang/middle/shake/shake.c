@@ -1167,22 +1167,7 @@ static void shakeBlockStmt(AstVisitor *visitor, AstNode *node)
 
 static void shakeArrayType(AstVisitor *visitor, AstNode *node)
 {
-    ShakeAstContext *ctx = getAstVisitorContext(visitor);
-    if (node->arrayType.dim == NULL) {
-        AstNode *slice = findBuiltinDecl(S_Slice);
-        csAssert0(slice);
-        node->tag = astPath;
-        node->type = NULL;
-        node->path.elements =
-            makeResolvedPathElementWithArgs(ctx->pool,
-                                            &node->loc,
-                                            S_Slice,
-                                            flgNone,
-                                            slice,
-                                            NULL,
-                                            node->arrayType.elementType,
-                                            NULL);
-    }
+    astVisitFallbackVisitAll(visitor, node);
 }
 
 static void shakeStringExpr(AstVisitor *visitor, AstNode *node)

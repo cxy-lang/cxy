@@ -75,6 +75,12 @@ llvm::Type *LLVMContext::convertToLLVMType(const Type *type)
         return createStructType(type);
     case typInterface:
         return createInterfaceType(type);
+    case typOptional: {
+        std::vector<llvm::Type *> members = {
+            llvm::Type::getInt1Ty(context),
+            getLLVMType(type->optional.target)};
+        return llvm::StructType::create(context, members, makeTypeName(type));
+    }
     case typWrapped: {
         auto unwrapped = unwrapType(type, NULL);
         return getLLVMType(unwrapped);

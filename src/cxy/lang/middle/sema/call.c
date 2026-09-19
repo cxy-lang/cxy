@@ -310,28 +310,6 @@ void checkCallExpr(AstVisitor *visitor, AstNode *node)
             arg = newArg;
         }
         prev = arg;
-
-        if (isSliceType(type) && isArrayType(expr)) {
-            transformArrayExprToSlice(visitor, type, arg);
-        }
-
-        if (!hasFlag(type, Optional) || hasFlag(expr, Optional))
-            continue;
-
-        type = getOptionalTargetType(type);
-        if (nodeIs(arg, NullLit)) {
-            if (!transformOptionalNone(visitor, arg, type))
-                node->type = ERROR_TYPE(ctx);
-        }
-        else {
-            arg->type = type;
-            if (!transformOptionalSome(
-                    visitor, arg, copyAstNode(ctx->pool, arg)))
-                node->type = ERROR_TYPE(ctx);
-        }
-
-        if (typeIs(node->type, Error))
-            return;
     }
 
     if (!typeIs(node->type, Error) && !explicitCatch) {

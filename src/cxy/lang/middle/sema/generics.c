@@ -458,13 +458,6 @@ const Type *resolveGenericDecl(AstVisitor *visitor,
         }
     }
 
-    if (nodeIs(substitute, StructDecl) && hasFlag(generic, Builtin)) {
-        if (getDeclarationName(generic) == S_Optional)
-            substitute->flags |= flgOptional;
-        else if (getDeclarationName(generic) == S_Slice)
-            substitute->flags |= flgSlice;
-    }
-
     if (nodeIs(substitute, FuncDecl)) {
         if (hasFlag(generic, Variadic)) {
             addVariadicParamsToSubstitute(

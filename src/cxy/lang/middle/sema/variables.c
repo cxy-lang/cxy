@@ -30,22 +30,6 @@ void checkVarDecl(AstVisitor *visitor, AstNode *node)
         return;
     }
 
-    if (isSliceType(type_) && nodeIs(init, ArrayExpr)) {
-        AstNode *newVar = transformArrayExprToSliceCall(ctx, type_, init);
-        init_ = checkType(visitor, newVar);
-        if (typeIs(init_, Error)) {
-            node->type = ERROR_TYPE(ctx);
-            return;
-        }
-
-        astModifierAdd(&ctx->blockModifier, newVar);
-        node->varDecl.init = makeSliceConstructor(ctx, type_, newVar);
-        type_ = checkType(visitor, node);
-        if (typeIs(type_, Error))
-            node->type = ERROR_TYPE(ctx);
-        return;
-    }
-
     if (typeIs(type_, Error) || typeIs(init_, Error)) {
         node->type = ERROR_TYPE(ctx);
         return;
@@ -94,23 +78,5 @@ void checkVarDecl(AstVisitor *visitor, AstNode *node)
 
     if (hasFlag(node, Const) && !hasFlag(node->type, Const)) {
         node->type = makeWrappedType(ctx->types, node->type, flgConst);
-    }
-
-    if (!hasFlag(type_, Optional) || hasFlag(init_, Optional))
-        return;
-
-    const Type *target = getOptionalTargetType(type_);
-    if (nodeIs(init, NullLit)) {
-        if (!transformOptionalNone(visitor, init, target)) {
-            node->type = ERROR_TYPE(ctx);
-        }
-    }
-    else {
-        init->type = target;
-        if (!transformOptionalSome(
-                visitor, init, copyAstNode(ctx->pool, init))) //
-        {
-            node->type = ERROR_TYPE(ctx);
-        }
     }
 }
