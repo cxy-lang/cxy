@@ -172,10 +172,7 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
     if (isSliceType(to) && isArrayType(from)) {
         const Type *toElem = getSliceTargetType(to);
         const Type *fromElem = from->array.elementType;
-        return unwrapType(toElem, NULL) == unwrapType(fromElem, NULL) ||
-               isTypeAssignableFrom(toElem, fromElem) ||
-               (isIntegerType(toElem) && isIntegerType(fromElem)) ||
-               (isFloatType(toElem) && isFloatType(fromElem));
+        return unwrapType(toElem, NULL) == unwrapType(fromElem, NULL);
     }
     u64 flags = flgNone;
     const Type *_to = unwrapType(to, &flags), *_from = unwrapType(from, NULL);
@@ -275,16 +272,12 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
     case typArray:
         if (!typeIs(from, Array))
             return false;
-        if (to->array.len == UINT64_MAX) {
+        if (to->array.len == UINT64_MAX || hasFlag(to, Slice)) {
             const Type *toElem = to->array.elementType;
             const Type *fromElem = from->array.elementType;
-            return unwrapType(toElem, NULL) == unwrapType(fromElem, NULL) ||
-                   isTypeAssignableFrom(toElem, fromElem) ||
-                   (isIntegerType(toElem) && isIntegerType(fromElem)) ||
-                   (isFloatType(toElem) && isFloatType(fromElem));
+            return unwrapType(toElem, NULL) == unwrapType(fromElem, NULL);
         }
-        if (!isTypeAssignableFrom(to->array.elementType,
-                                  from->array.elementType))
+        if (unwrapType(to->array.elementType, NULL) != unwrapType(from->array.elementType, NULL))
             return false;
         return to->array.len == from->array.len;
 
@@ -689,8 +682,8 @@ bool isSliceType(const Type *type)
 {
     if (type == NULL)
         return false;
-    type = resolveAndUnThisType(type);
-    return typeIs(type, Array) && hasFlag(type, Slice);
+    type = resolveUnThisUnwrapType(type);
+    return typeIs(type, Array) && (hasFlag(type, Slice) || type->array.len == UINT64_MAX);
 }
 
 bool isPointerType(const Type *type)
@@ -1341,7 +1334,7 @@ const Type *getSliceTargetType(const Type *type)
 {
     if (type == NULL)
         return NULL;
-    type = resolveAndUnThisType(type);
+    type = resolveUnThisUnwrapType(type);
     if (!isSliceType(type))
         return NULL;
     return type->array.elementType;

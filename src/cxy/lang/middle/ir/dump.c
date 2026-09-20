@@ -43,7 +43,7 @@ void dumpIrType(FormatState *state, const IrType *type)
         printKeyword(state, type->name ?: "unknown");
         break;
     case irTypePointer:
-        format(state, "*", NULL);
+        format(state, "^", NULL);
         dumpIrType(state, type->pointer.pointee);
         break;
     case irTypeArray:
@@ -94,8 +94,9 @@ static void dumpBoolConst(ConstIrVisitor *visitor, const IrNode *node)
 static void dumpCharConst(ConstIrVisitor *visitor, const IrNode *node)
 {
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
-    format(ctx->state, "{$}'{c}'{$}",
-           (FormatArg[]){{.style = literalStyle}, {.c = (char)node->charConst.value}, {.style = resetStyle}});
+    format(ctx->state, "{$}'", (FormatArg[]){{.style = literalStyle}});
+    printEscapedChar(ctx->state, (char)node->charConst.value);
+    format(ctx->state, "'{$}", (FormatArg[]){{.style = resetStyle}});
 }
 
 static void dumpIntConst(ConstIrVisitor *visitor, const IrNode *node)
@@ -119,8 +120,12 @@ static void dumpFloatConst(ConstIrVisitor *visitor, const IrNode *node)
 static void dumpStringConst(ConstIrVisitor *visitor, const IrNode *node)
 {
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
-    format(ctx->state, "{$}\"{s}\"{$}",
-           (FormatArg[]){{.style = stringStyle}, {.s = node->stringConst.value ?: ""}, {.style = resetStyle}});
+    format(ctx->state, "{$}\"", (FormatArg[]){{.style = stringStyle}});
+    cstring p = node->stringConst.value ?: "";
+    while (*p) {
+        printEscapedChar(ctx->state, *p++);
+    }
+    format(ctx->state, "\"{$}", (FormatArg[]){{.style = resetStyle}});
 }
 
 static void dumpVarRef(ConstIrVisitor *visitor, const IrNode *node)
@@ -220,7 +225,7 @@ static void dumpVarDecl(ConstIrVisitor *visitor, const IrNode *node)
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
     format(ctx->state, "  ", NULL);
     printKeyword(ctx->state, "var");
-    format(ctx->state, " {s}: ", (FormatArg[]){{.s = node->varDecl.name ?: "__v"}});
+    format(ctx->state, " {s}: ", (FormatArg[]){{.s = node->varDecl.display ?: (node->varDecl.name ?: "__v")}});
     dumpIrType(ctx->state, node->type);
     format(ctx->state, "\n", NULL);
 }

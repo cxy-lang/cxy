@@ -11,6 +11,7 @@
 #include "lang/frontend/flag.h"
 #include "lang/frontend/strings.h"
 #include "lang/frontend/ttable.h"
+#include "lang/frontend/types.h"
 #include "lang/frontend/visitor.h"
 #include "lang/middle/builtins.h"
 
@@ -123,188 +124,14 @@ static AstNode *virtualDispatch(SimplifyContext *ctx,
                           vTableFunc->type);
 }
 
-static void simplifyForRangeStmt(AstVisitor *visitor, AstNode *node)
-{
-    SimplifyContext *ctx = getAstVisitorContext(visitor);
-    AstNode *range = node->forStmt.range, *var = node->forStmt.var,
-            *body = node->forStmt.body;
-
-    // var x = range.start
-    var->varDecl.init = range->rangeExpr.start;
-    var->parentScope = body;
-    // while (x < range.end) { ...; x += range.step; }
-    var->next = makeWhileStmt(
-        ctx->pool,
-        &node->loc,
-        node->flags,
-        // x < range.end
-        makeBinaryExpr(ctx->pool,
-                       &range->loc,
-                       flgNone,
-                       // x
-                       makeResolvedIdentifier(ctx->pool,
-                                              &range->loc,
-                                              var->varDecl.names->ident.value,
-                                              0,
-                                              var,
-                                              NULL,
-                                              var->type),
-                       opNe,
-                       // range.end
-                       range->rangeExpr.end,
-                       NULL,
-                       getPrimitiveType(ctx->types, prtBool)),
-        // ...
-        body,
-        NULL,
-        // x += range.step
-        makeAssignExpr(ctx->pool,
-                       &range->loc,
-                       flgNone,
-                       // x
-                       makeResolvedIdentifier(ctx->pool,
-                                              &range->loc,
-                                              var->varDecl.name,
-                                              0,
-                                              var,
-                                              NULL,
-                                              var->type),
-                       opAdd,
-                       // range.step
-                       range->rangeExpr.step
-                           ?: makeIntegerLiteral(
-                                  ctx->pool, &range->loc, 1, NULL, range->type),
-                       NULL,
-                       range->type));
-    body->parentScope = var->next;
-    node->tag = astBlockStmt;
-    node->flags = flgScoping;
-    node->blockStmt.stmts = var;
-    node->blockStmt.last = var->next;
-    astVisit(visitor, node);
-}
-
-static void simplifyForArrayStmt(AstVisitor *visitor, AstNode *node)
-{
-    SimplifyContext *ctx = getAstVisitorContext(visitor);
-    AstNode *range = node->forStmt.range, *var = node->forStmt.var,
-            *body = node->forStmt.body;
-    const Type *rangeType = unwrapType(range->type, NULL);
-    const Type *elem = typeIs(rangeType, String)
-                           ? getPrimitiveType(ctx->types, prtCChar)
-                           : rangeType->array.elementType;
-
-    AstNode *index =
-        var->next
-            ?: makeVarDecl(
-                   ctx->pool,
-                   &var->loc,
-                   flgConst,
-                   makeAnonymousVariable(ctx->strings, "i"),
-                   NULL,
-                   makeIntegerLiteral(ctx->pool,
-                                      &var->loc,
-                                      0,
-                                      NULL,
-                                      getPrimitiveType(ctx->types, prtU64)),
-                   NULL,
-                   getPrimitiveType(ctx->types, prtU64));
-    if (var->next) {
-        var->next->varDecl.init =
-            makeIntegerLiteral(ctx->pool,
-                               &var->loc,
-                               0,
-                               NULL,
-                               getPrimitiveType(ctx->types, prtU64));
-        var->next = NULL;
-    }
-    index->next = NULL;
-    astModifierAdd(&ctx->block, index);
-
-    astVisit(visitor, range);
-    range = makeVarDecl(ctx->pool,
-                        &range->loc,
-                        range->flags & ~flgTopLevelDecl,
-                        makeAnonymousVariable(ctx->strings, "_for"),
-                        NULL,
-                        range,
-                        NULL,
-                        typeIs(rangeType, String)
-                            ? range->type
-                            : makePointerType(ctx->types, elem, flgNone));
-    astModifierAdd(&ctx->block, range);
-
-    AstNode *condition = makeBinaryExpr(
-        ctx->pool,
-        &range->loc,
-        flgNone,
-        makeResolvedIdentifier(ctx->pool,
-                               &range->loc,
-                               index->varDecl.name,
-                               0,
-                               index,
-                               NULL,
-                               index->type),
-        opLt,
-        makeUnsignedIntegerLiteral(ctx->pool,
-                                   &range->loc,
-                                   rangeType->array.len,
-                                   NULL,
-                                   getPrimitiveType(ctx->types, prtU64)),
-        NULL,
-        getPrimitiveType(ctx->types, prtBool));
-
-    var->tag = astAliasExpr;
-    var->aliasExpr.expr =
-        makeIndexExpr(ctx->pool,
-                      &range->loc,
-                      elem->flags,
-                      makeResolvedIdentifier(ctx->pool,
-                                             &range->loc,
-                                             range->varDecl.name,
-                                             0,
-                                             range,
-                                             NULL,
-                                             range->type),
-                      makeResolvedIdentifier(ctx->pool,
-                                             &range->loc,
-                                             index->varDecl.name,
-                                             flgNone,
-                                             index,
-                                             NULL,
-                                             index->type),
-                      NULL,
-                      var->type);
-
-    AstNode *advance = makeAssignExpr(
-        ctx->pool,
-        &range->loc,
-        flgNone,
-        makeResolvedIdentifier(ctx->pool,
-                               &range->loc,
-                               index->varDecl.name,
-                               0,
-                               index,
-                               NULL,
-                               index->type),
-        opAdd,
-        makeIntegerLiteral(ctx->pool, &range->loc, 1, NULL, index->type),
-        NULL,
-        index->type);
-
-    node->tag = astWhileStmt;
-    clearAstBody(node);
-    node->whileStmt.body = body;
-    node->whileStmt.cond = condition;
-    node->whileStmt.update = advance;
-    astVisit(visitor, node);
-}
-
 static void simplifyCastExpression(SimplifyContext *ctx,
                                    AstNode *node,
                                    const Type *type)
 {
     const Type *from = unwrapType(node->type, NULL);
+
+    if (isSliceType(type) || isArrayType(type) || isSliceType(type) || isArrayType(from))
+        return;
 
 #if defined(LLVM_BACKEND)
     if ((type == from) || typeIs(type, Func))
@@ -1233,11 +1060,7 @@ static void visitStructDecl(AstVisitor *visitor, AstNode *node)
 
 static void visitForStmt(AstVisitor *visitor, AstNode *node)
 {
-    AstNode *range = node->forStmt.range;
-    if (nodeIs(range, RangeExpr))
-        simplifyForRangeStmt(visitor, node);
-    else
-        simplifyForArrayStmt(visitor, node);
+    astVisitFallbackVisitAll(visitor, node);
 }
 
 static void visitBlockStmt(AstVisitor *visitor, AstNode *node)

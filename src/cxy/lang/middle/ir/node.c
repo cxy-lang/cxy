@@ -75,11 +75,13 @@ IrNode *makeIrVarDecl(MemPool *pool,
                       const FileLoc *loc,
                       u64 flags,
                       cstring name,
+                      cstring display,
                       const IrType *type,
                       u32 scopeId)
 {
     IrNode *node = makeIrNode(pool, loc, flags, irVarDecl, type);
     node->varDecl.name = name;
+    node->varDecl.display = display ?: name;
     node->varDecl.scopeId = scopeId;
     return node;
 }
@@ -244,6 +246,29 @@ IrNode *makeIrDeref(MemPool *pool, const FileLoc *loc, IrNode *target, const IrT
 {
     IrNode *node = makeIrNode(pool, loc, flgNone, irDeref, valType);
     node->deref.target = target;
+    return node;
+}
+
+IrNode *makeIrSizeof(MemPool *pool, const FileLoc *loc, const IrType *targetType)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irSizeof, NULL);
+    node->sizeofVal.targetType = targetType;
+    return node;
+}
+
+IrNode *makeIrAlloca(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irAlloca, NULL);
+    node->alloca.elemType = elemType;
+    node->alloca.size = size;
+    return node;
+}
+
+IrNode *makeIrMalloc(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irMalloc, NULL);
+    node->malloc.elemType = elemType;
+    node->malloc.size = size;
     return node;
 }
 

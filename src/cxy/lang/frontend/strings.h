@@ -14,6 +14,7 @@ extern "C" {
 // clang-format off
 #define CXY_BUILTIN_NAMES(f, ff)    \
     f(main)                         \
+    f(_main)                        \
     f(__builtins)               \
     f(__cxy_assert)             \
     f(CXY__builtins_sizeof)     \

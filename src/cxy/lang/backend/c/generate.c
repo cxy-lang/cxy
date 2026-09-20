@@ -1,39 +1,28 @@
-//
-// Created by Carter Mbotho on 2024-08-21.
-//
-
-#include "lang/frontend/ast.h"
-#include "lang/frontend/flag.h"
-#include "lang/frontend/strings.h"
-#include "lang/frontend/ttable.h"
-#include "lang/frontend/typegraph.h"
-#include "lang/frontend/types.h"
-#include "lang/frontend/visitor.h"
-#include "lang/middle/builtins.h"
-#include "src/epilogue.h"
-#include "src/prologue.h"
-
 #include "codegen.h"
+#include "typegraph.h"
+#include "lang/frontend/operator.h"
+#include "lang/frontend/strings.h"
+#include "lang/middle/ir/context.h"
+#include "lang/middle/ir/dump.h"
+#include "lang/middle/ir/lower.h"
+#include "lang/middle/ir/node.h"
+#include "lang/middle/ir/type.h"
+#include "lang/middle/ir/visitor.h"
+#include "lang/operations.h"
+#include "src/prologue.h"
+#include "src/epilogue.h"
 
-#include <ctype.h>
 #include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-
-#define getState(ctx) &(ctx)->state
-#define typeState(ctx) &(ctx)->types
-
-static void generateType(CodegenContext *ctx, const Type *type);
-static void generateTypeName(CodegenContext *ctx,
-                             FormatState *state,
-                             const Type *type);
-static void generateFunctionName(FormatState *state, const AstNode *node);
 
 static void getOutputPath(FormatState *cmd,
                           StrPool *strings,
                           Options *opts,
                           cstring ext)
 {
+    (void)strings;
     if (opts->output == NULL) {
         format(cmd,
                "{s}/app{s}",
@@ -51,2396 +40,569 @@ static void getOutputPath(FormatState *cmd,
     }
 }
 
-static void addDebugInfo(CodegenContext *ctx, const AstNode *node)
-{
-    if (!ctx->debug.enabled || node == NULL)
-        return;
-    FilePos pos = node->loc.begin;
-    if (pos.row == 0)
-        return;
-    format(getState(ctx),
-           "#line  {u32} \"{s}\"\n",
-           (FormatArg[]){{.u32 = pos.row}, {.s = node->loc.fileName}});
-    ctx->debug.pos = pos;
-}
-
-static void generateMany(ConstAstVisitor *visitor,
-                         const AstNode *nodes,
-                         cstring open,
-                         cstring sep,
-                         cstring close)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    if (open)
-        format(getState(ctx), open, NULL);
-    const AstNode *node = nodes;
-    for (; node; node = node->next) {
-        if (sep && node != nodes)
-            format(getState(ctx), sep, NULL);
-        astConstVisit(visitor, node);
-    }
-    if (close)
-        format(getState(ctx), close, NULL);
-}
-
-static void generateCustomTypeName(CodegenContext *cyx,
-                                   FormatState *state,
-                                   const Type *type,
-                                   cstring alt)
-{
-    if (!typeIs(type, Func) || type->func.decl == NULL) {
-        if (type->ns)
-            format(state, "{s}_", (FormatArg[]){{.s = type->ns}});
-        if (type->name)
-            format(state, "{s}", (FormatArg[]){{.s = type->name}});
-        else
-            format(state,
-                   "{s}{u64}",
-                   (FormatArg[]){{.s = alt}, {.u64 = type->index}});
-    }
-    else {
-        AstNode *decl = type->func.decl;
-        generateFunctionName(state, decl);
-        format(state, "_t", NULL);
-    }
-}
-
-static void generateStructTypeDef(CodegenContext *ctx,
-                                  FormatState *state,
-                                  const Type *type)
-{
-    format(state, "typedef struct ", NULL);
-    generateCustomTypeName(ctx, state, type, "Struct");
-    if (hasFlag(type, Extern))
-        format(state, " _", NULL);
-    else
-        format(state, " ", NULL);
-    generateCustomTypeName(ctx, state, type, "Struct");
-    format(state, ";\n", NULL);
-}
-
-static void generateTupleTypeDef(CodegenContext *ctx,
-                                 FormatState *state,
-                                 const Type *type)
-{
-    format(state, "typedef struct ", NULL);
-    generateCustomTypeName(ctx, state, type, "Tuple");
-    format(state, " ", NULL);
-    generateCustomTypeName(ctx, state, type, "Tuple");
-    format(state, ";\n", NULL);
-}
-
-static void generateUnionTypeDef(CodegenContext *ctx,
-                                 FormatState *state,
-                                 const Type *type)
-{
-    format(state, "typedef struct ", NULL);
-    generateCustomTypeName(ctx, state, type, "Union");
-    format(state, " ", NULL);
-    generateCustomTypeName(ctx, state, type, "Union");
-    format(state, ";\n", NULL);
-}
-
-static void generateUntaggedUnionTypeDef(CodegenContext *ctx,
-                                         FormatState *state,
-                                         const Type *type)
-{
-    format(state, "typedef union ", NULL);
-    generateCustomTypeName(ctx, state, type, "Union");
-    format(state, " ", NULL);
-    generateCustomTypeName(ctx, state, type, "Union");
-    format(state, ";\n", NULL);
-}
-
-static void generateOptionalTypeDef(CodegenContext *ctx,
-                                    FormatState *state,
-                                    const Type *type)
-{
-    format(state, "typedef struct ", NULL);
-    generateCustomTypeName(ctx, state, type, "Optional");
-    format(state, " ", NULL);
-    generateCustomTypeName(ctx, state, type, "Optional");
-    format(state, ";\n", NULL);
-}
-
-static void generateResultTypeDef(CodegenContext *ctx,
-                                  FormatState *state,
-                                  const Type *type)
-{
-    format(state, "typedef struct ", NULL);
-    generateCustomTypeName(ctx, state, type, "Result");
-    format(state, " ", NULL);
-    generateCustomTypeName(ctx, state, type, "Result");
-    format(state, ";\n", NULL);
-}
-
-static void generateEnumTypeDef(CodegenContext *ctx,
-                                FormatState *state,
-                                const Type *type)
-{
-    format(state, "typedef ", NULL);
-    generateTypeName(ctx, state, type->tEnum.base);
-    format(state, " ", NULL);
-    generateCustomTypeName(ctx, state, type, "Enum");
-    format(state, ";\n", NULL);
-}
-
-static void generateExceptionTypeDef(CodegenContext *ctx,
-                                     FormatState *state,
-                                     const Type *type)
-{
-    format(state, "typedef struct ", NULL);
-    generateCustomTypeName(ctx, state, type, "Exception");
-    if (hasFlag(type, Extern))
-        format(state, " _", NULL);
-    else
-        format(state, " ", NULL);
-    generateCustomTypeName(ctx, state, type, "Exception");
-    format(state, ";\n", NULL);
-}
-
-static void generateClassTypeDef(CodegenContext *ctx,
-                                 FormatState *state,
-                                 const Type *type)
-{
-    format(state, "typedef struct ", NULL);
-    generateCustomTypeName(ctx, state, type, "Class");
-    format(state, " ", NULL);
-    generateCustomTypeName(ctx, state, type, "Class");
-    format(state, ";\n", NULL);
-}
-
-static void generateTypeDef(CodegenContext *ctx,
-                            FormatState *state,
-                            const Type *type)
-{
-    switch (type->tag) {
-    case typStruct:
-        generateStructTypeDef(ctx, state, type);
-        break;
-    case typUnion:
-        generateUnionTypeDef(ctx, state, type);
-        break;
-    case typUntaggedUnion:
-        generateUntaggedUnionTypeDef(ctx, state, type);
-        break;
-    case typTuple:
-        generateTupleTypeDef(ctx, state, type);
-        break;
-    case typEnum:
-        generateEnumTypeDef(ctx, state, type);
-        break;
-    case typClass:
-        generateClassTypeDef(ctx, state, type);
-        break;
-    case typException:
-        generateExceptionTypeDef(ctx, state, type);
-        break;
-    case typResult:
-        generateResultTypeDef(ctx, state, type);
-        break;
-    case typOptional:
-        generateOptionalTypeDef(ctx, state, type);
-        break;
-    default:
-        break;
-    }
-}
-
-static void typeGraphPrevisit(const Type *type, TypeGraphVisitor *visitor)
-{
-    CodegenContext *ctx = visitor->ctx;
-    if (type->generated || type->retyped)
-        return;
-    generateTypeDef(ctx, typeState(ctx), type);
-}
-
-static void generateStructAttributes(CodegenContext *ctx, const Type *type)
-{
-    const AstNode *decl = getTypeDecl(type);
-    if (decl == NULL)
-        return;
-    if (findAttribute(decl, S_packed))
-        format(typeState(ctx), " __attribute__((packed))", NULL);
-    const AstNode *aligned = findAttribute(decl, S_align);
-    if (aligned) {
-        const AstNode *value = getAttributeArgument(NULL, NULL, aligned, 0);
-        if (value)
-            format(typeState(ctx),
-                   " __attribute__((aligned({u128})))",
-                   (FormatArg[]){{.u128 = value->intLiteral.uValue}});
-    }
-    format(typeState(ctx), " ", NULL);
-}
-
-static void generateArrayType(CodegenContext *ctx, const Type *type)
-{
-    if (!type->array.elementType->generated)
-        generateType(ctx, type->array.elementType);
-    format(typeState(ctx), "typedef ", NULL);
-    generateTypeName(ctx, typeState(ctx), type->array.elementType);
-    format(typeState(ctx), " ", NULL);
-    generateTypeName(ctx, typeState(ctx), type);
-    format(typeState(ctx), "[", NULL);
-    if (type->array.len != UINT64_MAX)
-        format(
-            typeState(ctx), "{u64}", (FormatArg[]){{.u64 = type->array.len}});
-    format(typeState(ctx), "];\n", NULL);
-}
-
-static void generateTupleType(CodegenContext *ctx, const Type *type)
-{
-    format(typeState(ctx), "struct ", NULL);
-    generateCustomTypeName(ctx, typeState(ctx), type, "Tuple");
-    format(typeState(ctx), " {{{>}", NULL);
-    for (u64 i = 0; i < type->tuple.count; i++) {
-        format(typeState(ctx), "\n", NULL);
-        generateTypeName(ctx, typeState(ctx), type->tuple.members[i]);
-        format(typeState(ctx), " _{u64};", (FormatArg[]){{.u64 = i}});
-    }
-    format(typeState(ctx), "{<}\n}\n\n;", NULL);
-}
-
-static void generateEnumType(CodegenContext *ctx, const Type *type)
-{
-    format(typeState(ctx), "enum {{{>}", NULL);
-
-    for (u64 i = 0; i < type->tEnum.optionsCount; i++) {
-        EnumOptionDecl *option = &type->tEnum.options[i];
-        format(typeState(ctx), "\n", NULL);
-        generateCustomTypeName(ctx, typeState(ctx), type, "Enum");
-        if (option->decl->enumOption.value)
-            format(typeState(ctx),
-                   "_{s} = {i64},",
-                   (FormatArg[]){{.s = option->name}, {.i64 = option->value}});
-        else
-            format(typeState(ctx), "_{s},", (FormatArg[]){{.s = option->name}});
-    }
-    format(typeState(ctx), "{<}\n};\n\n", NULL);
-}
-
-static void generateClassType(CodegenContext *ctx, const Type *type)
-{
-    format(typeState(ctx), "struct ", NULL);
-    generateStructAttributes(ctx, type);
-    generateCustomTypeName(ctx, typeState(ctx), type, "Class");
-    format(typeState(ctx), " {{{>}", NULL);
-    for (u64 i = 0; i < type->tClass.members->count; i++) {
-        const NamedTypeMember *member = &type->tClass.members->members[i];
-        if (!nodeIs(member->decl, FieldDecl))
-            continue;
-        format(typeState(ctx), "\n", NULL);
-        generateTypeName(ctx, typeState(ctx), member->type);
-        format(typeState(ctx), " {s};", (FormatArg[]){{.s = member->name}});
-    }
-
-    format(typeState(ctx), "{<}\n};\n\n", NULL);
-}
-
-static void generateStructType(CodegenContext *ctx, const Type *type)
-{
-    format(typeState(ctx), "struct ", NULL);
-    generateStructAttributes(ctx, type);
-    generateCustomTypeName(ctx, typeState(ctx), type, "Struct");
-    format(typeState(ctx), " {{{>}", NULL);
-    for (u64 i = 0; i < type->tStruct.members->count; i++) {
-        const NamedTypeMember *member = &type->tStruct.members->members[i];
-        if (!nodeIs(member->decl, FieldDecl))
-            continue;
-        format(typeState(ctx), "\n", NULL);
-        if (findAttribute(member->decl, S_atomic))
-            format(typeState(ctx), "_Atomic ", NULL);
-        generateTypeName(ctx, typeState(ctx), member->type);
-        if (member->decl->structField.bits != 0)
-            format(typeState(ctx),
-                   " {s}:{u32};",
-                   (FormatArg[]){{.s = member->name},
-                                 {.u32 = member->decl->structField.bits}});
-        else
-            format(typeState(ctx), " {s};", (FormatArg[]){{.s = member->name}});
-    }
-    format(typeState(ctx), "{<}\n};\n\n", NULL);
-}
-
-static void generateExceptionType(CodegenContext *ctx, const Type *type)
-{
-    const AstNode *member = type->exception.decl->exception.params;
-    format(typeState(ctx), "struct ", NULL);
-    generateCustomTypeName(ctx, typeState(ctx), type, "Struct");
-    format(typeState(ctx), " {{{>}", NULL);
-    member = type->exception.decl->exception.params;
-    for (; member; member = member->next) {
-        format(typeState(ctx), "\n", NULL);
-        generateTypeName(ctx, typeState(ctx), member->type);
-        format(typeState(ctx), " {s};", (FormatArg[]){{.s = member->_name}});
-    }
-    format(typeState(ctx), "{<}\n};\n\n", NULL);
-}
-
-static void generateUnionType(CodegenContext *ctx, const Type *type)
-{
-    format(typeState(ctx), "struct ", NULL);
-    generateStructAttributes(ctx, type);
-    generateCustomTypeName(ctx, typeState(ctx), type, "Union");
-    format(typeState(ctx), "{{{>}\n", NULL);
-    format(typeState(ctx), "uint32_t tag;\n", NULL);
-    format(typeState(ctx), "union {{{>}", NULL);
-    for (u64 i = 0; i < type->tUnion.count; i++) {
-        const Type *member = type->tUnion.members[i].type;
-        format(typeState(ctx), "\n", NULL);
-        generateTypeName(ctx, typeState(ctx), member);
-        format(typeState(ctx), " _{u64};", (FormatArg[]){{.u64 = i}});
-    }
-    format(typeState(ctx), "{<}\n};", NULL);
-    format(typeState(ctx), "{<}\n};\n\n", NULL);
-}
-
-static void generateOptionalType(CodegenContext *ctx, const Type *type)
-{
-    if (!type->optional.target->generated)
-        generateType(ctx, type->optional.target);
-
-    format(typeState(ctx), "struct ", NULL);
-    generateStructAttributes(ctx, type);
-    generateCustomTypeName(ctx, typeState(ctx), type, "Optional");
-    format(typeState(ctx), " {{{>}\n", NULL);
-    format(typeState(ctx), "bool ok;\n", NULL);
-    generateTypeName(ctx, typeState(ctx), type->optional.target);
-    format(typeState(ctx), " val;\n", NULL);
-    format(typeState(ctx), "{<}\n};\n\n", NULL);
-}
-
-static void generateResultType(CodegenContext *ctx, const Type *type)
-{
-    if (!type->result.target->generated)
-        generateType(ctx, type->result.target);
-
-    format(typeState(ctx), "struct ", NULL);
-    generateStructAttributes(ctx, type);
-    generateCustomTypeName(ctx, typeState(ctx), type, "Result");
-    format(typeState(ctx), "{{{>}\n", NULL);
-    format(typeState(ctx), "uint32_t tag;\n", NULL);
-    format(typeState(ctx), "union {{{>}", NULL);
-    format(typeState(ctx), "\n", NULL);
-
-    if (!isVoidType(type->result.target)) {
-        generateTypeName(ctx, typeState(ctx), type->result.target);
-        format(typeState(ctx), " _0;\n", NULL);
-    }
-    format(typeState(ctx), "void *_1;", NULL);
-
-    format(typeState(ctx), "{<}\n};", NULL);
-    format(typeState(ctx), "{<}\n};\n\n", NULL);
-}
-
-static void generateUntaggedUnionType(CodegenContext *ctx, const Type *type)
-{
-    format(typeState(ctx), "union ", NULL);
-    generateStructAttributes(ctx, type);
-    generateCustomTypeName(ctx, typeState(ctx), type, "Union");
-    format(typeState(ctx), " {{{>}", NULL);
-    for (u64 i = 0; i < type->untaggedUnion.members->count; i++) {
-        const NamedTypeMember *member =
-            &type->untaggedUnion.members->members[i];
-        format(typeState(ctx), "\n", NULL);
-        generateTypeName(ctx, typeState(ctx), member->type);
-        format(typeState(ctx), " {s};", (FormatArg[]){{.s = member->name}});
-    }
-    format(typeState(ctx), "{<}\n};\n\n", NULL);
-}
-
-static void generateFunctionType(CodegenContext *ctx, const Type *type)
-{
-    const AstNode *decl = getTypeDecl(type);
-    bool isMember = decl && decl->funcDecl.this_;
-    format(typeState(ctx), "typedef ", NULL);
-    generateTypeName(ctx, typeState(ctx), type->func.retType);
-    format(typeState(ctx), "(*", NULL);
-    generateCustomTypeName(ctx, typeState(ctx), type, "Func");
-    format(typeState(ctx), ")(", NULL);
-
-    if (isMember)
-        generateTypeName(ctx, typeState(ctx), decl->funcDecl.this_->type);
-
-    for (u64 i = 0; i < type->func.paramsCount; i++) {
-        if (isMember || i != 0)
-            format(typeState(ctx), ", ", NULL);
-        generateTypeName(ctx, typeState(ctx), type->func.params[i]);
-    }
-    format(typeState(ctx), ");\n", NULL);
-}
-
-static void generatePointerTypeName(CodegenContext *ctx,
-                                    FormatState *state,
-                                    const Type *type)
-{
-    Flags flags = flgNone;
-    const Type *pointed = stripPointerOnce(type, &flags);
-    if (!typeIs(pointed, Pointer)) {
-        generateTypeName(ctx, state, pointed);
-    }
-    else {
-        generatePointerTypeName(
-            ctx, state, resolveAndUnThisType(type)->pointer.pointed);
-        if (flags & flgConst) {
-            format(state, " const ", NULL);
-        }
-    }
-    format(state, "*", NULL);
-}
-
-static void generateType(CodegenContext *ctx, const Type *type)
-{
-    if (type->generated || type->retyped)
-        return;
-
-    ((Type *)type)->generated = true;
-    switch (type->tag) {
-    case typClass:
-        generateClassType(ctx, type);
-        break;
-    case typStruct:
-        generateStructType(ctx, type);
-        break;
-    case typException:
-        generateExceptionType(ctx, type);
-        break;
-    case typTuple:
-        generateTupleType(ctx, type);
-        break;
-    case typUnion:
-        generateUnionType(ctx, type);
-        break;
-    case typResult:
-        generateResultType(ctx, type);
-        break;
-    case typOptional:
-        generateOptionalType(ctx, type);
-        break;
-    case typUntaggedUnion:
-        generateUntaggedUnionType(ctx, type);
-        break;
-    case typFunc:
-        generateFunctionType(ctx, type);
-        break;
-    case typEnum:
-        generateEnumType(ctx, type);
-        break;
-    case typArray:
-        generateArrayType(ctx, type);
-        break;
-    default:
-        break;
-    }
-}
-
-static void typeGraphVisit(const Type *type, TypeGraphVisitor *visitor)
-{
-    CodegenContext *ctx = visitor->ctx;
-    generateType(ctx, type);
-}
-
-static void generateTypeName(CodegenContext *ctx,
-                             FormatState *state,
-                             const Type *type)
-{
-    // if (!type->generated)
-    //     generateType(ctx, type);
-    if (isPointerTypeExact(type)) {
-        generatePointerTypeName(ctx, state, type);
-        return;
-    }
-
-    if (isConstType(type) && !typeIs(type, String))
-        format(state, "const ", NULL);
-
-    type = unwrapType(type, NULL);
-    switch (type->tag) {
-    case typPrimitive:
-        switch (type->primitive.id) {
-        case prtBool:
-            format(state, "bool", NULL);
-            break;
-        case prtCChar:
-            format(state, "char", NULL);
-            break;
-        case prtChar:
-            format(state, "wchar_t", NULL);
-            break;
-        case prtI8:
-            format(state, "int8_t", NULL);
-            break;
-        case prtU8:
-            format(state, "uint8_t", NULL);
-            break;
-        case prtI16:
-            format(state, "int16_t", NULL);
-            break;
-        case prtU16:
-            format(state, "uint16_t", NULL);
-            break;
-        case prtI32:
-            format(state, "int32_t", NULL);
-            break;
-        case prtU32:
-            format(state, "uint32_t", NULL);
-            break;
-        case prtI64:
-            format(state, "int64_t", NULL);
-            break;
-        case prtU64:
-            format(state, "uint64_t", NULL);
-            break;
-        case prtI128:
-            format(state, "int128_t", NULL);
-            break;
-        case prtU128:
-            format(state, "uint128_t", NULL);
-            break;
-        case prtF32:
-            format(state, "float", NULL);
-            break;
-        case prtF64:
-            format(state, "double", NULL);
-            break;
-        default:
-            break;
-        }
-        break;
-    case typVoid:
-        format(state, "void", NULL);
-        break;
-    case typString:
-        format(state, "cstring", NULL);
-        break;
-    case typNull:
-        format(state, "void *", NULL);
-        break;
-    case typArray:
-        format(state, "Array{u64}", (FormatArg[]){{.u64 = type->index}});
-        break;
-    case typPointer:
-        generateTypeName(ctx, state, type->pointer.pointed);
-        format(state, " *", NULL);
-        break;
-    case typReference:
-        generateTypeName(ctx, state, type->reference.referred);
-        if (!isClassType(type->reference.referred))
-            format(state, " *", NULL);
-        break;
-    case typThis:
-        generateTypeName(ctx, state, type->_this.that);
-        break;
-    case typAlias:
-        generateTypeName(ctx, state, type->alias.aliased);
-        break;
-    case typInfo:
-        generateTypeName(ctx, state, type->info.target);
-        break;
-    case typClass:
-        format(state, "struct ", NULL);
-        generateCustomTypeName(ctx, state, type, "Class");
-        format(state, " *", NULL);
-        break;
-    case typException:
-        format(state, "struct ", NULL);
-        generateCustomTypeName(ctx, state, type, "Exception");
-        format(state, " *", NULL);
-        break;
-    case typResult:
-        format(state, "struct ", NULL);
-        generateCustomTypeName(ctx, state, type, "Result");
-        break;
-    case typOptional:
-        format(state, "struct ", NULL);
-        generateCustomTypeName(ctx, state, type, "Optional");
-        break;
-    case typEnum:
-        generateCustomTypeName(ctx, state, type, "Enum");
-        break;
-    case typUnion:
-        format(state, "struct ", NULL);
-        generateCustomTypeName(ctx, state, type, "Union");
-        break;
-    case typTuple:
-        format(state, "struct ", NULL);
-        generateCustomTypeName(ctx, state, type, "Tuple");
-        break;
-    case typStruct:
-        format(state, "struct ", NULL);
-        generateCustomTypeName(ctx, state, type, "Struct");
-        break;
-    case typUntaggedUnion:
-        format(state, "union ", NULL);
-        generateCustomTypeName(ctx, state, type, "UntaggedUnion");
-        break;
-    case typFunc:
-        generateCustomTypeName(ctx, state, type, "Func");
-        break;
-    case typOpaque:
-        format(state, "struct {s}", (FormatArg[]){{.s = type->name}});
-        break;
-    case typAuto:
-        break;
-    default:
-        csAssert0(false);
-    }
-}
-
-static cstring getModuleNamespace(const AstNode *node)
-{
-    if (hasFlag(node, BuiltinsModule))
-        return "builtins";
-    return node->program.module ? node->program.module->moduleDecl.name : "";
-}
-
-static inline void generateModuleName(FormatState *state, const AstNode *node)
-{
-    csAssert0(nodeIs(node, Program));
-    format(state, "{s}", (FormatArg[]){{.s = getModuleNamespace(node)}});
-}
-
-static inline void generateStructOrClassName(FormatState *state,
-                                             const AstNode *node)
-{
-    csAssert0(isClassOrStructAstNode(node));
-    AstNode *parent = node->parentScope;
-    if (parent) {
-        generateModuleName(state, parent);
-        appendString(state, "_");
-    }
-    format(state, "{s}", (FormatArg[]){{.s = node->_namedNode.name}});
-}
-
-static void generateVariableName(FormatState *state, const AstNode *node)
-{
-    if (hasFlag(node, TopLevelDecl)) {
-        AstNode *parent = node->parentScope;
-        if (nodeIs(parent, Program))
-            format(state,
-                   "{s}_",
-                   (FormatArg[]){{.s = getModuleNamespace(parent)}});
-    }
-    format(state,
-           "{s}",
-           (FormatArg[]){
-               {.s = node->varDecl.name ?: node->varDecl.names->ident.value}});
-}
-
-static void generateFunctionName(FormatState *state, const AstNode *node)
-{
-    bool isPure = hasFlag(node, Pure) && hasFlag(node, TopLevelDecl);
-    if (!hasFlags(node, flgExtern) && !isPure) {
-        AstNode *parent = node->parentScope;
-        if (nodeIs(parent, Program)) {
-            generateModuleName(state, parent);
-            appendString(state, "_");
-        }
-        else if (isClassOrStructAstNode(parent)) {
-            generateStructOrClassName(state, parent);
-            appendString(state, "_");
-        }
-        else if (node->type->name) {
-            csAssert0(parent == NULL);
-        }
-    }
-    if (nodeIs(node, FuncType)) {
-        if (node->type->name)
-            format(state, "{s}", (FormatArg[]){{.s = node->type->name}});
-        else
-            format(
-                state, "Func{u64}", (FormatArg[]){{.u64 = node->type->index}});
-    }
-    else
-        format(state, "{s}", (FormatArg[]){{.s = node->_namedNode.name}});
-}
-
-static void generateBfiCallWithFunc(ConstAstVisitor *visitor,
-                                    const AstNode *func,
-                                    const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    generateFunctionName(getState(ctx), func);
-    if (isPointerOrReferenceType(node->type)) {
-        format(getState(ctx), "(", NULL);
-        astConstVisit(visitor, node);
-        format(getState(ctx), ")", NULL);
-    }
-    else {
-        format(getState(ctx), "(&(", NULL);
-        astConstVisit(visitor, node);
-        format(getState(ctx), "))", NULL);
-    }
-}
-static void generateEnumOptionName(CodegenContext *ctx,
-                                   FormatState *state,
-                                   const AstNode *node)
-{
-    generateTypeName(ctx, state, node->type);
-    if (nodeIs(node, Identifier))
-        node = node->ident.resolvesTo;
-    csAssert0(nodeIs(node, EnumOptionDecl));
-    format(state, "_{s}", (FormatArg[]){{.s = node->enumOption.name}});
-}
-
-static void generateMainFunction(CodegenContext *ctx, const Type *type)
-{
-#define NewLine() format(getState(ctx), "\n", NULL)
-    const Type *ret = type->func.retType;
-    generateType(ctx, ret);
-    if (isResultType(ret)) {
-        const Type *dctor = ret->tUnion.destructorFunc;
-        csAssert0(dctor);
-        format(getState(ctx), "#define __MAIN_RAISED_TYPE__ ", NULL);
-        generateTypeName(ctx, getState(ctx), ret);
-        NewLine();
-        format(getState(ctx), "#define __MAIN_RAISED_TYPE_DCTOR__ ", NULL);
-        generateFunctionName(getState(ctx), dctor->func.decl);
-        NewLine();
-        if (!isVoidResultType(ret)) {
-            const Type *target =
-                isResultType(ret) ? getResultTargetType(ret) : ret;
-            format(getState(ctx), "#define __MAIN_RETURN_TYPE__ ", NULL);
-            generateTypeName(ctx, getState(ctx), target);
-            NewLine();
-            format(getState(ctx), "#define __MAIN_RETURNS__\n", NULL);
-        }
-        else {
-            format(getState(ctx), "#define __MAIN_RETURN_TYPE__ void\n", NULL);
-        }
-    }
-    else {
-        if (!isVoidType(ret)) {
-            format(getState(ctx), "#define __MAIN_RETURNS__\n", NULL);
-            format(getState(ctx), "#define __MAIN_RETURN_TYPE__ ", NULL);
-            generateTypeName(ctx, getState(ctx), ret);
-            NewLine();
-        }
-        else {
-            format(getState(ctx), "#define __MAIN_RETURN_TYPE__ void\n", NULL);
-        }
-    }
-    if (type->func.paramsCount) {
-        const Type *param = type->func.params[0];
-        format(getState(ctx), "#define __MAIN_PARAM_TYPE__ ", NULL);
-        generateTypeName(ctx, getState(ctx), param);
-        NewLine();
-    }
-    NewLine();
-#undef NewLine
-}
-
-static inline bool isImportDeclReference(const AstNode *node)
-{
-    return nodeIs(node, Identifier) &&
-           nodeIs(node->ident.resolvesTo, ImportDecl);
-}
-
-static void visitNullLit(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    if (hasFlag(node->type, FuncTypeParam)) {
-        format(getState(ctx), "((", NULL);
-        generateTypeName(ctx, getState(ctx), node->type);
-        format(getState(ctx), "){{nullptr})", NULL);
-    }
-    else
-        format(getState(ctx), "nullptr", NULL);
-}
-
-static void visitBoolLit(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    format(getState(ctx), "{b}", (FormatArg[]){{.b = node->boolLiteral.value}});
-}
-
-static void visitCharLit(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    if (node->type->primitive.id == prtCChar) {
-        format(getState(ctx),
-               "'{cE}'",
-               (FormatArg[]){{.c = node->charLiteral.value}});
-    }
-    else {
-        format(getState(ctx),
-               "'{cE}'",
-               (FormatArg[]){{.c = node->charLiteral.value}});
-    }
-}
-
-static void visitIntegerLit(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    if (node->intLiteral.isNegative) {
-        if (node->intLiteral.value <= INT64_MAX &&
-            node->intLiteral.value >= INT64_MIN) {
-            format(getState(ctx),
-                   "{i128}",
-                   (FormatArg[]){{.i128 = node->intLiteral.value}});
-        }
-        else {
-            format(getState(ctx),
-                   "INT128({u64}llu, {u64}llu)",
-                   (FormatArg[]){{.u64 = UINT128_HIGH(node->intLiteral.value)},
-                                 {.u64 = UINT128_LOW(node->intLiteral.value)}});
-        }
-    }
-    else if (hasPrimitiveType(node->type, prtI128)) {
-        if (node->intLiteral.value <= INT64_MAX &&
-            node->intLiteral.value >= INT64_MIN) {
-            format(getState(ctx),
-                   "{i128}",
-                   (FormatArg[]){{.i128 = node->intLiteral.value}});
-        }
-        else {
-            format(getState(ctx),
-                   "INT128({u64}llu, {u64}llu)",
-                   (FormatArg[]){{.u64 = UINT128_HIGH(node->intLiteral.value)},
-                                 {.u64 = UINT128_LOW(node->intLiteral.value)}});
-        }
-    }
-    else if (hasPrimitiveType(node->type, prtU128)) {
-        if (node->intLiteral.value <= UINT64_MAX) {
-            format(getState(ctx),
-                   "{i128}",
-                   (FormatArg[]){{.i128 = node->intLiteral.value}});
-        }
-        else {
-            format(getState(ctx),
-                   "UINT128({u64}, {u64})",
-                   (FormatArg[]){{.u64 = UINT128_HIGH(node->intLiteral.value)},
-                                 {.u64 = UINT128_LOW(node->intLiteral.value)}});
-        }
-    }
-    else if (hasPrimitiveType(node->type, prtI64)) {
-        format(getState(ctx),
-               "{i128}ll",
-               (FormatArg[]){{.i128 = node->intLiteral.value}});
-    }
-    else if (hasPrimitiveType(node->type, prtU64)) {
-        format(getState(ctx),
-               "{i128}llu",
-               (FormatArg[]){{.i128 = node->intLiteral.value}});
-    }
-    else if (isUnsignedType(node->type))
-        format(getState(ctx),
-               "{u128}u",
-               (FormatArg[]){{.u128 = node->intLiteral.uValue}});
-    else
-        format(getState(ctx),
-               "{u128}",
-               (FormatArg[]){{.u128 = node->intLiteral.uValue}});
-}
-
-static void visitFloatLit(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    format(getState(ctx),
-           "{f64}",
-           (FormatArg[]){{.f64 = node->floatLiteral.value}});
-}
-
-static void visitStringLit(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    cstring p = node->stringLiteral.value;
-    format(getState(ctx), "\"", NULL);
-    while (*p != '\0') {
-        if (p[0] == '\\' && (p[1] == 'x' || p[1] == 'X' || isdigit(p[1]))) {
-            // Pre-existing hex/octal escape — pass through unescaped
-            printUtf8(getState(ctx), (u8)*p++, false);
-        }
-        else {
-            // Decode full UTF-8 code point before passing to printUtf8
-            uint32_t cp = decodeUtf8Char(&p);
-            printUtf8(getState(ctx), cp, true);
-        }
-    }
-    format(getState(ctx), "\"", NULL);
-}
-
-static void visitIdentifier(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    AstNode *resolved = node->ident.resolvesTo;
-    if (nodeIs(resolved, ExternDecl))
-        resolved = resolved->externDecl.func;
-
-    if (nodeIs(resolved, VarDecl))
-        generateVariableName(getState(ctx), resolved);
-    else if (nodeIs(resolved, FuncDecl))
-        generateFunctionName(getState(ctx), resolved);
-    else {
-        cstring name = node->ident.value;
-        if (name == S_super) {
-            format(getState(ctx), "((", NULL);
-            generateTypeName(
-                ctx, getState(ctx), getTypeBase(stripReference(node->type)));
-            format(getState(ctx), ")", NULL);
-            format(getState(ctx), "this)", (FormatArg[]){{.s = name}});
-        }
-        else
-            format(getState(ctx), "{s}", (FormatArg[]){{.s = name}});
-    }
-}
-
-static void visitArrayExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    const Type *type = resolveAndUnThisType(node->type->array.elementType);
-    const AstNode *parent = node->parentScope;
-    if (!typeIs(type, Auto) && !nodeIs(parent, VarDecl)) {
-        format(getState(ctx), "(", NULL);
-        generateTypeName(ctx, getState(ctx), node->type);
-        format(getState(ctx), ")", NULL);
-    }
-    generateMany(visitor, node->arrayExpr.elements, "{{", ", ", "}");
-}
-
-static void visitBinaryExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    astConstVisit(visitor, node->binaryExpr.lhs);
-    format(getState(ctx),
-           " {s} ",
-           (FormatArg[]){{.s = getBinaryOpString(node->assignExpr.op)}});
-    astConstVisit(visitor, node->binaryExpr.rhs);
-}
-
-static void visitAssignExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    astConstVisit(visitor, node->assignExpr.lhs);
-    format(getState(ctx),
-           " {s} ",
-           (FormatArg[]){{.s = getAssignOpString(node->assignExpr.op)}});
-    astConstVisit(visitor, node->assignExpr.rhs);
-}
-
-static void visitTernaryExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    astConstVisit(visitor, node->ternaryExpr.cond);
-    format(getState(ctx), "?", NULL);
-    if (node->ternaryExpr.body) {
-        format(getState(ctx), " ", NULL);
-        astConstVisit(visitor, node->ternaryExpr.body);
-    }
-    format(getState(ctx), ": ", NULL);
-    astConstVisit(visitor, node->ternaryExpr.otherwise);
-}
-
-static void visitUnaryExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    if (node->unaryExpr.isPrefix) {
-        switch (node->unaryExpr.op) {
-        case opMove:
-            break;
-        default:
-            format(getState(ctx),
-                   "{s}",
-                   (FormatArg[]){{.s = getUnaryOpString(node->unaryExpr.op)}});
-        }
-        astConstVisit(visitor, node->unaryExpr.operand);
-    }
-    else {
-        astConstVisit(visitor, node->unaryExpr.operand);
-        format(getState(ctx),
-               "{s}",
-               (FormatArg[]){{.s = getUnaryOpString(node->unaryExpr.op)}});
-    }
-}
-
-static void visitTypedExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    format(getState(ctx), "(", NULL);
-    generateTypeName(ctx, getState(ctx), node->type);
-    format(getState(ctx), ")", NULL);
-    astConstVisit(visitor, node->typedExpr.expr);
-}
-
-static void visitCastExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    const AstNode *expr = node->castExpr.expr;
-    const Type *from = unwrapType(expr->type, NULL);
-    const Type *to = unThisType(resolveType(node->castExpr.to->type));
-
-    if (nodeIs(expr, NullLit) && !isClassType(node->type)) {
-        format(getState(ctx), "(", NULL);
-        generateTypeName(ctx, getState(ctx), to);
-        format(getState(ctx), ") {{}", NULL);
-        return;
-    }
-
-    if (to == unThisType(from)) {
-        astConstVisit(visitor, expr);
-        return;
-    }
-
-    if (hasFlag(node, UnionCast) || typeIs(from, Union)) {
-        if (isReferenceType(to) && !isClassType(stripReference(to)))
-            format(getState(ctx), "&", NULL);
-        astConstVisit(visitor, expr);
-        if (isPointerOrReferenceType(from))
-            format(getState(ctx),
-                   "->_{i64}",
-                   (FormatArg[]){{.i64 = node->castExpr.idx}});
-        else
-            format(getState(ctx),
-                   "._{i64}",
-                   (FormatArg[]){{.i64 = node->castExpr.idx}});
-        return;
-    }
-
-    if (isReferenceType(from) && !isReferenceType(to) &&
-        !isClassReferenceType(from)) {
-        format(getState(ctx), "*(", NULL);
-        astConstVisit(visitor, expr);
-        format(getState(ctx), ")", NULL);
-        return;
-    }
-
-    format(getState(ctx), "(", NULL);
-    generateTypeName(ctx, getState(ctx), to);
-    format(getState(ctx), ")", NULL);
-    astConstVisit(visitor, expr);
-}
-
-static void visitGroupExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    // CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    generateMany(visitor, node->groupExpr.expr, "(", ", ", ")");
-}
-
-static void visitStmtExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    format(getState(ctx), "(", NULL);
-    astConstVisit(visitor, node->stmtExpr.stmt);
-    format(getState(ctx), ")", NULL);
-}
-
-static void visitCallExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    astConstVisit(visitor, node->callExpr.callee);
-    generateMany(visitor, node->callExpr.args, "(", ", ", ")");
-}
-
-static void visitMemberExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    const AstNode *target = node->memberExpr.target,
-                  *member = node->memberExpr.member;
-    const AstNode *parent = node->parentScope;
-
-    if (nodeIsMemberFunctionReference(node)) {
-        generateFunctionName(getState(ctx), getTypeDecl(node->type));
-        return;
-    }
-
-    if (nodeIsEnumOptionReference(node)) {
-        generateEnumOptionName(ctx, getState(ctx), member);
-        return;
-    }
-
-    if (!isImportDeclReference(target)) {
-        astConstVisit(visitor, target);
-        if (isPointerType(target->type) || isClassType(target->type) ||
-            isReferenceType(target->type))
-            format(getState(ctx), "->", NULL);
-        else
-            format(getState(ctx), ".", NULL);
-    }
-
-    if (nodeIs(member, IntegerLit)) {
-        if (isUnionType(stripPointerOrReferenceOnce(target->type, NULL))) {
-            format(getState(ctx), "tag", NULL);
-        }
-        else {
-            format(getState(ctx),
-                   "_{u128}",
-                   (FormatArg[]){{.u128 = member->intLiteral.uValue}});
-        }
-    }
-    else {
-        astConstVisit(visitor, member);
-    }
-}
-
-static void visitPointerOfExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    format(getState(ctx), "&", NULL);
-    astConstVisit(visitor, node->unaryExpr.operand);
-}
-
-static void visitReferenceOfExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    if (!isClassType(node->type->reference.referred))
-        format(getState(ctx), "&", NULL);
-
-    astConstVisit(visitor, node->unaryExpr.operand);
-}
-
-static void visitIndexExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    astConstVisit(visitor, node->indexExpr.target);
-    format(getState(ctx), "[", NULL);
-    astConstVisit(visitor, node->indexExpr.index);
-    format(getState(ctx), "]", NULL);
-}
-
-static void visitFieldExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    format(
-        getState(ctx), ".{s} = ", (FormatArg[]){{.s = node->fieldExpr.name}});
-    bool nullInit = nodeIs(node->fieldExpr.value, NullLit) &&
-                    (isTupleType(node->type) || isUnionType(node->type) ||
-                     isArrayType(node->type));
-    if (nullInit)
-        format(getState(ctx), " {{}", NULL);
-    else
-        astConstVisit(visitor, node->fieldExpr.value);
-}
-
-static void visitStructExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    format(getState(ctx), "(", NULL);
-    generateTypeName(ctx, getState(ctx), node->type);
-    format(getState(ctx), ")", NULL);
-    if (node->structExpr.fields)
-        generateMany(
-            visitor, node->structExpr.fields, "{{{>}\n", ",\n", "{<}\n}");
-    else
-        format(getState(ctx), "{{}", NULL);
-}
-
-static void visitTupleExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    format(getState(ctx), "(", NULL);
-    generateTypeName(ctx, getState(ctx), node->type);
-    format(getState(ctx), "){{{>}\n", NULL);
-    AstNode *member = node->tupleExpr.elements;
-    for (u64 i = 0; member; member = member->next, i++) {
-        if (i)
-            format(getState(ctx), ",\n", NULL);
-        format(getState(ctx), "._{u64} = ", (FormatArg[]){{.u64 = i}});
-        astConstVisit(visitor, member);
-    }
-    format(getState(ctx), "{<}\n}", NULL);
-}
-
-static void visitUnionValue(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    format(getState(ctx), "(", NULL);
-    generateTypeName(ctx, getState(ctx), node->type);
-    format(getState(ctx),
-           "){{.tag = {u32}, ._{u32} = ",
-           (FormatArg[]){{.u32 = node->unionValue.idx},
-                         {.u32 = node->unionValue.idx}});
-    astConstVisit(visitor, node->unionValue.value);
-    format(getState(ctx), "}", NULL);
-}
-
-#define EosNl(ctx, node)                                                       \
-    if (node->next)                                                            \
-        format(getState(ctx), "\n", NULL);
-
-static void visitBackendBfiZeromem(ConstAstVisitor *visitor,
-                                   const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    const Type *type = node->type;
-    if (typeIs(type, Pointer)) {
-        type = type->pointer.pointed;
-        if (isClassType(type)) {
-            format(getState(ctx), "*(", NULL);
-            astConstVisit(visitor, node);
-            format(getState(ctx), ") = nullptr", NULL);
-        }
-        else {
-            format(getState(ctx), "memset(", NULL);
-            astConstVisit(visitor, node);
-            format(getState(ctx), ", 0, sizeof(", NULL);
-            generateTypeName(ctx, getState(ctx), type);
-            format(getState(ctx), "))", NULL);
-        }
-    }
-    else if (isClassType(type)) {
-        format(getState(ctx), "memset(", NULL);
-        astConstVisit(visitor, node);
-        format(getState(ctx), ", 0, sizeof(", NULL);
-        generateCustomTypeName(ctx, getState(ctx), type, "Class");
-        format(getState(ctx), "))", NULL);
-    }
-    else {
-        format(getState(ctx), "memset(&(", NULL);
-        astConstVisit(visitor, node);
-        format(getState(ctx), "), 0, sizeof(", NULL);
-        generateTypeName(ctx, getState(ctx), type);
-        format(getState(ctx), "))", NULL);
-    }
-}
-
-static void visitBackendBfiMemAlloc(ConstAstVisitor *visitor,
-                                    const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    const Type *type = node->type;
-    csAssert0(isClassType(type));
-    if (ctx->memTraceEnabled) {
-        format(getState(ctx), "__smart_ptr_alloc_trace(sizeof(", NULL);
-        generateCustomTypeName(ctx, getState(ctx), type, "Class");
-        format(getState(ctx), "), ", NULL);
-        astConstVisit(visitor, node->next);
-        format(getState(ctx),
-               ", \"{s}\", {u64})",
-               (FormatArg[]){{.s = node->loc.fileName},
-                             {.u64 = node->loc.begin.row}});
-    }
-    else {
-        format(getState(ctx), "__smart_ptr_alloc(sizeof(", NULL);
-        generateCustomTypeName(ctx, getState(ctx), type, "Class");
-        format(getState(ctx), "), ", NULL);
-        astConstVisit(visitor, node->next);
-        format(getState(ctx), ")", NULL);
-    }
-}
-
-static void visitBackendBfiCopy(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    const Type *type = resolveUnThisUnwrapType(stripReference(node->type));
-    if (isClassType(type)) {
-        if (ctx->memTraceEnabled) {
-            format(getState(ctx), "__smart_ptr_get_trace(", NULL);
-            astConstVisit(visitor, node);
-            format(getState(ctx),
-                   ", \"{s}\", {u64})",
-                   (FormatArg[]){{.s = node->loc.fileName},
-                                 {.u64 = node->loc.begin.row}});
-        }
-        else {
-            format(getState(ctx), "__smart_ptr_get(", NULL);
-            astConstVisit(visitor, node);
-            format(getState(ctx), ")", NULL);
-        }
-    }
-    else if (isTupleType(type)) {
-        if (type->tuple.copyFunc) {
-            const AstNode *func = type->tuple.copyFunc->func.decl;
-            csAssert0(func);
-            generateBfiCallWithFunc(visitor, func, node);
-        }
-        else if (isReferenceType(node->type)) {
-            format(getState(ctx), "*(", NULL);
-            astConstVisit(visitor, node);
-            format(getState(ctx), ")", NULL);
-        }
-        else {
-            astConstVisit(visitor, node);
-        }
-    }
-    else if (isUnionType(type)) {
-        const Type *copyFunc = type->tUnion.copyFunc;
-        if (copyFunc) {
-            generateBfiCallWithFunc(visitor, copyFunc->func.decl, node);
-        }
-        else if (isReferenceType(node->type)) {
-            format(getState(ctx), "*(", NULL);
-            astConstVisit(visitor, node);
-            format(getState(ctx), ")", NULL);
-        }
-        else {
-            astConstVisit(visitor, node);
-        }
-    }
-    else if (isStructType(type)) {
-        const AstNode *func = findMemberDeclInType(type, S_CopyOverload);
-        if (func != NULL) {
-            generateBfiCallWithFunc(visitor, func, node);
-        }
-        else if (isReferenceType(node->type)) {
-            format(getState(ctx), "*(", NULL);
-            astConstVisit(visitor, node);
-            format(getState(ctx), ")", NULL);
-        }
-        else {
-            astConstVisit(visitor, node);
-        }
-    }
-    else if (isArrayType(type)) {
-        // We are actually copying arrays
-        const AstNode *src = node, *dst = node->next;
-        format(getState(ctx), "memcpy((", NULL);
-        astConstVisit(visitor, src);
-        format(getState(ctx), "), (", NULL);
-        astConstVisit(visitor, dst);
-        format(getState(ctx), "), sizeof(", NULL);
-        generateTypeName(ctx, getState(ctx), src->type);
-        format(getState(ctx), "))", NULL);
-    }
-    else {
-        astConstVisit(visitor, node);
-    }
-}
-
-static void visitBackendBfiDrop(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    AstNode *args = node->backendCallExpr.args;
-    const Type *type = resolveUnThisUnwrapType(stripReference(args->type));
-    const AstNode *dropFlags = node->backendCallExpr.dropFlags;
-    VariableState state = node->backendCallExpr.state;
-    if (dropFlags)
-        format(getState(ctx),
-               "__CXY_DROP_WITH_FLAGS({s}, ",
-               (FormatArg[]){{.s = dropFlags->_name}});
-
-    if (isClassType(type)) {
-        if (ctx->memTraceEnabled) {
-            format(getState(ctx), "__smart_ptr_drop_trace(", NULL);
-            astConstVisit(visitor, args);
-            format(getState(ctx),
-                   ", \"{s}\", {u64})",
-                   (FormatArg[]){{.s = args->loc.fileName},
-                                 {.u64 = args->loc.begin.row}});
-        }
-        else {
-            format(getState(ctx), "__smart_ptr_drop(", NULL);
-            astConstVisit(visitor, args);
-            format(getState(ctx), ")", NULL);
-        }
-    }
-    else if (isTupleType(type)) {
-        if (type->tuple.destructorFunc) {
-            const AstNode *func = type->tuple.destructorFunc->func.decl;
-            csAssert0(func);
-            generateBfiCallWithFunc(visitor, func, args);
-        }
-        else {
-            format(getState(ctx), "__smart_ptr_drop(", NULL);
-            astConstVisit(visitor, args);
-            format(getState(ctx), "._0)", NULL);
-        }
-    }
-    else if (isUnionType(type)) {
-        const AstNode *func = type->tUnion.destructorFunc->func.decl;
-        csAssert0(func);
-        generateBfiCallWithFunc(visitor, func, args);
-    }
-    else if (isStructType(type)) {
-        const AstNode *func = findMemberDeclInType(type, S_DestructorOverload);
-        csAssert0(func);
-        generateBfiCallWithFunc(visitor, func, args);
-    }
-    else {
-        unreachable();
-    }
-    if (dropFlags) {
-        format(getState(ctx), ")", NULL);
-    }
-}
-
-static bool isValidAtInitialization(const AstNode *node)
-{
-    if (nodeIs(node, FuncParamDecl))
-        return true;
-    if (!nodeIs(node, VarDecl) || node->varDecl.init == NULL)
-        return false;
-    if (!nodeIs(node->varDecl.init, NullLit))
-        return true;
-    const AstNode *mm = findAttribute(node, S_mm);
-    if (mm != NULL) {
-        const AstNode *valid = findAttributeArgument(mm, S_valid);
-        if (nodeIs(valid, BoolLit))
-            return valid->boolLiteral.value;
-    }
-    return false;
-}
-
-static void visitBackendBfiDeclare(ConstAstVisitor *visitor,
-                                   const AstNode *node)
-{
-    // builtins__ManagedVariable_init(T, name, DCTOR) = init
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    AstNode *var = node->backendCallExpr.args;
-    cstring initFunc = nodeIs(var, VarDecl) ? "builtins__ManagedVariable_init"
-                                            : "builtins__ManagedParam_init";
-    const Type *type = resolveUnThisUnwrapType(stripReference(node->type));
-    bool valid = isValidAtInitialization(var);
-    addDebugInfo(ctx, node);
-    if (isClassType(type)) {
-        format(getState(ctx), "{s}(", (FormatArg[]){{.s = initFunc}});
-        generateTypeName(ctx, getState(ctx), type);
-        format(getState(ctx),
-               ", {s}, __smart_ptr_drop, {b}, ClsVar)",
-               (FormatArg[]){{.s = var->_name}, {.b = valid}});
-    }
-    else if (isTupleType(type)) {
-        format(getState(ctx), "{s}(", (FormatArg[]){{.s = initFunc}});
-        generateTypeName(ctx, getState(ctx), type);
-        format(getState(ctx), ", {s}, ", (FormatArg[]){{.s = var->_name}});
-        if (type->tuple.destructorFunc) {
-            const AstNode *func = type->tuple.destructorFunc->func.decl;
-            csAssert0(func);
-            generateFunctionName(getState(ctx), func);
-        }
-        else {
-            csAssert0(hasFlag(type, FuncTypeParam));
-            format(getState(ctx), "builtins__ClosureTuple_cleanup", NULL);
-        }
-        format(getState(ctx), ", {b}, Var)", (FormatArg[]){{.b = valid}});
-    }
-    else if (isUnionType(type)) {
-        const AstNode *func = type->tUnion.destructorFunc->func.decl;
-        csAssert0(func);
-        format(getState(ctx), "{s}(", (FormatArg[]){{.s = initFunc}});
-        generateTypeName(ctx, getState(ctx), type);
-        format(getState(ctx), ", {s}, ", (FormatArg[]){{.s = var->_name}});
-        generateFunctionName(getState(ctx), func);
-        format(getState(ctx), ", {b}, Var)", (FormatArg[]){{.b = valid}});
-    }
-    else if (isStructType(type)) {
-        const AstNode *func = findMemberDeclInType(type, S_DestructorOverload);
-        csAssert0(func);
-        format(getState(ctx), "{s}(", (FormatArg[]){{.s = initFunc}});
-        generateTypeName(ctx, getState(ctx), type);
-        format(getState(ctx), ", {s}, ", (FormatArg[]){{.s = var->_name}});
-        generateFunctionName(getState(ctx), func);
-        format(getState(ctx), ", {b}, Var)", (FormatArg[]){{.b = valid}});
-    }
-    else {
-        unreachable("");
-    }
-
-    if (var->varDecl.init != NULL) {
-        format(getState(ctx), " = ", NULL);
-        if (nodeIs(var->varDecl.init, NullLit) &&
-            (isUnionType(type) || isStructType(type) || isTupleType(type))) {
-            format(getState(ctx), "(", NULL);
-            generateTypeName(ctx, getState(ctx), type);
-            format(getState(ctx), "){{}", NULL);
-        }
-        else {
-            astConstVisit(visitor, var->varDecl.init);
-        }
-    }
-    format(getState(ctx), ";", NULL);
-
-    EosNl(ctx, node);
-}
-
-static void visitBackendCallExpr(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    AstNode *args = node->backendCallExpr.args;
-    switch (node->backendCallExpr.func) {
-    case bfiSizeOf: {
-        const Type *type = resolveAndUnThisType(args->type);
-        format(getState(ctx), "sizeof(", NULL);
-        if (isClassType(type))
-            generateCustomTypeName(ctx, getState(ctx), type, "Class");
-        else
-            generateTypeName(ctx, getState(ctx), type);
-        format(getState(ctx), ")", NULL);
-        break;
-    }
-    case bfiAlloca: {
-        const Type *type = resolveAndUnThisType(args->type);
-        format(getState(ctx), "__builtin_alloca(sizeof(", NULL);
-        if (isClassType(type))
-            generateCustomTypeName(ctx, getState(ctx), type, "Class");
-        else
-            generateTypeName(ctx, getState(ctx), type);
-        format(getState(ctx), "))", NULL);
-        break;
-    }
-    case bfiZeromem:
-        visitBackendBfiZeromem(visitor, args);
-        break;
-    case bfiMemAlloc:
-        visitBackendBfiMemAlloc(visitor, args);
-        break;
-    case bfiCopy:
-        visitBackendBfiCopy(visitor, args);
-        break;
-    case bfiDrop:
-        visitBackendBfiDrop(visitor, node);
-        break;
-    case bfiDeclare:
-        visitBackendBfiDeclare(visitor, node);
-        break;
-    case bfiMove:
-        if (nodeIs(args, MemberExpr) || nodeIs(args, IndexExpr) ||
-            hasFlag(args, UnionCast))
-            format(getState(ctx), "builtins__MemberExpr_move(", NULL);
-        else
-            format(getState(ctx), "builtins__ManagedVariable_move(", NULL);
-        astConstVisit(visitor, node->backendCallExpr.args);
-        format(getState(ctx), ")", NULL);
-        break;
-    case bfiAssign: {
-        if (isClassType(args->type)) {
-            format(getState(ctx), "builtins__ManagedClsVariable_assign(", NULL);
-        }
-        else {
-            format(getState(ctx), "builtins__ManagedVariable_assign(", NULL);
-        }
-        astConstVisit(visitor, args->binaryExpr.lhs);
-        format(getState(ctx), ") = ", NULL);
-        astConstVisit(visitor, args->binaryExpr.rhs);
-        break;
-    }
-    case bfiAtomicLoad:
-        // args: ptr, memorder
-        format(getState(ctx), "__atomic_load_n(", NULL);
-        astConstVisit(visitor, args);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next);
-        format(getState(ctx), ")", NULL);
-        break;
-    case bfiAtomicStore:
-        // args: ptr, value, memorder
-        format(getState(ctx), "__atomic_store_n(", NULL);
-        astConstVisit(visitor, args);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next->next);
-        format(getState(ctx), ")", NULL);
-        break;
-    case bfiAtomicExchange:
-        // args: ptr, value, memorder
-        format(getState(ctx), "__atomic_exchange_n(", NULL);
-        astConstVisit(visitor, args);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next->next);
-        format(getState(ctx), ")", NULL);
-        break;
-    case bfiAtomicCompareExchange:
-        // args: ptr, expected_ptr, desired, weak, success_order, failure_order
-        format(getState(ctx), "__atomic_compare_exchange_n(", NULL);
-        astConstVisit(visitor, args);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next->next);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next->next->next);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next->next->next->next);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next->next->next->next->next);
-        format(getState(ctx), ")", NULL);
-        break;
-    case bfiAtomicFetchAdd:
-        // args: ptr, value, memorder
-        format(getState(ctx), "__atomic_fetch_add(", NULL);
-        astConstVisit(visitor, args);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next->next);
-        format(getState(ctx), ")", NULL);
-        break;
-    case bfiAtomicFetchSub:
-        // args: ptr, value, memorder
-        format(getState(ctx), "__atomic_fetch_sub(", NULL);
-        astConstVisit(visitor, args);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next->next);
-        format(getState(ctx), ")", NULL);
-        break;
-    case bfiAtomicFetchOr:
-        // args: ptr, value, memorder
-        format(getState(ctx), "__atomic_fetch_or(", NULL);
-        astConstVisit(visitor, args);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next->next);
-        format(getState(ctx), ")", NULL);
-        break;
-    case bfiAtomicFetchAnd:
-        // args: ptr, value, memorder
-        format(getState(ctx), "__atomic_fetch_and(", NULL);
-        astConstVisit(visitor, args);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next->next);
-        format(getState(ctx), ")", NULL);
-        break;
-    case bfiAtomicFetchXor:
-        // args: ptr, value, memorder
-        format(getState(ctx), "__atomic_fetch_xor(", NULL);
-        astConstVisit(visitor, args);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next);
-        format(getState(ctx), ", ", NULL);
-        astConstVisit(visitor, args->next->next);
-        format(getState(ctx), ")", NULL);
-        break;
-    case bfiAtomicThreadFence:
-        // args: memorder
-        format(getState(ctx), "__atomic_thread_fence(", NULL);
-        astConstVisit(visitor, args);
-        format(getState(ctx), ")", NULL);
-        break;
-    case bfiAtomicSignalFence:
-        // args: memorder
-        format(getState(ctx), "__atomic_signal_fence(", NULL);
-        astConstVisit(visitor, args);
-        format(getState(ctx), ")", NULL);
-        break;
-    default:
-        // csAssert(false, "Unsupported bfi");
-        break;
-    }
-}
-
-static void visitInlineAssembly(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    if (findAttribute(node, S_volatile))
-        format(getState(ctx), "__asm__ __volatile__(\"", NULL);
-    else
-        format(getState(ctx), "__asm__(\"", NULL);
-    cstring p = node->inlineAssembly.text;
-    while (*p != '\0') {
-        switch (*p) {
-        case '$':
-            if (p[1] == '$') {
-                format(getState(ctx), "$", NULL);
-                p++;
-            }
-            else
-                format(getState(ctx), "%", NULL);
-            break;
-        case '%':
-            format(getState(ctx), "%%", NULL);
-            break;
-        default:
-            if (p[0] == '\\' && (p[1] == 'x' || p[1] == 'X' || isdigit(p[1]))) {
-                // Pre-existing hex/octal escape — pass through unescaped
-                printUtf8(getState(ctx), (u8)*p, false);
-            }
-            else {
-                // Decode full UTF-8 code point before passing to printUtf8
-                uint32_t cp = decodeUtf8Char(&p);
-                printUtf8(getState(ctx), cp, true);
-                continue; // decodeUtf8Char already advanced p
-            }
-            break;
-        }
-        p++;
-    }
-    format(getState(ctx), "\"", NULL);
-
-    if (node->inlineAssembly.outputs) {
-        AstNode *output = node->inlineAssembly.outputs;
-        format(getState(ctx), "\n:", NULL);
-        for (; output; output = output->next) {
-            format(getState(ctx),
-                   "\"{s}\" (",
-                   (FormatArg[]){{.s = output->asmOperand.constraint}});
-            astConstVisit(visitor, output->asmOperand.operand);
-            format(getState(ctx), ")", NULL);
-            if (output->next)
-                format(getState(ctx), ", ", NULL);
-        }
-    }
-    else if (node->inlineAssembly.inputs || node->inlineAssembly.clobbers) {
-        format(getState(ctx), " :", NULL);
-    }
-
-    if (node->inlineAssembly.inputs) {
-        AstNode *input = node->inlineAssembly.inputs;
-        format(getState(ctx), "\n:", NULL);
-        for (; input; input = input->next) {
-            format(getState(ctx),
-                   "\"{s}\" (",
-                   (FormatArg[]){{.s = input->asmOperand.constraint}});
-            astConstVisit(visitor, input->asmOperand.operand);
-            format(getState(ctx), ")", NULL);
-            if (input->next)
-                format(getState(ctx), ", ", NULL);
-        }
-    }
-    else if (node->inlineAssembly.clobbers) {
-        format(getState(ctx), ":", NULL);
-    }
-
-    if (node->inlineAssembly.clobbers) {
-        AstNode *clobber = node->inlineAssembly.clobbers;
-        format(getState(ctx), "\n:", NULL);
-        for (; clobber; clobber = clobber->next) {
-            astConstVisit(visitor, clobber);
-            if (clobber->next)
-                format(getState(ctx), ", ", NULL);
-        }
-    }
-    format(getState(ctx), ");\n", NULL);
-}
-
-static void visitBasicBlock(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    if (node->basicBlock.stmts.first) {
-        format(getState(ctx),
-               "{{{>}\n__bbCleanup{u64}:\n",
-               (FormatArg[]){{.u64 = node->basicBlock.index}});
-        astConstVisitManyNodes(visitor, node->basicBlock.stmts.first);
-        format(getState(ctx), "{<}\n}\n", NULL);
-    }
-    else {
-        format(getState(ctx),
-               "__bbCleanup{u64}:\n",
-               (FormatArg[]){{.u64 = node->basicBlock.index}});
-    }
-}
-
-static void visitBranch(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    const AstNode *target = node->branch.target;
-    csAssert0(nodeIs(target, BasicBlock));
-    if (node->branch.condition) {
-        cstring name = node->branch.condition->_name;
-        if (ctx->inLoop)
-            format(
-                getState(ctx),
-                "__CXY_LOOP_CLEANUP({s}, __bbCleanup{u64});",
-                (FormatArg[]){{.s = name}, {.u64 = target->basicBlock.index}});
-        else
-            format(
-                getState(ctx),
-                "__CXY_BLOCK_CLEANUP({s}, __bbCleanup{u64});",
-                (FormatArg[]){{.s = name}, {.u64 = target->basicBlock.index}});
-    }
-    else {
-        format(getState(ctx),
-               "goto __bbCleanup{u64}",
-               (FormatArg[]){{.u64 = target->basicBlock.index}});
-    }
-}
-
-static void visitReturnStmt(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    addDebugInfo(ctx, node);
-
-    format(getState(ctx), "return", NULL);
-    if (node->returnStmt.expr) {
-        format(getState(ctx), " ", NULL);
-        astConstVisit(visitor, node->returnStmt.expr);
-    }
-    format(getState(ctx), ";", NULL);
-    EosNl(ctx, node);
-}
-
-static void visitBlockStmt(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    format(getState(ctx), "{{{>}\n", NULL);
-    generateMany(visitor, node->blockStmt.stmts, NULL, NULL, NULL);
-    format(getState(ctx), "{<}\n}", NULL);
-    EosNl(ctx, node);
-}
-
-static void visitExprStmt(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    addDebugInfo(ctx, node);
-    astConstVisit(visitor, node->exprStmt.expr);
-    format(getState(ctx), ";", NULL);
-    EosNl(ctx, node);
-}
-
-static void visitIfStmt(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    cstring likely = findAttribute(node, S_likely)     ? S_likely
-                     : findAttribute(node, S_unlikely) ? S_unlikely
-                                                       : NULL;
-
-    format(getState(ctx), "if (", NULL);
-    if (likely)
-        format(getState(ctx), "{s}(", (FormatArg[]){{.s = likely}});
-    astConstVisit(visitor, node->ifStmt.cond);
-    if (likely)
-        format(getState(ctx), ")", NULL);
-    format(getState(ctx), ") ", NULL);
-    astConstVisit(visitor, node->ifStmt.body);
-    if (node->ifStmt.otherwise) {
-        format(getState(ctx), " else ", NULL);
-        astConstVisit(visitor, node->ifStmt.otherwise);
-    }
-    EosNl(ctx, node);
-}
-
-static void visitWhileStmt(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    // cstring previousUpdate = ctx->loopUpdate;
-    // bool previousUpdateUsed = ctx->loopUpdateUsed;
-    // bool previousInLoop = ctx->inLoop;
-    // ctx->loopUpdateUsed = false;
-    // ctx->inLoop = true;
-    // if (node->whileStmt.update)
-    //     ctx->loopUpdate = makeAnonymousVariable(ctx->strings, "__update");
-    // else
-    //     ctx->loopUpdate = NULL;
-
-    format(getState(ctx), "for (; ", NULL);
-    astConstVisit(visitor, node->whileStmt.cond);
-    format(getState(ctx), ";", NULL);
-    if (node->whileStmt.update) {
-        format(getState(ctx), " ", NULL);
-        astConstVisit(visitor, node->whileStmt.update);
-    }
-    if (!nodeIs(node->whileStmt.body, BlockStmt)) {
-        format(getState(ctx), ") {{{>}\n", NULL);
-        astConstVisit(visitor, node->whileStmt.body);
-        format(getState(ctx), "{<}\n}", NULL);
-    }
-    else {
-        format(getState(ctx), ") ", NULL);
-        astConstVisit(visitor, node->whileStmt.body);
-    }
-    EosNl(ctx, node);
-}
-
-static void visitSwitchStmt(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    format(getState(ctx), "switch (", NULL);
-    astConstVisit(visitor, node->switchStmt.cond);
-    format(getState(ctx), ") ", NULL);
-    generateMany(visitor, node->switchStmt.cases, "{{\n", "\n", NULL);
-    if (node->switchStmt.defaultCase == NULL) {
-        format(getState(ctx),
-               "\n"
-               "default: {{ unreachable(\"unhandled-default-case\"); }\n",
-               NULL);
-    }
-    format(getState(ctx), "}\n", NULL);
-    EosNl(ctx, node);
-}
-
-static void visitMatchStmt(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-
-    format(getState(ctx), "switch (", NULL);
-    astConstVisit(visitor, node->matchStmt.expr);
-    if (isPointerOrReferenceType(node->matchStmt.expr->type))
-        format(getState(ctx), "->tag", NULL);
-    else
-        format(getState(ctx), ".tag", NULL);
-    format(getState(ctx), ") ", NULL);
-    generateMany(visitor, node->switchStmt.cases, "{{\n", "\n", "\n}");
-    EosNl(ctx, node);
-}
-
-static void visitCaseStmt(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    addDebugInfo(ctx, node);
-    const AstNode *body = node->caseStmt.body;
-    if (node->caseStmt.match) {
-        format(getState(ctx), "case ", NULL);
-        if (nodeIs(node->parentScope, MatchStmt)) {
-            format(getState(ctx),
-                   "{u32}: {{{>}\n",
-                   (FormatArg[]){{.u32 = node->caseStmt.idx}});
-            // if (node->caseStmt.variable) {
-            //     astConstVisit(visitor, node->caseStmt.variable);
-            //     format(getState(ctx), "\n", NULL);
-            // }
-        }
-        else {
-            const AstNode *match = node->caseStmt.match;
-            if (nodeIs(match, RangeExpr)) {
-                astConstVisit(visitor, match->rangeExpr.start);
-                format(getState(ctx), " ... ", NULL);
-                astConstVisit(visitor, match->rangeExpr.end);
-            }
-            else {
-                astConstVisit(visitor, node->caseStmt.match);
-            }
-            format(getState(ctx), ":", NULL);
-        }
-    }
-    else {
-        format(getState(ctx), "default:", NULL);
-    }
-    if (body) {
-        format(getState(ctx), " {{{>}\n", NULL);
-        addDebugInfo(ctx, body);
-        astConstVisit(visitor, body);
-        if (nodeIs(body, BlockStmt))
-            body = getLastAstNode(body->blockStmt.stmts);
-        if (!nodeIs(body, ReturnStmt))
-            format(getState(ctx), "\nbreak;{<}\n}", NULL);
-        else
-            format(getState(ctx), "{<}\n}", NULL);
-    }
-    else if (node->caseStmt.match == NULL) {
-        format(getState(ctx), " break;\n", NULL);
-    }
-}
-
-static void visitContinueStmt(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    addDebugInfo(ctx, node);
-    const AstNode *loop = node->continueExpr.loop;
-    if (ctx->loopUpdate) {
-        format(
-            getState(ctx), "goto {s};", (FormatArg[]){{.s = ctx->loopUpdate}});
-        ctx->loopUpdateUsed = true;
-    }
-    else
-        format(getState(ctx), "continue;", NULL);
-    EosNl(ctx, node);
-}
-
-static void visitBreakStmt(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    addDebugInfo(ctx, node);
-    format(getState(ctx), "break;", NULL);
-    EosNl(ctx, node);
-}
-
-static void visitVariableDecl(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    if (hasFlag(node, Comptime))
-        return;
-
-    if (node->codegen)
-        return;
-    ((AstNode *)node)->codegen = (void *)true;
-    addDebugInfo(ctx, node);
-    if (findAttribute(node, S_volatile))
-        format(getState(ctx), "volatile ", NULL);
-    if (findAttribute(node, S_thread))
-        format(getState(ctx), "__thread ", NULL);
-
-    const Type *type = unwrapType(node->type, NULL);
-    generateTypeName(ctx, getState(ctx), type);
-    format(getState(ctx), " ", NULL);
-    generateVariableName(getState(ctx), node);
-    if (node->varDecl.init) {
-        bool nullInit = nodeIs(node->varDecl.init, NullLit);
-        format(getState(ctx), " = ", NULL);
-        if (nullInit) {
-            if (isTupleType(node->type) || isUnionType(node->type)) {
-                format(getState(ctx), " {{}", NULL);
-            }
-            else if (isNumericType(node->type)) {
-                format(getState(ctx), " 0", NULL);
-            }
-            else {
-                astConstVisit(visitor, node->varDecl.init);
-            }
-        }
-        else
-            astConstVisit(visitor, node->varDecl.init);
-    }
-    else {
-        format(getState(ctx), " = {{}", NULL);
-    }
-    format(getState(ctx), ";", NULL);
-    EosNl(ctx, node);
-}
-
-static void visitFuncParamDecl(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    if (hasFlag(node, Variadic) && typeIs(node->type, Auto)) {
-        format(getState(ctx), "...", NULL);
-    }
-    else {
-        generateTypeName(ctx, getState(ctx), node->type);
-        format(
-            getState(ctx), " {s}", (FormatArg[]){{.s = node->funcParam.name}});
-    }
-}
-
-static void visitExternDecl(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    AstNode *decl = node->externDecl.func;
-    if (decl->codegen)
-        return;
-    if (nodeIs(decl, FuncDecl)) {
-        if (findAttribute(decl, S_hint))
-            return;
-        if (hasFlag(decl, Extern))
-            decl->codegen = (void *)true;
-
-        if (hasFlag(decl, Extern))
-            format(getState(ctx), "extern ", NULL);
-        else
-            format(getState(ctx), "static ", NULL);
-        generateTypeName(ctx, getState(ctx), decl->type->func.retType);
-        format(getState(ctx), " ", NULL);
-        generateFunctionName(getState(ctx), decl);
-        generateMany(visitor, decl->funcDecl.signature->params, "(", ", ", ")");
-    }
-    else if (nodeIs(decl, VarDecl) && hasFlag(decl, Extern)) {
-        decl->codegen = (void *)true;
-        format(getState(ctx), "extern ", NULL);
-        generateTypeName(ctx, getState(ctx), decl->type);
-        format(getState(ctx), " ", NULL);
-        generateVariableName(getState(ctx), decl);
-    }
-    format(getState(ctx), ";\n", NULL);
-}
-
-static void visitFuncDecl(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    if (node->codegen)
-        return;
-    ((AstNode *)node)->codegen = (void *)true;
-    if (hasFlag(node, Abstract))
-        return;
-    if (!hasFlag(node, Extern)) {
-        if (hasFlag(node, Constructor))
-            format(getState(ctx), "__attribute__((constructor))\n", NULL);
-        if (findAttribute(node, S_inline))
-            format(getState(ctx), "__attribute__((always_inline))", NULL);
-        else if (findAttribute(node, S_noinline))
-            format(getState(ctx), "__attribute__((noinline))", NULL);
-        const AstNode *opt = findAttribute(node, S_optimize);
-        if (opt) {
-            const AstNode *value = getAttributeArgument(NULL, NULL, opt, 0);
-            format(getState(ctx),
-                   " __attribute__((optnone))",
-                   (FormatArg[]){{.u128 = value->intLiteral.uValue}});
-        }
-        format(getState(ctx), "\nstatic ", NULL);
-    }
-    else {
-        if (findAttribute(node, S_hint))
-            return;
-        format(getState(ctx), "extern ", NULL);
-    }
-    generateTypeName(ctx, getState(ctx), node->type->func.retType);
-    format(getState(ctx), " ", NULL);
-    generateFunctionName(getState(ctx), node);
-    generateMany(visitor, node->funcDecl.signature->params, "(", ", ", ")");
-    if (hasFlag(node, Extern)) {
-        format(getState(ctx), ";", NULL);
-    }
-    else {
-        format(getState(ctx), " ", NULL);
-        astConstVisit(visitor, node->funcDecl.body);
-        EosNl(ctx, node);
-    }
-    format(getState(ctx), "\n", NULL);
-
-    if (!ctx->backend->testMode && hasFlag(node, Main))
-        generateMainFunction(ctx, node->type);
-}
-
-static void generateTestMainFunction(CodegenContext *ctx,
-                                     cstring testFile,
-                                     cstring moduleName)
-{
-    csAssert0(ctx->backend->testMode);
-    char testsVariable[1024] = {0};
-    sprintf(testsVariable,
-            "%s%sallTestCases",
-            moduleName ?: "",
-            moduleName ? "_" : "");
-
-    if (ctx->hasTestCases) {
-        format(getState(ctx),
-               "\n\n"
-               "typedef struct {{\n"
-               "  __typeof({s}[0]) *data;\n"
-               "  uint64_t len;\n"
-               "  uint8_t  flags; \n"
-               "} __TestCases;\n\n",
-               (FormatArg[]){{.s = testsVariable}});
-    }
-    format(getState(ctx),
-           "int main(int argc, char *argv[]) {{{>}\n"
-           "return builtins_runTests((SliceI_sE){{.data = argv, .len = argc}, "
-           "\"{s}\", (SliceI_TsFU_ZVoid_ZException___u8_E){{",
-           (FormatArg[]){{.s = testFile}});
-    if (ctx->hasTestCases) {
-        format(getState(ctx),
-               ".data = {s}, .len = "
-               "sizeof({s})/sizeof({s}[0])});\n"
-               "{<}\n}\n",
-               (FormatArg[]){{.s = testsVariable},
-                             {.s = testsVariable},
-                             {.s = testsVariable}});
-    }
-    else {
-        format(getState(ctx),
-               ".data = nullptr, .len = 0});\n"
-               "{<}\n}\n",
-               NULL);
-    }
-}
-
-static void visitProgram(ConstAstVisitor *visitor, const AstNode *node)
-{
-    CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    format(typeState(ctx),
-           "\n/*-----------{s}-----------*/\n",
-           (FormatArg[]){{.s = node->loc.fileName ?: "builtins.cxy"}});
-
-    if (node->type != NULL) {
-        // Create a type graph and generate all the needed types
-        TypeGraph g = newTypeGraph(ctx->table, node->type);
-        preCodeGen(&g, node);
-
-        // Pass 0: Generate all typedefs first (order doesn't matter)
-        TypeGraphVisitor typedefVisitor = {
-            .previsit = typeGraphPrevisit,
-            .visit = NULL,
-            .ctx = ctx,
-            .visitAll = true // Visit all nodes
-        };
-        visitTypeGraph(&g, &typedefVisitor, 0);
-
-        // Pass 1: Generate full definitions in dependency order
-        TypeGraphVisitor defVisitor = {
-            .previsit = NULL,
-            .visit = typeGraphVisit,
-            .ctx = ctx,
-            .visitAll = false // DFS from module only
-        };
-        visitTypeGraph(&g, &defVisitor, 1);
-
-        freeTypeGraph(&g);
-    }
-
-    generateMany(visitor, node->program.decls, NULL, NULL, NULL);
-    cstring moduleName =
-        node->program.module ? node->program.module->moduleDecl.name : NULL;
-
-    if (ctx->backend->testMode && isBuiltinsInitialized() &&
-        !hasFlag(node, ImportedModule))
-        generateTestMainFunction(ctx, node->loc.fileName, moduleName);
-}
-
-AstNode *generateCode(CompilerDriver *driver, AstNode *node)
-{
-    CBackend *backend = driver->backend;
-    csAssert0(backend);
-    CodegenContext context = {
-        .backend = backend,
-        .strings = driver->strings,
-        .table = driver->types,
-        .state = newFormatState("  ", true),
-        .types = newFormatState("  ", true),
-        .hasTestCases = driver->hasTestCases,
-        .memTraceEnabled = driver->options.withMemoryTrace,
-        .debug = {.enabled = driver->options.debug, .pos = {}}};
-    // clang-format off
-    ConstAstVisitor visitor = makeConstAstVisitor(&context, {
-        [astProgram] = visitProgram,
-        [astAsm] = visitInlineAssembly,
-        [astBasicBlock] = visitBasicBlock,
-        [astBranch] = visitBranch,
-        [astBackendCall] = visitBackendCallExpr,
-        [astIdentifier] = visitIdentifier,
-        [astIntegerLit] = visitIntegerLit,
-        [astNullLit] = visitNullLit,
-        [astBoolLit] = visitBoolLit,
-        [astCharLit] = visitCharLit,
-        [astFloatLit] = visitFloatLit,
-        [astStringLit] = visitStringLit,
-        [astArrayExpr] = visitArrayExpr,
-        [astBinaryExpr] = visitBinaryExpr,
-        [astAssignExpr] = visitAssignExpr,
-        [astTernaryExpr] = visitTernaryExpr,
-        [astUnaryExpr] = visitUnaryExpr,
-        [astTypedExpr] = visitTypedExpr,
-        [astCallExpr] = visitCallExpr,
-        [astCastExpr] = visitCastExpr,
-        [astGroupExpr] = visitGroupExpr,
-        [astStmtExpr] = visitStmtExpr,
-        [astMemberExpr] = visitMemberExpr,
-        [astPointerOf] = visitPointerOfExpr,
-        [astReferenceOf] = visitReferenceOfExpr,
-        [astIndexExpr] = visitIndexExpr,
-        [astFieldExpr] = visitFieldExpr,
-        [astStructExpr] = visitStructExpr,
-        [astTupleExpr] = visitTupleExpr,
-        [astUnionValueExpr] = visitUnionValue,
-        [astBlockStmt] = visitBlockStmt,
-        [astExprStmt] = visitExprStmt,
-        [astReturnStmt] = visitReturnStmt,
-        [astIfStmt] = visitIfStmt,
-        [astWhileStmt] = visitWhileStmt,
-        [astCaseStmt] = visitCaseStmt,
-        [astSwitchStmt] = visitSwitchStmt,
-        [astMatchStmt] = visitMatchStmt,
-        [astContinueStmt] = visitContinueStmt,
-        [astBreakStmt] = visitBreakStmt,
-        [astVarDecl] = visitVariableDecl,
-        [astFuncParamDecl] = visitFuncParamDecl,
-        [astExternDecl] = visitExternDecl,
-        [astFuncDecl] = visitFuncDecl,
-        [astStructDecl] = astConstVisitSkip,
-        [astClassDecl] = astConstVisitSkip,
-        [astInterfaceDecl] = astConstVisitSkip,
-        [astUnionDecl] = astConstVisitSkip,
-        [astEnumDecl] = astConstVisitSkip,
-        [astTypeRef] = astConstVisitSkip,
-        [astTypeDecl] = astConstVisitSkip,
-        [astGenericDecl] = astConstVisitSkip,
-        [astImportDecl] = astConstVisitSkip,
-        [astMacroDecl] = astConstVisitSkip,
-        [astException] = astConstVisitSkip,
-    }, .fallback = astConstVisitFallbackVisitAll);
-    // clang-format on
-
-    astConstVisit(&visitor, node->metadata.node);
-    writeFormatState(&context.types, backend->output);
-    writeFormatState(&context.state, backend->output);
-    freeFormatState(&context.state);
-    freeFormatState(&context.types);
-    return node;
-}
-
-#define appendCode(f, s) fwrite((s), 1, sizeof(s) - 1, f)
-
-static void generateCodeEpilogue(FILE *f)
-{
-    appendCode(f,
-               "#ifdef __MAIN_RETURN_TYPE__\n"
-               "#ifdef __MAIN_RETURNS___\n"
-               "__MAIN_RETURN_TYPE__ main(int argc, char *argv[]) {\n"
-               "#else\n"
-               "int main(int argc, char *argv[]) {\n"
-               "#endif\n"
-               "#ifdef __MAIN_PARAM_TYPE__\n"
-               "    __MAIN_PARAM_TYPE__ args = { .data = argv, .len = argc };\n"
-               "#define __MAIN_ARGS__ args\n"
-               "#else\n"
-               "#define __MAIN_ARGS__\n"
-               "#endif\n"
-               "\n"
-               "#ifdef __MAIN_RAISED_TYPE__\n"
-               "    __MAIN_RAISED_TYPE__ ex = _main(__MAIN_ARGS__);\n"
-               "    if (ex.tag == 1) {\n"
-               "         panicUnhandledException(ex._1);\n"
-               "         unreachable();\n"
-               "    }\n"
-               "#ifdef __MAIN_RETURNS__\n"
-               "    __MAIN_RETURN_TYPE__ ret = ex._0;\n"
-               "    __MAIN_RAISED_TYPE_DCTOR__(&ex);\n"
-               "    return ret;\n"
-               "#else\n"
-               "     __MAIN_RAISED_TYPE_DCTOR__(&ex);\n"
-               "     return 0;\n"
-               "#endif\n"
-               "#else\n"
-               "#ifdef __MAIN_RETURNS__\n"
-               "      return _main(__MAIN_ARGS__);\n"
-               "#else\n"
-               "      _main(__MAIN_ARGS__);\n"
-               "      return 0;\n"
-               "#endif\n"
-               "#endif\n"
-               "}\n"
-               "\n"
-               "#endif\n"
-               "#if defined(__GNUC__)\n"
-               "#pragma GCC diagnostic pop\n"
-               "#elif defined(__clang__)\n"
-               "#pragma clang diagnostic pop\n"
-               "#else\n"
-               "#error \"Unsupported compiler\"\n"
-               "#endif");
-    appendCode(f, "\n");
-}
-
 void *initCompilerBackend(CompilerDriver *driver, int argc, char **argv)
 {
-    csAssert0(driver->backend == NULL);
     Options *options = &driver->options;
     cstring filename = NULL;
     if (options->output == NULL) {
-        filename =
-            joinPath(driver->strings, options->buildDir ?: "./", "app.c");
+        filename = joinPath(driver->strings, options->buildDir ?: "./", "app.c");
     }
     else if (options->output[0] == '/') {
         filename = makeStringConcat(driver->strings, options->output, ".c");
     }
     else {
-        filename =
-            joinPath(driver->strings,
-                     options->buildDir ?: "./",
-                     makeStringConcat(driver->strings, options->output, ".c"));
+        filename = joinPath(driver->strings, options->buildDir ?: "./",
+                            makeStringConcat(driver->strings, options->output, ".c"));
     }
 
-    struct stat st;
-    if (stat(filename, &st) == 0) {
-        // remove file
-        remove(filename);
-    }
-
-    FILE *f = fopen(filename, "w+");
-    if (f == NULL) {
-        logError(driver->L,
-                 NULL,
-                 "creating output file '{s}' failed: '{s}'",
-                 (FormatArg[]){{.s = filename}, {.s = strerror(errno)}});
-        return NULL;
-    }
-    CBackend *backend = callocFromMemPool(driver->pool, 1, sizeof(CBackend));
-    driver->backend = backend;
-    backend->output = f;
+    CBackend *backend = allocFromMemPool(driver->pool, sizeof(CBackend));
     backend->filename = filename;
     backend->testMode = options->cmd == cmdTest;
-    fwrite(CXY_PROLOGUE_SOURCE, 1, CXY_PROLOGUE_SOURCE_SIZE - 1, f);
     return backend;
+}
+
+static void emitCTypeName(FormatState *state, const IrType *type)
+{
+    if (type == NULL) {
+        format(state, "void", NULL);
+        return;
+    }
+
+    switch (type->tag) {
+    case irTypeVoid: format(state, "void", NULL); break;
+    case irTypeBool: format(state, "bool", NULL); break;
+    case irTypeChar: format(state, "char", NULL); break;
+    case irTypeI8: format(state, "int8_t", NULL); break;
+    case irTypeI16: format(state, "int16_t", NULL); break;
+    case irTypeI32: format(state, "int32_t", NULL); break;
+    case irTypeI64: format(state, "int64_t", NULL); break;
+    case irTypeI128: format(state, "int128_t", NULL); break;
+    case irTypeU8: format(state, "uint8_t", NULL); break;
+    case irTypeU16: format(state, "uint16_t", NULL); break;
+    case irTypeU32: format(state, "uint32_t", NULL); break;
+    case irTypeU64: format(state, "uint64_t", NULL); break;
+    case irTypeU128: format(state, "uint128_t", NULL); break;
+    case irTypeF32: format(state, "float", NULL); break;
+    case irTypeF64: format(state, "double", NULL); break;
+    case irTypePointer:
+        emitCTypeName(state, type->pointer.pointee);
+        format(state, " *", NULL);
+        break;
+    case irTypeArray:
+        if (type->name)
+            format(state, "{s}", (FormatArg[]){{.s = type->name}});
+        else {
+            emitCTypeName(state, type->array.elem);
+            format(state, " *", NULL);
+        }
+        break;
+    case irTypeStruct:
+    case irTypeUntaggedUnion:
+        if (type->name)
+            format(state, "{s}", (FormatArg[]){{.s = type->name}});
+        else
+            format(state, "struct _anon_struct", NULL);
+        break;
+    case irTypeFunc:
+        if (type->name)
+            format(state, "{s}", (FormatArg[]){{.s = type->name}});
+        else
+            format(state, "void *", NULL);
+        break;
+    default:
+        format(state, "void", NULL);
+        break;
+    }
+}
+
+static void emitNullConst(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "nullptr", NULL);
+}
+
+static void emitBoolConst(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "{s}", (FormatArg[]){{.s = node->boolConst.value ? "true" : "false"}});
+}
+
+static void emitCharConst(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "'", NULL);
+    printEscapedChar(&ctx->state, (char)node->charConst.value);
+    format(&ctx->state, "'", NULL);
+}
+
+static void emitIntConst(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    if (node->intConst.isNegative)
+        format(&ctx->state, "(-{u128})", (FormatArg[]){{.u128 = node->intConst.value}});
+    else
+        format(&ctx->state, "{u128}", (FormatArg[]){{.u128 = node->intConst.value}});
+}
+
+static void emitFloatConst(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "{f64}", (FormatArg[]){{.f64 = node->floatConst.value}});
+}
+
+static void emitStringConst(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "\"", NULL);
+    cstring p = node->stringConst.value ?: "";
+    while (*p) {
+        printEscapedChar(&ctx->state, *p++);
+    }
+    format(&ctx->state, "\"", NULL);
+}
+
+static void emitVarRef(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "{s}", (FormatArg[]){{.s = node->varRef.name ?: "var"}});
+}
+
+static void emitGlobalRef(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "{s}", (FormatArg[]){{.s = node->globalRef.name ?: "global"}});
+}
+
+static void emitMember(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    irConstVisit(visitor, node->member.target);
+    if (node->member.target && isIrPointerType(node->member.target->type))
+        format(&ctx->state, "->", NULL);
+    else
+        format(&ctx->state, ".", NULL);
+    if (node->member.name)
+        format(&ctx->state, "{s}", (FormatArg[]){{.s = node->member.name}});
+    else
+        format(&ctx->state, "_{u32}", (FormatArg[]){{.u32 = node->member.index}});
+}
+
+static void emitIndex(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    irConstVisit(visitor, node->index.target);
+    format(&ctx->state, "[", NULL);
+    irConstVisit(visitor, node->index.index);
+    format(&ctx->state, "]", NULL);
+}
+
+static void emitCast(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "((", NULL);
+    emitCTypeName(&ctx->state, node->type);
+    format(&ctx->state, ")(", NULL);
+    irConstVisit(visitor, node->cast.expr);
+    format(&ctx->state, "))", NULL);
+}
+
+static void emitUnary(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "(%s(", (FormatArg[]){{.s = getUnaryOpString(node->unary.op)}});
+    irConstVisit(visitor, node->unary.operand);
+    format(&ctx->state, "))", NULL);
+}
+
+static void emitBinary(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "(", NULL);
+    irConstVisit(visitor, node->binary.lhs);
+    format(&ctx->state, " {s} ", (FormatArg[]){{.s = getBinaryOpString(node->binary.op)}});
+    irConstVisit(visitor, node->binary.rhs);
+    format(&ctx->state, ")", NULL);
+}
+
+static void emitCall(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    irConstVisit(visitor, node->call.callee);
+    format(&ctx->state, "(", NULL);
+    for (const IrNode *arg = node->call.args; arg; arg = arg->next) {
+        irConstVisit(visitor, arg);
+        if (arg->next)
+            format(&ctx->state, ", ", NULL);
+    }
+    format(&ctx->state, ")", NULL);
+}
+
+static void emitAddrOf(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "(&(", NULL);
+    irConstVisit(visitor, node->addrOf.target);
+    format(&ctx->state, "))", NULL);
+}
+
+static void emitDeref(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "(*(", NULL);
+    irConstVisit(visitor, node->deref.target);
+    format(&ctx->state, "))", NULL);
+}
+
+static void emitMove(ConstIrVisitor *visitor, const IrNode *node)
+{
+    irConstVisit(visitor, node->move.src);
+}
+
+static void emitSizeof(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "sizeof(", NULL);
+    emitCTypeName(&ctx->state, node->sizeofVal.targetType);
+    format(&ctx->state, ")", NULL);
+}
+
+static void emitVarDecl(ConstIrVisitor *visitor, const IrNode *node)
+{
+    (void)visitor;
+    (void)node;
+}
+
+static void emitAssign(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "  ", NULL);
+    irConstVisit(visitor, node->assign.lhs);
+    format(&ctx->state, " = ", NULL);
+    irConstVisit(visitor, node->assign.rhs);
+    format(&ctx->state, ";\n", NULL);
+}
+
+static void emitBranch(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "  goto {s};\n",
+           (FormatArg[]){{.s = node->branch.target ? node->branch.target->basicBlock.name : ""}});
+}
+
+static void emitBranchIf(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "  if (", NULL);
+    irConstVisit(visitor, node->branchIf.cond);
+    format(&ctx->state, ") goto {s}; else goto {s};\n",
+           (FormatArg[]){
+               {.s = node->branchIf.trueTarget ? node->branchIf.trueTarget->basicBlock.name : ""},
+               {.s = node->branchIf.falseTarget ? node->branchIf.falseTarget->basicBlock.name : ""}});
+}
+
+static void emitSwitch(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "  switch (", NULL);
+    irConstVisit(visitor, node->switchStmt.cond);
+    format(&ctx->state, ") {{\n", NULL);
+    for (u64 i = 0; i < node->switchStmt.casesCount; i++) {
+        format(&ctx->state, "    case {u64}: goto {s};\n",
+               (FormatArg[]){
+                   {.u64 = node->switchStmt.cases[i].value},
+                   {.s = node->switchStmt.cases[i].target ? node->switchStmt.cases[i].target->basicBlock.name : ""}});
+    }
+    if (node->switchStmt.defaultTarget) {
+        format(&ctx->state, "    default: goto {s};\n",
+               (FormatArg[]){{.s = node->switchStmt.defaultTarget->basicBlock.name}});
+    }
+    format(&ctx->state, "  }\n", NULL);
+}
+
+static void emitReturn(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "  return", NULL);
+    if (node->returnStmt.value) {
+        format(&ctx->state, " ", NULL);
+        irConstVisit(visitor, node->returnStmt.value);
+    }
+    format(&ctx->state, ";\n", NULL);
+}
+
+static void emitUnreachable(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "  unreachable();\n", NULL);
+}
+
+static void emitBasicBlock(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "{s}:;\n", (FormatArg[]){{.s = node->basicBlock.name}});
+    for (const IrNode *stmt = node->basicBlock.first; stmt; stmt = stmt->next) {
+        if (stmt->tag == irVarDecl)
+            continue;
+        if (stmt->tag == irCall || stmt->tag == irUnary || stmt->tag == irBinary) {
+            format(&ctx->state, "  ", NULL);
+            irConstVisit(visitor, stmt);
+            format(&ctx->state, ";\n", NULL);
+        }
+        else {
+            irConstVisit(visitor, stmt);
+        }
+    }
+}
+
+static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    if (hasFlag(node, Extern))
+        return;
+
+    format(&ctx->state, "static ", NULL);
+    emitCTypeName(&ctx->state, node->type ? node->type->func.ret : NULL);
+    format(&ctx->state, " {s}(", (FormatArg[]){{.s = node->function.name}});
+    for (const IrNode *p = node->function.params; p; p = p->next) {
+        emitCTypeName(&ctx->state, p->type);
+        format(&ctx->state, " {s}", (FormatArg[]){{.s = p->funcParam.name}});
+        if (p->next)
+            format(&ctx->state, ", ", NULL);
+    }
+    format(&ctx->state, ") {{\n", NULL);
+
+    for (const IrNode *bb = node->function.firstBlock; bb; bb = bb->next) {
+        for (const IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
+            if (stmt->tag == irVarDecl) {
+                format(&ctx->state, "  ", NULL);
+                emitCTypeName(&ctx->state, stmt->type);
+                format(&ctx->state, " {s};\n", (FormatArg[]){{.s = stmt->varDecl.name ?: "__v"}});
+            }
+        }
+    }
+
+    for (const IrNode *bb = node->function.firstBlock; bb; bb = bb->next) {
+        irConstVisit(visitor, bb);
+    }
+
+    format(&ctx->state, "}\n\n", NULL);
+}
+
+static void emitGlobalVar(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    emitCTypeName(&ctx->state, node->type);
+    format(&ctx->state, " {s}", (FormatArg[]){{.s = node->globalVar.name}});
+    if (node->globalVar.init) {
+        format(&ctx->state, " = ", NULL);
+        irConstVisit(visitor, node->globalVar.init);
+    }
+    format(&ctx->state, ";\n", NULL);
+}
+
+static void emitTypeGraphDefinitions(FormatState *state, const IrModule *module, MemPool *pool)
+{
+    IrTypeGraph *g = newIrTypeGraph(pool);
+    buildIrTypeGraph(g, module);
+
+    // Pass 1: Forward typedefs for all structs and unions
+    dynArrayFor(it, const IrType *, &g->sorted) {
+        const IrType *t = *it;
+        if (t->tag == irTypeStruct && t->name) {
+            format(state, "typedef struct {s} {s};\n", (FormatArg[]){{.s = t->name}, {.s = t->name}});
+        }
+        else if (t->tag == irTypeUntaggedUnion && t->name) {
+            format(state, "typedef union {s} {s};\n", (FormatArg[]){{.s = t->name}, {.s = t->name}});
+        }
+    }
+    format(state, "\n", NULL);
+
+    // Pass 2: Definitions in topological order
+    dynArrayFor(it, const IrType *, &g->sorted) {
+        const IrType *t = *it;
+        if (t->tag == irTypeStruct && t->name) {
+            format(state, "struct {s} {{\n", (FormatArg[]){{.s = t->name}});
+            for (u64 f = 0; f < t->strct.count; f++) {
+                format(state, "  ", NULL);
+                emitCTypeName(state, t->strct.fields[f].type);
+                format(state, " {s};\n", (FormatArg[]){{.s = t->strct.fields[f].name ?: "_f"}});
+            }
+            format(state, "};\n\n", NULL);
+        }
+        else if (t->tag == irTypeUntaggedUnion && t->name) {
+            format(state, "union {s} {{\n", (FormatArg[]){{.s = t->name}});
+            for (u64 f = 0; f < t->strct.count; f++) {
+                format(state, "  ", NULL);
+                emitCTypeName(state, t->strct.fields[f].type);
+                format(state, " {s};\n", (FormatArg[]){{.s = t->strct.fields[f].name ?: "_f"}});
+            }
+            format(state, "};\n\n", NULL);
+        }
+        else if (t->tag == irTypeArray && t->name) {
+            format(state, "typedef ", NULL);
+            emitCTypeName(state, t->array.elem);
+            format(state, " {s}[{u64}];\n\n", (FormatArg[]){{.s = t->name}, {.u64 = t->array.len}});
+        }
+    }
+
+    freeIrTypeGraph(g);
+}
+
+static void emitFunctionPrototypes(FormatState *state, const IrModule *module)
+{
+    for (const IrNode *func = module->module.functions; func; func = func->next) {
+        if (hasFlag(func, Extern))
+            continue;
+        format(state, "static ", NULL);
+        emitCTypeName(state, func->type ? func->type->func.ret : NULL);
+        format(state, " {s}(", (FormatArg[]){{.s = func->function.name}});
+        for (const IrNode *p = func->function.params; p; p = p->next) {
+            emitCTypeName(state, p->type);
+            format(state, " {s}", (FormatArg[]){{.s = p->funcParam.name}});
+            if (p->next)
+                format(state, ", ", NULL);
+        }
+        format(state, ");\n", NULL);
+    }
+    format(state, "\n", NULL);
+}
+
+static void emitModule(ConstIrVisitor *visitor, const IrNode *module)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    for (const IrNode *glob = module->module.globals; glob; glob = glob->next)
+        irConstVisit(visitor, glob);
+
+    if (module->module.globals)
+        format(&ctx->state, "\n", NULL);
+
+    for (const IrNode *func = module->module.functions; func; func = func->next)
+        irConstVisit(visitor, func);
+}
+
+static bool emitCModule(CompilerDriver *driver, const IrModule *module, FILE *file)
+{
+    CodegenContext ctx = {
+        .backend = driver->backend,
+        .strings = driver->strings,
+        .state = newFormatState("  ", true),
+        .types = newFormatState("  ", true)};
+
+    // Prologue
+    fwrite(CXY_PROLOGUE_SOURCE, 1, CXY_PROLOGUE_SOURCE_SIZE - 1, file);
+
+    // Types
+    emitTypeGraphDefinitions(&ctx.types, module, driver->pool);
+    char *typesCode = formatStateToString(&ctx.types);
+    if (typesCode) {
+        fputs(typesCode, file);
+        free(typesCode);
+    }
+
+    // Function prototypes
+    emitFunctionPrototypes(&ctx.state, module);
+
+    // clang-format off
+    ConstIrVisitor visitor = makeConstIrVisitor(&ctx, {
+        [irModule] = emitModule,
+        [irFunction] = emitFunction,
+        [irBasicBlock] = emitBasicBlock,
+        [irGlobalVar] = emitGlobalVar,
+        [irVarDecl] = emitVarDecl,
+        [irAssign] = emitAssign,
+        [irBranch] = emitBranch,
+        [irBranchIf] = emitBranchIf,
+        [irSwitch] = emitSwitch,
+        [irReturn] = emitReturn,
+        [irUnreachable] = emitUnreachable,
+        [irCall] = emitCall,
+        [irNullConst] = emitNullConst,
+        [irBoolConst] = emitBoolConst,
+        [irCharConst] = emitCharConst,
+        [irIntConst] = emitIntConst,
+        [irFloatConst] = emitFloatConst,
+        [irStringConst] = emitStringConst,
+        [irVarRef] = emitVarRef,
+        [irGlobalRef] = emitGlobalRef,
+        [irMember] = emitMember,
+        [irIndex] = emitIndex,
+        [irCast] = emitCast,
+        [irUnary] = emitUnary,
+        [irBinary] = emitBinary,
+        [irAddrOf] = emitAddrOf,
+        [irDeref] = emitDeref,
+        [irMove] = emitMove,
+        [irSizeof] = emitSizeof
+    });
+    // clang-format on
+
+    irConstVisit(&visitor, module);
+
+    // Main entry point wrapper
+    const IrNode *mainFunc = NULL;
+    for (const IrNode *func = module->module.functions; func; func = func->next) {
+        if (hasFlag(func, Main) || func->function.display == S_main) {
+            mainFunc = func;
+            break;
+        }
+    }
+
+    if (!driver->options.buildPlugin && mainFunc) {
+        format(&ctx.state, "int main(int argc, char **argv) {{\n", NULL);
+        format(&ctx.state, "  (void)argc;\n  (void)argv;\n", NULL);
+        if (mainFunc->type && mainFunc->type->func.ret && mainFunc->type->func.ret->tag != irTypeVoid) {
+            format(&ctx.state, "  return {s}();\n", (FormatArg[]){{.s = mainFunc->function.name}});
+        }
+        else {
+            format(&ctx.state, "  {s}();\n  return 0;\n", (FormatArg[]){{.s = mainFunc->function.name}});
+        }
+        format(&ctx.state, "}\n", NULL);
+    }
+
+    char *code = formatStateToString(&ctx.state);
+    if (code) {
+        fputs(code, file);
+        free(code);
+    }
+    freeFormatState(&ctx.state);
+    freeFormatState(&ctx.types);
+    return true;
+}
+
+AstNode *generateCode(CompilerDriver *driver, AstNode *node)
+{
+    csAssert0(nodeIs(node, Metadata));
+    CBackend *backend = driver->backend;
+    csAssert0(backend);
+
+    FILE *output = fopen(backend->filename, "w+");
+    if (output == NULL) {
+        logError(driver->L, builtinLoc(), "opening output file failed: {s}",
+                 (FormatArg[]){{.s = strerror(errno)}});
+        return NULL;
+    }
+
+    if (node->metadata.ir == NULL) {
+        node->metadata.ir = lowerToIr(driver, node->metadata.node);
+    }
+
+    if (hasErrors(driver->L)) {
+        fclose(output);
+        return NULL;
+    }
+
+    emitCModule(driver, node->metadata.ir, output);
+    fclose(output);
+    return node;
 }
 
 void deinitCompilerBackend(CompilerDriver *driver)
 {
-    if (driver->backend == NULL)
-        return;
-    CBackend *backend = (CBackend *)driver->backend;
     driver->backend = NULL;
-    if (backend->output) {
-        fwrite(
-            CXY_EPILOGUE_SOURCE, 1, CXY_EPILOGUE_SOURCE_SIZE, backend->output);
-        fclose(backend->output);
-    }
 }
 
 bool compilerBackendMakeExecutable(CompilerDriver *driver)
 {
-    if (driver->backend == NULL)
-        return false;
     CBackend *backend = (CBackend *)driver->backend;
     // compile the source file
     Options *opts = &driver->options;
@@ -2540,41 +702,12 @@ bool compilerBackendMakeExecutable(CompilerDriver *driver)
 
 bool compilerBackendExecuteTestCase(CompilerDriver *driver)
 {
-    FormatState cmd = newFormatState("\t", true);
     Options *opts = &driver->options;
+    FormatState cmd = newFormatState("", true);
     getOutputPath(&cmd, driver->strings, opts, "");
-
     char *command = formatStateToString(&cmd);
     freeFormatState(&cmd);
     int rc = system(command);
     free(command);
     return rc == 0;
-}
-
-AstNode *backendDumpIR(CompilerDriver *driver, AstNode *node)
-{
-    CBackend *backend = (CBackend *)driver->backend;
-    csAssert0(backend);
-    if (backend->output) {
-        generateCodeEpilogue(backend->output);
-        fclose(backend->output);
-        backend->output = NULL;
-    }
-
-    Options *opts = &driver->options;
-    if (opts->output == NULL) {
-        FILE *f = fopen("./app.c", "r");
-        if (f == NULL) {
-            logError(driver->L,
-                     NULL,
-                     "opening './app.c' failed: {s}",
-                     (FormatArg[]){{.s = strerror(errno)}});
-            return NULL;
-        }
-        int c;
-        while ((c = fgetc(f)) != EOF)
-            fputc(c, stdout);
-        fclose(f);
-    }
-    return node;
 }

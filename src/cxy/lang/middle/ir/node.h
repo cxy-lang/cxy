@@ -130,7 +130,7 @@ struct IrNode {
         struct { IrNode *target; } zeromem;
 
         // Statements
-        struct { cstring name; u32 scopeId; } varDecl;
+        struct { cstring name; cstring display; u32 scopeId; } varDecl;
         struct { IrNode *lhs; IrNode *rhs; } assign;
         struct { u32 scopeId; } scopeEnter;
         struct { u32 scopeId; } scopeExit;
@@ -173,7 +173,7 @@ IrNode *makeIrBasicBlock(MemPool *pool, const FileLoc *loc, cstring name);
 IrNode *makeIrFuncParam(MemPool *pool, const FileLoc *loc, u64 flags, cstring name, u32 index, const IrType *type);
 IrNode *makeIrGlobalVar(MemPool *pool, const FileLoc *loc, u64 flags, cstring name, const IrType *type, IrNode *init);
 
-IrNode *makeIrVarDecl(MemPool *pool, const FileLoc *loc, u64 flags, cstring name, const IrType *type, u32 scopeId);
+IrNode *makeIrVarDecl(MemPool *pool, const FileLoc *loc, u64 flags, cstring name, cstring display, const IrType *type, u32 scopeId);
 IrNode *makeIrAssign(MemPool *pool, const FileLoc *loc, IrNode *lhs, IrNode *rhs);
 IrNode *makeIrScopeEnter(MemPool *pool, const FileLoc *loc, u32 scopeId);
 IrNode *makeIrScopeExit(MemPool *pool, const FileLoc *loc, u32 scopeId);
@@ -192,6 +192,9 @@ IrNode *makeIrBinary(MemPool *pool, const FileLoc *loc, Operator op, IrNode *lhs
 IrNode *makeIrCall(MemPool *pool, const FileLoc *loc, IrNode *callee, IrNode *args, u64 argsCount, const IrType *retType);
 IrNode *makeIrAddrOf(MemPool *pool, const FileLoc *loc, IrNode *target, const IrType *ptrType);
 IrNode *makeIrDeref(MemPool *pool, const FileLoc *loc, IrNode *target, const IrType *valType);
+IrNode *makeIrSizeof(MemPool *pool, const FileLoc *loc, const IrType *targetType);
+IrNode *makeIrAlloca(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size);
+IrNode *makeIrMalloc(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size);
 
 IrNode *makeIrMove(MemPool *pool, const FileLoc *loc, IrNode *src);
 IrNode *makeIrCopy(MemPool *pool, const FileLoc *loc, IrNode *src, IrNode *dst);

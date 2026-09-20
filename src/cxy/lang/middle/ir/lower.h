@@ -30,6 +30,7 @@ typedef struct LowerContext {
     u32 nextScopeId;
     u32 nextBlockId;
     u32 tempCounter;
+    HashTable varNames;
     LoopCtx *loopCtx;
 } LowerContext;
 

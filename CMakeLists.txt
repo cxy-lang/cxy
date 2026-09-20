@@ -227,10 +227,6 @@ set(CXY_MIDDLE_SOURCES
 
         src/cxy/lang/middle/simplify/simplify.c
 
-        src/cxy/lang/middle/mem/finalize.c
-        src/cxy/lang/middle/mem/manage.c
-        src/cxy/lang/middle/mem/mem.c
-
         src/cxy/lang/middle/ir/type.c
         src/cxy/lang/middle/ir/node.c
         src/cxy/lang/middle/ir/context.c
@@ -251,7 +247,7 @@ if (ENABLE_LLVM_BACKEND)
 else ()
     set(CXY_LANG_BACKEND_SOURCES
             src/cxy/lang/backend/c/generate.c
-            src/cxy/lang/backend/c/pre.c
+            src/cxy/lang/backend/c/typegraph.c
     )
 endif ()
 

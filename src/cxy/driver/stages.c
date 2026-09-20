@@ -226,9 +226,7 @@ static AstNode *executeLower(CompilerDriver *driver, AstNode *node)
         return NULL;
     }
 
-    if (driver->options.dev.useIr || driver->options.dev.printIR) {
-        node->metadata.ir = lowerToIr(driver, node->metadata.node);
-    }
+    node->metadata.ir = lowerToIr(driver, node->metadata.node);
 
     if (hasErrors(driver->L))
         return NULL;
@@ -240,21 +238,7 @@ static AstNode *executeLower(CompilerDriver *driver, AstNode *node)
 static AstNode *executeMemoryManagement(CompilerDriver *driver, AstNode *node)
 {
     csAssert0(nodeIs(node, Metadata));
-    if (!driver->options.withMemoryManager)
-        return node;
-    if (!(node->metadata.stages & BIT(ccsSimplify))) {
-        logError(driver->L,
-                 builtinLoc(),
-                 "AST must be simplified before memory management",
-                 NULL);
-        return NULL;
-    }
-
-    node->metadata.node = memoryManageAst(driver, node->metadata.node);
-
-    if (hasErrors(driver->L))
-        return NULL;
-
+    (void)driver;
     node->metadata.stages |= BIT(ccsMemoryMgmt);
     return node;
 }
@@ -262,26 +246,20 @@ static AstNode *executeMemoryManagement(CompilerDriver *driver, AstNode *node)
 static AstNode *executeGenerateCode(CompilerDriver *driver, AstNode *node)
 {
     csAssert0(nodeIs(node, Metadata));
-    if (!(node->metadata.stages & BIT(ccsSimplify))) {
+    if (!(node->metadata.stages & BIT(ccsLower))) {
         logError(driver->L,
                  builtinLoc(),
-                 "cannot generate code before the AST has been memory managed",
+                 "cannot generate code before the AST has been lowered",
                  NULL);
         return NULL;
     }
 
-    FormatState state = newFormatState("  ", true);
-    node->metadata.state = &state;
     generateCode(driver, node);
-    freeFormatState(&state);
-    node->metadata.state = NULL;
 
     if (hasErrors(driver->L))
         return NULL;
 
     node->metadata.stages |= BIT(ccsCodegen);
-    node->metadata.state = NULL;
-
     return node;
 }
 
@@ -429,11 +407,11 @@ AstNode *executeCompilerStage(CompilerDriver *driver,
     printStatus(
         driver->L, cBWHT "* %s %s..." cDEF, stageName, name ?: "<unknown>");
     compilerStatsSnapshot(driver);
-    
+
     PROFILE_STAGE(&driver->profiling, stage) {
         node = executor(driver, node);
     }
-    
+
     compilerStatsRecord(driver, stage);
     compilerStatsSnapshot(driver);
 

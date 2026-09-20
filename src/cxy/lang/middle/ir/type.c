@@ -139,7 +139,7 @@ const IrType *getIrPrimitiveType(IrTypeTable *table, IrTypeTag tag)
 
 const IrType *makeIrPointerType(IrTypeTable *table, const IrType *pointee)
 {
-    cstring display = makeStringf(table->strings, "*%s", pointee ? (pointee->display ?: pointee->name) : "void");
+    cstring display = makeStringf(table->strings, "^%s", pointee ? (pointee->display ?: pointee->name) : "void");
     IrType type = {
         .tag = irTypePointer,
         .size = sizeof(void *),

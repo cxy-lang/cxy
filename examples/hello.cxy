@@ -1,26 +1,17 @@
 
 extern func printf(format: string, ...args: auto): i32
 
-func hello(x: (i8, bool, string)) {
-    return (x.1, x.2, x.0)
-}
-
-struct Awesome {
-    name: string
-    age: i8
-
-    func hello() {
-        printf("Hello, %s", name)
-    }
-
-    func `init`(name: string, age: i8) {
-        this.name = name
-        this.age = age
+// func hello(x: (i8, bool, string)) {
+//     return (x.1, x.2, x.0)
+// }
+func say(data: [i8]) {
+    for i in data {
+        printf("%d\n", i)
     }
 }
 
 func main() {
-    for i in 0..10 {
-        printf("%d\n", i)
-    }
+    var arr = [1, 2, 3, 4, 5]
+    var x: [i8] = arr
+    say(arr)
 }
