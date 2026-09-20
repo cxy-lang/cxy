@@ -2363,10 +2363,12 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
     case astCallExpr:
         CLONE_ONE(callExpr, callee);
         CLONE_MANY(callExpr, args);
+        clone->callExpr.isOptional = node->callExpr.isOptional;
         break;
     case astMacroCallExpr:
         CLONE_ONE(callExpr, callee);
         CLONE_MANY(callExpr, args);
+        clone->callExpr.isOptional = node->callExpr.isOptional;
         break;
     case astClosureExpr:
         if (node->closureExpr.captureCount)

@@ -26,6 +26,8 @@ extern "C" {
     f(DotDot, "..")                 \
     f(Elipsis, "...")               \
     f(Question, "?")                \
+    f(Coalesce, "??")               \
+    f(OptionalDot, "?.")            \
     f(Comma, ",")                   \
     f(Colon, ":")                   \
     f(DColon, "::")                 \

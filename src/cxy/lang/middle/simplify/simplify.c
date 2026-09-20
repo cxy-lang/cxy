@@ -432,81 +432,81 @@ static void visitCastExpr(AstVisitor *visitor, AstNode *node)
             node->unionValue.value = expr;
         }
     }
-    else if (isUnionType(expr->type) && !hasFlag(node, BitUnionCast)) {
-        AstNode *builtinAssert = findBuiltinDecl(S___cxy_assert);
-        csAssert0(builtinAssert);
-        u32 idx = findUnionTypeIndex(expr->type, stripReference(to->type));
-        csAssert0(idx != UINT32_MAX);
-        AstNodeList args = {};
-        insertAstNode(
-            &args,
-            makeBinaryExpr(
-                ctx->pool,
-                &expr->loc,
-                flgNone,
-                makeMemberExpr(ctx->pool,
-                               &expr->loc,
-                               flgNone,
-                               deepCloneAstNode(ctx->pool, expr),
-                               makeUnsignedIntegerLiteral(
-                                   ctx->pool,
-                                   &expr->loc,
-                                   0,
-                                   NULL,
-                                   getPrimitiveType(ctx->types, prtU64)),
-                               NULL,
-                               getPrimitiveType(ctx->types, prtU64)),
-                opEq,
-                makeUnsignedIntegerLiteral(
-                    ctx->pool,
-                    &expr->loc,
-                    idx,
-                    NULL,
-                    getPrimitiveType(ctx->types, prtU64)),
-                NULL,
-                getPrimitiveType(ctx->types, prtBool)));
-        insertAstNode(&args,
-                      makeStringLiteral(ctx->pool,
-                                        &expr->loc,
-                                        expr->loc.fileName,
-                                        NULL,
-                                        makeStringType(ctx->types)));
-        insertAstNode(
-            &args,
-            makeUnsignedIntegerLiteral(ctx->pool,
-                                       &expr->loc,
-                                       expr->loc.begin.row,
-                                       NULL,
-                                       getPrimitiveType(ctx->types, prtU64)));
-        insertAstNode(
-            &args,
-            makeUnsignedIntegerLiteral(ctx->pool,
-                                       &expr->loc,
-                                       expr->loc.begin.col,
-                                       NULL,
-                                       getPrimitiveType(ctx->types, prtU64)));
+    // else if (isUnionType(expr->type) && !hasFlag(node, BitUnionCast)) {
+    //     AstNode *builtinAssert = findBuiltinDecl(S___cxy_assert);
+    //     csAssert0(builtinAssert);
+    //     u32 idx = findUnionTypeIndex(expr->type, stripReference(to->type));
+    //     csAssert0(idx != UINT32_MAX);
+    //     AstNodeList args = {};
+    //     insertAstNode(
+    //         &args,
+    //         makeBinaryExpr(
+    //             ctx->pool,
+    //             &expr->loc,
+    //             flgNone,
+    //             makeMemberExpr(ctx->pool,
+    //                            &expr->loc,
+    //                            flgNone,
+    //                            deepCloneAstNode(ctx->pool, expr),
+    //                            makeUnsignedIntegerLiteral(
+    //                                ctx->pool,
+    //                                &expr->loc,
+    //                                0,
+    //                                NULL,
+    //                                getPrimitiveType(ctx->types, prtU64)),
+    //                            NULL,
+    //                            getPrimitiveType(ctx->types, prtU64)),
+    //             opEq,
+    //             makeUnsignedIntegerLiteral(
+    //                 ctx->pool,
+    //                 &expr->loc,
+    //                 idx,
+    //                 NULL,
+    //                 getPrimitiveType(ctx->types, prtU64)),
+    //             NULL,
+    //             getPrimitiveType(ctx->types, prtBool)));
+    //     insertAstNode(&args,
+    //                   makeStringLiteral(ctx->pool,
+    //                                     &expr->loc,
+    //                                     expr->loc.fileName,
+    //                                     NULL,
+    //                                     makeStringType(ctx->types)));
+    //     insertAstNode(
+    //         &args,
+    //         makeUnsignedIntegerLiteral(ctx->pool,
+    //                                    &expr->loc,
+    //                                    expr->loc.begin.row,
+    //                                    NULL,
+    //                                    getPrimitiveType(ctx->types, prtU64)));
+    //     insertAstNode(
+    //         &args,
+    //         makeUnsignedIntegerLiteral(ctx->pool,
+    //                                    &expr->loc,
+    //                                    expr->loc.begin.col,
+    //                                    NULL,
+    //                                    getPrimitiveType(ctx->types, prtU64)));
 
-        AstNode *assert = makeExprStmt(
-            ctx->pool,
-            &node->loc,
-            flgNone,
-            makeCallExpr(ctx->pool,
-                         &node->loc,
-                         makeResolvedIdentifier(ctx->pool,
-                                                &node->loc,
-                                                S___cxy_assert,
-                                                0,
-                                                builtinAssert,
-                                                NULL,
-                                                builtinAssert->type),
-                         args.first,
-                         node->flags,
-                         NULL,
-                         builtinAssert->type->func.retType),
-            NULL,
-            makeVoidType(ctx->types));
-        astModifierAdd(&ctx->block, assert);
-    }
+    //     AstNode *assert = makeExprStmt(
+    //         ctx->pool,
+    //         &node->loc,
+    //         flgNone,
+    //         makeCallExpr(ctx->pool,
+    //                      &node->loc,
+    //                      makeResolvedIdentifier(ctx->pool,
+    //                                             &node->loc,
+    //                                             S___cxy_assert,
+    //                                             0,
+    //                                             builtinAssert,
+    //                                             NULL,
+    //                                             builtinAssert->type),
+    //                      args.first,
+    //                      node->flags,
+    //                      NULL,
+    //                      builtinAssert->type->func.retType),
+    //         NULL,
+    //         makeVoidType(ctx->types));
+    //     astModifierAdd(&ctx->block, assert);
+    // }
 }
 
 static void visitIndexExpr(AstVisitor *visitor, AstNode *node)
@@ -619,6 +619,7 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
         return;
 
     csAssert0(nodeIs(callee, MemberExpr));
+    bool isOptional = callee->memberExpr.isOptional || node->callExpr.isOptional;
     AstNode *target = callee->memberExpr.target,
             *call = callee->memberExpr.member;
 
@@ -645,6 +646,7 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
         node->callExpr.args = target;
         node->callExpr.callee = call;
     }
+    node->callExpr.isOptional = isOptional;
 }
 
 static void visitIdentifier(AstVisitor *visitor, AstNode *node)
@@ -686,31 +688,32 @@ static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
 {
     SimplifyContext *ctx = getAstVisitorContext(visitor);
     AstNode *lhs = node->binaryExpr.lhs, *rhs = node->binaryExpr.rhs;
-    if (node->binaryExpr.op == opIs) {
-        astVisitFallbackVisitAll(visitor, node);
-        const Type *type = stripPointerOrReferenceOnce(lhs->type, NULL);
-        csAssert0(isUnionType(type));
-        u32 idx = findUnionTypeIndex(type, rhs->type);
-        csAssert0(idx != UINT32_MAX);
-        // Convert to lhs.tag == idx
-        lhs->memberExpr.target = deepCloneAstNode(ctx->pool, lhs);
-        lhs->tag = astMemberExpr;
-        lhs->memberExpr.member =
-            makeIntegerLiteral(ctx->pool,
-                               &lhs->loc,
-                               0,
-                               NULL,
-                               getPrimitiveType(ctx->types, prtU64));
-        lhs->type = getPrimitiveType(ctx->types, prtU64);
+    // if (node->binaryExpr.op == opIs) {
+    //     astVisitFallbackVisitAll(visitor, node);
+    //     const Type *type = stripPointerOrReferenceOnce(lhs->type, NULL);
+    //     csAssert0(isUnionType(type));
+    //     u32 idx = findUnionTypeIndex(type, rhs->type);
+    //     csAssert0(idx != UINT32_MAX);
+    //     // Convert to lhs.tag == idx
+    //     lhs->memberExpr.target = deepCloneAstNode(ctx->pool, lhs);
+    //     lhs->tag = astMemberExpr;
+    //     lhs->memberExpr.member =
+    //         makeIntegerLiteral(ctx->pool,
+    //                            &lhs->loc,
+    //                            0,
+    //                            NULL,
+    //                            getPrimitiveType(ctx->types, prtU64));
+    //     lhs->type = getPrimitiveType(ctx->types, prtU64);
 
-        rhs->tag = astIntegerLit;
-        rhs->intLiteral.isNegative = false;
-        rhs->intLiteral.uValue = idx;
-        rhs->type = getPrimitiveType(ctx->types, prtU64);
+    //     rhs->tag = astIntegerLit;
+    //     rhs->intLiteral.isNegative = false;
+    //     rhs->intLiteral.uValue = idx;
+    //     rhs->type = getPrimitiveType(ctx->types, prtU64);
 
-        node->binaryExpr.op = opEq;
-    }
-    else if (node->binaryExpr.op == opEq || node->binaryExpr.op == opNe) {
+    //     node->binaryExpr.op = opEq;
+    // }
+    // else
+    if (node->binaryExpr.op == opEq || node->binaryExpr.op == opNe) {
         astVisitFallbackVisitAll(visitor, node);
         if (nodeIs(rhs, NullLit) && hasFlag(lhs->type, FuncTypeParam)) {
             // We want to turn this into lhs.0 = null

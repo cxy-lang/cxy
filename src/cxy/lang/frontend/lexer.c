@@ -414,8 +414,13 @@ Token advanceLexer(Lexer *lexer)
             return makeToken(lexer, &begin, tokQuote);
         if (acceptChar(lexer, '@'))
             return makeToken(lexer, &begin, tokAt);
-        if (acceptChar(lexer, '?'))
+        if (acceptChar(lexer, '?')) {
+            if (acceptChar(lexer, '.'))
+                return makeToken(lexer, &begin, tokOptionalDot);
+            if (acceptChar(lexer, '?'))
+                return makeToken(lexer, &begin, tokCoalesce);
             return makeToken(lexer, &begin, tokQuestion);
+        }
         if (acceptChar(lexer, '}')) {
             if (lexer->flags & lxContinueStringExpr)
                 goto lexerLexString;
@@ -698,7 +703,7 @@ Token advanceLexer(Lexer *lexer)
 
             bool hasDot = false;
             // Only treat as float if dot is followed by a digit or if we're in float context
-            if (getCurChar(lexer) == '.' && 
+            if (getCurChar(lexer) == '.' &&
                 isdigit(peekNextChar(lexer)) &&
                 peekNextChar(lexer) != '.' &&
                 peekNextChar(lexer) != '[' &&

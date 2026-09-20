@@ -77,7 +77,7 @@ do {
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-    typedef struct builtins__ManagedVariable {
+typedef struct builtins__ManagedVariable {
     void *ptr;
     void (*cleaner)(void *);
     const char *name;
@@ -261,12 +261,60 @@ static inline bool __smart_ptr_drop(sptr ptr)
     return false;
 }
 
+#if defined(ENABLE_MEMORY_TRACE)
+static inline void __cxy_default_memory_trace(sptr ptr, const char *op, const char *path, uint64_t line)
+{
+    if (ptr == nullptr)
+        return;
+    __mem *mem = (__mem *)((char *)ptr - sizeof(__mem));
+    printf("[MEM:%s] ptr=%p refs=%u @ %s:%llu\n", op, ptr, (unsigned)mem->refs, path, (unsigned long long)line);
+}
+
+#ifdef TRACE_MEMORY
+extern void TRACE_MEMORY(sptr ptr, const char *op, const char *path, uint64_t line);
+#define CXY_MEMORY_TRACE(ptr, op, path, line) TRACE_MEMORY(ptr, op, path, line)
+#else
+#define CXY_MEMORY_TRACE(ptr, op, path, line) __cxy_default_memory_trace(ptr, op, path, line)
+#endif
+
+static inline sptr __smart_ptr_alloc_trace(uint64_t size, sptr_dctor dctor, const char *path, uint64_t line)
+{
+    sptr ptr = __smart_ptr_alloc(size, dctor);
+    CXY_MEMORY_TRACE(ptr, "alloc", path, line);
+    return ptr;
+}
+
 static inline sptr __smart_ptr_get_trace(sptr ptr, const char *path, uint64_t line)
 {
+    sptr res = __smart_ptr_get(ptr);
+    CXY_MEMORY_TRACE(res, "get", path, line);
+    return res;
+}
+
+static inline bool __smart_ptr_drop_trace(sptr ptr, const char *path, uint64_t line)
+{
+    CXY_MEMORY_TRACE(ptr, "drop", path, line);
+    return __smart_ptr_drop(ptr);
+}
+#else
+static inline sptr __smart_ptr_alloc_trace(uint64_t size, sptr_dctor dctor, const char *path, uint64_t line)
+{
+    (void)path;
+    (void)line;
+    return __smart_ptr_alloc(size, dctor);
+}
+
+static inline sptr __smart_ptr_get_trace(sptr ptr, const char *path, uint64_t line)
+{
+    (void)path;
+    (void)line;
     return __smart_ptr_get(ptr);
 }
 
-static inline void __smart_ptr_drop_trace(sptr ptr, const char *path, uint64_t line)
+static inline bool __smart_ptr_drop_trace(sptr ptr, const char *path, uint64_t line)
 {
-    __smart_ptr_drop(ptr);
+    (void)path;
+    (void)line;
+    return __smart_ptr_drop(ptr);
 }
+#endif

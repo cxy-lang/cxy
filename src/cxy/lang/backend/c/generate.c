@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 static void getOutputPath(FormatState *cmd,
                           StrPool *strings,
@@ -42,22 +43,49 @@ static void getOutputPath(FormatState *cmd,
 
 void *initCompilerBackend(CompilerDriver *driver, int argc, char **argv)
 {
+    (void)argc;
+    (void)argv;
+    csAssert0(driver->backend == NULL);
     Options *options = &driver->options;
     cstring filename = NULL;
     if (options->output == NULL) {
-        filename = joinPath(driver->strings, options->buildDir ?: "./", "app.c");
+        filename =
+            joinPath(driver->strings, options->buildDir ?: "./", "app.c");
     }
     else if (options->output[0] == '/') {
         filename = makeStringConcat(driver->strings, options->output, ".c");
     }
     else {
-        filename = joinPath(driver->strings, options->buildDir ?: "./",
-                            makeStringConcat(driver->strings, options->output, ".c"));
+        filename =
+            joinPath(driver->strings,
+                     options->buildDir ?: "./",
+                     makeStringConcat(driver->strings, options->output, ".c"));
     }
 
-    CBackend *backend = allocFromMemPool(driver->pool, sizeof(CBackend));
+    struct stat st;
+    if (stat(filename, &st) == 0) {
+        remove(filename);
+    }
+
+    FILE *f = fopen(filename, "w+");
+    if (f == NULL) {
+        logError(driver->L,
+                 builtinLoc(),
+                 "creating output file '{s}' failed: '{s}'",
+                 (FormatArg[]){{.s = filename}, {.s = strerror(errno)}});
+        return NULL;
+    }
+
+    CBackend *backend = callocFromMemPool(driver->pool, 1, sizeof(CBackend));
+    driver->backend = backend;
+    backend->output = f;
     backend->filename = filename;
     backend->testMode = options->cmd == cmdTest;
+
+    if (driver->options.withMemoryTrace) {
+        fputs("#define ENABLE_MEMORY_TRACE 1\n", f);
+    }
+    fwrite(CXY_PROLOGUE_SOURCE, 1, CXY_PROLOGUE_SOURCE_SIZE - 1, f);
     return backend;
 }
 
@@ -488,9 +516,6 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *module, FILE *fi
         .state = newFormatState("  ", true),
         .types = newFormatState("  ", true)};
 
-    // Prologue
-    fwrite(CXY_PROLOGUE_SOURCE, 1, CXY_PROLOGUE_SOURCE_SIZE - 1, file);
-
     // Types
     emitTypeGraphDefinitions(&ctx.types, module, driver->pool);
     char *typesCode = formatStateToString(&ctx.types);
@@ -573,32 +598,31 @@ AstNode *generateCode(CompilerDriver *driver, AstNode *node)
 {
     csAssert0(nodeIs(node, Metadata));
     CBackend *backend = driver->backend;
-    csAssert0(backend);
-
-    FILE *output = fopen(backend->filename, "w+");
-    if (output == NULL) {
-        logError(driver->L, builtinLoc(), "opening output file failed: {s}",
-                 (FormatArg[]){{.s = strerror(errno)}});
-        return NULL;
-    }
+    csAssert0(backend && backend->output);
 
     if (node->metadata.ir == NULL) {
         node->metadata.ir = lowerToIr(driver, node->metadata.node);
     }
 
     if (hasErrors(driver->L)) {
-        fclose(output);
         return NULL;
     }
 
-    emitCModule(driver, node->metadata.ir, output);
-    fclose(output);
+    emitCModule(driver, node->metadata.ir, backend->output);
     return node;
 }
 
 void deinitCompilerBackend(CompilerDriver *driver)
 {
+    if (driver->backend == NULL)
+        return;
+    CBackend *backend = (CBackend *)driver->backend;
     driver->backend = NULL;
+    if (backend->output) {
+        fwrite(CXY_EPILOGUE_SOURCE, 1, CXY_EPILOGUE_SOURCE_SIZE, backend->output);
+        fclose(backend->output);
+        backend->output = NULL;
+    }
 }
 
 bool compilerBackendMakeExecutable(CompilerDriver *driver)

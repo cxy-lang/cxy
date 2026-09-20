@@ -315,4 +315,11 @@ void checkCallExpr(AstVisitor *visitor, AstNode *node)
     if (!typeIs(node->type, Error) && !explicitCatch) {
         checkCallExceptionBubbleUp(visitor, node);
     }
+
+    if (!typeIs(node->type, Error) && nodeIs(callee, MemberExpr) && callee->memberExpr.isOptional) {
+        node->callExpr.isOptional = true;
+        if (!isOptionalType(node->type)) {
+            node->type = makeOptionalType(ctx->types, node->type, flgNone);
+        }
+    }
 }

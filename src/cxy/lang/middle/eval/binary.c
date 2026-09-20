@@ -499,6 +499,13 @@ static void evalCatchOperation(EvalContext *ctx, AstNode *node)
     node->tag = astError;
 }
 
+static void evalCoalesceOperation(EvalContext *ctx, AstNode *node)
+{
+    logError(ctx->L, &node->loc, "`??` is unsupported at comp-time", NULL);
+
+    node->tag = astError;
+}
+
 void evalBinaryExpr(AstVisitor *visitor, AstNode *node)
 {
     EvalContext *ctx = getAstVisitorContext(visitor);

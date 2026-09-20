@@ -10,8 +10,29 @@ func say(data: [i8]) {
     }
 }
 
+func take(x: i32|string) {
+    if x is #i32 {
+        printf("i32: %d\n", x as i32)
+    } else {
+        printf("string: %s\n", x as string)
+    }
+}
+
+func give(s: bool): i32|string {
+    if s {
+        return "Hello"
+    } else {
+        return 42.i32
+    }
+}
+
+class Awesome {
+    func `init`() {}
+    func say() => "Hello"
+}
+
 func main() {
-    var arr = [1, 2, 3, 4, 5]
-    var x: [i8] = arr
-    say(arr)
+    var x = Awesome()
+    var msg = x?.say()
+    printf("%s\n", msg ?? "default")
 }

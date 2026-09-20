@@ -92,6 +92,29 @@ void checkMemberExpr(AstVisitor *visitor, AstNode *node)
         return;
     }
 
+    bool isOptionalAccess = node->memberExpr.isOptional;
+    if (isOptionalAccess) {
+        const Type *unwrapped = target_;
+        if (hasFlag(target_, Optional) || typeIs(target_, Optional)) {
+            unwrapped = getOptionalTargetType(target_);
+        }
+        else if (isClassType(target_)) {
+            unwrapped = target_;
+        }
+        else if (isPointerType(target_)) {
+            unwrapped = target_->pointer.pointed;
+        }
+        else {
+            logError(ctx->L,
+                     &node->loc,
+                     "optional member access `?.` is only supported on optional, class, or pointer types, got '{t}'",
+                     (FormatArg[]){{.t = target_}});
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        target_ = unwrapped;
+    }
+
     target_ = stripAll(target_);
     if (nodeIs(member, Identifier)) {
         node->type = checkMember(visitor, target_, member);
@@ -171,5 +194,11 @@ void checkMemberExpr(AstVisitor *visitor, AstNode *node)
         node->type = target_->tuple.members[member->intLiteral.value];
         node->flags =
             (target_->flags & flgConst) | (node->type->flags & flgConst);
+    }
+
+    if (isOptionalAccess && node->type && !typeIs(node->type, Error)) {
+        if (!typeIs(node->type, Func) && !isOptionalType(node->type)) {
+            node->type = makeOptionalType(ctx->types, node->type, flgNone);
+        }
     }
 }

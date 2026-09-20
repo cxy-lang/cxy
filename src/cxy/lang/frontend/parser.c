@@ -766,7 +766,7 @@ static inline AstNode *expressionWithStructs(Parser *P)
     return expression(P, true);
 }
 
-static AstNode *member(Parser *P, const Token *begin, AstNode *operand)
+static AstNode *member(Parser *P, const Token *begin, AstNode *operand, bool isOptional)
 {
     AstNode *member;
     u64 flags = flgNone;
@@ -782,13 +782,17 @@ static AstNode *member(Parser *P, const Token *begin, AstNode *operand)
     }
     else {
         member = parsePath(P, true);
-        while (!isEoF(P) && match(P, tokDot)) {
+        // a?.b.c => (a?.b).c
+        while (!isEoF(P) && match(P, tokDot, tokOptionalDot)) {
+            bool currentOptional = previous(P)->tag == tokOptionalDot;
             operand = newAstNode(P,
                                  begin,
                                  &(AstNode){.tag = astMemberExpr,
                                             .flags = flags,
                                             .memberExpr = {.target = operand,
-                                                           .member = member}});
+                                                           .member = member,
+                                                           .isOptional = isOptional}});
+            isOptional = currentOptional;
             member = parsePath(P, true);
         }
     }
@@ -797,7 +801,7 @@ static AstNode *member(Parser *P, const Token *begin, AstNode *operand)
         begin,
         &(AstNode){.tag = astMemberExpr,
                    .flags = flags,
-                   .memberExpr = {.target = operand, .member = member}});
+                   .memberExpr = {.target = operand, .member = member, .isOptional = isOptional}});
 }
 
 static AstNode *indexExpr(Parser *P, AstNode *operand)
@@ -865,10 +869,11 @@ static AstNode *postfix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
         case tokPlusPlus:
         case tokMinusMinus:
             break;
+        case tokOptionalDot:
         case tokDot: {
             const Token tok = *advance(P);
             bool isBuiltin = match(P, tokHash) != NULL;
-            operand = member(P, &tok, operand);
+            operand = member(P, &tok, operand, tok.tag == tokOptionalDot);
             operand->flags |= (isBuiltin ? flgBuiltin : flgNone);
             continue;
         }
@@ -894,7 +899,7 @@ static AstNode *postfix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
                                                    .ident.value =
                                                        S_Redirect})}})}});
             bool isBuiltin = match(P, tokHash) != NULL;
-            operand = member(P, &tok, operand);
+            operand = member(P, &tok, operand, false);
             operand->flags |= (isBuiltin ? flgBuiltin : flgNone);
             continue;
         }
@@ -1081,8 +1086,10 @@ static AstNode *binary(Parser *P,
         if (op == opCatch && match(P, tokDiscard)) {
             rhs = newAstNode(P, previous(P), &(AstNode){.tag = astBlockStmt});
         }
-        else
-            rhs = binary(P, NULL, nextPrecedence, parsePrimary);
+        else {
+            int rightPrec = (op == opCoalesce) ? nextPrecedence + 1 : nextPrecedence;
+            rhs = binary(P, NULL, rightPrec, parsePrimary);
+        }
         lhs = newAstNode_(
             P,
             &lhs->loc,

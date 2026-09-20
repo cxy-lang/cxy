@@ -4,30 +4,45 @@
 
 #include <string.h>
 
+static bool compareGraphNodes(const void *lhs, const void *rhs)
+{
+    const IrTypeGraphNode *l = *(const IrTypeGraphNode **)lhs;
+    const IrTypeGraphNode *r = *(const IrTypeGraphNode **)rhs;
+    return l->type == r->type;
+}
+
+static IrTypeGraphNode *findGraphNode(IrTypeGraph *g, const IrType *type)
+{
+    if (type == NULL)
+        return NULL;
+    IrTypeGraphNode dummy = {.type = type};
+    IrTypeGraphNode *dummyPtr = &dummy;
+    IrTypeGraphNode **found = findInHashTable(
+        &g->nodes, &dummyPtr, hashPtr(hashInit(), type),
+        sizeof(IrTypeGraphNode *), compareGraphNodes);
+    return found ? *found : NULL;
+}
+
 static IrTypeGraphNode *findOrAddGraphNode(IrTypeGraph *g, const IrType *type)
 {
     if (type == NULL)
         return NULL;
 
-    IrTypeGraphNode *found = findInHashTable(
-        &g->nodes, &(IrTypeGraphNode){.type = type}, hashPtr(hashInit(), type),
-        sizeof(IrTypeGraphNode), comparePointers);
+    IrTypeGraphNode *found = findGraphNode(g, type);
     if (found)
         return found;
 
-    IrTypeGraphNode node = {
-        .type = type,
-        .deps = newDynArray(sizeof(const IrType *)),
-        .pointerDeps = newDynArray(sizeof(const IrType *)),
-        .visited = false,
-        .inStack = false,
-        .emitted = false};
+    IrTypeGraphNode *node = allocFromMemPool(g->pool, sizeof(IrTypeGraphNode));
+    node->type = type;
+    node->deps = newDynArray(sizeof(const IrType *));
+    node->pointerDeps = newDynArray(sizeof(const IrType *));
+    node->visited = false;
+    node->inStack = false;
+    node->emitted = false;
 
     insertInHashTable(&g->nodes, &node, hashPtr(hashInit(), type),
-                      sizeof(IrTypeGraphNode), comparePointers);
-    return findInHashTable(&g->nodes, &(IrTypeGraphNode){.type = type},
-                           hashPtr(hashInit(), type), sizeof(IrTypeGraphNode),
-                           comparePointers);
+                      sizeof(IrTypeGraphNode *), compareGraphNodes);
+    return node;
 }
 
 void addIrTypeToGraph(IrTypeGraph *g, const IrType *type)
@@ -116,9 +131,7 @@ static void collectTypesFromNode(ConstIrVisitor *visitor, const IrNode *node)
 
 static void topoSortDfs(IrTypeGraph *g, const IrType *type)
 {
-    IrTypeGraphNode *node = findInHashTable(
-        &g->nodes, &(IrTypeGraphNode){.type = type}, hashPtr(hashInit(), type),
-        sizeof(IrTypeGraphNode), comparePointers);
+    IrTypeGraphNode *node = findGraphNode(g, type);
     if (node == NULL || node->emitted)
         return;
 
@@ -140,7 +153,7 @@ IrTypeGraph *newIrTypeGraph(MemPool *pool)
 {
     IrTypeGraph *g = allocFromMemPool(pool, sizeof(IrTypeGraph));
     g->pool = pool;
-    g->nodes = newHashTable(sizeof(IrTypeGraphNode), pool);
+    g->nodes = newHashTable(sizeof(IrTypeGraphNode *), pool);
     g->sorted = newDynArray(sizeof(const IrType *));
     g->forwardDecls = newDynArray(sizeof(const IrType *));
     return g;
@@ -149,9 +162,9 @@ IrTypeGraph *newIrTypeGraph(MemPool *pool)
 void freeIrTypeGraph(IrTypeGraph *g)
 {
     if (g) {
-        HashtableIt it = newHashTableIt(&g->nodes, sizeof(IrTypeGraphNode));
+        HashtableIt it = newHashTableIt(&g->nodes, sizeof(IrTypeGraphNode *));
         while (hashTableItHasNext(&it)) {
-            IrTypeGraphNode *node = hashTableItNext(&it);
+            IrTypeGraphNode *node = *(IrTypeGraphNode **)hashTableItNext(&it);
             freeDynArray(&node->deps);
             freeDynArray(&node->pointerDeps);
         }
@@ -193,9 +206,9 @@ void buildIrTypeGraph(IrTypeGraph *g, const IrModule *module)
     irConstVisit(&collector, module);
 
     // Pass 2: Topologically sort all collected types
-    HashtableIt it = newHashTableIt(&g->nodes, sizeof(IrTypeGraphNode));
+    HashtableIt it = newHashTableIt(&g->nodes, sizeof(IrTypeGraphNode *));
     while (hashTableItHasNext(&it)) {
-        IrTypeGraphNode *node = hashTableItNext(&it);
+        IrTypeGraphNode *node = *(IrTypeGraphNode **)hashTableItNext(&it);
         if (!node->emitted) {
             topoSortDfs(g, node->type);
         }

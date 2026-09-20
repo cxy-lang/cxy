@@ -128,6 +128,21 @@ IrNode *makeIrBranchIf(MemPool *pool,
     return node;
 }
 
+IrNode *makeIrSwitch(MemPool *pool,
+                     const FileLoc *loc,
+                     IrNode *cond,
+                     IrCase *cases,
+                     u64 casesCount,
+                     IrNode *defaultTarget)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irSwitch, NULL);
+    node->switchStmt.cond = cond;
+    node->switchStmt.cases = cases;
+    node->switchStmt.casesCount = casesCount;
+    node->switchStmt.defaultTarget = defaultTarget;
+    return node;
+}
+
 IrNode *makeIrReturn(MemPool *pool, const FileLoc *loc, IrNode *value)
 {
     IrNode *node = makeIrNode(pool, loc, flgNone, irReturn, value ? value->type : NULL);

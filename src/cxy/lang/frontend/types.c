@@ -699,6 +699,20 @@ bool isPointerType(const Type *type)
     return typeIs(type, Pointer) || typeIs(type, Array) || typeIs(type, String);
 }
 
+bool isNullableType(const Type *type)
+{
+    type = resolveUnThisUnwrapType(type);
+    switch(type->tag) {
+    case typPointer:
+    case typOptional:
+    case typString:
+    case typClass:
+        return  true;
+    default:
+        return false;
+    }
+}
+
 bool isPointerTypeExact(const Type *type)
 {
     type = resolveType(type);

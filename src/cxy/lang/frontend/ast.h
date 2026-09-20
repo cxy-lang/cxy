@@ -691,6 +691,7 @@ struct AstNode {
             AstNode *args;
             EvaluateMacro evaluator;
             u32 overload;
+            bool isOptional;
         } callExpr, macroCallExpr;
 
         struct {
@@ -737,6 +738,7 @@ struct AstNode {
         struct {
             AstNode *target;
             AstNode *member;
+            bool isOptional;
         } memberExpr;
 
         struct {

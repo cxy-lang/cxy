@@ -4,6 +4,7 @@
 
 #include "check.h"
 
+#include "core/format.h"
 #include "lang/frontend/flag.h"
 #include "lang/frontend/strings.h"
 #include "lang/frontend/ttable.h"
@@ -20,6 +21,7 @@ typedef enum {
     optTypeEquality,
     optRange,
     optCatch,
+    optCoalesce,
 } BinaryOperatorKind;
 
 static BinaryOperatorKind getBinaryOperatorKind(Operator op)
@@ -46,6 +48,8 @@ static BinaryOperatorKind getBinaryOperatorKind(Operator op)
         return optRange;
     case opCatch:
         return optCatch;
+    case opCoalesce:
+        return optCoalesce;
     default:
         unreachable("");
     }
@@ -186,6 +190,33 @@ void checkBinaryExpr(AstVisitor *visitor, AstNode *node)
         node->type = ERROR_TYPE(ctx);
         return;
     }
+
+    if (opKind == optCoalesce) {
+        if (!isNullableType(left)) {
+            logError(ctx->L,
+                     &node->binaryExpr.lhs->loc,
+                     "operand of `??` must be a nullable type",
+                     NULL);
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        const Type *type = checkType(visitor, rhs);
+        const Type *target = resolveUnThisUnwrapType(type);
+        if (isOptionalType(left)) {
+            target = getOptionalTargetType(left);
+        }
+        if (!isTypeAssignableFrom(target, type)) {
+            logError(ctx->L,
+                     &node->binaryExpr.rhs->loc,
+                     "type {t} is not assignable to the optional target type {t}",
+                     (FormatArg[]){{.t = type}, {.t = target}});
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        node->type = type;
+        return;
+    }
+
     bool isNullEquality = opKind == optEquality && nodeIs(rhs, NullLit);
 
     if ((opKind == optComparison || opKind == optEquality) &&

@@ -179,6 +179,7 @@ IrNode *makeIrScopeEnter(MemPool *pool, const FileLoc *loc, u32 scopeId);
 IrNode *makeIrScopeExit(MemPool *pool, const FileLoc *loc, u32 scopeId);
 IrNode *makeIrBranch(MemPool *pool, const FileLoc *loc, IrNode *target);
 IrNode *makeIrBranchIf(MemPool *pool, const FileLoc *loc, IrNode *cond, IrNode *trueTarget, IrNode *falseTarget);
+IrNode *makeIrSwitch(MemPool *pool, const FileLoc *loc, IrNode *cond, IrCase *cases, u64 casesCount, IrNode *defaultTarget);
 IrNode *makeIrReturn(MemPool *pool, const FileLoc *loc, IrNode *value);
 IrNode *makeIrUnreachable(MemPool *pool, const FileLoc *loc);
 

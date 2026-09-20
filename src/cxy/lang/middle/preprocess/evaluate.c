@@ -250,6 +250,7 @@ static void evalRangeOperation(PreprocessorContext *ctx, AstNode *node)
 }
 
 static void evalCatchOperation(PreprocessorContext *ctx, AstNode *node) {}
+static void evalCoalesceOperation(PreprocessorContext *ctx, AstNode *node) {}
 
 void preprocessorEvalBinaryExpr(PreprocessorContext *ctx, AstNode *node)
 {

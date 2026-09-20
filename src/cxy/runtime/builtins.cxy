@@ -92,10 +92,11 @@ pub func __calloc(size: u64) => memset(malloc(size), 0, size)
 pub type sptr = ^void
 
 pub extern func __smart_ptr_alloc(size: u64, dctor: func(ptr: sptr) -> void = null): sptr
+pub extern func __smart_ptr_alloc_trace(size: u64, dctor: func(ptr: sptr) -> void = null, path: string = null, line: u64 = 0): sptr
 pub extern func __smart_ptr_get(ptr: sptr): sptr
 pub extern func __smart_ptr_drop(ptr: sptr): bool
 pub extern func __smart_ptr_get_trace(ptr: sptr, path: string, line: u64): sptr
-pub extern func __smart_ptr_drop_trace(ptr: sptr, path: string, line: u64): void
+pub extern func __smart_ptr_drop_trace(ptr: sptr, path: string, line: u64): bool
 
 /* Builtin Optional Type */
 pub struct Optional[T] {

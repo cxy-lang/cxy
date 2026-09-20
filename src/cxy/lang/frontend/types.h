@@ -373,6 +373,8 @@ bool isArrayType(const Type *type);
 
 bool isPointerType(const Type *type);
 
+bool isNullableType(const Type *type);
+
 bool isPointerTypeExact(const Type *type);
 
 bool isReferenceType(const Type *type);

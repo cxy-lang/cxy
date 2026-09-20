@@ -7,6 +7,7 @@
 #include "driver/driver.h"
 #include <string.h>
 
+#include "lang/frontend/ast.h"
 #include "lexer.h"
 #include "parser.h"
 
@@ -110,8 +111,15 @@ void initCompilerPreprocessor(struct CompilerDriver *driver)
                                 makeString(driver->strings, "__DEBUG"),
                                 NULL);
         cstring S_trace_memory = makeString(driver->strings, "TRACE_MEMORY");
+        AstNode *trace = NULL;
         options->withMemoryTrace =
-            preprocessorHasMacro(&driver->preprocessor, S_trace_memory, NULL);
+            preprocessorHasMacro(&driver->preprocessor, S_trace_memory, &trace);
+        if (options->withMemoryTrace && nodeIs(trace, Path)) {
+            pushStringOnDynArray(
+                &options->cDefines,
+                makeStringConcat(driver->strings, "-DTRACE_MEMORY=",
+                    trace->path.elements->_name));
+        }
     }
 
     // add backend call ID's

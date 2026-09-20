@@ -41,9 +41,10 @@ extern "C" {
     f(LAnd, 11, LAnd, "&&", "land")             \
     f(LOr,  12, LOr,  "||", "lor")
 
-#define AST_BINARY_EXPR_LIST(f)           \
-    f(Range, 13,DotDot, "..", "range")    \
-    f(Catch, 10,Catch,  "catch", "catch") \
+#define AST_BINARY_EXPR_LIST(f)                 \
+    f(Catch, 13,    Catch,  "catch", "catch")   \
+    f(Coalesce, 13, Coalesce, "??", "coalesce") \
+    f(Range, 14,    DotDot, "..", "range")      \
     AST_ARITH_EXPR_LIST(f)                \
     AST_BIT_EXPR_LIST(f)                  \
     AST_SHIFT_EXPR_LIST(f)                \
