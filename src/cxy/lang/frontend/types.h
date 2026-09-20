@@ -387,6 +387,8 @@ bool isVoidType(const Type *type);
 
 bool isClassType(const Type *type);
 
+bool isOptionalType(const Type *type);
+
 bool isComplexType(const Type *type);
 
 bool isClassReferenceType(const Type *type);

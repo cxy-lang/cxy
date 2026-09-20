@@ -6,6 +6,7 @@
 #include "ast.h"
 #include "core/utils.h"
 #include "flag.h"
+#include "lang/frontend/types.h"
 #include "strings.h"
 
 #include "core/alloc.h"
@@ -800,7 +801,6 @@ const Type *makeArrayType(TypeTable *table,
 {
     Type type = make(Type,
                      .tag = typArray,
-                     .flags = (size == UINT64_MAX ? flgSlice : flgNone),
                      .array = {.elementType = elementType, .len = size});
 
     return getOrInsertType(table, &type).s;
@@ -1386,6 +1386,11 @@ const Type *promoteType(TypeTable *table, const Type *left, const Type *right)
         _left = _left->tEnum.base;
     if (typeIs(_right, Enum))
         _right = _right->tEnum.base;
+
+    if (typeIs(_left, Optional))
+        _left = _left->optional.target;
+    if (typeIs(_right, Optional))
+        _right = _right->optional.target;
 
     left = _left, right = _right;
     switch (left->tag) {

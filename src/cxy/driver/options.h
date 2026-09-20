@@ -26,7 +26,8 @@ typedef enum {
     ff(JSON)                \
     ff(YAML)                \
     ff(SEXP)                \
-    ff(CXY)
+    ff(CXY)                 \
+    ff(IR)
 
 typedef enum {
 #define ff(N) dmp## N,
@@ -137,6 +138,7 @@ typedef struct Options {
     union {
         struct {
             bool printIR;
+            bool useIr;
             bool emitBitCode;
             bool emitAssembly;
             bool cleanAst;

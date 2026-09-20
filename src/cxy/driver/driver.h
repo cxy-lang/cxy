@@ -11,8 +11,6 @@
 extern "C" {
 #endif
 
-struct MirContext;
-
 typedef struct CompilerPreprocessor {
     MemPool *pool;
     HashTable symbols;
@@ -64,7 +62,6 @@ typedef struct CompilerDriver {
     CompilerPreprocessor preprocessor;
     CxyPackage package;
     HashTable plugins;
-    struct MirContext *mir;
     void *backend;
     void *cImporter;
     bool hasTestCases;

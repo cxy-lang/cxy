@@ -13,7 +13,7 @@ extern "C" {
  */
 
 struct MemBlock;
-typedef enum { memAstNode, memType, memIrValue, memCOUNT } MemPoolCacheId;
+typedef enum { memAstNode, memType, memIrNode, memIrType, memCOUNT } MemPoolCacheId;
 typedef struct MemPoolCacheItem {
     struct MemPoolCacheItem *next;
     size_t size;

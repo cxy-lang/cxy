@@ -334,47 +334,7 @@ static inline AstNode *makeStringLitOrNull(ShakeAstContext *ctx,
                : makeNullLiteral(ctx->pool, builtinLoc(), next, NULL);
 }
 
-static inline AstNode *makeExceptionPush(ShakeAstContext *ctx, AstNode *expr)
-{
-    AstNode *args = makeStringLitOrNull(
-        ctx,
-        ctx->mod,
-        makeStringLitOrNull(
-            ctx,
-            ctx->cls,
-            makeStringLitOrNull(ctx,
-                                ctx->fun,
-                                makeStringLitOrNull(ctx,
-                                                    ctx->path,
-                                                    makeUnsignedIntegerLiteral(
-                                                        ctx->pool,
-                                                        builtinLoc(),
-                                                        expr->loc.begin.row,
-                                                        NULL,
-                                                        NULL)))));
-
-    return makeExprStmt(
-        ctx->pool,
-        builtinLoc(),
-        flgNone,
-        makeCallExpr(
-            ctx->pool,
-            builtinLoc(),
-            makeMemberExpr(
-                ctx->pool,
-                builtinLoc(),
-                flgNone,
-                expr,
-                makeIdentifier(ctx->pool, builtinLoc(), S_push, 0, NULL, NULL),
-                NULL,
-                NULL),
-            args,
-            flgNone,
-            NULL,
-            NULL),
-        NULL,
-        NULL);
-}
+static void shakeVariableDecl(AstVisitor *visitor, AstNode *node);
 
 static void shakeVariableDecl(AstVisitor *visitor, AstNode *node)
 {
@@ -760,83 +720,7 @@ static void shakeMatchStmt(AstVisitor *visitor, AstNode *node)
 
 static void shakeReturnStmt(AstVisitor *visitor, AstNode *node)
 {
-    ShakeAstContext *ctx = getAstVisitorContext(visitor);
-    AstNode *expr = node->returnStmt.expr;
-    astVisit(visitor, expr);
-    if (!node->returnStmt.isRaise)
-        return;
-
-    if (expr == NULL) {
-        if (ctx->exceptionTrace) {
-            astModifierAdd(
-                &ctx->block,
-                makeExceptionPush(
-                    ctx,
-                    makeMacroCallAstNode(
-                        ctx->pool,
-                        &node->loc,
-                        flgNone,
-                        makeIdentifier(
-                            ctx->pool, &node->loc, S_ex, 0, NULL, NULL),
-                        NULL,
-                        NULL)));
-        }
-
-        expr = makeUnaryExpr(
-            ctx->pool,
-            &node->loc,
-            flgNone,
-            true,
-            opMove,
-            makeMacroCallAstNode(
-                ctx->pool,
-                &node->loc,
-                flgNone,
-                makeIdentifier(ctx->pool, &node->loc, S_ex, 0, NULL, NULL),
-                NULL,
-                NULL),
-            NULL,
-            NULL);
-    }
-    else {
-        expr = makeCastExpr(
-            ctx->pool,
-            &expr->loc,
-            flgNone,
-            expr,
-            makePath(ctx->pool, &expr->loc, S_Exception, flgNone, NULL),
-            NULL,
-            NULL);
-        if (ctx->exceptionTrace) {
-            AstNode *var =
-                makeVarDecl(ctx->pool,
-                            &expr->loc,
-                            flgNone,
-                            makeAnonymousVariable(ctx->strings, "_ex"),
-                            NULL,
-                            expr,
-                            NULL,
-                            NULL);
-            astModifierAdd(&ctx->block, var);
-            astModifierAdd(
-                &ctx->block,
-                makeExceptionPush(
-                    ctx,
-                    makePath(
-                        ctx->pool, &expr->loc, var->_name, flgNone, NULL)));
-
-            expr = makeUnaryExpr(
-                ctx->pool,
-                &expr->loc,
-                flgNone,
-                true,
-                opMove,
-                makePath(ctx->pool, &expr->loc, var->_name, flgNone, NULL),
-                NULL,
-                NULL);
-        }
-    }
-    node->returnStmt.expr = expr;
+    astVisitFallbackVisitAll(visitor, node);
 }
 
 static void shakeGenericDecl(AstVisitor *visitor, AstNode *node)

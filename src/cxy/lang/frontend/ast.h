@@ -228,6 +228,8 @@ typedef enum {
 
 struct MirNode;
 
+struct IrNode;
+
 #define CXY_AST_NODE_HEAD                                                      \
     AstTag tag;                                                                \
     FileLoc loc;                                                               \
@@ -242,15 +244,12 @@ struct MirNode;
     struct AstNode *attrs;                                                     \
     union {                                                                    \
         void *codegen;                                                         \
-        struct MirNode *ir;                                                    \
+        struct IrNode *ir;                                                     \
     };                                                                         \
-    union {                                                                    \
-        struct MirNode *mir;                                                   \
-        struct {                                                               \
-            bool used;                                                         \
-            bool infligt;                                                      \
-        } attr(packed);                                                        \
-    };
+    struct {                                                                   \
+        bool used;                                                             \
+        bool infligt;                                                          \
+    } attr(packed);
 
 typedef enum { iptModule, iptPath } ImportKind;
 typedef enum { cInclude, cDefine, cSources } CCodeKind;
@@ -836,6 +835,7 @@ struct AstNode {
 
         struct {
             AstNode *node;
+            struct IrNode *ir;
             u16 stages;
             cstring filePath;
             union {

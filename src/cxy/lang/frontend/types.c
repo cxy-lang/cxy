@@ -790,6 +790,12 @@ bool isClassType(const Type *type)
            (typeIs(type, This) && typeIs(type->_this.that, Class));
 }
 
+bool isOptionalType(const Type *type)
+{
+    type = resolveType(type);
+    return typeIs(type, Optional);
+}
+
 bool isComplexType(const Type *type)
 {
     type = resolveUnThisUnwrapType(type);
@@ -1324,10 +1330,11 @@ const Type *getPointedType(const Type *type)
 
 const Type *getOptionalTargetType(const Type *type)
 {
-    if (!hasFlag(type, Optional))
+    type = resolveType(type);
+    if (!typeIs(type, Optional))
         return NULL;
 
-    return type->tStruct.decl->structDecl.typeParams->type;
+    return type->optional.target;
 }
 
 const Type *getSliceTargetType(const Type *type)

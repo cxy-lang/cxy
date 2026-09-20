@@ -15,7 +15,6 @@
 #include "lang/frontend/strings.h"
 #include "lang/frontend/ttable.h"
 #include "lang/middle/builtins.h"
-#include "lang/middle/mir/context.h"
 #include "plugin.h"
 
 #include "src/builtins.h"
@@ -202,8 +201,7 @@ void makeDirectoryForPath(CompilerDriver *driver, cstring path)
 static inline bool hasDumpEnable(const Options *opts, const AstNode *node)
 {
     if (opts->cmd == cmdDev) {
-        return !hasFlag(node, BuiltinsModule) &&
-               ((opts->dev.dumpMode != dmpNONE) || opts->dev.printIR);
+        return !hasFlag(node, BuiltinsModule) && (opts->dev.dumpMode != dmpNONE);
     }
     return false;
 }
@@ -322,8 +320,6 @@ bool initCompilerDriver(CompilerDriver *compiler,
         compiler->types = newTypeTable(compiler->pool, compiler->strings);
         compiler->moduleCache =
             newHashTable(sizeof(CachedModule), compiler->pool);
-        compiler->mir = mirContextCreate(compiler);
-        csAssert0(compiler->mir);
         compiler->backend = initCompilerBackend(compiler, argc, argv);
         csAssert0(compiler->backend);
         initCompilerPreprocessor(compiler);

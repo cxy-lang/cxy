@@ -227,15 +227,16 @@ set(CXY_MIDDLE_SOURCES
 
         src/cxy/lang/middle/simplify/simplify.c
 
-        src/cxy/lang/middle/lower/lower.c
-
         src/cxy/lang/middle/mem/finalize.c
         src/cxy/lang/middle/mem/manage.c
         src/cxy/lang/middle/mem/mem.c
 
-        src/cxy/lang/middle/mir/context.c
-        src/cxy/lang/middle/mir/node.c
-        src/cxy/lang/middle/mir/print.c
+        src/cxy/lang/middle/ir/type.c
+        src/cxy/lang/middle/ir/node.c
+        src/cxy/lang/middle/ir/context.c
+        src/cxy/lang/middle/ir/visitor.c
+        src/cxy/lang/middle/ir/dump.c
+        src/cxy/lang/middle/ir/lower.c
 )
 
 if (ENABLE_LLVM_BACKEND)

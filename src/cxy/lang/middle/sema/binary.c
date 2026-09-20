@@ -6,6 +6,8 @@
 
 #include "lang/frontend/flag.h"
 #include "lang/frontend/strings.h"
+#include "lang/frontend/ttable.h"
+#include "lang/frontend/types.h"
 #include "lang/middle/builtins.h"
 
 typedef enum {
@@ -296,8 +298,38 @@ void checkBinaryExpr(AstVisitor *visitor, AstNode *node)
         return;
     }
 
-    const Type *type = unwrapType(promoteType(ctx->types, left, right), NULL);
+    if (opKind == optLogical) {
+        if (!isTruthyType(left)) {
+            logError(ctx->L,
+                     &node->loc,
+                     "binary operation '{s}' between type '{t}' and '{t}' is not "
+                     "supported",
+                     (FormatArg[]){
+                         {.s = getBinaryOpString(op)},
+                         {.t = left},
+                         {.t = right ?: makeErrorType(ctx->types)},
+                     });
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        if (!isTruthyType(right)) {
+            logError(ctx->L,
+                     &node->loc,
+                     "binary operation '{s}' between type '{t}' and '{t}' is not "
+                     "supported",
+                     (FormatArg[]){
+                         {.s = getBinaryOpString(op)},
+                         {.t = left},
+                         {.t = right ?: makeErrorType(ctx->types)},
+                     });
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        node->type = getPrimitiveType(ctx->types, prtBool);
+        return;
+    }
 
+    const Type *type = unwrapType(promoteType(ctx->types, left, right), NULL);
     if (type == NULL) {
         logError(ctx->L,
                  &node->loc,
@@ -333,18 +365,6 @@ void checkBinaryExpr(AstVisitor *visitor, AstNode *node)
             logError(ctx->L,
                      &node->loc,
                      "cannot perform binary operation '{s}' on non-integeral "
-                     "type '{t}'",
-                     (FormatArg[]){{.s = getBinaryOpString(op)}, {.t = type}});
-            node->type = ERROR_TYPE(ctx);
-        }
-        break;
-
-    case optLogical:
-        if (!isBooleanType(type)) {
-            logError(ctx->L,
-                     &node->loc,
-                     "cannot perform logical binary operation '{s}' on "
-                     "non-boolean "
                      "type '{t}'",
                      (FormatArg[]){{.s = getBinaryOpString(op)}, {.t = type}});
             node->type = ERROR_TYPE(ctx);

@@ -1291,9 +1291,9 @@ void visitIfStmt(AstVisitor *visitor, AstNode *node)
     SimplifyContext *ctx = getAstVisitorContext(visitor);
 
     AstNode *cond = node->ifStmt.cond;
-    if (!isBooleanType(cond->type)) {
-        simplifyCondition(ctx, cond);
-    }
+    // if (!isBooleanType(cond->type)) {
+    //     simplifyCondition(ctx, cond);
+    // }
     astVisitFallbackVisitAll(visitor, node);
 }
 

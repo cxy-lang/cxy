@@ -4,6 +4,7 @@
 
 #include "eval.h"
 
+#include "lang/frontend/types.h"
 #include "lang/middle/builtins.h"
 
 #include "lang/frontend/flag.h"
@@ -479,12 +480,9 @@ static AstNode *getTargetType(EvalContext *ctx,
     const Type *type =
         resolveUnThisUnwrapType(node->type ?: evalType(ctx, node));
     switch (type->tag) {
-    case typStruct:
-        if (typeIs(type, Struct) && hasFlag(type, Optional)) {
-            type = getOptionalTargetType(type);
-            break;
-        }
-        return NULL;
+    case typOptional:
+        type = getOptionalTargetType(type);
+        break;
     case typUnion:
         if (isResultType(type)) {
             type = getResultTargetType(type);

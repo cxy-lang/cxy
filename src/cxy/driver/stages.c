@@ -6,6 +6,9 @@
 #include "profiling.h"
 #include "stats.h"
 
+#include "lang/middle/ir/lower.h"
+#include "lang/middle/ir/dump.h"
+
 #include <inttypes.h>
 
 #include "lang/frontend/flag.h"
@@ -101,7 +104,19 @@ static AstNode *executeDumpAst(CompilerDriver *driver, AstNode *node)
         }
     }
 
-    if (driver->options.dev.dumpMode == dmpJSON)
+    if (driver->options.dev.dumpMode == dmpIR) {
+        if (node->metadata.ir == NULL) {
+            logError(driver->L, builtinLoc(), "cannot dump IR: AST has not been lowered", NULL);
+            if (file != stdout)
+                fclose(file);
+            return NULL;
+        }
+        dumpIr(driver, node->metadata.ir, file);
+        if (file != stdout)
+            fclose(file);
+        return node;
+    }
+    else if (driver->options.dev.dumpMode == dmpJSON)
         return dumpAstJson(driver, node->metadata.node, file);
     else if (driver->options.dev.dumpMode == dmpYAML)
         return dumpAstToYaml(driver, node, file);
@@ -115,19 +130,10 @@ static AstNode *executeDumpIR(CompilerDriver *driver, AstNode *node)
 {
     csAssert0(nodeIs(node, Metadata));
     node->metadata.stages |= BIT(ccs_DumpIR);
-    if (!(node->metadata.stages & BIT(ccsLower))) {
-        logError(driver->L,
-                 builtinLoc(),
-                 "cannot dump ir before the AST is lowered",
-                 NULL);
-        return NULL;
+    if (node->metadata.ir) {
+        dumpIr(driver, node->metadata.ir, stdout);
     }
-
-    if (dumpMir(driver, node->metadata.node)) {
-        node->metadata.stages |= BIT(ccs_DumpIR);
-        return node;
-    }
-    return NULL;
+    return node;
 }
 
 static AstNode *executePreprocessAst(CompilerDriver *driver, AstNode *node)
@@ -220,7 +226,9 @@ static AstNode *executeLower(CompilerDriver *driver, AstNode *node)
         return NULL;
     }
 
-    node->metadata.node = astToMir(driver, node->metadata.node);
+    if (driver->options.dev.useIr || driver->options.dev.printIR) {
+        node->metadata.ir = lowerToIr(driver, node->metadata.node);
+    }
 
     if (hasErrors(driver->L))
         return NULL;
@@ -394,7 +402,7 @@ static CompilerStageExecutor compilerStageExecutors[ccsCOUNT] = {
     [ccsBind] = executeBindAst,
     [ccsTypeCheck] = executeTypeCheckAst,
     [ccsSimplify] = executeSimplify,
-    //[ccsLower] = executeLower,
+    [ccsLower] = executeLower,
     [ccsMemoryMgmt] = executeMemoryManagement,
     [ccsCodegen] = executeGenerateCode,
     // TODO causing issues

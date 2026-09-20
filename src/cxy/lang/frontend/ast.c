@@ -3180,8 +3180,8 @@ bool nodeIsLeftValue(const AstNode *node)
     case astPointerOf:
     case astUnaryExpr: {
         Operator op = node->unaryExpr.op;
-        if (op == opPtrof || op == opRefof)
-            return nodeIsLeftValue(node->unaryExpr.operand);
+        if (op == opPtrof || op == opRefof || op == opDeref)
+            return true;
         return false;
     }
     case astCastExpr:

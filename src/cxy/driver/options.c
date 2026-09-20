@@ -423,6 +423,9 @@ Command(
     Opt(Name("print-ir"),
         Help("prints the generate IR (on supported backends, e.g LLVM)"),
         Def("false")),
+    Opt(Name("use-ir"),
+        Help("use the new IR lowering and optimization pipeline"),
+        Def("false")),
     Opt(Name("emit-assembly"),
         Help("emits the generated assembly code to given filename on supported "
              "backends (e.g LLVM)"),
@@ -500,6 +503,7 @@ Command(utils,
     f(dev.emitAssembly, Local, Option, 8, ## __VA_ARGS__)                       \
     f(dev.emitBitCode, Local, Option, 9, ## __VA_ARGS__)                        \
     f(dev.profile, Local, Int, 10, ## __VA_ARGS__)                           \
+    f(dev.useIr, Local, Option, 11, ## __VA_ARGS__)                           \
 
 #define BUILD_CMD_LAYOUT(f, ...)                                                \
     f(output, Local, String, 0, ## __VA_ARGS__)                                 \
@@ -804,12 +808,14 @@ static void fixCmdDevOptions(Options *options)
         options->dev.dumpMode = dmpNONE;
         options->dev.lastStage = ccsCompile;
     }
-    else if (options->dev.printIR) {
-        options->dev.dumpMode = dmpNONE;
-        options->dev.lastStage = ccsCodegen;
-    }
     else if (options->dev.dumpMode != dmpNONE) {
-        options->dev.lastStage = MIN(options->dev.lastStage, ccsLower);
+        if (options->dev.dumpMode == dmpIR) {
+            options->dev.lastStage = MAX(options->dev.lastStage, ccsLower);
+            options->dev.useIr = true;
+        }
+        else {
+            options->dev.lastStage = MIN(options->dev.lastStage, ccsSimplify);
+        }
     }
 }
 
