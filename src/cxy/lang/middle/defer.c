@@ -141,14 +141,16 @@ static void visitReturnStmt(AstVisitor *visitor, AstNode *node)
 {
     DeferContext *ctx = getAstVisitorContext(visitor);
     BlockScope *scope = ctx->bsc.scope;
-    AstNodeList expressions = {};
-    while (scope) {
-        if (blockScopeNeedsSealing(scope))
-            blockScopeSealIntoList(ctx, &expressions, scope);
-        scope = scope->next;
+    if (scope != NULL) {
+        AstNodeList expressions = {};
+        while (scope) {
+            if (blockScopeNeedsSealing(scope))
+                blockScopeSealIntoList(ctx, &expressions, scope);
+            scope = scope->next;
+        }
+        ctx->bsc.scope->flags |= bscSealed;
+        astModifierAdd(&ctx->block, expressions.first);
     }
-    ctx->bsc.scope->flags |= bscSealed;
-    astModifierAdd(&ctx->block, expressions.first);
 }
 
 static void visitFuncDecl(AstVisitor *visitor, AstNode *node)

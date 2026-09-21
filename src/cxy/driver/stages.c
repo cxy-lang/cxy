@@ -8,6 +8,7 @@
 
 #include "lang/middle/ir/lower.h"
 #include "lang/middle/ir/dump.h"
+#include "lang/middle/memory/memory.h"
 
 #include <inttypes.h>
 
@@ -238,18 +239,48 @@ static AstNode *executeLower(CompilerDriver *driver, AstNode *node)
 static AstNode *executeMemoryManagement(CompilerDriver *driver, AstNode *node)
 {
     csAssert0(nodeIs(node, Metadata));
-    (void)driver;
+    if (!(node->metadata.stages & BIT(ccsLower))) {
+        logError(driver->L,
+                 builtinLoc(),
+                 "cannot run memory management before the AST has been lowered",
+                 NULL);
+        return NULL;
+    }
+
+    node->metadata.ir = runMemoryManagement(driver, node->metadata.ir);
+    if (hasErrors(driver->L))
+        return NULL;
+
     node->metadata.stages |= BIT(ccsMemoryMgmt);
+    return node;
+}
+
+static AstNode *executeFinalize(CompilerDriver *driver, AstNode *node)
+{
+    csAssert0(nodeIs(node, Metadata));
+    if (!(node->metadata.stages & BIT(ccsMemoryMgmt))) {
+        logError(driver->L,
+                 builtinLoc(),
+                 "cannot finalize IR before memory management",
+                 NULL);
+        return NULL;
+    }
+
+    node->metadata.ir = runFinalize(driver, node->metadata.ir);
+    if (hasErrors(driver->L))
+        return NULL;
+
+    node->metadata.stages |= BIT(ccsFinalize);
     return node;
 }
 
 static AstNode *executeGenerateCode(CompilerDriver *driver, AstNode *node)
 {
     csAssert0(nodeIs(node, Metadata));
-    if (!(node->metadata.stages & BIT(ccsLower))) {
+    if (!(node->metadata.stages & BIT(ccsFinalize))) {
         logError(driver->L,
                  builtinLoc(),
-                 "cannot generate code before the AST has been lowered",
+                 "cannot generate code before IR finalization",
                  NULL);
         return NULL;
     }
@@ -382,6 +413,7 @@ static CompilerStageExecutor compilerStageExecutors[ccsCOUNT] = {
     [ccsSimplify] = executeSimplify,
     [ccsLower] = executeLower,
     [ccsMemoryMgmt] = executeMemoryManagement,
+    [ccsFinalize] = executeFinalize,
     [ccsCodegen] = executeGenerateCode,
     // TODO causing issues
     // [ccsCollect] = executeCollect,

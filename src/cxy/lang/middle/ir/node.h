@@ -126,7 +126,7 @@ struct IrNode {
         // RAII
         struct { IrNode *src; IrNode *dst; } copy;
         struct { IrNode *src; } move;
-        struct { IrNode *target; } drop;
+        struct { IrNode *target; IrNode *flag; } drop;
         struct { IrNode *target; } zeromem;
 
         // Statements
@@ -200,6 +200,7 @@ IrNode *makeIrMalloc(MemPool *pool, const FileLoc *loc, const IrType *elemType, 
 IrNode *makeIrMove(MemPool *pool, const FileLoc *loc, IrNode *src);
 IrNode *makeIrCopy(MemPool *pool, const FileLoc *loc, IrNode *src, IrNode *dst);
 IrNode *makeIrDrop(MemPool *pool, const FileLoc *loc, IrNode *target);
+IrNode *makeIrDropIf(MemPool *pool, const FileLoc *loc, IrNode *target, IrNode *flag);
 IrNode *makeIrZeromem(MemPool *pool, const FileLoc *loc, IrNode *target);
 
 IrNode *makeIrNullConst(MemPool *pool, const FileLoc *loc, const IrType *type);
@@ -208,6 +209,8 @@ IrNode *makeIrCharConst(MemPool *pool, const FileLoc *loc, u32 value, const IrTy
 IrNode *makeIrIntConst(MemPool *pool, const FileLoc *loc, u128 value, bool isNegative, const IrType *type);
 IrNode *makeIrFloatConst(MemPool *pool, const FileLoc *loc, f64 value, const IrType *type);
 IrNode *makeIrStringConst(MemPool *pool, const FileLoc *loc, cstring value, const IrType *type);
+IrNode *makeIrArrayConst(MemPool *pool, const FileLoc *loc, IrNode *elements, u64 count, const IrType *type);
+IrNode *makeIrStructConst(MemPool *pool, const FileLoc *loc, IrNode *fields, u64 count, const IrType *type);
 
 void irAppendBlockStmt(IrNode *block, IrNode *stmt);
 void irAppendFunctionBlock(IrNode *func, IrNode *block);

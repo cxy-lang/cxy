@@ -4,6 +4,7 @@
 
 #include "check.h"
 
+#include "core/alloc.h"
 #include "lang/frontend/flag.h"
 #include "lang/frontend/strings.h"
 
@@ -112,6 +113,31 @@ static AstNode *getVTableType(AstNode *node)
     return type->ident.resolvesTo;
 }
 
+static const Type *makeVTableMethodType(TypingContext *ctx, const Type *classType, const Type *funcType, Flags flags)
+{
+    if (funcType == NULL || !typeIs(funcType, Func))
+        return funcType;
+
+    const Type *thisType = isClassType(classType)
+                               ? makeReferenceType(ctx->types, classType, flags & flgConst)
+                               : makePointerType(ctx->types, classType, flags & flgConst);
+
+    u64 count = funcType->func.paramsCount + 1;
+    const Type **params = mallocOrDie(sizeof(const Type *) * count);
+    params[0] = thisType;
+    for (u64 i = 0; i < funcType->func.paramsCount; i++) {
+        params[i + 1] = funcType->func.params[i];
+    }
+
+    Type init = *funcType;
+    init.func.params = params;
+    init.func.paramsCount = (u16)count;
+
+    const Type *res = makeFuncType(ctx->types, &init);
+    free(params);
+    return res;
+}
+
 static AstNode *makeMemberFunctionRef(TypingContext *ctx,
                                       AstNode *node,
                                       AstNode *member)
@@ -166,6 +192,7 @@ static void inheritanceChainBuildVTableType(TypingContext *ctx,
         AstNode *field = vTableMembersFind(ctx, members->first, member);
         if (field)
             continue;
+        const Type *methodType = makeVTableMethodType(ctx, node->type, member->type, member->flags);
         insertAstNode(
             members,
             makeStructField(
@@ -173,7 +200,7 @@ static void inheritanceChainBuildVTableType(TypingContext *ctx,
                 &member->loc,
                 member->_namedNode.name,
                 flgConst,
-                makeTypeReferenceNode(ctx->pool, member->type, &member->loc),
+                makeTypeReferenceNode(ctx->pool, methodType, &member->loc),
                 NULL,
                 NULL));
 
@@ -187,7 +214,7 @@ static void inheritanceChainBuildVTableType(TypingContext *ctx,
                 member->funcDecl.body
                     ? makeMemberFunctionRef(ctx, node, member)
                     : makeNullLiteral(
-                          ctx->pool, &member->loc, NULL, member->type),
+                          ctx->pool, &member->loc, NULL, methodType),
                 member,
                 NULL));
     }

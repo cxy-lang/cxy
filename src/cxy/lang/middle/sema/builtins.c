@@ -585,8 +585,8 @@ AstNode *createClassOrStructBuiltins(MemPool *pool, AstNode *node)
     FileLoc loc = node->loc;
     loc.begin = loc.end;
     AstNodeList funcs = {NULL};
-    if (!isBuiltinsInitialized())
-        return NULL;
+    // if (!isBuiltinsInitialized())
+    //     return NULL;
 
     if (nodeIs(node, StructDecl) && !hasMember(node, S_CopyOverload)) {
         insertAstNode(&funcs,

@@ -12,6 +12,7 @@ extern "C" {
 typedef struct LoopCtx {
     IrNode *condBlock;
     IrNode *exitBlock;
+    u32 scopeId;
     struct LoopCtx *prev;
 } LoopCtx;
 
@@ -26,9 +27,18 @@ typedef struct LowerContext {
     IrNode *currentBlock;
     IrNode *funcExitBlock;
     IrNode *funcRetVar;
+    const Type *funcRetAstType;
     u32 currentScopeId;
     u32 nextScopeId;
     u32 nextBlockId;
+    u32 nextForId;
+    u32 nextWhileId;
+    u32 nextIfId;
+    u32 nextSwitchId;
+    u32 nextMatchId;
+    u32 nextOptId;
+    u32 nextTernaryId;
+    u32 nextLogicId;
     u32 tempCounter;
     HashTable varNames;
     LoopCtx *loopCtx;

@@ -31,39 +31,122 @@ static u64 addUnionDecl(UnionMember *members, const Type *member, u64 count)
     return count;
 }
 
-static const Type *implementUnionOverload(AstVisitor *visitor,
-                                          cstring overload,
-                                          const Type *type)
+static const Type *synthesizeUnionDestructor(TypingContext *ctx,
+                                             AstVisitor *visitor,
+                                             const Type *unionType)
 {
-    AstNode *func = findBuiltinDecl(overload);
-    AstNode args = {.tag = astTypeRef, .type = type};
-    AstNode path = {
-        .tag = astPath,
-        .path = {.elements = &(AstNode){.tag = astPathElem,
-                                        .pathElement = {.name = overload,
-                                                        .args = &args,
-                                                        .resolvesTo = func}}}};
+    const FileLoc *loc = builtinLoc();
+    cstring funcName = makeStringf(ctx->strings, "__union_dctor_%u", (unsigned)unionType->index);
+    cstring paramName = makeString(ctx->strings, "u");
 
-    return checkType(visitor, &path);
+    AstNode *paramType = makeTypeReferenceNode(ctx->pool, makeReferenceType(ctx->types, unionType, flgNone), loc);
+    AstNode *param = makeFunctionParam(ctx->pool, loc, paramName, paramType, NULL, flgNone, NULL);
+
+    AstNodeList cases = {};
+    for (u64 i = 0; i < unionType->tUnion.count; i++) {
+        const Type *memberType = unionType->tUnion.members[i].type;
+        if (!isDestructible(memberType))
+            continue;
+
+        cstring aliasName = makeStringf(ctx->strings, "y%u", (unsigned)i);
+        AstNode *aliasNode = makeResolvedIdentifier(ctx->pool, loc, aliasName, flgNone, NULL, NULL, memberType);
+        AstNode *typeRef = makeTypeReferenceNode(ctx->pool, memberType, loc);
+
+        AstNode *elemNode = makeResolvedIdentifier(ctx->pool, loc, aliasName, flgNone, aliasNode, NULL, memberType);
+        AstNode *dropStmt = makeExprStmt(
+            ctx->pool, loc, flgNone,
+            makeBackendCallExpr(ctx->pool, loc, flgNone, bfiDrop, elemNode, makeVoidType(ctx->types)),
+            NULL, makeVoidType(ctx->types));
+
+        AstNode *caseNode = makeAstNode(
+            ctx->pool, loc,
+            &(AstNode){.tag = astCaseStmt,
+                       .flags = flgNone,
+                       .caseStmt = {.match = typeRef, .body = dropStmt, .alias = aliasNode, .idx = (u32)i}});
+        insertAstNode(&cases, caseNode);
+    }
+
+    AstNode *uIdent = makeResolvedIdentifier(ctx->pool, loc, paramName, flgNone, param, NULL, param->type);
+    AstNode *matchNode = makeAstNode(
+        ctx->pool, loc,
+        &(AstNode){.tag = astMatchStmt,
+                   .flags = flgNone,
+                   .matchStmt = {.expr = uIdent, .cases = cases.first}});
+    AstNode *body = makeBlockStmt(ctx->pool, loc, matchNode, NULL, makeVoidType(ctx->types));
+    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, makeVoidAstNode(ctx->pool, loc, flgNone, NULL, NULL), body, flgGenerated | flgPure, NULL, NULL);
+
+    const Type *funcType = checkType(visitor, funcDecl);
+    if (!typeIs(funcType, Error) && ctx->root.parent) {
+        astModifierAddAsLast(&ctx->root, funcDecl);
+    }
+    return funcType;
+}
+
+static const Type *synthesizeUnionCopy(TypingContext *ctx,
+                                       AstVisitor *visitor,
+                                       const Type *unionType)
+{
+    const FileLoc *loc = builtinLoc();
+    cstring funcName = makeStringf(ctx->strings, "__union_copy_%u", (unsigned)unionType->index);
+    cstring paramName = makeString(ctx->strings, "u");
+
+    AstNode *paramType = makeTypeReferenceNode(ctx->pool, makeReferenceType(ctx->types, unionType, flgNone), loc);
+    AstNode *param = makeFunctionParam(ctx->pool, loc, paramName, paramType, NULL, flgNone, NULL);
+
+    AstNodeList cases = {};
+    for (u64 i = 0; i < unionType->tUnion.count; i++) {
+        const Type *memberType = unionType->tUnion.members[i].type;
+        cstring aliasName = makeStringf(ctx->strings, "y%u", (unsigned)i);
+        AstNode *aliasNode = makeResolvedIdentifier(ctx->pool, loc, aliasName, flgNone, NULL, NULL, memberType);
+        AstNode *typeRef = makeTypeReferenceNode(ctx->pool, memberType, loc);
+
+        AstNode *elemExpr = makeResolvedIdentifier(ctx->pool, loc, aliasName, flgNone, aliasNode, NULL, memberType);
+        if (isDestructible(memberType) || isClassType(memberType)) {
+            elemExpr = makeBackendCallExpr(ctx->pool, loc, flgNone, bfiCopy, elemExpr, memberType);
+        }
+
+        AstNode *retStmt = makeReturnAstNode(ctx->pool, loc, flgNone, elemExpr, NULL, unionType);
+        AstNode *caseNode = makeAstNode(
+            ctx->pool, loc,
+            &(AstNode){.tag = astCaseStmt,
+                       .flags = flgNone,
+                       .caseStmt = {.match = typeRef, .body = retStmt, .alias = aliasNode, .idx = (u32)i}});
+        insertAstNode(&cases, caseNode);
+    }
+
+    AstNode *uIdent = makeResolvedIdentifier(ctx->pool, loc, paramName, flgNone, param, NULL, param->type);
+    AstNode *matchNode = makeAstNode(
+        ctx->pool, loc,
+        &(AstNode){.tag = astMatchStmt,
+                   .flags = flgNone,
+                   .matchStmt = {.expr = uIdent, .cases = cases.first}});
+    AstNode *body = makeBlockStmt(ctx->pool, loc, matchNode, NULL, unionType);
+    AstNode *retTypeNode = makeTypeReferenceNode(ctx->pool, unionType, loc);
+    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, retTypeNode, body, flgGenerated | flgPure, NULL, NULL);
+
+    const Type *funcType = checkType(visitor, funcDecl);
+    if (!typeIs(funcType, Error) && ctx->root.parent) {
+        astModifierAddAsLast(&ctx->root, funcDecl);
+    }
+    return funcType;
 }
 
 static void implementUnionTypeCopyAndDestructor(AstVisitor *visitor,
                                                 AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
-    bool hasCopy = node->type->tuple.copyFunc != NULL;
-    if (!isBuiltinsInitialized() || !isDestructible(node->type) || hasCopy)
+    bool hasCopy = node->type->tUnion.copyFunc != NULL;
+    if (!isDestructible(node->type) || hasCopy)
         return;
 
-    const Type *func =
-        implementUnionOverload(visitor, S___union_copy, node->type);
+    const Type *func = synthesizeUnionCopy(ctx, visitor, node->type);
     if (typeIs(func, Error)) {
         node->type = ERROR_TYPE(ctx);
         return;
     }
-    ((Type *)node->type)->tuple.copyFunc = func;
+    ((Type *)node->type)->tUnion.copyFunc = func;
 
-    func = implementUnionOverload(visitor, S___union_dctor, node->type);
+    func = synthesizeUnionDestructor(ctx, visitor, node->type);
     if (typeIs(func, Error)) {
         node->type = ERROR_TYPE(ctx);
         return;

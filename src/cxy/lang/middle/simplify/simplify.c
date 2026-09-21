@@ -1174,50 +1174,50 @@ void visitSwitchStmt(AstVisitor *visitor, AstNode *node)
 
 void visitMatchStmt(AstVisitor *visitor, AstNode *node)
 {
-    SimplifyContext *ctx = getAstVisitorContext(visitor);
-    AstNode *expr = node->matchStmt.expr;
-    astVisit(visitor, expr);
-    AstNode *cond = deepCloneAstNode(ctx->pool, expr);
-    expr->memberExpr.target = deepCloneAstNode(ctx->pool, expr);
-    expr->tag = astMemberExpr;
-    expr->memberExpr.member = makeIntegerLiteral(
-        ctx->pool, &expr->loc, 0, NULL, getPrimitiveType(ctx->types, prtU64));
-    expr->type = getPrimitiveType(ctx->types, prtU64);
+    // SimplifyContext *ctx = getAstVisitorContext(visitor);
+    // AstNode *expr = node->matchStmt.expr;
+    // astVisit(visitor, expr);
+    // AstNode *cond = deepCloneAstNode(ctx->pool, expr);
+    // expr->memberExpr.target = deepCloneAstNode(ctx->pool, expr);
+    // expr->tag = astMemberExpr;
+    // expr->memberExpr.member = makeIntegerLiteral(
+    //     ctx->pool, &expr->loc, 0, NULL, getPrimitiveType(ctx->types, prtU64));
+    // expr->type = getPrimitiveType(ctx->types, prtU64);
 
-    node->tag = astSwitchStmt;
+    // node->tag = astSwitchStmt;
 
-    for (AstNode *esac = node->matchStmt.cases; esac; esac = esac->next) {
-        AstNode *match = esac->caseStmt.match, *alias = esac->caseStmt.alias,
-                *body = esac->caseStmt.body;
-        if (match) {
-            esac->caseStmt.match = makeIntegerLiteral(
-                ctx->pool, &match->loc, esac->caseStmt.idx, NULL, expr->type);
-            if (alias) {
-                alias->aliasExpr.expr = makeCastExpr(
-                    ctx->pool,
-                    &alias->loc,
-                    flgUnionCast,
-                    deepCloneAstNode(ctx->pool, cond),
-                    makeTypeReferenceNode(ctx->pool, alias->type, &alias->loc),
-                    NULL,
-                    alias->type);
-                alias->aliasExpr.expr->castExpr.idx = esac->caseStmt.idx;
-                if (!nodeIs(body, BlockStmt)) {
-                    esac->caseStmt.body =
-                        makeBlockStmt(ctx->pool,
-                                      &body->loc,
-                                      esac->caseStmt.body,
-                                      NULL,
-                                      makeVoidType(ctx->types));
-                }
-            }
-        }
-        else if (!nodeIs(body, BlockStmt)) {
-            esac->caseStmt.body = makeBlockStmt(
-                ctx->pool, &body->loc, body, NULL, makeVoidType(ctx->types));
-        }
-        astVisit(visitor, esac);
-    }
+    // for (AstNode *esac = node->matchStmt.cases; esac; esac = esac->next) {
+    //     AstNode *match = esac->caseStmt.match, *alias = esac->caseStmt.alias,
+    //             *body = esac->caseStmt.body;
+    //     if (match) {
+    //         esac->caseStmt.match = makeIntegerLiteral(
+    //             ctx->pool, &match->loc, esac->caseStmt.idx, NULL, expr->type);
+    //         if (alias) {
+    //             alias->aliasExpr.expr = makeCastExpr(
+    //                 ctx->pool,
+    //                 &alias->loc,
+    //                 flgUnionCast,
+    //                 deepCloneAstNode(ctx->pool, cond),
+    //                 makeTypeReferenceNode(ctx->pool, alias->type, &alias->loc),
+    //                 NULL,
+    //                 alias->type);
+    //             alias->aliasExpr.expr->castExpr.idx = esac->caseStmt.idx;
+    //             if (!nodeIs(body, BlockStmt)) {
+    //                 esac->caseStmt.body =
+    //                     makeBlockStmt(ctx->pool,
+    //                                   &body->loc,
+    //                                   esac->caseStmt.body,
+    //                                   NULL,
+    //                                   makeVoidType(ctx->types));
+    //             }
+    //         }
+    //     }
+    //     else if (!nodeIs(body, BlockStmt)) {
+    //         esac->caseStmt.body = makeBlockStmt(
+    //             ctx->pool, &body->loc, body, NULL, makeVoidType(ctx->types));
+    //     }
+    //     astVisit(visitor, esac);
+    // }
 }
 
 static void visitFuncDecl(AstVisitor *visitor, AstNode *node)

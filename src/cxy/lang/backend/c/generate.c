@@ -189,6 +189,34 @@ static void emitStringConst(ConstIrVisitor *visitor, const IrNode *node)
     format(&ctx->state, "\"", NULL);
 }
 
+static void emitArrayConst(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "{{", NULL);
+    u64 i = 0;
+    for (const IrNode *elem = node->arrayConst.elements; elem; elem = elem->next, i++) {
+        if (i > 0)
+            format(&ctx->state, ", ", NULL);
+        irConstVisit(visitor, elem);
+    }
+    format(&ctx->state, "}", NULL);
+}
+
+static void emitStructConst(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "(", NULL);
+    emitCTypeName(&ctx->state, node->type);
+    format(&ctx->state, "){{", NULL);
+    u64 i = 0;
+    for (const IrNode *fld = node->structConst.fields; fld; fld = fld->next, i++) {
+        if (i > 0)
+            format(&ctx->state, ", ", NULL);
+        irConstVisit(visitor, fld);
+    }
+    format(&ctx->state, "}", NULL);
+}
+
 static void emitVarRef(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
@@ -227,6 +255,22 @@ static void emitIndex(ConstIrVisitor *visitor, const IrNode *node)
 static void emitCast(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    if (node->type && node->type->tag == irTypeFunc) {
+        format(&ctx->state, "((", NULL);
+        emitCTypeName(&ctx->state, node->type->func.ret);
+        format(&ctx->state, " (*)(", NULL);
+        for (u64 i = 0; i < node->type->func.count; i++) {
+            if (i > 0)
+                format(&ctx->state, ", ", NULL);
+            emitCTypeName(&ctx->state, node->type->func.params[i]);
+        }
+        if (node->type->func.count == 0)
+            format(&ctx->state, "void", NULL);
+        format(&ctx->state, "))(", NULL);
+        irConstVisit(visitor, node->cast.expr);
+        format(&ctx->state, "))", NULL);
+        return;
+    }
     format(&ctx->state, "((", NULL);
     emitCTypeName(&ctx->state, node->type);
     format(&ctx->state, ")(", NULL);
@@ -292,6 +336,83 @@ static void emitSizeof(ConstIrVisitor *visitor, const IrNode *node)
     format(&ctx->state, "sizeof(", NULL);
     emitCTypeName(&ctx->state, node->sizeofVal.targetType);
     format(&ctx->state, ")", NULL);
+}
+
+static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    IrNode *target = node->drop.target;
+    if (target == NULL || target->type == NULL)
+        return;
+
+    const IrType *type = target->type;
+    if (node->drop.flag) {
+        format(&ctx->state, "  if (", NULL);
+        irConstVisit(visitor, node->drop.flag);
+        format(&ctx->state, ") ", NULL);
+    }
+    else {
+        format(&ctx->state, "  ", NULL);
+    }
+
+    if (type->tag == irTypePointer) {
+        format(&ctx->state, "__smart_ptr_drop(", NULL);
+        irConstVisit(visitor, target);
+        format(&ctx->state, ");\n", NULL);
+    }
+    else if (type->name) {
+        format(&ctx->state, "{s}_op__destructor(&(", (FormatArg[]){{.s = type->name}});
+        irConstVisit(visitor, target);
+        format(&ctx->state, "));\n", NULL);
+    }
+}
+
+static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    IrNode *dst = node->copy.dst;
+    IrNode *src = node->copy.src;
+    if (src == NULL || dst == NULL || src->type == NULL)
+        return;
+
+    const IrType *type = src->type;
+    if (type->tag == irTypePointer) {
+        format(&ctx->state, "  ", NULL);
+        irConstVisit(visitor, dst);
+        format(&ctx->state, " = __smart_ptr_get(", NULL);
+        irConstVisit(visitor, src);
+        format(&ctx->state, ");\n", NULL);
+    }
+    else if (type->name) {
+        format(&ctx->state, "  ", NULL);
+        irConstVisit(visitor, dst);
+        format(&ctx->state, " = {s}_op__copy(&(", (FormatArg[]){{.s = type->name}});
+        irConstVisit(visitor, src);
+        format(&ctx->state, "));\n", NULL);
+    }
+}
+
+static void emitZeromem(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    IrNode *target = node->zeromem.target;
+    if (target == NULL || target->type == NULL)
+        return;
+
+    if (target->type->tag == irTypePointer) {
+        format(&ctx->state, "  memset(", NULL);
+        irConstVisit(visitor, target);
+        format(&ctx->state, ", 0, sizeof(", NULL);
+        emitCTypeName(&ctx->state, target->type->pointer.pointee);
+        format(&ctx->state, "));\n", NULL);
+    }
+    else {
+        format(&ctx->state, "  memset(&(", NULL);
+        irConstVisit(visitor, target);
+        format(&ctx->state, "), 0, sizeof(", NULL);
+        emitCTypeName(&ctx->state, target->type);
+        format(&ctx->state, "));\n", NULL);
+    }
 }
 
 static void emitVarDecl(ConstIrVisitor *visitor, const IrNode *node)
@@ -428,6 +549,26 @@ static void emitGlobalVar(ConstIrVisitor *visitor, const IrNode *node)
     format(&ctx->state, ";\n", NULL);
 }
 
+static void emitCFieldDecl(FormatState *state, const IrType *type, cstring name)
+{
+    if (type && type->tag == irTypeFunc) {
+        emitCTypeName(state, type->func.ret);
+        format(state, " (*{s})(", (FormatArg[]){{.s = name ?: "_f"}});
+        for (u64 i = 0; i < type->func.count; i++) {
+            if (i > 0)
+                format(state, ", ", NULL);
+            emitCTypeName(state, type->func.params[i]);
+        }
+        if (type->func.count == 0)
+            format(state, "void", NULL);
+        format(state, ");\n", NULL);
+    }
+    else {
+        emitCTypeName(state, type);
+        format(state, " {s};\n", (FormatArg[]){{.s = name ?: "_f"}});
+    }
+}
+
 static void emitTypeGraphDefinitions(FormatState *state, const IrModule *module, MemPool *pool)
 {
     IrTypeGraph *g = newIrTypeGraph(pool);
@@ -452,8 +593,7 @@ static void emitTypeGraphDefinitions(FormatState *state, const IrModule *module,
             format(state, "struct {s} {{\n", (FormatArg[]){{.s = t->name}});
             for (u64 f = 0; f < t->strct.count; f++) {
                 format(state, "  ", NULL);
-                emitCTypeName(state, t->strct.fields[f].type);
-                format(state, " {s};\n", (FormatArg[]){{.s = t->strct.fields[f].name ?: "_f"}});
+                emitCFieldDecl(state, t->strct.fields[f].type, t->strct.fields[f].name);
             }
             format(state, "};\n\n", NULL);
         }
@@ -461,8 +601,7 @@ static void emitTypeGraphDefinitions(FormatState *state, const IrModule *module,
             format(state, "union {s} {{\n", (FormatArg[]){{.s = t->name}});
             for (u64 f = 0; f < t->strct.count; f++) {
                 format(state, "  ", NULL);
-                emitCTypeName(state, t->strct.fields[f].type);
-                format(state, " {s};\n", (FormatArg[]){{.s = t->strct.fields[f].name ?: "_f"}});
+                emitCFieldDecl(state, t->strct.fields[f].type, t->strct.fields[f].name);
             }
             format(state, "};\n\n", NULL);
         }
@@ -547,6 +686,8 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *module, FILE *fi
         [irIntConst] = emitIntConst,
         [irFloatConst] = emitFloatConst,
         [irStringConst] = emitStringConst,
+        [irArrayConst] = emitArrayConst,
+        [irStructConst] = emitStructConst,
         [irVarRef] = emitVarRef,
         [irGlobalRef] = emitGlobalRef,
         [irMember] = emitMember,
@@ -557,6 +698,9 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *module, FILE *fi
         [irAddrOf] = emitAddrOf,
         [irDeref] = emitDeref,
         [irMove] = emitMove,
+        [irCopy] = emitCopy,
+        [irDrop] = emitDrop,
+        [irZeromem] = emitZeromem,
         [irSizeof] = emitSizeof
     });
     // clang-format on

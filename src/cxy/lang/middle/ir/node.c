@@ -306,6 +306,15 @@ IrNode *makeIrDrop(MemPool *pool, const FileLoc *loc, IrNode *target)
 {
     IrNode *node = makeIrNode(pool, loc, flgNone, irDrop, NULL);
     node->drop.target = target;
+    node->drop.flag = NULL;
+    return node;
+}
+
+IrNode *makeIrDropIf(MemPool *pool, const FileLoc *loc, IrNode *target, IrNode *flag)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irDrop, NULL);
+    node->drop.target = target;
+    node->drop.flag = flag;
     return node;
 }
 
@@ -354,6 +363,22 @@ IrNode *makeIrStringConst(MemPool *pool, const FileLoc *loc, cstring value, cons
 {
     IrNode *node = makeIrNode(pool, loc, flgNone, irStringConst, type);
     node->stringConst.value = value;
+    return node;
+}
+
+IrNode *makeIrArrayConst(MemPool *pool, const FileLoc *loc, IrNode *elements, u64 count, const IrType *type)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irArrayConst, type);
+    node->arrayConst.elements = elements;
+    node->arrayConst.count = count;
+    return node;
+}
+
+IrNode *makeIrStructConst(MemPool *pool, const FileLoc *loc, IrNode *fields, u64 count, const IrType *type)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irStructConst, type);
+    node->structConst.fields = fields;
+    node->structConst.count = count;
     return node;
 }
 

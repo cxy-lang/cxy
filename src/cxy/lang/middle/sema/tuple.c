@@ -4,44 +4,108 @@
 
 #include "check.h"
 
+#include "lang/frontend/ast.h"
 #include "lang/frontend/flag.h"
 #include "lang/frontend/strings.h"
 #include "lang/middle/builtins.h"
 
 #include <core/alloc.h>
 
-static const Type *implementTupleOverload(AstVisitor *visitor,
-                                          cstring overload,
-                                          const Type *type)
+static const Type *synthesizeTupleDestructor(TypingContext *ctx,
+                                              AstVisitor *visitor,
+                                              const Type *tupleType)
 {
-    AstNode *func = findBuiltinDecl(overload);
-    AstNode args = {.tag = astTypeRef, .type = type};
-    AstNode path = {
-        .tag = astPath,
-        .path = {.elements = &(AstNode){.tag = astPathElem,
-                                        .pathElement = {.name = overload,
-                                                        .args = &args,
-                                                        .resolvesTo = func}}}};
+    const FileLoc *loc = builtinLoc();
+    cstring funcName = makeStringf(ctx->strings, "__tuple_dctor_%u", (unsigned)tupleType->index);
+    cstring paramName = makeString(ctx->strings, "tup");
 
-    return checkType(visitor, &path);
+    AstNode *paramType = makeTypeReferenceNode(ctx->pool, makeReferenceType(ctx->types, tupleType, flgNone), loc);
+    AstNode *param = makeFunctionParam(ctx->pool, loc, paramName, paramType, NULL, flgNone, NULL);
+
+    AstNodeList stmts = {};
+    for (u64 i = 0; i < tupleType->tuple.count; i++) {
+        const Type *memberType = tupleType->tuple.members[i];
+        if (!isDestructible(memberType))
+            continue;
+
+        AstNode *memberAccess = makeMemberExpr(
+            ctx->pool, loc, flgNone,
+            makeResolvedIdentifier(ctx->pool, loc, paramName, flgNone, param, NULL, param->type),
+            makeIntegerLiteral(ctx->pool, loc, i, NULL, getPrimitiveType(ctx->types, prtU64)),
+            NULL, memberType);
+
+        AstNode *dropCall = makeExprStmt(
+            ctx->pool, loc, flgNone,
+            makeBackendCallExpr(ctx->pool, loc, flgNone, bfiDrop, memberAccess, makeVoidType(ctx->types)),
+            NULL, makeVoidType(ctx->types));
+
+        insertAstNode(&stmts, dropCall);
+    }
+
+    AstNode *body = makeBlockStmt(ctx->pool, loc, stmts.first, NULL, makeVoidType(ctx->types));
+    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, makeVoidAstNode(ctx->pool, loc, flgNone, NULL, NULL), body, flgGenerated | flgPure, NULL, NULL);
+
+    const Type *funcType = checkType(visitor, funcDecl);
+    if (!typeIs(funcType, Error) && ctx->root.parent) {
+        astModifierAddAsLast(&ctx->root, funcDecl);
+    }
+    return funcType;
+}
+
+static const Type *synthesizeTupleCopy(TypingContext *ctx,
+                                       AstVisitor *visitor,
+                                       const Type *tupleType)
+{
+    const FileLoc *loc = builtinLoc();
+    cstring funcName = makeStringf(ctx->strings, "__tuple_copy_%u", (unsigned)tupleType->index);
+    cstring paramName = makeString(ctx->strings, "tup");
+
+    AstNode *paramType = makeTypeReferenceNode(ctx->pool, makeReferenceType(ctx->types, tupleType, flgNone), loc);
+    AstNode *param = makeFunctionParam(ctx->pool, loc, paramName, paramType, NULL, flgNone, NULL);
+
+    AstNodeList exprs = {};
+    for (u64 i = 0; i < tupleType->tuple.count; i++) {
+        const Type *memberType = tupleType->tuple.members[i];
+        AstNode *memberAccess = makeMemberExpr(
+            ctx->pool, loc, flgNone,
+            makeResolvedIdentifier(ctx->pool, loc, paramName, flgNone, param, NULL, param->type),
+            makeIntegerLiteral(ctx->pool, loc, i, NULL, getPrimitiveType(ctx->types, prtU64)),
+            NULL, memberType);
+
+        AstNode *elemExpr = memberAccess;
+        if (isDestructible(memberType) || isClassType(memberType)) {
+            elemExpr = makeBackendCallExpr(ctx->pool, loc, flgNone, bfiCopy, memberAccess, memberType);
+        }
+        insertAstNode(&exprs, elemExpr);
+    }
+
+    AstNode *retTuple = makeTupleExpr(ctx->pool, loc, flgNone, exprs.first, NULL, tupleType);
+    AstNode *body = makeBlockStmt(ctx->pool, loc, makeReturnAstNode(ctx->pool, loc, flgNone, retTuple, NULL, tupleType), NULL, NULL);
+    AstNode *retTypeNode = makeTypeReferenceNode(ctx->pool, tupleType, loc);
+    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, retTypeNode, body, flgGenerated | flgPure, NULL, NULL);
+
+    const Type *funcType = checkType(visitor, funcDecl);
+    if (!typeIs(funcType, Error) && ctx->root.parent) {
+        astModifierAddAsLast(&ctx->root, funcDecl);
+    }
+    return funcType;
 }
 
 void implementTupleTypeCopyAndDestructor(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
     bool hasCopy = node->type->tuple.copyFunc != NULL;
-    if (!isBuiltinsInitialized() || hasCopy || !isDestructible(node->type))
+    if (hasCopy || !isDestructible(node->type))
         return;
 
-    const Type *func =
-        implementTupleOverload(visitor, S___tuple_copy, node->type);
+    const Type *func = synthesizeTupleCopy(ctx, visitor, node->type);
     if (typeIs(func, Error)) {
         node->type = ERROR_TYPE(ctx);
         return;
     }
     ((Type *)node->type)->tuple.copyFunc = func;
 
-    func = implementTupleOverload(visitor, S___tuple_dctor, node->type);
+    func = synthesizeTupleDestructor(ctx, visitor, node->type);
     if (typeIs(func, Error)) {
         node->type = ERROR_TYPE(ctx);
         return;

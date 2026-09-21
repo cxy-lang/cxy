@@ -1377,29 +1377,34 @@ u32 findUnionTypeIndex(const Type *tagged, const Type *type)
 
 bool hasReferenceMembers(const Type *type)
 {
+    if (type == NULL)
+        return false;
+    type = unwrapType(type, NULL);
     if (hasFlag(type, ReferenceMembers))
         return true;
     if (isClassOrStructType(type)) {
         AstNode *decl = getTypeDecl(type);
-        return hasFlag(decl, ReferenceMembers);
+        return decl && hasFlag(decl, ReferenceMembers);
     }
 
-    return isTupleType(type) && hasFlag(type, ReferenceMembers);
+    return (isTupleType(type) || isUnionType(type)) && hasFlag(type, ReferenceMembers);
 }
 
 bool isDestructible(const Type *type)
 {
-    if (hasFlags(type, flgReferenceMembers | flgImplementsDeinit))
+    if (type == NULL)
+        return false;
+    type = unwrapType(type, NULL);
+    if (isClassType(type))
         return true;
-    if (isClassOrStructType(type)) {
+    if (hasFlag(type, ReferenceMembers) || hasFlag(type, ImplementsDeinit))
+        return true;
+    if (isStructType(type)) {
         AstNode *decl = getTypeDecl(type);
-        return hasFlags(decl, flgReferenceMembers | flgImplementsDeinit);
+        return decl && (hasFlag(decl, ReferenceMembers) || hasFlag(decl, ImplementsDeinit));
     }
 
-    return isTupleType(type) &&
-           hasFlags(type,
-                    flgReferenceMembers | flgImplementsDeinit |
-                        flgFuncTypeParam);
+    return (isTupleType(type) || isUnionType(type)) && hasFlag(type, ReferenceMembers);
 }
 
 void pushThisReference(const Type *this, AstNode *node)

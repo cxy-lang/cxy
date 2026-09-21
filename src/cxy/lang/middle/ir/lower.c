@@ -1,6 +1,7 @@
 #include "lower.h"
 
 #include "core/hash.h"
+#include "core/strpool.h"
 #include "core/utils.h"
 #include "lang/frontend/ast.h"
 #include "lang/frontend/operator.h"
@@ -58,10 +59,10 @@ static inline void emitStmt(LowerContext *ctx, IrNode *stmt)
     }
 }
 
-static inline IrNode *createBlock(LowerContext *ctx, cstring prefix)
+static inline IrNode *createBlock(LowerContext *ctx, cstring name)
 {
-    cstring name = makeStringf(ctx->strings, "_L%u_%s", ctx->nextBlockId++, prefix ?: "bb");
-    IrNode *bb = makeIrBasicBlock(ctx->pool, NULL, name);
+    cstring blockName = makeStringf(ctx->strings, "_L_%s", name ?: "bb");
+    IrNode *bb = makeIrBasicBlock(ctx->pool, NULL, blockName);
     if (ctx->currentFunc) {
         irAppendFunctionBlock(ctx->currentFunc, bb);
     }
@@ -314,6 +315,7 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
         break;
     }
     case typStruct: {
+        cstring name = type->name ?: makeStringf(ctx->strings, "Struct%u", (unsigned)type->index);
         u64 count = type->tStruct.members ? type->tStruct.members->count : 0;
         u64 fieldCount = 0;
         for (u64 i = 0; i < count; i++) {
@@ -321,6 +323,9 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
                 fieldCount++;
         }
         IrField *fields = allocFromMemPool(ctx->pool, sizeof(IrField) * (fieldCount ?: 1));
+        const IrType *structType = makeIrStructType(ctx->types, name, type->name, fields, fieldCount);
+        cacheType(ctx, type, structType);
+
         u64 fi = 0;
         for (u64 i = 0; i < count; i++) {
             const NamedTypeMember *m = &type->tStruct.members->members[i];
@@ -331,8 +336,7 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
             fields[fi].bits = m->decl->structField.bits;
             fi++;
         }
-        cstring name = type->name ?: makeStringf(ctx->strings, "Struct%u", (unsigned)type->index);
-        result = makeIrStructType(ctx->types, name, type->name, fields, fi);
+        result = structType;
         break;
     }
     case typUntaggedUnion: {
@@ -358,6 +362,7 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
         break;
     }
     case typClass: {
+        cstring name = type->name ?: makeStringf(ctx->strings, "Class%u", (unsigned)type->index);
         u64 count = type->tClass.members ? type->tClass.members->count : 0;
         u64 fieldCount = 0;
         for (u64 i = 0; i < count; i++) {
@@ -365,6 +370,10 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
                 fieldCount++;
         }
         IrField *fields = allocFromMemPool(ctx->pool, sizeof(IrField) * (fieldCount ?: 1));
+        const IrType *structType = makeIrStructType(ctx->types, name, type->name, fields, fieldCount);
+        const IrType *ptrType = makeIrPointerType(ctx->types, structType);
+        cacheType(ctx, type, ptrType);
+
         u64 fi = 0;
         for (u64 i = 0; i < count; i++) {
             const NamedTypeMember *m = &type->tClass.members->members[i];
@@ -375,9 +384,7 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
             fields[fi].bits = m->decl->structField.bits;
             fi++;
         }
-        cstring name = type->name ?: makeStringf(ctx->strings, "Class%u", (unsigned)type->index);
-        const IrType *structType = makeIrStructType(ctx->types, name, type->name, fields, fi);
-        result = makeIrPointerType(ctx->types, structType);
+        result = ptrType;
         break;
     }
     case typUnion: {
@@ -646,6 +653,8 @@ static void lowerTaggedUnionIntoTarget(LowerContext *ctx, AstVisitor *visitor, c
     else {
         u32 idx = 0;
         const Type *targetAstType = (targetLValue->ast && targetLValue->ast->type) ? targetLValue->ast->type : NULL;
+        if (targetAstType == NULL && ctx->funcRetAstType && isUnionType(ctx->funcRetAstType))
+            targetAstType = ctx->funcRetAstType;
         if (targetAstType && isUnionType(targetAstType) && expr->type) {
             u32 found = findUnionTypeIndex(targetAstType, expr->type);
             if (found != UINT32_MAX)
@@ -666,6 +675,10 @@ static void lowerTaggedUnionIntoTarget(LowerContext *ctx, AstVisitor *visitor, c
         }
         else if (hasFlag(expr->type, Slice) || isSliceType(expr->type)) {
             lowerSliceIntoTarget(ctx, visitor, expr, payloadTarget);
+        }
+        else if (nodeIs(expr, BackendCall) && expr->backendCallExpr.func == bfiCopy && expr->backendCallExpr.args && expr->backendCallExpr.args->next == NULL) {
+            IrNode *src = lowerFlattenedOperand(visitor, expr->backendCallExpr.args);
+            emitStmt(ctx, makeIrCopy(ctx->pool, &expr->loc, src, payloadTarget));
         }
         else {
             astVisit(visitor, (AstNode *)expr);
@@ -712,33 +725,147 @@ static void visitStringLit(AstVisitor *visitor, AstNode *node)
     node->codegen = makeIrStringConst(ctx->pool, &node->loc, node->stringLiteral.value, lowerType(ctx, node->type));
 }
 
+static void appendNormalizedName(FormatState *state, const AstNode *node)
+{
+    if (node == NULL)
+        return;
+
+    switch (node->tag) {
+    case astIdentifier:
+        if (node->ident.value)
+            format(state, "{s}", (FormatArg[]){{.s = node->ident.value}});
+        break;
+    case astPath: {
+        for (const AstNode *elem = node->path.elements; elem; elem = elem->next) {
+            if (elem != node->path.elements)
+                format(state, "_", NULL);
+            if (elem->pathElement.name)
+                format(state, "{s}", (FormatArg[]){{.s = elem->pathElement.name}});
+        }
+        break;
+    }
+    case astPathElem:
+        if (node->pathElement.name)
+            format(state, "{s}", (FormatArg[]){{.s = node->pathElement.name}});
+        break;
+    case astMemberExpr:
+        appendNormalizedName(state, node->memberExpr.target);
+        format(state, "_", NULL);
+        appendNormalizedName(state, node->memberExpr.member);
+        break;
+    case astTypeRef:
+        if (node->type && node->type->name)
+            format(state, "{s}", (FormatArg[]){{.s = node->type->name}});
+        else if (node->_name)
+            format(state, "{s}", (FormatArg[]){{.s = node->_name}});
+        break;
+    default:
+        if (node->_name)
+            format(state, "{s}", (FormatArg[]){{.s = node->_name}});
+        break;
+    }
+}
+
+static cstring makeScopedSymbolName(LowerContext *ctx, const AstNode *decl, cstring baseName)
+{
+    if (decl && (hasFlag(decl, Main) || hasFlag(decl, Extern)))
+        return baseName;
+
+    cstring modName = ctx->module ? ctx->module->module.name : NULL;
+    if (modName == NULL || modName == S_main || baseName == NULL)
+        return baseName;
+
+    if (baseName == modName)
+        return baseName;
+
+    return makeStringf(ctx->strings, "%s_%s", modName, baseName);
+}
+
+static cstring getFunctionSymbolName(LowerContext *ctx, const AstNode *funcDecl)
+{
+    if (funcDecl == NULL)
+        return NULL;
+    if (funcDecl->ir && funcDecl->ir->tag == irFunction)
+        return funcDecl->ir->function.name;
+
+    cstring funcName = getDeclarationName(funcDecl);
+    if (hasFlag(funcDecl, Main) || funcName == S_main)
+        return S__main;
+
+    AstNode *parent = funcDecl->parentScope;
+    cstring modName = ctx->module ? ctx->module->module.name : NULL;
+    if (parent && isClassOrStructAstNode(parent)) {
+        cstring typeName = getDeclarationName(parent);
+        return makeStringf(ctx->strings, "%s_%s_%s", modName, typeName, funcName);
+    }
+
+    return makeScopedSymbolName(ctx, funcDecl, funcName);
+}
+
+static cstring getNormalizedName(LowerContext *ctx, const AstNode *node)
+{
+    if (node == NULL)
+        return NULL;
+    FormatState state = newFormatState(NULL, true);
+    appendNormalizedName(&state, node);
+    char *str = formatStateToString(&state);
+    cstring res = (str && str[0]) ? makeString(ctx->strings, str) : NULL;
+    free(str);
+    freeFormatState(&state);
+    return res;
+}
+
 static void visitIdentifier(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     const IrType *irType = lowerType(ctx, node->type);
-    const AstNode *decl = nodeIs(node, Identifier)
-                              ? node->ident.resolvesTo
-                              : (node->path.elements ? node->path.elements->pathElement.resolvesTo : NULL);
-    if (decl && decl->ir) {
-        if (decl->ir->tag == irVarDecl || decl->ir->tag == irFuncParam || decl->ir->tag == irGlobalVar) {
-            node->codegen = makeIrVarRef(ctx->pool, &node->loc, decl->ir);
-            return;
+    const AstNode *elem = nodeIs(node, Identifier) ? node : (node->path.elements ? getLastAstNode(node->path.elements) : NULL);
+    const AstNode *decl = nodeIs(node, Identifier) ? node->ident.resolvesTo : (elem ? elem->pathElement.resolvesTo : NULL);
+
+    if (decl) {
+        if (decl->ir) {
+            if (decl->ir->tag == irVarDecl || decl->ir->tag == irFuncParam || decl->ir->tag == irGlobalVar) {
+                node->codegen = makeIrVarRef(ctx->pool, &node->loc, decl->ir);
+                return;
+            }
+            if (decl->ir->tag == irFunction) {
+                node->codegen = makeIrGlobalRef(ctx->pool, &node->loc, decl->ir->function.name, decl->ir, decl->ir->type);
+                return;
+            }
         }
-        if (decl->ir->tag == irFunction) {
-            node->codegen = makeIrGlobalRef(ctx->pool, &node->loc, decl->ir->function.name, decl->ir, decl->ir->type);
+        if (nodeIs(decl, FuncDecl)) {
+            cstring cName = getFunctionSymbolName(ctx, decl);
+            node->codegen = makeIrGlobalRef(ctx->pool, &node->loc, cName, decl->ir, irType);
             return;
         }
     }
-    cstring name = nodeIs(node, Identifier) ? node->ident.value : node->path.elements->pathElement.name;
-    node->codegen = makeIrGlobalRef(ctx->pool, &node->loc, name, NULL, irType);
+
+    cstring name = getNormalizedName(ctx, node) ?: "unknown";
+    cstring cName = makeScopedSymbolName(ctx, decl, name);
+    node->codegen = makeIrGlobalRef(ctx->pool, &node->loc, cName, NULL, irType);
 }
 
 static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
+    AstNode *mem = node->memberExpr.member;
+    const AstNode *targetAst = node->memberExpr.target;
+    const AstNode *resolvesTo = (mem && nodeIs(mem, Identifier)) ? mem->ident.resolvesTo : NULL;
+
+    if (nodeIsMemberFunctionReference(node) || (mem && nodeIs(mem, Identifier) && mem->ident.resolvesTo && nodeIs(mem->ident.resolvesTo, FuncDecl))) {
+        if (resolvesTo && nodeIs(resolvesTo, FuncDecl)) {
+            cstring cName = getFunctionSymbolName(ctx, resolvesTo);
+            node->codegen = makeIrGlobalRef(ctx->pool, &node->loc, cName, resolvesTo->ir, lowerType(ctx, node->type));
+            return;
+        }
+        cstring normName = getNormalizedName(ctx, node);
+        cstring cName = makeScopedSymbolName(ctx, resolvesTo, normName);
+        node->codegen = makeIrGlobalRef(ctx->pool, &node->loc, cName, NULL, lowerType(ctx, node->type));
+        return;
+    }
+
     IrNode *target = lowerFlattenedOperand(visitor, node->memberExpr.target);
     const Type *targetAstType = node->memberExpr.target->type;
-    AstNode *mem = node->memberExpr.member;
     u32 index = 0;
     cstring name = NULL;
     if (mem) {
@@ -773,9 +900,10 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
             targetObj = target;
         }
 
-        IrNode *thenBB = createBlock(ctx, "opt_then");
-        IrNode *elseBB = createBlock(ctx, "opt_else");
-        IrNode *mergeBB = createBlock(ctx, "opt_merge");
+        u32 optId = ctx->nextOptId++;
+        IrNode *thenBB = createBlock(ctx, makeStringf(ctx->strings, "OPT%u_then", optId));
+        IrNode *elseBB = createBlock(ctx, makeStringf(ctx->strings, "OPT%u_else", optId));
+        IrNode *mergeBB = createBlock(ctx, makeStringf(ctx->strings, "OPT%u_merge", optId));
 
         emitStmt(ctx, makeIrBranchIf(ctx->pool, &node->loc, cond, thenBB, elseBB));
 
@@ -829,9 +957,10 @@ static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
         IrNode *condVar = makeIrVarDecl(ctx->pool, &node->loc, flgNone, condName, condName, boolType, ctx->currentScopeId);
         emitStmt(ctx, condVar);
 
-        IrNode *rhsBB = createBlock(ctx, "and_rhs");
-        IrNode *falseBB = createBlock(ctx, "and_false");
-        IrNode *mergeBB = createBlock(ctx, "and_merge");
+        u32 logicId = ctx->nextLogicId++;
+        IrNode *rhsBB = createBlock(ctx, makeStringf(ctx->strings, "AND%u_rhs", logicId));
+        IrNode *falseBB = createBlock(ctx, makeStringf(ctx->strings, "AND%u_false", logicId));
+        IrNode *mergeBB = createBlock(ctx, makeStringf(ctx->strings, "AND%u_merge", logicId));
 
         emitStmt(ctx, makeIrBranchIf(ctx->pool, &node->loc, lhs, rhsBB, falseBB));
 
@@ -858,9 +987,10 @@ static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
         IrNode *condVar = makeIrVarDecl(ctx->pool, &node->loc, flgNone, condName, condName, boolType, ctx->currentScopeId);
         emitStmt(ctx, condVar);
 
-        IrNode *trueBB = createBlock(ctx, "or_true");
-        IrNode *rhsBB = createBlock(ctx, "or_rhs");
-        IrNode *mergeBB = createBlock(ctx, "or_merge");
+        u32 logicId = ctx->nextLogicId++;
+        IrNode *trueBB = createBlock(ctx, makeStringf(ctx->strings, "OR%u_true", logicId));
+        IrNode *rhsBB = createBlock(ctx, makeStringf(ctx->strings, "OR%u_rhs", logicId));
+        IrNode *mergeBB = createBlock(ctx, makeStringf(ctx->strings, "OR%u_merge", logicId));
 
         emitStmt(ctx, makeIrBranchIf(ctx->pool, &node->loc, lhs, trueBB, rhsBB));
 
@@ -888,9 +1018,10 @@ static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
         IrNode *resVar = makeIrVarDecl(ctx->pool, &node->loc, flgNone, tempName, tempName, resIrType, ctx->currentScopeId);
         emitStmt(ctx, resVar);
 
-        IrNode *thenBB = createBlock(ctx, "coalesce_then");
-        IrNode *elseBB = createBlock(ctx, "coalesce_else");
-        IrNode *mergeBB = createBlock(ctx, "coalesce_merge");
+        u32 optId = ctx->nextOptId++;
+        IrNode *thenBB = createBlock(ctx, makeStringf(ctx->strings, "COALESCE%u_then", optId));
+        IrNode *elseBB = createBlock(ctx, makeStringf(ctx->strings, "COALESCE%u_else", optId));
+        IrNode *mergeBB = createBlock(ctx, makeStringf(ctx->strings, "COALESCE%u_merge", optId));
 
         IrNode *cond = NULL;
         IrNode *thenVal = NULL;
@@ -1151,9 +1282,10 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
         emitStmt(ctx, resVar);
         IrNode *resVarRef = makeIrVarRef(ctx->pool, &node->loc, resVar);
 
-        IrNode *thenBB = createBlock(ctx, "optcall_then");
-        IrNode *elseBB = createBlock(ctx, "optcall_else");
-        IrNode *mergeBB = createBlock(ctx, "optcall_merge");
+        u32 optId = ctx->nextOptId++;
+        IrNode *thenBB = createBlock(ctx, makeStringf(ctx->strings, "OPTCALL%u_then", optId));
+        IrNode *elseBB = createBlock(ctx, makeStringf(ctx->strings, "OPTCALL%u_else", optId));
+        IrNode *mergeBB = createBlock(ctx, makeStringf(ctx->strings, "OPTCALL%u_merge", optId));
 
         emitStmt(ctx, makeIrBranchIf(ctx->pool, &node->loc, cond, thenBB, elseBB));
 
@@ -1257,9 +1389,10 @@ static void visitTernaryExpr(AstVisitor *visitor, AstNode *node)
     IrNode *tempVar = makeIrVarDecl(ctx->pool, &node->loc, flgNone, tempName, tempName, irType, ctx->currentScopeId);
     emitStmt(ctx, tempVar);
 
-    IrNode *thenBB = createBlock(ctx, "ternary_then");
-    IrNode *elseBB = createBlock(ctx, "ternary_else");
-    IrNode *mergeBB = createBlock(ctx, "ternary_merge");
+    u32 ternaryId = ctx->nextTernaryId++;
+    IrNode *thenBB = createBlock(ctx, makeStringf(ctx->strings, "TERNARY%u_then", ternaryId));
+    IrNode *elseBB = createBlock(ctx, makeStringf(ctx->strings, "TERNARY%u_else", ternaryId));
+    IrNode *mergeBB = createBlock(ctx, makeStringf(ctx->strings, "TERNARY%u_merge", ternaryId));
 
     emitStmt(ctx, makeIrBranchIf(ctx->pool, &node->loc, cond, thenBB, elseBB));
 
@@ -1283,6 +1416,22 @@ static void visitArrayExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     const IrType *arrType = lowerType(ctx, node->type);
+    if (ctx->currentFunc == NULL) {
+        IrNode *elemsFirst = NULL, *elemsLast = NULL;
+        u64 count = 0;
+        for (AstNode *elem = node->arrayExpr.elements; elem; elem = elem->next, count++) {
+            IrNode *elemVal = lowerFlattenedOperand(visitor, elem);
+            if (elemsLast) {
+                elemsLast->next = elemVal;
+                elemsLast = elemVal;
+            }
+            else {
+                elemsFirst = elemsLast = elemVal;
+            }
+        }
+        node->codegen = makeIrArrayConst(ctx->pool, &node->loc, elemsFirst, count, arrType);
+        return;
+    }
     cstring tempName = makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
     IrNode *tempVar = makeIrVarDecl(ctx->pool, &node->loc, flgNone, tempName, tempName, arrType, ctx->currentScopeId);
     emitStmt(ctx, tempVar);
@@ -1294,6 +1443,22 @@ static void visitTupleExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     const IrType *tupType = lowerType(ctx, node->type);
+    if (ctx->currentFunc == NULL) {
+        IrNode *elemsFirst = NULL, *elemsLast = NULL;
+        u64 count = 0;
+        for (AstNode *elem = node->tupleExpr.elements; elem; elem = elem->next, count++) {
+            IrNode *elemVal = lowerFlattenedOperand(visitor, elem);
+            if (elemsLast) {
+                elemsLast->next = elemVal;
+                elemsLast = elemVal;
+            }
+            else {
+                elemsFirst = elemsLast = elemVal;
+            }
+        }
+        node->codegen = makeIrStructConst(ctx->pool, &node->loc, elemsFirst, count, tupType);
+        return;
+    }
     cstring tempName = makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
     IrNode *tempVar = makeIrVarDecl(ctx->pool, &node->loc, flgNone, tempName, tempName, tupType, ctx->currentScopeId);
     emitStmt(ctx, tempVar);
@@ -1305,6 +1470,22 @@ static void visitStructExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     const IrType *strctType = lowerType(ctx, node->type);
+    if (ctx->currentFunc == NULL) {
+        IrNode *fieldsFirst = NULL, *fieldsLast = NULL;
+        u64 count = 0;
+        for (AstNode *f = node->structExpr.fields; f; f = f->next, count++) {
+            IrNode *fVal = lowerFlattenedOperand(visitor, f->fieldExpr.value);
+            if (fieldsLast) {
+                fieldsLast->next = fVal;
+                fieldsLast = fVal;
+            }
+            else {
+                fieldsFirst = fieldsLast = fVal;
+            }
+        }
+        node->codegen = makeIrStructConst(ctx->pool, &node->loc, fieldsFirst, count, strctType);
+        return;
+    }
     cstring tempName = makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
     IrNode *tempVar = makeIrVarDecl(ctx->pool, &node->loc, flgNone, tempName, tempName, strctType, ctx->currentScopeId);
     emitStmt(ctx, tempVar);
@@ -1336,7 +1517,8 @@ static void visitBackendCall(AstVisitor *visitor, AstNode *node)
         if (typeIs(allocType, Pointer))
             allocType = allocType->pointer.pointed;
         const IrType *elemIrType = lowerType(ctx, allocType);
-        IrNode *sizeNode = makeIrSizeof(ctx->pool, &node->loc, elemIrType);
+        const IrType *allocStructType = (elemIrType && elemIrType->tag == irTypePointer) ? elemIrType->pointer.pointee : elemIrType;
+        IrNode *sizeNode = makeIrSizeof(ctx->pool, &node->loc, allocStructType);
         AstNode *dctorArg = args ? args->next : NULL;
         IrNode *dctorNode = dctorArg ? lowerFlattenedOperand(visitor, dctorArg)
                                      : makeIrNullConst(ctx->pool, &node->loc, getIrPrimitiveType(ctx->types, irTypePointer));
@@ -1378,8 +1560,19 @@ static void visitBackendCall(AstVisitor *visitor, AstNode *node)
     }
     case bfiCopy: {
         IrNode *src = lowerFlattenedOperand(visitor, args);
-        IrNode *dst = lowerFlattenedOperand(visitor, args->next);
-        node->codegen = makeIrCopy(ctx->pool, &node->loc, src, dst);
+        if (args && args->next) {
+            IrNode *dst = lowerFlattenedOperand(visitor, args->next);
+            node->codegen = makeIrCopy(ctx->pool, &node->loc, src, dst);
+        }
+        else {
+            const IrType *elemType = lowerType(ctx, node->type ?: (args ? args->type : NULL));
+            cstring tempName = makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
+            IrNode *tempVar = makeIrVarDecl(ctx->pool, &node->loc, flgNone, tempName, tempName, elemType, ctx->currentScopeId);
+            emitStmt(ctx, tempVar);
+            IrNode *dst = makeIrVarRef(ctx->pool, &node->loc, tempVar);
+            emitStmt(ctx, makeIrCopy(ctx->pool, &node->loc, src, dst));
+            node->codegen = dst;
+        }
         break;
     }
     case bfiMove: {
@@ -1439,7 +1632,11 @@ static void visitVarDecl(AstVisitor *visitor, AstNode *node)
 
     cstring displayName = getDeclarationName(node);
     cstring cName = makeUniqueVarName(ctx, displayName);
-    IrNode *varDecl = makeIrVarDecl(ctx->pool, &node->loc, node->flags, cName, displayName, irType, ctx->currentScopeId);
+    Flags flags = node->flags;
+    if (!isReferenceType(varAstType) && !isPointerType(varAstType) && isDestructible(varAstType)) {
+        flags |= flgReferenceMembers;
+    }
+    IrNode *varDecl = makeIrVarDecl(ctx->pool, &node->loc, flags, cName, displayName, irType, ctx->currentScopeId);
     node->ir = varDecl;
     if (node->varDecl.names)
         node->varDecl.names->ir = varDecl;
@@ -1463,6 +1660,10 @@ static void visitVarDecl(AstVisitor *visitor, AstNode *node)
         }
         else if (typeIs(varAstType, Union)) {
             lowerTaggedUnionIntoTarget(ctx, visitor, initNode, makeIrVarRef(ctx->pool, &node->loc, varDecl));
+        }
+        else if (nodeIs(initNode, BackendCall) && initNode->backendCallExpr.func == bfiCopy && initNode->backendCallExpr.args && initNode->backendCallExpr.args->next == NULL) {
+            IrNode *src = lowerFlattenedOperand(visitor, initNode->backendCallExpr.args);
+            emitStmt(ctx, makeIrCopy(ctx->pool, &node->loc, src, makeIrVarRef(ctx->pool, &node->loc, varDecl)));
         }
         else if (nodeIs(initNode, ArrayExpr) || nodeIs(initNode, TupleExpr) || nodeIs(initNode, StructExpr)) {
             lowerAggregateIntoTarget(ctx, visitor, initNode, makeIrVarRef(ctx->pool, &node->loc, varDecl));
@@ -1498,6 +1699,10 @@ static void visitAssignExpr(AstVisitor *visitor, AstNode *node)
     else if (lhsAstType && typeIs(lhsAstType, Union) &&
         (nodeIs(rhsNode, UnionValueExpr) || (rhsAstType && !typeIs(rhsAstType, Union)))) {
         lowerTaggedUnionIntoTarget(ctx, visitor, rhsNode, lhs);
+    }
+    else if (nodeIs(rhsNode, BackendCall) && rhsNode->backendCallExpr.func == bfiCopy && rhsNode->backendCallExpr.args && rhsNode->backendCallExpr.args->next == NULL) {
+        IrNode *src = lowerFlattenedOperand(visitor, rhsNode->backendCallExpr.args);
+        emitStmt(ctx, makeIrCopy(ctx->pool, &node->loc, src, lhs));
     }
     else if (nodeIs(rhsNode, ArrayExpr) || nodeIs(rhsNode, TupleExpr) || nodeIs(rhsNode, StructExpr)) {
         lowerAggregateIntoTarget(ctx, visitor, rhsNode, lhs);
@@ -1540,9 +1745,10 @@ static void visitIfStmt(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     IrNode *cond = lowerConditionOperand(ctx, visitor, node->ifStmt.cond);
-    IrNode *thenBB = createBlock(ctx, "if_then");
-    IrNode *elseBB = node->ifStmt.otherwise ? createBlock(ctx, "if_else") : NULL;
-    IrNode *mergeBB = createBlock(ctx, "if_end");
+    u32 ifId = ctx->nextIfId++;
+    IrNode *thenBB = createBlock(ctx, makeStringf(ctx->strings, "IF%u_then", ifId));
+    IrNode *elseBB = node->ifStmt.otherwise ? createBlock(ctx, makeStringf(ctx->strings, "IF%u_else", ifId)) : NULL;
+    IrNode *mergeBB = createBlock(ctx, makeStringf(ctx->strings, "IF%u_end", ifId));
 
     emitStmt(ctx, makeIrBranchIf(ctx->pool, &node->loc, cond, thenBB, elseBB ?: mergeBB));
 
@@ -1562,9 +1768,10 @@ static void visitIfStmt(AstVisitor *visitor, AstNode *node)
 static void visitWhileStmt(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
-    IrNode *condBB = createBlock(ctx, "while_cond");
-    IrNode *bodyBB = createBlock(ctx, "while_body");
-    IrNode *exitBB = createBlock(ctx, "while_exit");
+    u32 whileId = ctx->nextWhileId++;
+    IrNode *condBB = createBlock(ctx, makeStringf(ctx->strings, "WHILE%u_cond", whileId));
+    IrNode *bodyBB = createBlock(ctx, makeStringf(ctx->strings, "WHILE%u_body", whileId));
+    IrNode *exitBB = createBlock(ctx, makeStringf(ctx->strings, "WHILE%u_exit", whileId));
 
     emitBranchIfNotTerminated(ctx, condBB);
 
@@ -1573,7 +1780,7 @@ static void visitWhileStmt(AstVisitor *visitor, AstNode *node)
     emitStmt(ctx, makeIrBranchIf(ctx->pool, &node->loc, cond, bodyBB, exitBB));
 
     setBlock(ctx, bodyBB);
-    LoopCtx loop = {.condBlock = condBB, .exitBlock = exitBB, .prev = ctx->loopCtx};
+    LoopCtx loop = {.condBlock = condBB, .exitBlock = exitBB, .scopeId = ctx->currentScopeId, .prev = ctx->loopCtx};
     ctx->loopCtx = &loop;
     astVisit(visitor, node->whileStmt.body);
     ctx->loopCtx = loop.prev;
@@ -1606,9 +1813,11 @@ static void visitForStmt(AstVisitor *visitor, AstNode *node)
         emitStmt(ctx, varDecl);
         emitStmt(ctx, makeIrAssign(ctx->pool, &startNode->loc, makeIrVarRef(ctx->pool, &loopVarNode->loc, varDecl), startVal));
 
-        IrNode *condBB = createBlock(ctx, "for_cond");
-        IrNode *bodyBB = createBlock(ctx, "for_body");
-        IrNode *exitBB = createBlock(ctx, "for_exit");
+        u32 forId = ctx->nextForId++;
+        IrNode *condBB = createBlock(ctx, makeStringf(ctx->strings, "FOR%u_cond", forId));
+        IrNode *bodyBB = createBlock(ctx, makeStringf(ctx->strings, "FOR%u_body", forId));
+        IrNode *updateBB = createBlock(ctx, makeStringf(ctx->strings, "FOR%u_update", forId));
+        IrNode *exitBB = createBlock(ctx, makeStringf(ctx->strings, "FOR%u_exit", forId));
 
         emitBranchIfNotTerminated(ctx, condBB);
         setBlock(ctx, condBB);
@@ -1617,11 +1826,13 @@ static void visitForStmt(AstVisitor *visitor, AstNode *node)
         emitStmt(ctx, makeIrBranchIf(ctx->pool, &node->loc, cond, bodyBB, exitBB));
 
         setBlock(ctx, bodyBB);
-        LoopCtx loop = {.condBlock = condBB, .exitBlock = exitBB, .prev = ctx->loopCtx};
+        LoopCtx loop = {.condBlock = updateBB, .exitBlock = exitBB, .scopeId = ctx->currentScopeId, .prev = ctx->loopCtx};
         ctx->loopCtx = &loop;
         astVisit(visitor, node->forStmt.body);
         ctx->loopCtx = loop.prev;
+        emitBranchIfNotTerminated(ctx, updateBB);
 
+        setBlock(ctx, updateBB);
         IrNode *stepVal = stepNode ? lowerFlattenedOperand(visitor, stepNode) : makeIrIntConst(ctx->pool, &node->loc, 1, false, varType);
         IrNode *nextVal = makeIrBinary(ctx->pool, &node->loc, opAdd, makeIrVarRef(ctx->pool, &loopVarNode->loc, varDecl), stepVal, varType);
         emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, makeIrVarRef(ctx->pool, &loopVarNode->loc, varDecl), nextVal));
@@ -1646,9 +1857,11 @@ static void visitForStmt(AstVisitor *visitor, AstNode *node)
         emitStmt(ctx, idxVar);
         emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, makeIrVarRef(ctx->pool, &node->loc, idxVar), makeIrIntConst(ctx->pool, &node->loc, 0, false, u64Type)));
 
-        IrNode *condBB = createBlock(ctx, "for_cond");
-        IrNode *bodyBB = createBlock(ctx, "for_body");
-        IrNode *exitBB = createBlock(ctx, "for_exit");
+        u32 forId = ctx->nextForId++;
+        IrNode *condBB = createBlock(ctx, makeStringf(ctx->strings, "FOR%u_cond", forId));
+        IrNode *bodyBB = createBlock(ctx, makeStringf(ctx->strings, "FOR%u_body", forId));
+        IrNode *updateBB = createBlock(ctx, makeStringf(ctx->strings, "FOR%u_update", forId));
+        IrNode *exitBB = createBlock(ctx, makeStringf(ctx->strings, "FOR%u_exit", forId));
 
         emitBranchIfNotTerminated(ctx, condBB);
         setBlock(ctx, condBB);
@@ -1680,11 +1893,13 @@ static void visitForStmt(AstVisitor *visitor, AstNode *node)
             emitStmt(ctx, makeIrAssign(ctx->pool, &idxUserVar->loc, makeIrVarRef(ctx->pool, &idxUserVar->loc, iVar), castIdx));
         }
 
-        LoopCtx loop = {.condBlock = condBB, .exitBlock = exitBB, .prev = ctx->loopCtx};
+        LoopCtx loop = {.condBlock = updateBB, .exitBlock = exitBB, .scopeId = ctx->currentScopeId, .prev = ctx->loopCtx};
         ctx->loopCtx = &loop;
         astVisit(visitor, node->forStmt.body);
         ctx->loopCtx = loop.prev;
+        emitBranchIfNotTerminated(ctx, updateBB);
 
+        setBlock(ctx, updateBB);
         IrNode *nextIdx = makeIrBinary(ctx->pool, &node->loc, opAdd, makeIrVarRef(ctx->pool, &node->loc, idxVar), makeIrIntConst(ctx->pool, &node->loc, 1, false, u64Type), u64Type);
         emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, makeIrVarRef(ctx->pool, &node->loc, idxVar), nextIdx));
         emitBranchIfNotTerminated(ctx, condBB);
@@ -1693,9 +1908,11 @@ static void visitForStmt(AstVisitor *visitor, AstNode *node)
         return;
     }
 
-    IrNode *condBB = createBlock(ctx, "for_cond");
-    IrNode *bodyBB = createBlock(ctx, "for_body");
-    IrNode *exitBB = createBlock(ctx, "for_exit");
+    u32 forId = ctx->nextForId++;
+    IrNode *condBB = createBlock(ctx, makeStringf(ctx->strings, "FOR%u_cond", forId));
+    IrNode *bodyBB = createBlock(ctx, makeStringf(ctx->strings, "FOR%u_body", forId));
+    IrNode *updateBB = createBlock(ctx, makeStringf(ctx->strings, "FOR%u_update", forId));
+    IrNode *exitBB = createBlock(ctx, makeStringf(ctx->strings, "FOR%u_exit", forId));
 
     emitBranchIfNotTerminated(ctx, condBB);
     setBlock(ctx, condBB);
@@ -1704,10 +1921,13 @@ static void visitForStmt(AstVisitor *visitor, AstNode *node)
     emitStmt(ctx, makeIrBranchIf(ctx->pool, &node->loc, cond, bodyBB, exitBB));
 
     setBlock(ctx, bodyBB);
-    LoopCtx loop = {.condBlock = condBB, .exitBlock = exitBB, .prev = ctx->loopCtx};
+    LoopCtx loop = {.condBlock = updateBB, .exitBlock = exitBB, .scopeId = ctx->currentScopeId, .prev = ctx->loopCtx};
     ctx->loopCtx = &loop;
     astVisit(visitor, node->forStmt.body);
     ctx->loopCtx = loop.prev;
+    emitBranchIfNotTerminated(ctx, updateBB);
+
+    setBlock(ctx, updateBB);
     emitBranchIfNotTerminated(ctx, condBB);
 
     setBlock(ctx, exitBB);
@@ -1716,15 +1936,46 @@ static void visitForStmt(AstVisitor *visitor, AstNode *node)
 static void visitBreakStmt(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
-    if (ctx->loopCtx && ctx->loopCtx->exitBlock)
+    if (ctx->loopCtx && ctx->loopCtx->exitBlock) {
+        for (u32 s = ctx->currentScopeId; s > ctx->loopCtx->scopeId; s--) {
+            emitStmt(ctx, makeIrScopeExit(ctx->pool, &node->loc, s));
+        }
         emitStmt(ctx, makeIrBranch(ctx->pool, &node->loc, ctx->loopCtx->exitBlock));
+    }
 }
 
 static void visitContinueStmt(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
-    if (ctx->loopCtx && ctx->loopCtx->condBlock)
+    if (ctx->loopCtx && ctx->loopCtx->condBlock) {
+        for (u32 s = ctx->currentScopeId; s > ctx->loopCtx->scopeId; s--) {
+            emitStmt(ctx, makeIrScopeExit(ctx->pool, &node->loc, s));
+        }
         emitStmt(ctx, makeIrBranch(ctx->pool, &node->loc, ctx->loopCtx->condBlock));
+    }
+}
+
+static IrNode *getOrCreateScopeReturnBlock(LowerContext *ctx, u32 scopeId, const FileLoc *loc)
+{
+    if (scopeId == 0)
+        return ctx->funcExitBlock;
+
+    cstring name = makeStringf(ctx->strings, "UNWIND%u_return", scopeId);
+    if (ctx->currentFunc) {
+        for (IrNode *b = ctx->currentFunc->function.firstBlock; b; b = b->next) {
+            if (b->tag == irBasicBlock && b->basicBlock.name == name)
+                return b;
+        }
+    }
+
+    IrNode *savedBlock = ctx->currentBlock;
+    IrNode *unwindBB = createBlock(ctx, makeStringf(ctx->strings, "UNWIND%u_return", scopeId));
+    setBlock(ctx, unwindBB);
+    emitStmt(ctx, makeIrScopeExit(ctx->pool, loc, scopeId));
+    IrNode *parentUnwindBB = getOrCreateScopeReturnBlock(ctx, scopeId - 1, loc);
+    emitStmt(ctx, makeIrBranch(ctx->pool, loc, parentUnwindBB));
+    ctx->currentBlock = savedBlock;
+    return unwindBB;
 }
 
 static void visitReturnStmt(AstVisitor *visitor, AstNode *node)
@@ -1733,25 +1984,45 @@ static void visitReturnStmt(AstVisitor *visitor, AstNode *node)
     if (node->returnStmt.expr && ctx->funcRetVar) {
         AstNode *retExpr = node->returnStmt.expr;
         IrNode *retVarRef = makeIrVarRef(ctx->pool, &node->loc, ctx->funcRetVar);
-        if (nodeIs(retExpr, ArrayExpr) || nodeIs(retExpr, TupleExpr) || nodeIs(retExpr, StructExpr)) {
+        const Type *retAstType = ctx->funcRetAstType;
+        const Type *exprAstType = retExpr->type;
+
+        if (retAstType && (hasFlag(retAstType, Slice) || isSliceType(retAstType)) &&
+            (!exprAstType || (!hasFlag(exprAstType, Slice) && !isSliceType(exprAstType)))) {
+            lowerSliceIntoTarget(ctx, visitor, retExpr, retVarRef);
+        }
+        else if (retAstType && (hasFlag(retAstType, Optional) || typeIs(retAstType, Optional)) &&
+            (!exprAstType || (!hasFlag(exprAstType, Optional) && !typeIs(exprAstType, Optional)))) {
+            lowerOptionalIntoTarget(ctx, visitor, retExpr, retVarRef);
+        }
+        else if (retAstType && typeIs(retAstType, Union) &&
+            (nodeIs(retExpr, UnionValueExpr) || (exprAstType && !typeIs(exprAstType, Union)))) {
+            lowerTaggedUnionIntoTarget(ctx, visitor, retExpr, retVarRef);
+        }
+        else if (nodeIs(retExpr, ArrayExpr) || nodeIs(retExpr, TupleExpr) || nodeIs(retExpr, StructExpr)) {
             lowerAggregateIntoTarget(ctx, visitor, retExpr, retVarRef);
+        }
+        else if (nodeIs(retExpr, BackendCall) && retExpr->backendCallExpr.func == bfiCopy && retExpr->backendCallExpr.args && retExpr->backendCallExpr.args->next == NULL) {
+            IrNode *src = lowerFlattenedOperand(visitor, retExpr->backendCallExpr.args);
+            emitStmt(ctx, makeIrCopy(ctx->pool, &node->loc, src, retVarRef));
         }
         else {
             astVisit(visitor, retExpr);
             IrNode *val = (IrNode *)retExpr->codegen;
-            emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, retVarRef, val));
+            if (val)
+                emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, retVarRef, val));
         }
     }
-    if (ctx->currentScopeId > 0)
-        emitStmt(ctx, makeIrScopeExit(ctx->pool, &node->loc, ctx->currentScopeId));
-    emitStmt(ctx, makeIrBranch(ctx->pool, &node->loc, ctx->funcExitBlock));
+    IrNode *targetBB = getOrCreateScopeReturnBlock(ctx, ctx->currentScopeId, &node->loc);
+    emitStmt(ctx, makeIrBranch(ctx->pool, &node->loc, targetBB));
 }
 
 static void visitSwitchStmt(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     IrNode *cond = lowerFlattenedOperand(visitor, node->switchStmt.cond);
-    IrNode *exitBB = createBlock(ctx, "switch_exit");
+    u32 switchId = ctx->nextSwitchId++;
+    IrNode *exitBB = createBlock(ctx, makeStringf(ctx->strings, "SWITCH%u_exit", switchId));
 
     u64 totalCases = 0;
     for (const AstNode *c = node->switchStmt.cases; c; c = c->next) {
@@ -1765,8 +2036,9 @@ static void visitSwitchStmt(AstVisitor *visitor, AstNode *node)
     u64 caseIdx = 0;
     IrNode *defaultBB = NULL;
 
-    for (AstNode *c = node->switchStmt.cases; c; c = c->next) {
-        IrNode *caseBB = createBlock(ctx, "switch_case");
+    u32 cNum = 0;
+    for (AstNode *c = node->switchStmt.cases; c; c = c->next, cNum++) {
+        IrNode *caseBB = createBlock(ctx, makeStringf(ctx->strings, "SWITCH%u_case_%u", switchId, cNum));
         if (c->caseStmt.match == NULL) {
             defaultBB = caseBB;
         }
@@ -1799,7 +2071,8 @@ static void visitMatchStmt(AstVisitor *visitor, AstNode *node)
     IrNode *unionVal = lowerFlattenedOperand(visitor, node->matchStmt.expr);
     const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
     IrNode *tagVal = makeIrMember(ctx->pool, &node->matchStmt.expr->loc, unionVal, 0, "tag", u32Type);
-    IrNode *exitBB = createBlock(ctx, "match_exit");
+    u32 matchId = ctx->nextMatchId++;
+    IrNode *exitBB = createBlock(ctx, makeStringf(ctx->strings, "MATCH%u_exit", matchId));
 
     u64 casesCount = 0;
     AstNode *defaultCase = node->matchStmt.defaultCase;
@@ -1813,27 +2086,35 @@ static void visitMatchStmt(AstVisitor *visitor, AstNode *node)
     IrCase *cases = allocFromMemPool(ctx->pool, sizeof(IrCase) * (casesCount ?: 1));
     IrNode **caseBBs = allocFromMemPool(ctx->pool, sizeof(IrNode *) * (casesCount ?: 1));
 
+    const Type *sumType = stripPointerOrReferenceOnce(node->matchStmt.expr->type, NULL);
     u64 ci = 0;
     for (AstNode *c = node->matchStmt.cases; c; c = c->next) {
         if (c->caseStmt.match == NULL)
             continue;
-        IrNode *bb = createBlock(ctx, "match_case");
-        cases[ci].value = c->caseStmt.idx;
+        IrNode *bb = createBlock(ctx, makeStringf(ctx->strings, "MATCH%u_case_%u", matchId, (unsigned)ci));
+        u32 caseIdx = c->caseStmt.idx;
+        if (caseIdx == 0 && c->caseStmt.match && sumType && isUnionType(sumType)) {
+            u32 found = findUnionTypeIndex(sumType, c->caseStmt.match->type);
+            if (found != UINT32_MAX)
+                caseIdx = found;
+        }
+        cases[ci].value = caseIdx;
         cases[ci].target = bb;
         caseBBs[ci] = bb;
         ci++;
     }
 
-    IrNode *defaultBB = defaultCase ? createBlock(ctx, "match_default") : exitBB;
+    IrNode *defaultBB = defaultCase ? createBlock(ctx, makeStringf(ctx->strings, "MATCH%u_default", matchId)) : exitBB;
     emitStmt(ctx, makeIrSwitch(ctx->pool, &node->loc, tagVal, cases, casesCount, defaultBB));
 
     ci = 0;
     for (AstNode *c = node->matchStmt.cases; c; c = c->next) {
         if (c->caseStmt.match == NULL)
             continue;
+        u32 caseIdx = cases[ci].value;
         setBlock(ctx, caseBBs[ci++]);
         if (c->caseStmt.alias) {
-            cstring aliasName = getDeclarationName(c->caseStmt.alias);
+            cstring aliasName = c->caseStmt.alias->_name;
             cstring uniqueName = makeUniqueVarName(ctx, aliasName);
             const IrType *aliasIrType = lowerType(ctx, c->caseStmt.match->type);
             IrNode *aliasVar = makeIrVarDecl(ctx->pool, &c->caseStmt.alias->loc, flgNone, uniqueName, aliasName, aliasIrType, ctx->currentScopeId);
@@ -1843,8 +2124,8 @@ static void visitMatchStmt(AstVisitor *visitor, AstNode *node)
 
             const IrType *payloadUnionType = unionVal->type->strct.fields[1].type;
             IrNode *valMember = makeIrMember(ctx->pool, &c->loc, unionVal, 1, "val", payloadUnionType);
-            cstring fieldName = makeStringf(ctx->strings, "_%u", c->caseStmt.idx);
-            IrNode *payloadMember = makeIrMember(ctx->pool, &c->loc, valMember, c->caseStmt.idx, fieldName, aliasIrType);
+            cstring fieldName = makeStringf(ctx->strings, "_%u", caseIdx);
+            IrNode *payloadMember = makeIrMember(ctx->pool, &c->loc, valMember, caseIdx, fieldName, aliasIrType);
 
             emitStmt(ctx, makeIrAssign(ctx->pool, &c->caseStmt.alias->loc, makeIrVarRef(ctx->pool, &c->caseStmt.alias->loc, aliasVar), payloadMember));
         }
@@ -1878,7 +2159,12 @@ static void visitFuncDecl(AstVisitor *visitor, AstNode *node)
     for (AstNode *p = node->funcDecl.signature->params; p; p = p->next, pidx++) {
         const IrType *pType = lowerType(ctx, p->type);
         cstring pname = p->funcParam.name ?: makeStringf(ctx->strings, "p%u", pidx);
-        IrNode *param = makeIrFuncParam(ctx->pool, &p->loc, p->flags, pname, pidx, pType);
+        Flags pFlags = p->flags;
+        const Type *pAstType = p->type ? resolveUnThisUnwrapType(p->type) : NULL;
+        if (pAstType && !isReferenceType(pAstType) && !isPointerType(pAstType) && !hasFlag(p, Reference) && isDestructible(pAstType)) {
+            pFlags |= flgReferenceMembers;
+        }
+        IrNode *param = makeIrFuncParam(ctx->pool, &p->loc, pFlags, pname, pidx, pType);
         p->ir = param;
         if (paramsLast) {
             paramsLast->next = param;
@@ -1892,20 +2178,17 @@ static void visitFuncDecl(AstVisitor *visitor, AstNode *node)
     cstring funcName = getDeclarationName(node);
     AstNode *parent = node->parentScope;
     cstring modName = ctx->module->module.name;
-    cstring cName = funcName;
+    cstring cName = getFunctionSymbolName(ctx, node);
     cstring displayName = funcName;
 
     if (parent && isClassOrStructAstNode(parent)) {
         cstring typeName = getDeclarationName(parent);
-        cName = makeStringf(ctx->strings, "%s_%s_%s", modName, typeName, funcName);
         displayName = makeStringf(ctx->strings, "%s.%s.%s", modName, typeName, funcName);
     }
     else if (hasFlag(node, Main) || funcName == S_main) {
-        cName = S__main;
         displayName = S_main;
     }
     else if (!hasFlag(node, Extern) && modName && modName != S_main) {
-        cName = makeStringf(ctx->strings, "%s_%s", modName, funcName);
         displayName = makeStringf(ctx->strings, "%s.%s", modName, funcName);
     }
 
@@ -1914,6 +2197,14 @@ static void visitFuncDecl(AstVisitor *visitor, AstNode *node)
 
     ctx->currentFunc = func;
     ctx->nextBlockId = 0;
+    ctx->nextForId = 0;
+    ctx->nextWhileId = 0;
+    ctx->nextIfId = 0;
+    ctx->nextSwitchId = 0;
+    ctx->nextMatchId = 0;
+    ctx->nextOptId = 0;
+    ctx->nextTernaryId = 0;
+    ctx->nextLogicId = 0;
     ctx->currentScopeId = 0;
     ctx->nextScopeId = 1;
     ctx->varNames = newHashTable(sizeof(VarNameEntry), ctx->pool);
@@ -1927,15 +2218,24 @@ static void visitFuncDecl(AstVisitor *visitor, AstNode *node)
 
     bool hasRet = funcType->func.ret && funcType->func.ret->tag != irTypeVoid;
     if (hasRet) {
-        ctx->funcRetVar = makeIrVarDecl(ctx->pool, &node->loc, flgNone, "__ret", "__ret", funcType->func.ret, 0);
+        ctx->funcRetVar = makeIrVarDecl(ctx->pool, &node->loc, flgReturned, "__ret", "__ret", funcType->func.ret, 0);
+        ctx->funcRetAstType = (node->type && typeIs(node->type, Func)) ? node->type->func.retType : NULL;
         emitStmt(ctx, ctx->funcRetVar);
     }
     else {
         ctx->funcRetVar = NULL;
+        ctx->funcRetAstType = NULL;
     }
 
     if (node->funcDecl.body) {
-        astVisit(visitor, node->funcDecl.body);
+        if (nodeIs(node->funcDecl.body, BlockStmt)) {
+            for (AstNode *stmt = node->funcDecl.body->blockStmt.stmts; stmt; stmt = stmt->next) {
+                astVisit(visitor, stmt);
+            }
+        }
+        else {
+            astVisit(visitor, node->funcDecl.body);
+        }
     }
 
     emitBranchIfNotTerminated(ctx, exitBB);

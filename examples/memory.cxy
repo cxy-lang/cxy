@@ -1,0 +1,50 @@
+extern func printf(format: string, ...args: auto): i32
+
+class Resource {
+    id: i32
+    name: string
+
+    func `init`(id: i32, name: string) {
+        this.id = id
+        this.name = name
+        printf("Resource(%d, %s) created\n", id, name)
+    }
+
+    func `deinit`() {
+        printf("Resource(%d, %s) destroyed\n", id, name)
+    }
+}
+
+func complexNestedFlow(targetI: i32, targetJ: i32): void {
+    var globalRes: Resource = null
+
+    for i in 0..5 {
+        var outerRes: Resource = null
+
+        for j in 0..5 {
+            var innerRes = Resource(i * 10 + j, "inner")
+
+            if (i == targetI && j == targetJ) {
+                outerRes = Resource(100 + i, "outer_found")
+                globalRes = Resource(200 + i, "global_found")
+                continue
+            }
+
+            if (j == 3) {
+                break
+            }
+
+            if (i == 4 && j == 2) {
+                return
+            }
+        }
+    }
+}
+
+func main(): void {
+    printf("--- Test 1: Continue unwind ---\n")
+    complexNestedFlow(1, 1)
+
+    printf("--- Test 2: Early return unwind ---\n")
+    complexNestedFlow(4, 2)
+}

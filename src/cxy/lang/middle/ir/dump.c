@@ -128,6 +128,35 @@ static void dumpStringConst(ConstIrVisitor *visitor, const IrNode *node)
     format(ctx->state, "\"{$}", (FormatArg[]){{.style = resetStyle}});
 }
 
+static void dumpArrayConst(ConstIrVisitor *visitor, const IrNode *node)
+{
+    IrDumpContext *ctx = getConstIrVisitorContext(visitor);
+    format(ctx->state, "[", NULL);
+    u64 i = 0;
+    for (const IrNode *elem = node->arrayConst.elements; elem; elem = elem->next, i++) {
+        if (i > 0)
+            format(ctx->state, ", ", NULL);
+        irConstVisit(visitor, elem);
+    }
+    format(ctx->state, "]", NULL);
+}
+
+static void dumpStructConst(ConstIrVisitor *visitor, const IrNode *node)
+{
+    IrDumpContext *ctx = getConstIrVisitorContext(visitor);
+    if (node->type && node->type->name) {
+        format(ctx->state, "{s} ", (FormatArg[]){{.s = node->type->name}});
+    }
+    format(ctx->state, "{{", NULL);
+    u64 i = 0;
+    for (const IrNode *fld = node->structConst.fields; fld; fld = fld->next, i++) {
+        if (i > 0)
+            format(ctx->state, ", ", NULL);
+        irConstVisit(visitor, fld);
+    }
+    format(ctx->state, "}", NULL);
+}
+
 static void dumpVarRef(ConstIrVisitor *visitor, const IrNode *node)
 {
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
@@ -345,9 +374,18 @@ static void dumpDrop(ConstIrVisitor *visitor, const IrNode *node)
 {
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
     format(ctx->state, "  ", NULL);
-    printKeyword(ctx->state, "drop");
-    format(ctx->state, " ", NULL);
-    irConstVisit(visitor, node->drop.target);
+    if (node->drop.flag) {
+        printKeyword(ctx->state, "drop-if");
+        format(ctx->state, " ", NULL);
+        irConstVisit(visitor, node->drop.target);
+        format(ctx->state, ", ", NULL);
+        irConstVisit(visitor, node->drop.flag);
+    }
+    else {
+        printKeyword(ctx->state, "drop");
+        format(ctx->state, " ", NULL);
+        irConstVisit(visitor, node->drop.target);
+    }
     format(ctx->state, "\n", NULL);
 }
 
@@ -479,6 +517,8 @@ AstNode *dumpIr(CompilerDriver *driver, const IrNode *module, FILE *file)
         [irIntConst] = dumpIntConst,
         [irFloatConst] = dumpFloatConst,
         [irStringConst] = dumpStringConst,
+        [irArrayConst] = dumpArrayConst,
+        [irStructConst] = dumpStructConst,
         [irVarRef] = dumpVarRef,
         [irGlobalRef] = dumpGlobalRef,
         [irMember] = dumpMember,

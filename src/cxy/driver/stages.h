@@ -26,8 +26,8 @@ struct CompilerDriver;
     f(ConstCheck,       "Const Check")                 \
     f(TypeCheck,        "Type Check")                  \
     f(Simplify,         "Simplify")                    \
-    f(MemoryMgmt,       "Memory Mgmt")                 \
     f(Lower,            "Lower")                       \
+    f(MemoryMgmt,       "Memory Mgmt")                 \
     f(Finalize,         "Finalize")                    \
     f(Codegen,          "Code Gen")                    \
     f(Collect,          "Collect")                     \
