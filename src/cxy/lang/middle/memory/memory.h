@@ -60,6 +60,7 @@ typedef struct MemMgmtContext {
     DynArray dropFlagVars;  // TrackedVar* needing drop flags in current function
     IrNode *dropFlagsDecl;  // The __drop_flags varDecl in current function
 
+    u32 currentScopeId;
     u32 tempCounter;
 } MemMgmtContext;
 

@@ -177,6 +177,103 @@ IrNode *makeIrGlobalRef(MemPool *pool,
     return node;
 }
 
+IrNode *makeIrAlias(MemPool *pool, const FileLoc *loc, cstring name, IrNode *expr)
+{
+    IrNode *node = makeIrNode(pool, loc, expr ? expr->flags : flgNone, irAlias, expr ? expr->type : NULL);
+    node->alias.name = name;
+    node->alias.expr = expr;
+    return node;
+}
+
+IrNode *cloneIrNode(MemPool *pool, const IrNode *node)
+{
+    if (node == NULL)
+        return NULL;
+
+    IrNode *copy = makeIrNode(pool, &node->loc, node->flags, node->tag, node->type);
+    copy->ast = node->ast;
+
+    switch (node->tag) {
+    case irBoolConst:
+        copy->boolConst = node->boolConst;
+        break;
+    case irCharConst:
+        copy->charConst = node->charConst;
+        break;
+    case irIntConst:
+        copy->intConst = node->intConst;
+        break;
+    case irFloatConst:
+        copy->floatConst = node->floatConst;
+        break;
+    case irStringConst:
+        copy->stringConst = node->stringConst;
+        break;
+    case irNullConst:
+        break;
+    case irGlobalRef:
+        copy->globalRef = node->globalRef;
+        break;
+    case irVarRef:
+        copy->varRef = node->varRef;
+        break;
+    case irMember:
+        copy->member.target = cloneIrNode(pool, node->member.target);
+        copy->member.index = node->member.index;
+        copy->member.name = node->member.name;
+        break;
+    case irIndex:
+        copy->index.target = cloneIrNode(pool, node->index.target);
+        copy->index.index = cloneIrNode(pool, node->index.index);
+        break;
+    case irCast:
+        copy->cast.expr = cloneIrNode(pool, node->cast.expr);
+        break;
+    case irUnary:
+        copy->unary.op = node->unary.op;
+        copy->unary.operand = cloneIrNode(pool, node->unary.operand);
+        break;
+    case irBinary:
+        copy->binary.op = node->binary.op;
+        copy->binary.lhs = cloneIrNode(pool, node->binary.lhs);
+        copy->binary.rhs = cloneIrNode(pool, node->binary.rhs);
+        break;
+    case irAddrOf:
+        copy->addrOf.target = cloneIrNode(pool, node->addrOf.target);
+        break;
+    case irDeref:
+        copy->deref.target = cloneIrNode(pool, node->deref.target);
+        break;
+    case irSizeof:
+        copy->sizeofVal.targetType = node->sizeofVal.targetType;
+        break;
+    case irAlias:
+        copy->alias.name = node->alias.name;
+        copy->alias.expr = cloneIrNode(pool, node->alias.expr);
+        break;
+    case irMove:
+        copy->move.src = cloneIrNode(pool, node->move.src);
+        break;
+    case irDrop:
+        copy->drop.target = cloneIrNode(pool, node->drop.target);
+        copy->drop.flag = cloneIrNode(pool, node->drop.flag);
+        break;
+    case irZeromem:
+        copy->zeromem.target = cloneIrNode(pool, node->zeromem.target);
+        break;
+    case irCopy:
+        copy->copy.src = cloneIrNode(pool, node->copy.src);
+        copy->copy.dst = cloneIrNode(pool, node->copy.dst);
+        break;
+    default:
+        *copy = *node;
+        copy->next = NULL;
+        copy->parent = NULL;
+        break;
+    }
+    return copy;
+}
+
 IrNode *makeIrMember(MemPool *pool,
                      const FileLoc *loc,
                      IrNode *target,

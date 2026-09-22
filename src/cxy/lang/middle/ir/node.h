@@ -35,7 +35,8 @@ extern "C" {
     f(Deref)                        \
     f(Alloca)                       \
     f(Malloc)                       \
-    f(Sizeof)
+    f(Sizeof)                       \
+    f(Alias)
 
 #define CXY_IR_RAII_TAGS(f)         \
     f(Copy)                         \
@@ -122,6 +123,7 @@ struct IrNode {
         struct { const IrType *elemType; IrNode *size; } alloca;
         struct { const IrType *elemType; IrNode *size; } malloc;
         struct { const IrType *targetType; } sizeofVal;
+        struct { cstring name; IrNode *expr; } alias;
 
         // RAII
         struct { IrNode *src; IrNode *dst; } copy;
@@ -185,6 +187,8 @@ IrNode *makeIrUnreachable(MemPool *pool, const FileLoc *loc);
 
 IrNode *makeIrVarRef(MemPool *pool, const FileLoc *loc, IrNode *decl);
 IrNode *makeIrGlobalRef(MemPool *pool, const FileLoc *loc, cstring name, IrNode *target, const IrType *type);
+IrNode *makeIrAlias(MemPool *pool, const FileLoc *loc, cstring name, IrNode *expr);
+IrNode *cloneIrNode(MemPool *pool, const IrNode *node);
 IrNode *makeIrMember(MemPool *pool, const FileLoc *loc, IrNode *target, u32 index, cstring name, const IrType *type);
 IrNode *makeIrIndex(MemPool *pool, const FileLoc *loc, IrNode *target, IrNode *index, const IrType *type);
 IrNode *makeIrCast(MemPool *pool, const FileLoc *loc, IrNode *expr, const IrType *toType);

@@ -7,18 +7,11 @@ bool isIrTypeDestructible(const IrType *type)
     if (type == NULL)
         return false;
 
-    if (type->tag == irTypePointer) {
-        const IrType *pointee = type->pointer.pointee;
-        return pointee && (pointee->tag == irTypeStruct || pointee->name != NULL);
+    if (type->category == irTypeCatClass || type->category == irTypeCatStruct ||
+        type->category == irTypeCatTuple || type->category == irTypeCatUnion) {
+        return true;
     }
-    if (type->tag == irTypeStruct) {
-        if (type->name != NULL)
-            return true;
-        for (u64 i = 0; i < type->strct.count; i++) {
-            if (isIrTypeDestructible(type->strct.fields[i].type))
-                return true;
-        }
-    }
+
     if (type->tag == irTypeArray) {
         return isIrTypeDestructible(type->array.elem);
     }
@@ -56,7 +49,7 @@ static TrackedVar *addTrackedVar(MemMgmtContext *ctx, IrNode *decl, cstring name
         .scopeId = scopeId,
         .dropFlagIndex = 0,
         .needsDropFlag = false,
-        .isTemporary = (name && (strncmp(name, "__t", 3) == 0 || strncmp(name, "__opt", 5) == 0)),
+        .isTemporary = (name && (strncmp(name, "__t", 3) == 0 || strncmp(name, "__opt", 5) == 0 || strncmp(name, "__copy", 6) == 0)),
         .type = type,
         .state = irVarUninitialized
     };
@@ -215,6 +208,53 @@ static IrNode *makeDropFlagAccess(MemMgmtContext *ctx, const FileLoc *loc, Track
     return makeIrMember(ctx->pool, loc, flagsRef, var->dropFlagIndex, var->name, u64Type);
 }
 
+static void injectCallArgumentCopies(MemMgmtContext *ctx, IrNode *bb, IrNode **prevRef, IrNode *callStmt, IrNode *call)
+{
+    if (call == NULL || call->tag != irCall || call->call.callee == NULL)
+        return;
+
+    const IrType *calleeType = call->call.callee->type;
+    if (calleeType && calleeType->tag == irTypeFunc) {
+        IrNode *prevArg = NULL;
+        IrNode *arg = call->call.args;
+        for (u64 i = 0; arg && i < calleeType->func.count; i++) {
+            const IrType *paramType = calleeType->func.params[i];
+            if (isIrTypeDestructible(paramType)) {
+                if (arg->tag == irVarRef && !hasFlag(arg->varRef.target, Returned)) {
+                    TrackedVar *argVar = getTrackedVar(ctx, arg->varRef.target);
+                    if (argVar && !argVar->isTemporary) {
+                        cstring tempName = makeStringf(ctx->strings, "__copy%u", ctx->tempCounter++);
+                        IrNode *tempVar = makeIrVarDecl(ctx->pool, &arg->loc, flgNone, tempName, tempName, arg->type, ctx->currentScopeId);
+                        TrackedVar *tv = addTrackedVar(ctx, tempVar, tempName, ctx->currentScopeId, arg->type);
+                        if (tv)
+                            tv->state = irVarMoved;
+
+                        IrNode *dstRef = makeIrVarRef(ctx->pool, &arg->loc, tempVar);
+                        IrNode *copyStmt = makeIrCopy(ctx->pool, &arg->loc, arg, dstRef);
+
+                        tempVar->next = copyStmt;
+                        copyStmt->next = callStmt;
+                        if (*prevRef)
+                            (*prevRef)->next = tempVar;
+                        else
+                            bb->basicBlock.first = tempVar;
+                        *prevRef = copyStmt;
+
+                        dstRef->next = arg->next;
+                        if (prevArg)
+                            prevArg->next = dstRef;
+                        else
+                            call->call.args = dstRef;
+                        arg = dstRef;
+                    }
+                }
+            }
+            prevArg = arg;
+            arg = arg->next;
+        }
+    }
+}
+
 static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
 {
     ctx->trackedVars = newHashTable(sizeof(TrackedVar), ctx->pool);
@@ -236,6 +276,7 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
             if (stmt->tag == irAssign) {
                 IrNode *lhsDecl = findVarDeclInNode(stmt->assign.lhs);
                 TrackedVar *lhsVar = getTrackedVar(ctx, lhsDecl);
+                IrNode *rhs = stmt->assign.rhs;
 
                 if (lhsVar && !lhsVar->isTemporary) {
                     if (lhsVar->state == irVarAssigned) {
@@ -271,25 +312,47 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
                         }
                     }
                 }
+                else if (lhsVar && lhsVar->isTemporary) {
+                    lhsVar->state = irVarAssigned;
+                    if (rhs && rhs->tag == irCall) {
+                        IrNode *dropTemp = makeIrDrop(ctx->pool, &stmt->loc, stmt->assign.lhs);
+                        dropTemp->next = next;
+                        stmt->next = dropTemp;
+                        next = dropTemp;
+                        lhsVar->state = irVarUninitialized;
+                    }
+                }
 
-                IrNode *rhs = stmt->assign.rhs;
-                if (rhs && rhs->tag == irMove) {
-                    IrNode *rhsDecl = findVarDeclInNode(rhs->move.src);
-                    TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
-                    if (rhsVar) {
-                        rhsVar->state = irVarMoved;
-                        if (rhsVar->needsDropFlag) {
-                            IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, rhsVar, false);
-                            if (clearFlag) {
-                                clearFlag->next = next;
-                                stmt->next = clearFlag;
-                                next = clearFlag;
+                if (rhs) {
+                    if (rhs->tag == irMove) {
+                        IrNode *rhsDecl = findVarDeclInNode(rhs->move.src);
+                        TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
+                        if (rhsVar) {
+                            rhsVar->state = irVarMoved;
+                            if (rhsVar->needsDropFlag) {
+                                IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, rhsVar, false);
+                                if (clearFlag) {
+                                    clearFlag->next = next;
+                                    stmt->next = clearFlag;
+                                    next = clearFlag;
+                                }
                             }
                         }
+                    }
+                    else if (rhs->tag == irCall) {
+                        injectCallArgumentCopies(ctx, bb, &prev, stmt, rhs);
+                    }
+                    else if (isIrVarDestructible(lhsDecl) && (rhs->tag == irVarRef || rhs->tag == irMember || rhs->tag == irIndex)) {
+                        IrNode *lhs = stmt->assign.lhs;
+                        stmt->tag = irCopy;
+                        stmt->copy.src = rhs;
+                        stmt->copy.dst = lhs;
                     }
                 }
             }
             else if (stmt->tag == irCall) {
+                injectCallArgumentCopies(ctx, bb, &prev, stmt, stmt);
+
                 DynArray usedTemps = newDynArray(sizeof(TrackedVar *));
                 collectUsedTemporaries(ctx, stmt, &usedTemps);
                 for (u64 i = 0; i < usedTemps.size; i++) {
@@ -303,8 +366,12 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
                 }
                 freeDynArray(&usedTemps);
             }
+            else if (stmt->tag == irScopeEnter) {
+                ctx->currentScopeId = stmt->scopeEnter.scopeId;
+            }
             else if (stmt->tag == irScopeExit) {
                 u32 exitingScope = stmt->scopeExit.scopeId;
+                ctx->currentScopeId = exitingScope > 0 ? exitingScope - 1 : 0;
                 HashtableIt it = newHashTableIt(&ctx->trackedVars, sizeof(TrackedVar));
                 while (hashTableItHasNext(&it)) {
                     TrackedVar *var = (TrackedVar *)hashTableItNext(&it);
@@ -338,6 +405,11 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
             prev = stmt;
             stmt = next;
         }
+
+        IrNode *lastStmt = NULL;
+        for (IrNode *s = bb->basicBlock.first; s; s = s->next)
+            lastStmt = s;
+        bb->basicBlock.last = lastStmt;
     }
 
     freeHashTable(&ctx->trackedVars);

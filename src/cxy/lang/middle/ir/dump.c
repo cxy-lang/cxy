@@ -249,6 +249,11 @@ static void dumpSizeof(ConstIrVisitor *visitor, const IrNode *node)
     format(ctx->state, ")", NULL);
 }
 
+static void dumpAlias(ConstIrVisitor *visitor, const IrNode *node)
+{
+    irConstVisit(visitor, node->alias.expr);
+}
+
 static void dumpVarDecl(ConstIrVisitor *visitor, const IrNode *node)
 {
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
@@ -528,7 +533,8 @@ AstNode *dumpIr(CompilerDriver *driver, const IrNode *module, FILE *file)
         [irBinary] = dumpBinary,
         [irAddrOf] = dumpAddrOf,
         [irDeref] = dumpDeref,
-        [irSizeof] = dumpSizeof
+        [irSizeof] = dumpSizeof,
+        [irAlias] = dumpAlias
     });
     // clang-format on
 

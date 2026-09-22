@@ -677,7 +677,7 @@ static void visitIdentifier(AstVisitor *visitor, AstNode *node)
             node->ident.resolvesTo = f2e->target;
         }
     }
-    else if (nodeIs(target, AliasExpr)) {
+    else if (nodeIs(target, AliasExpr) && target->aliasExpr.expr != NULL) {
         // We need to substitute the alias expression
         replaceAstNode(node,
                        deepCloneAstNode(ctx->pool, target->aliasExpr.expr));
@@ -1218,6 +1218,7 @@ void visitMatchStmt(AstVisitor *visitor, AstNode *node)
     //     }
     //     astVisit(visitor, esac);
     // }
+    astVisitFallbackVisitAll(visitor, node);
 }
 
 static void visitFuncDecl(AstVisitor *visitor, AstNode *node)

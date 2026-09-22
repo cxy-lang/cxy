@@ -17,6 +17,7 @@ typedef struct CBackend {
 typedef struct CodegenContext {
     CBackend *backend;
     StrPool *strings;
+    cstring moduleName;
     FormatState types;
     FormatState state;
     TypeTable *table;

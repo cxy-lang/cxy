@@ -23,15 +23,36 @@ class Container: Awesome {
 
 func takeCopy(x: Awesome) {
     printf("%s\n", x.say())
+    return (Awesome(), x.say())
 }
 
 func takeRef(x: &Awesome) {
     printf("%s\n", x.say())
 }
 
+struct Help {
+    what: Awesome|i32
+}
+
 func main() {
     var x: Awesome = Container()
     takeCopy(x)
     takeRef(&x)
+    var y: Awesome
+    y = x
     printf("%s\n", x.say())
+    var h = Help{what: x}
+    match h.what {
+        Awesome as a => printf("%s\n", a.say())
+        i32 as i => printf("%d\n", i)
+    }
+    var z: i32|bool|Help = 10.i32
+    match z {
+        Help as n => match n.what {
+            Awesome as a => printf("%s\n", a.say())
+            i32 as i => printf("%d\n", i)
+        }
+        i32 as i => printf("%d\n", i)
+        bool as b => printf("%d\n", b)
+    }
 }

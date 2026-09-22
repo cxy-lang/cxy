@@ -28,6 +28,17 @@ typedef enum IrTypeTag {
     irTypeCOUNT
 } IrTypeTag;
 
+typedef enum IrTypeCategory {
+    irTypeCatNone = 0,
+    irTypeCatClass,
+    irTypeCatStruct,
+    irTypeCatTuple,
+    irTypeCatUnion,
+    irTypeCatOptional,
+    irTypeCatSlice,
+    irTypeCatResult
+} IrTypeCategory;
+
 typedef struct IrType IrType;
 
 typedef struct IrField {
@@ -40,6 +51,7 @@ typedef struct IrField {
 
 struct IrType {
     IrTypeTag tag;
+    IrTypeCategory category;
     u64 size;
     u64 align;
     u64 index;
@@ -79,6 +91,7 @@ void freeIrTypeTable(IrTypeTable *table);
 
 const IrType *getIrPrimitiveType(IrTypeTable *table, IrTypeTag tag);
 const IrType *makeIrPointerType(IrTypeTable *table, const IrType *pointee);
+const IrType *makeIrClassType(IrTypeTable *table, const IrType *structType);
 const IrType *makeIrArrayType(IrTypeTable *table, const IrType *elem, u64 len);
 const IrType *makeIrStructType(IrTypeTable *table, cstring name, cstring display, IrField *fields, u64 count);
 const IrType *makeIrUntaggedUnionType(IrTypeTable *table, cstring name, cstring display, IrField *fields, u64 count);

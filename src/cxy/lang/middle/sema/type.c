@@ -39,8 +39,10 @@ static const Type *synthesizeUnionDestructor(TypingContext *ctx,
     cstring funcName = makeStringf(ctx->strings, "__union_dctor_%u", (unsigned)unionType->index);
     cstring paramName = makeString(ctx->strings, "u");
 
-    AstNode *paramType = makeTypeReferenceNode(ctx->pool, makeReferenceType(ctx->types, unionType, flgNone), loc);
+    const Type *paramRefType = makeReferenceType(ctx->types, unionType, flgNone);
+    AstNode *paramType = makeTypeReferenceNode(ctx->pool, paramRefType, loc);
     AstNode *param = makeFunctionParam(ctx->pool, loc, paramName, paramType, NULL, flgNone, NULL);
+    param->type = paramRefType;
 
     AstNodeList cases = {};
     for (u64 i = 0; i < unionType->tUnion.count; i++) {
@@ -49,8 +51,13 @@ static const Type *synthesizeUnionDestructor(TypingContext *ctx,
             continue;
 
         cstring aliasName = makeStringf(ctx->strings, "y%u", (unsigned)i);
-        AstNode *aliasNode = makeResolvedIdentifier(ctx->pool, loc, aliasName, flgNone, NULL, NULL, memberType);
         AstNode *typeRef = makeTypeReferenceNode(ctx->pool, memberType, loc);
+        AstNode *aliasNode = makeAstNode(
+            ctx->pool, loc,
+            &(AstNode){.tag = astAliasExpr,
+                       .flags = flgNone,
+                       .type = memberType,
+                       .aliasExpr = {.name = aliasName }});
 
         AstNode *elemNode = makeResolvedIdentifier(ctx->pool, loc, aliasName, flgNone, aliasNode, NULL, memberType);
         AstNode *dropStmt = makeExprStmt(
@@ -66,14 +73,14 @@ static const Type *synthesizeUnionDestructor(TypingContext *ctx,
         insertAstNode(&cases, caseNode);
     }
 
-    AstNode *uIdent = makeResolvedIdentifier(ctx->pool, loc, paramName, flgNone, param, NULL, param->type);
+    AstNode *uIdent = makeResolvedIdentifier(ctx->pool, loc, paramName, flgNone, param, NULL, paramRefType);
     AstNode *matchNode = makeAstNode(
         ctx->pool, loc,
         &(AstNode){.tag = astMatchStmt,
                    .flags = flgNone,
                    .matchStmt = {.expr = uIdent, .cases = cases.first}});
     AstNode *body = makeBlockStmt(ctx->pool, loc, matchNode, NULL, makeVoidType(ctx->types));
-    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, makeVoidAstNode(ctx->pool, loc, flgNone, NULL, NULL), body, flgGenerated | flgPure, NULL, NULL);
+    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, makeVoidAstNode(ctx->pool, loc, flgNone, NULL, NULL), body, flgGenerated | flgPure | flgBuiltin, NULL, NULL);
 
     const Type *funcType = checkType(visitor, funcDecl);
     if (!typeIs(funcType, Error) && ctx->root.parent) {
@@ -90,15 +97,22 @@ static const Type *synthesizeUnionCopy(TypingContext *ctx,
     cstring funcName = makeStringf(ctx->strings, "__union_copy_%u", (unsigned)unionType->index);
     cstring paramName = makeString(ctx->strings, "u");
 
-    AstNode *paramType = makeTypeReferenceNode(ctx->pool, makeReferenceType(ctx->types, unionType, flgNone), loc);
+    const Type *paramRefType = makeReferenceType(ctx->types, unionType, flgNone);
+    AstNode *paramType = makeTypeReferenceNode(ctx->pool, paramRefType, loc);
     AstNode *param = makeFunctionParam(ctx->pool, loc, paramName, paramType, NULL, flgNone, NULL);
+    param->type = paramRefType;
 
     AstNodeList cases = {};
     for (u64 i = 0; i < unionType->tUnion.count; i++) {
         const Type *memberType = unionType->tUnion.members[i].type;
         cstring aliasName = makeStringf(ctx->strings, "y%u", (unsigned)i);
-        AstNode *aliasNode = makeResolvedIdentifier(ctx->pool, loc, aliasName, flgNone, NULL, NULL, memberType);
         AstNode *typeRef = makeTypeReferenceNode(ctx->pool, memberType, loc);
+        AstNode *aliasNode = makeAstNode(
+            ctx->pool, loc,
+            &(AstNode){.tag = astAliasExpr,
+                       .flags = flgNone,
+                       .type = memberType,
+                       .aliasExpr = {.name = aliasName }});
 
         AstNode *elemExpr = makeResolvedIdentifier(ctx->pool, loc, aliasName, flgNone, aliasNode, NULL, memberType);
         if (isDestructible(memberType) || isClassType(memberType)) {
@@ -114,7 +128,7 @@ static const Type *synthesizeUnionCopy(TypingContext *ctx,
         insertAstNode(&cases, caseNode);
     }
 
-    AstNode *uIdent = makeResolvedIdentifier(ctx->pool, loc, paramName, flgNone, param, NULL, param->type);
+    AstNode *uIdent = makeResolvedIdentifier(ctx->pool, loc, paramName, flgNone, param, NULL, paramRefType);
     AstNode *matchNode = makeAstNode(
         ctx->pool, loc,
         &(AstNode){.tag = astMatchStmt,
@@ -122,7 +136,7 @@ static const Type *synthesizeUnionCopy(TypingContext *ctx,
                    .matchStmt = {.expr = uIdent, .cases = cases.first}});
     AstNode *body = makeBlockStmt(ctx->pool, loc, matchNode, NULL, unionType);
     AstNode *retTypeNode = makeTypeReferenceNode(ctx->pool, unionType, loc);
-    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, retTypeNode, body, flgGenerated | flgPure, NULL, NULL);
+    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, retTypeNode, body, flgGenerated | flgPure | flgBuiltin, NULL, NULL);
 
     const Type *funcType = checkType(visitor, funcDecl);
     if (!typeIs(funcType, Error) && ctx->root.parent) {

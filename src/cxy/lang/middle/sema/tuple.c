@@ -19,8 +19,10 @@ static const Type *synthesizeTupleDestructor(TypingContext *ctx,
     cstring funcName = makeStringf(ctx->strings, "__tuple_dctor_%u", (unsigned)tupleType->index);
     cstring paramName = makeString(ctx->strings, "tup");
 
-    AstNode *paramType = makeTypeReferenceNode(ctx->pool, makeReferenceType(ctx->types, tupleType, flgNone), loc);
+    const Type *paramRefType = makeReferenceType(ctx->types, tupleType, flgNone);
+    AstNode *paramType = makeTypeReferenceNode(ctx->pool, paramRefType, loc);
     AstNode *param = makeFunctionParam(ctx->pool, loc, paramName, paramType, NULL, flgNone, NULL);
+    param->type = paramRefType;
 
     AstNodeList stmts = {};
     for (u64 i = 0; i < tupleType->tuple.count; i++) {
@@ -30,7 +32,7 @@ static const Type *synthesizeTupleDestructor(TypingContext *ctx,
 
         AstNode *memberAccess = makeMemberExpr(
             ctx->pool, loc, flgNone,
-            makeResolvedIdentifier(ctx->pool, loc, paramName, flgNone, param, NULL, param->type),
+            makeResolvedIdentifier(ctx->pool, loc, paramName, flgNone, param, NULL, paramRefType),
             makeIntegerLiteral(ctx->pool, loc, i, NULL, getPrimitiveType(ctx->types, prtU64)),
             NULL, memberType);
 
@@ -43,7 +45,7 @@ static const Type *synthesizeTupleDestructor(TypingContext *ctx,
     }
 
     AstNode *body = makeBlockStmt(ctx->pool, loc, stmts.first, NULL, makeVoidType(ctx->types));
-    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, makeVoidAstNode(ctx->pool, loc, flgNone, NULL, NULL), body, flgGenerated | flgPure, NULL, NULL);
+    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, makeVoidAstNode(ctx->pool, loc, flgNone, NULL, NULL), body, flgGenerated | flgPure | flgBuiltin, NULL, NULL);
 
     const Type *funcType = checkType(visitor, funcDecl);
     if (!typeIs(funcType, Error) && ctx->root.parent) {
@@ -60,15 +62,17 @@ static const Type *synthesizeTupleCopy(TypingContext *ctx,
     cstring funcName = makeStringf(ctx->strings, "__tuple_copy_%u", (unsigned)tupleType->index);
     cstring paramName = makeString(ctx->strings, "tup");
 
-    AstNode *paramType = makeTypeReferenceNode(ctx->pool, makeReferenceType(ctx->types, tupleType, flgNone), loc);
+    const Type *paramRefType = makeReferenceType(ctx->types, tupleType, flgNone);
+    AstNode *paramType = makeTypeReferenceNode(ctx->pool, paramRefType, loc);
     AstNode *param = makeFunctionParam(ctx->pool, loc, paramName, paramType, NULL, flgNone, NULL);
+    param->type = paramRefType;
 
     AstNodeList exprs = {};
     for (u64 i = 0; i < tupleType->tuple.count; i++) {
         const Type *memberType = tupleType->tuple.members[i];
         AstNode *memberAccess = makeMemberExpr(
             ctx->pool, loc, flgNone,
-            makeResolvedIdentifier(ctx->pool, loc, paramName, flgNone, param, NULL, param->type),
+            makeResolvedIdentifier(ctx->pool, loc, paramName, flgNone, param, NULL, paramRefType),
             makeIntegerLiteral(ctx->pool, loc, i, NULL, getPrimitiveType(ctx->types, prtU64)),
             NULL, memberType);
 
@@ -82,7 +86,7 @@ static const Type *synthesizeTupleCopy(TypingContext *ctx,
     AstNode *retTuple = makeTupleExpr(ctx->pool, loc, flgNone, exprs.first, NULL, tupleType);
     AstNode *body = makeBlockStmt(ctx->pool, loc, makeReturnAstNode(ctx->pool, loc, flgNone, retTuple, NULL, tupleType), NULL, NULL);
     AstNode *retTypeNode = makeTypeReferenceNode(ctx->pool, tupleType, loc);
-    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, retTypeNode, body, flgGenerated | flgPure, NULL, NULL);
+    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, retTypeNode, body, flgGenerated | flgPure | flgBuiltin, NULL, NULL);
 
     const Type *funcType = checkType(visitor, funcDecl);
     if (!typeIs(funcType, Error) && ctx->root.parent) {

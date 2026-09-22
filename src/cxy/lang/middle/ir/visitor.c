@@ -97,6 +97,9 @@ void irVisitFallbackVisitAll(IrVisitor *visitor, IrNode *node)
     case irDeref:
         irVisit(visitor, node->deref.target);
         break;
+    case irAlias:
+        irVisit(visitor, node->alias.expr);
+        break;
     default:
         break;
     }
@@ -160,6 +163,9 @@ void irConstVisitFallbackVisitAll(ConstIrVisitor *visitor, const IrNode *node)
         break;
     case irDeref:
         irConstVisit(visitor, node->deref.target);
+        break;
+    case irAlias:
+        irConstVisit(visitor, node->alias.expr);
         break;
     default:
         break;

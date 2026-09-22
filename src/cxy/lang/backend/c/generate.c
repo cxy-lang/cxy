@@ -338,6 +338,11 @@ static void emitSizeof(ConstIrVisitor *visitor, const IrNode *node)
     format(&ctx->state, ")", NULL);
 }
 
+static void emitAlias(ConstIrVisitor *visitor, const IrNode *node)
+{
+    irConstVisit(visitor, node->alias.expr);
+}
+
 static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
@@ -355,15 +360,41 @@ static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
         format(&ctx->state, "  ", NULL);
     }
 
-    if (type->tag == irTypePointer) {
+    switch (type->category) {
+    case irTypeCatClass:
         format(&ctx->state, "__smart_ptr_drop(", NULL);
         irConstVisit(visitor, target);
         format(&ctx->state, ");\n", NULL);
-    }
-    else if (type->name) {
-        format(&ctx->state, "{s}_op__destructor(&(", (FormatArg[]){{.s = type->name}});
+        break;
+    case irTypeCatTuple:
+        format(&ctx->state, "__tuple_dctor_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)type->index}});
         irConstVisit(visitor, target);
         format(&ctx->state, "));\n", NULL);
+        break;
+    case irTypeCatUnion:
+        format(&ctx->state, "__union_dctor_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)type->index}});
+        irConstVisit(visitor, target);
+        format(&ctx->state, "));\n", NULL);
+        break;
+    case irTypeCatStruct:
+        if (type->name) {
+            if (ctx->moduleName && ctx->moduleName[0]) {
+                format(&ctx->state, "{s}_{s}_op__destructor(&(", (FormatArg[]){{.s = ctx->moduleName}, {.s = type->name}});
+            }
+            else {
+                format(&ctx->state, "{s}_op__destructor(&(", (FormatArg[]){{.s = type->name}});
+            }
+            irConstVisit(visitor, target);
+            format(&ctx->state, "));\n", NULL);
+        }
+        break;
+    default:
+        if (type->tag == irTypePointer) {
+            format(&ctx->state, "__smart_ptr_drop(", NULL);
+            irConstVisit(visitor, target);
+            format(&ctx->state, ");\n", NULL);
+        }
+        break;
     }
 }
 
@@ -376,19 +407,58 @@ static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
         return;
 
     const IrType *type = src->type;
-    if (type->tag == irTypePointer) {
+    switch (type->category) {
+    case irTypeCatClass:
         format(&ctx->state, "  ", NULL);
         irConstVisit(visitor, dst);
         format(&ctx->state, " = __smart_ptr_get(", NULL);
         irConstVisit(visitor, src);
         format(&ctx->state, ");\n", NULL);
-    }
-    else if (type->name) {
+        break;
+    case irTypeCatTuple:
         format(&ctx->state, "  ", NULL);
         irConstVisit(visitor, dst);
-        format(&ctx->state, " = {s}_op__copy(&(", (FormatArg[]){{.s = type->name}});
+        format(&ctx->state, " = __tuple_copy_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)type->index}});
         irConstVisit(visitor, src);
         format(&ctx->state, "));\n", NULL);
+        break;
+    case irTypeCatUnion:
+        format(&ctx->state, "  ", NULL);
+        irConstVisit(visitor, dst);
+        format(&ctx->state, " = __union_copy_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)type->index}});
+        irConstVisit(visitor, src);
+        format(&ctx->state, "));\n", NULL);
+        break;
+    case irTypeCatStruct:
+        if (type->name) {
+            format(&ctx->state, "  ", NULL);
+            irConstVisit(visitor, dst);
+            if (ctx->moduleName && ctx->moduleName[0]) {
+                format(&ctx->state, " = {s}_{s}_op__copy(&(", (FormatArg[]){{.s = ctx->moduleName}, {.s = type->name}});
+            }
+            else {
+                format(&ctx->state, " = {s}_op__copy(&(", (FormatArg[]){{.s = type->name}});
+            }
+            irConstVisit(visitor, src);
+            format(&ctx->state, "));\n", NULL);
+        }
+        break;
+    default:
+        if (type->tag == irTypePointer) {
+            format(&ctx->state, "  ", NULL);
+            irConstVisit(visitor, dst);
+            format(&ctx->state, " = __smart_ptr_get(", NULL);
+            irConstVisit(visitor, src);
+            format(&ctx->state, ");\n", NULL);
+        }
+        else {
+            format(&ctx->state, "  ", NULL);
+            irConstVisit(visitor, dst);
+            format(&ctx->state, " = ", NULL);
+            irConstVisit(visitor, src);
+            format(&ctx->state, ";\n", NULL);
+        }
+        break;
     }
 }
 
@@ -652,6 +722,7 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *module, FILE *fi
     CodegenContext ctx = {
         .backend = driver->backend,
         .strings = driver->strings,
+        .moduleName = module ? module->module.name : NULL,
         .state = newFormatState("  ", true),
         .types = newFormatState("  ", true)};
 
@@ -701,7 +772,8 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *module, FILE *fi
         [irCopy] = emitCopy,
         [irDrop] = emitDrop,
         [irZeromem] = emitZeromem,
-        [irSizeof] = emitSizeof
+        [irSizeof] = emitSizeof,
+        [irAlias] = emitAlias
     });
     // clang-format on
 

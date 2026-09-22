@@ -6,6 +6,7 @@
 static HashCode hashIrType(HashCode hash, const IrType *type)
 {
     hash = hashUint32(hash, type->tag);
+    hash = hashUint32(hash, (u32)type->category);
     switch (type->tag) {
     case irTypePointer:
         return hashPtr(hash, type->pointer.pointee);
@@ -41,7 +42,7 @@ static bool compareIrTypes(const void *lhs, const void *rhs)
     const IrType *r = *(const IrType **)rhs;
     if (l == r)
         return true;
-    if (l->tag != r->tag)
+    if (l->tag != r->tag || l->category != r->category)
         return false;
 
     switch (l->tag) {
@@ -135,6 +136,19 @@ const IrType *getIrPrimitiveType(IrTypeTable *table, IrTypeTag tag)
 {
     csAssert0(tag < irTypeCOUNT);
     return table->primitives[tag];
+}
+
+const IrType *makeIrClassType(IrTypeTable *table, const IrType *structType)
+{
+    cstring display = makeStringf(table->strings, "^%s", structType ? (structType->display ?: structType->name) : "void");
+    IrType type = {
+        .tag = irTypePointer,
+        .category = irTypeCatClass,
+        .size = sizeof(void *),
+        .align = sizeof(void *),
+        .display = display,
+        .pointer = {.pointee = structType}};
+    return getOrInsertIrType(table, &type);
 }
 
 const IrType *makeIrPointerType(IrTypeTable *table, const IrType *pointee)
