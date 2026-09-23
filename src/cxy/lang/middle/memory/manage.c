@@ -375,6 +375,21 @@ static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks
                     }
                 }
             }
+            else if (stmt->tag == irCopy) {
+                IrNode *dstDecl = findVarDeclInNode(stmt->copy.dst);
+                TrackedVar *dstVar = getTrackedVar(ctx, dstDecl);
+                if (dstVar && !dstVar->isTemporary) {
+                    if (bitSetTest(&currMay, dstVar->varIndex) && !bitSetTest(&currMust, dstVar->varIndex)) {
+                        if (!dstVar->needsDropFlag) {
+                            dstVar->needsDropFlag = true;
+                            dstVar->dropFlagIndex = (u32)ctx->dropFlagVars.size;
+                            pushOnDynArray(&ctx->dropFlagVars, &dstVar);
+                        }
+                    }
+                    bitSetSet(&currMay, dstVar->varIndex);
+                    bitSetSet(&currMust, dstVar->varIndex);
+                }
+            }
             else if (stmt->tag == irScopeExit) {
                 u32 exitingScope = stmt->scopeExit.scopeId;
                 for (u64 v = 0; v < varCount; v++) {
@@ -604,6 +619,45 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         stmt->tag = irCopy;
                         stmt->copy.src = rhs;
                         stmt->copy.dst = lhs;
+                    }
+                }
+            }
+            else if (stmt->tag == irCopy) {
+                IrNode *dstDecl = findVarDeclInNode(stmt->copy.dst);
+                TrackedVar *dstVar = getTrackedVar(ctx, dstDecl);
+                if (dstVar && !dstVar->isTemporary) {
+                    if (bitSetTest(&currMay, dstVar->varIndex)) {
+                        if (dstVar->needsDropFlag && !bitSetTest(&currMust, dstVar->varIndex)) {
+                            IrNode *flagAccess = makeDropFlagAccess(ctx, &stmt->loc, dstVar);
+                            IrNode *dropStmt = makeIrDropIf(ctx->pool, &stmt->loc, stmt->copy.dst, flagAccess);
+                            dropStmt->next = stmt;
+                            if (prev)
+                                prev->next = dropStmt;
+                            else
+                                bb->basicBlock.first = dropStmt;
+                            prev = dropStmt;
+                        }
+                        else if (bitSetTest(&currMust, dstVar->varIndex)) {
+                            IrNode *dropStmt = makeIrDrop(ctx->pool, &stmt->loc, stmt->copy.dst);
+                            dropStmt->next = stmt;
+                            if (prev)
+                                prev->next = dropStmt;
+                            else
+                                bb->basicBlock.first = dropStmt;
+                            prev = dropStmt;
+                        }
+                    }
+
+                    bitSetSet(&currMay, dstVar->varIndex);
+                    bitSetSet(&currMust, dstVar->varIndex);
+
+                    if (dstVar->needsDropFlag) {
+                        IrNode *setFlag = makeDropFlagAssign(ctx, &stmt->loc, dstVar, true);
+                        if (setFlag) {
+                            setFlag->next = next;
+                            stmt->next = setFlag;
+                            next = setFlag;
+                        }
                     }
                 }
             }
