@@ -173,8 +173,14 @@ static void computeIntraBlockGenKill(MemMgmtContext *ctx, CfgBlockInfo *block)
             IrNode *lhsDecl = findVarDeclInNode(stmt->assign.lhs);
             TrackedVar *lhsVar = getTrackedVar(ctx, lhsDecl);
             if (lhsVar && !lhsVar->isTemporary) {
-                bitSetSet(&block->gen, lhsVar->varIndex);
-                bitSetReset(&block->kill, lhsVar->varIndex);
+                if (stmt->assign.rhs && stmt->assign.rhs->tag == irNullConst) {
+                    bitSetSet(&block->kill, lhsVar->varIndex);
+                    bitSetReset(&block->gen, lhsVar->varIndex);
+                }
+                else {
+                    bitSetSet(&block->gen, lhsVar->varIndex);
+                    bitSetReset(&block->kill, lhsVar->varIndex);
+                }
             }
 
             IrNode *rhs = stmt->assign.rhs;
@@ -349,8 +355,14 @@ static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks
                             pushOnDynArray(&ctx->dropFlagVars, &lhsVar);
                         }
                     }
-                    bitSetSet(&currMay, lhsVar->varIndex);
-                    bitSetSet(&currMust, lhsVar->varIndex);
+                    if (stmt->assign.rhs && stmt->assign.rhs->tag == irNullConst) {
+                        bitSetReset(&currMay, lhsVar->varIndex);
+                        bitSetReset(&currMust, lhsVar->varIndex);
+                    }
+                    else {
+                        bitSetSet(&currMay, lhsVar->varIndex);
+                        bitSetSet(&currMust, lhsVar->varIndex);
+                    }
                 }
 
                 IrNode *rhs = stmt->assign.rhs;
@@ -532,15 +544,29 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         }
                     }
 
-                    bitSetSet(&currMay, lhsVar->varIndex);
-                    bitSetSet(&currMust, lhsVar->varIndex);
+                    if (rhs && rhs->tag == irNullConst) {
+                        bitSetReset(&currMay, lhsVar->varIndex);
+                        bitSetReset(&currMust, lhsVar->varIndex);
+                        if (lhsVar->needsDropFlag) {
+                            IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, lhsVar, false);
+                            if (clearFlag) {
+                                clearFlag->next = next;
+                                stmt->next = clearFlag;
+                                next = clearFlag;
+                            }
+                        }
+                    }
+                    else {
+                        bitSetSet(&currMay, lhsVar->varIndex);
+                        bitSetSet(&currMust, lhsVar->varIndex);
 
-                    if (lhsVar->needsDropFlag) {
-                        IrNode *setFlag = makeDropFlagAssign(ctx, &stmt->loc, lhsVar, true);
-                        if (setFlag) {
-                            setFlag->next = next;
-                            stmt->next = setFlag;
-                            next = setFlag;
+                        if (lhsVar->needsDropFlag) {
+                            IrNode *setFlag = makeDropFlagAssign(ctx, &stmt->loc, lhsVar, true);
+                            if (setFlag) {
+                                setFlag->next = next;
+                                stmt->next = setFlag;
+                                next = setFlag;
+                            }
                         }
                     }
                 }
