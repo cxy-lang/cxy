@@ -120,10 +120,10 @@ func testLinearMove() {
 
 ```mermaid
 flowchart TD
-    S1["x = Awesome()"] -->|Gen={x}| S2["z = &&x"]
-    S2 -->|Kill={x}, Gen={z}| Exit["Scope Exit"]
-    Exit --> D1["For x: May=0, Must=0 -> No drop"]
-    Exit --> D2["For z: May=1, Must=1 -> Static drop(z)"]
+    S1["x = Awesome()"] -->|Gen: x| S2["z = &&x"]
+    S2 -->|Kill: x, Gen: z| Exit["Scope Exit"]
+    Exit --> D1["For x: May=0, Must=0 (No drop)"]
+    Exit --> D2["For z: May=1, Must=1 (Static drop z)"]
 ```
 
 **Resulting C Output:**
@@ -150,9 +150,9 @@ func testConditionalMove(cond: bool) {
 
 ```mermaid
 flowchart TD
-    Entry["_L_entry\nx = Awesome()\nMay={x}, Must={x}"] --> Cond{"cond"}
-    Cond -->|true| Then["_L_IF0_then\nz = &&x\nKill={x}"]
-    Cond -->|false| Merge["_L_IF0_merge\nMay={x}, Must={}\n(x is conditional)"]
+    Entry["_L_entry\nx = Awesome()\nMay: x, Must: x"] --> Cond{"cond"}
+    Cond -->|true| Then["_L_IF0_then\nz = &&x\nKill: x"]
+    Cond -->|false| Merge["_L_IF0_merge\nMay: x, Must: empty\nx is conditional"]
     Then --> Merge
     Merge --> Exit["_L_exit\ndrop-if x, __drop_flags.x"]
 ```
@@ -192,11 +192,11 @@ func testBothArms(cond: bool) {
 ```mermaid
 flowchart TD
     Entry["_L_entry\nvar x (uninit)"] --> Cond{"cond"}
-    Cond -->|true| Then["_L_then: x = Awesome()\nGen={x}"]
-    Cond -->|false| Else["_L_else: x = Container()\nGen={x}"]
-    Then --> Merge["_L_merge\nMayIn={x}, MustIn={x}"]
+    Cond -->|true| Then["_L_then: x = Awesome()\nGen: x"]
+    Cond -->|false| Else["_L_else: x = Container()\nGen: x"]
+    Then --> Merge["_L_merge\nMayIn: x, MustIn: x"]
     Else --> Merge
-    Merge --> Exit["_L_exit\nMay=1, Must=1 -> Static drop(x)"]
+    Merge --> Exit["_L_exit\nMay=1, Must=1 (Static drop x)"]
 ```
 
 Because both branches definitely assign `x`, `MustIn` is 1 at merge, completely avoiding drop flags.
