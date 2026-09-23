@@ -24,6 +24,7 @@ typedef struct TrackedVar {
     IrNode *decl;           // The irVarDecl or irFuncParam node
     cstring name;           // Variable name
     u32 scopeId;            // Scope ID where declared
+    u32 varIndex;           // Index in trackedVarList / BitSet
     u32 dropFlagIndex;      // Bit index in __drop_flags struct
     bool needsDropFlag;     // True if variable state ever becomes MaybeAssigned
     bool isTemporary;       // True if compiler temporary
