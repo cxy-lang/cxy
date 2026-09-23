@@ -1,4 +1,3 @@
-
 @hint pub extern func strlen(s: string) : u64
 @hint pub extern func sprintf(s: ^char, fmt: string, ...args: auto) : i64
 @hint pub extern func snprintf(s: ^char, len : u64, fmt: string, ...args: auto) : i64
@@ -37,8 +36,9 @@ macro isAlnum(X) =(isalnum(<i32>X!) != 0)
 macro alloca(T) =( mk_bc!(bfiAlloca!, #^void, T!) )
 macro zero(V) { mk_bc!(bfiZeromem!, #void, V!) }
 
-pub extern func __cxy_assert_abort(file: string, line: u64, column: u64): void
-pub extern func __cxy_assert(cond: bool, file: string, line: u64, column: u64): void
+@hint pub extern func __cxy_assert_abort(file: string, line: u64, column: u64): void
+@hint pub extern func __cxy_assert(cond: bool, file: string, line: u64, column: u64): void
+pub type sptr = ^void
 
 #if (!defined DISABLE_ASSERT) {
     macro assert(cond, ...msg) { __cxy_assert(cond!, file!, line!, column!) }
@@ -56,47 +56,23 @@ else {
     macro errno() =(*__errno_location())
 }
 
-pub extern func __cxy_panic(file: string, line: u64, column: u64, msg: string): void
-
+@hint pub extern func __cxy_panic(file: string, line: u64, column: u64, msg: string): void
 macro panic(msg) { __cxy_panic(file!, line!, column!, msg!) }
 
-@inline
-pub func strerr() => strerror(errno!)
-
-@inline
-pub func __bswap16(x: u16) => <u16>(((x >> 8) & 0xff) | ((x & 0xff) << 8))
-
-@inline
-pub func __bswap32(x: u32) => (
-      ((x & 0xff000000`u32) >> 24)
-    | ((x & 0x00ff0000`u32) >> 8)
-    | ((x & 0x0000ff00`u32) << 8)
-    | ((x & 0x000000ff`u32) << 24)
-)
-
-@inline
-pub func __bswap64(x: u64) => (
-      ((x & 0xff00000000000000`u64) >> 56)
-    | ((x & 0x00ff000000000000`u64) >> 40)
-    | ((x & 0x0000ff0000000000`u64) >> 24)
-    | ((x & 0x000000ff00000000`u64) >> 8)
-    | ((x & 0x00000000ff000000`u64) << 8)
-    | ((x & 0x0000000000ff0000`u64) << 24)
-    | ((x & 0x000000000000ff00`u64) << 40)
-    | ((x & 0x00000000000000ff`u64) << 56)
-)
+@hint pub extern func strerr(): string
+@hint pub extern func __bswap16(x: u16): u16
+@hint pub extern func __bswap32(x: u32): u32
+@hint pub extern func __bswap64(x: u64): u64
 
 @[pure, inline]
 pub func __calloc(size: u64) => memset(malloc(size), 0, size)
 
-pub type sptr = ^void
-
-pub extern func __smart_ptr_alloc(size: u64, dctor: func(ptr: sptr) -> void = null): sptr
-pub extern func __smart_ptr_alloc_trace(size: u64, dctor: func(ptr: sptr) -> void = null, path: string = null, line: u64 = 0): sptr
-pub extern func __smart_ptr_get(ptr: sptr): sptr
-pub extern func __smart_ptr_drop(ptr: sptr): bool
-pub extern func __smart_ptr_get_trace(ptr: sptr, path: string, line: u64): sptr
-pub extern func __smart_ptr_drop_trace(ptr: sptr, path: string, line: u64): bool
+@hint pub extern func __smart_ptr_alloc(size: u64, dctor: func(ptr: sptr) -> void = null): sptr
+@hint pub extern func __smart_ptr_alloc_trace(size: u64, dctor: func(ptr: sptr) -> void = null, path: string = null, line: u64 = 0): sptr
+@hint pub extern func __smart_ptr_get(ptr: sptr): sptr
+@hint pub extern func __smart_ptr_drop(ptr: sptr): bool
+@hint pub extern func __smart_ptr_get_trace(ptr: sptr, path: string, line: u64): sptr
+@hint pub extern func __smart_ptr_drop_trace(ptr: sptr, path: string, line: u64): bool
 
 /* Builtin Optional Type */
 pub struct Optional[T] {
@@ -160,79 +136,18 @@ pub func None[T]() => Optional[T]()
 pub type HashCode = u32
 #const FNV_32_PRIME = 0x01000193`u32
 #const FNV_32_INIT = 0x811c9dc5`u32
-@inline
-pub func hash_fnv1a_uint8(h: HashCode, x: u8) : HashCode
-{
-    return (h ^ x) * #{FNV_32_PRIME}
-}
 
-pub func hash_fnv1a_uint16(h: HashCode, x: u16) =>
-    hash_fnv1a_uint8(hash_fnv1a_uint8(h, <u8>(x & 0xff)), <u8>(x >> 8))
-
-pub func hash_fnv1a_uint32(h: HashCode, x: u32) =>
-    hash_fnv1a_uint16(hash_fnv1a_uint16(h, <u16>(x & 0xffff)), <u16>(x >> 16))
-
-pub func hash_fnv1a_uint64(h: HashCode, x: u64) =>
-    hash_fnv1a_uint32(hash_fnv1a_uint32(h, <u32>(x & 0xffffffff)), <u32>(x >> 32))
-
-pub func hash_fnv1a_uint128(h: HashCode, x: u128) =>
-    hash_fnv1a_uint64(hash_fnv1a_uint64(h, <u64>(x & 0xffffffffffffffff as u64)), <u64>(x >> 64))
-
-pub func hash_fnv1a_ptr(h: HashCode, ptr: ^const void) =>
-    hash_fnv1a_uint64(h, ptr !: u64)
-
-pub func hash_fnv1a_string(h: HashCode, str: string)
-{
-    var i = 0;
-    while (str.[i] != '\0'`char) {
-        h = hash_fnv1a_uint8(h, <u8>str.[i]);
-        i++
-    }
-    return h;
-}
-
-pub func hash_fnv1a_n_string(h: HashCode, str: string, len: u64)
-{
-    var i = 0;
-    while (i < len) {
-        h = hash_fnv1a_uint8(h, <u8>str.[i]);
-        i++
-    }
-    return h;
-}
-
-pub func hash_fnv1a_string_n_igc(h: HashCode, str: ^const char, len: u64)
-{
-    var i = 0;
-    while (i < len) {
-        var c = toupper(<i32>str.[i]);
-        h = hash_fnv1a_uint8(h, <u8>c);
-        i++
-    }
-    return h;
-}
-
-pub func hash_fnv1a_string_igc(h: HashCode, str: const string)
-{
-    var i = 0;
-    while (str.[i] != '\0'`char) {
-        var c = toupper(<i32>str.[i]);
-        h = hash_fnv1a_uint8(h, <u8>c);
-        i++
-    }
-    return h;
-}
-
-@[pure]
-pub func hash_fnv1a_bytes(h: HashCode,
-                         ptr: ^const void,
-                         size: u64)
-{
-    const p = ptr !: ^const u8;
-    for (const i: 0..size-1)
-        h = hash_fnv1a_uint8(h, p.[i]);
-    return h
-}
+@hint pub extern func hash_fnv1a_uint8(h: HashCode, x: u8): HashCode
+@hint pub extern func hash_fnv1a_uint16(h: HashCode, x: u16): HashCode
+@hint pub extern func hash_fnv1a_uint32(h: HashCode, x: u32): HashCode
+@hint pub extern func hash_fnv1a_uint64(h: HashCode, x: u64): HashCode
+@hint pub extern func hash_fnv1a_uint128(h: HashCode, x: u128): HashCode
+@hint pub extern func hash_fnv1a_ptr(h: HashCode, ptr: ^const void): HashCode
+@hint pub extern func hash_fnv1a_string(h: HashCode, str: string): HashCode
+@hint pub extern func hash_fnv1a_n_string(h: HashCode, str: string, len: u64): HashCode
+@hint pub extern func hash_fnv1a_string_n_igc(h: HashCode, str: ^const char, len: u64): HashCode
+@hint pub extern func hash_fnv1a_string_igc(h: HashCode, str: const string): HashCode
+@hint pub extern func hash_fnv1a_bytes(h: HashCode, ptr: ^const void, size: u64): HashCode
 
 @[pure]
 pub func hash[T](val: &const T, @unused init: HashCode = #{FNV_32_INIT}) : HashCode {
@@ -293,51 +208,8 @@ pub func hash[T](val: &const T, @unused init: HashCode = #{FNV_32_INIT}) : HashC
     }
 }
 
-// Constants for chunked formatting
-const D19 = 10000000000000000000 as u64;  // 10^19
-// Calculate D38 = D19 * D19 (10^38)
-const D38 = (D19 !: u128) * (D19 !: u128);
-
-func sputu128(value: u128, buf: ^char, size: u64) {
-    var pos = 0`u64;
-
-    if (value < D19) {
-        // Single chunk: direct formatting
-        pos = sprintf(buf, "%llu", value !: u64) !: u64;
-    } else {
-        if (value < D38) {
-            // Two chunks: high and low
-            const high = (value / (D19 !: u128)) !: u64;
-            const low = (value % (D19 !: u128)) !: u64;
-            pos += sprintf(buf + pos, "%llu", high) !: u64;
-            pos += sprintf(buf + pos, "%019llu", low) !: u64;  // Zero-padded
-        } else {
-            // Three chunks: high, mid, low
-            const high = (value / D38) !: u64;
-            const remaining = value % D38;
-            const mid = (remaining / (D19 !: u128)) !: u64;
-            const low = (remaining % (D19 !: u128)) !: u64;
-
-            pos += sprintf(buf + pos, "%llu", high) !: u64;
-            pos += sprintf(buf + pos, "%019llu", mid) !: u64;
-            pos += sprintf(buf + pos, "%019llu", low) !: u64;
-        }
-    }
-
-    return pos;
-}
-
-func sputi128(value: i128, buf: ^char, size: u64) {
-    if (value < 0) {
-        if (size > 1) {
-            buf.[0] = '-';
-            return 1 + sputu128((-value) !: u128, buf + 1, size - 1);
-        }
-        return 0;
-    } else {
-        return sputu128(value !: u128, buf, size);
-    }
-}
+@hint extern func sputu128(value: u128, buf: ^char, size: u64): u64
+@hint extern func sputi128(value: i128, buf: ^char, size: u64): u64
 
 @alias("__string")
 pub struct strview {
@@ -479,7 +351,7 @@ pub struct strview {
 
     @inline
     const func contains(ch: char) : bool {
-        return !!indexOf(ch)
+        return indexOf(ch) as bool
     }
 
     @inline
@@ -572,7 +444,7 @@ pub func isnull[T](cls: &const T) {
     return cls == null
 }
 
-@builtin
+// @builtin
 pub class OutputStream {
     virtual func append(str: ^const void, size: u64): u64?
 
@@ -771,7 +643,7 @@ pub class OutputStream {
     }
 }
 
-@builtin
+// @builtin
 pub class String : OutputStream {
     - _capacity: u64 = 0;
     - _size: u64 = 0;
@@ -815,13 +687,8 @@ pub class String : OutputStream {
     }
 
     @inline
-    func `destructor`() {
+    func `deinit`() {
         clear()
-    }
-
-    @static
-    func `destructor_fwd`(ptr: ^void) {
-        (ptr !: This).op__destructor()
     }
 
     @inline
@@ -1119,17 +986,12 @@ pub class BufferedOutputStream: OutputStream {
     }
 
     @inline
-    func `destructor`() {
+    func `deinit`() {
         if (_buffer) {
             sync()
             free(_buffer !: ^void)
             _buffer = null
         }
-    }
-
-    @static
-    func `destructor_fwd`(ptr: ^void) {
-        (ptr !: This).op__destructor()
     }
 }
 
@@ -1407,7 +1269,7 @@ struct StackTrace {
     }
 }
 
-@builtin
+// @builtin
 pub class Exception {
     name: string
     stackTrace: StackTrace

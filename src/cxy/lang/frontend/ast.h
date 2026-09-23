@@ -1697,15 +1697,14 @@ AstNode *getBaseClassByName(AstNode *node, cstring name);
 attr(always_inline) static i128 integerLiteralValue(const AstNode *node)
 {
     csAssert0(nodeIs(node, IntegerLit));
-    return node->intLiteral.isNegative ? node->intLiteral.value
+    return node->intLiteral.isNegative ? -(i128)node->intLiteral.uValue
                                        : (i128)node->intLiteral.uValue;
 }
 
 attr(always_inline) static u128 unsignedIntegerLiteralValue(const AstNode *node)
 {
     csAssert0(nodeIs(node, IntegerLit));
-    return node->intLiteral.isNegative ? (u128)node->intLiteral.value
-                                       : node->intLiteral.uValue;
+    return node->intLiteral.uValue;
 }
 
 int compareNamedAstNodes(const void *lhs, const void *rhs);

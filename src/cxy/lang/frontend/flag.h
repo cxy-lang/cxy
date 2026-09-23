@@ -77,7 +77,7 @@ extern "C" {
     f(Constructor,          60)                 \
     f(TestContext,          61)                 \
     f(Annotation,           62)                 \
-    f(UnionCast,            63)
+    f(Ephemeral,            63)
 
 // clang-format on
 static const u64 flgNone = 0;

@@ -275,13 +275,17 @@ run_test () {
       echo "${output}" > ${expected}
     fi
 
-    if [ -f $expected ] ; then
-      match=$(diff <(cat "${expected}") <(echo "${output}") -U1 --label "${1}" --label "${expected}")
-      [ $? -ne 0 ] && {
+    if [ -f "$expected" ] ; then
+      if diff --color=always /dev/null /dev/null 2>/dev/null; then
+        match=$(diff --color=always -U2 --label "Expected: ${expected}" --label "Actual: ${1}" "${expected}" <(echo "${output}"))
+      else
+        match=$(git --no-pager diff --no-index --color=always -U2 "${expected}" <(echo "${output}"))
+      fi
+      if [ $? -ne 0 ]; then
           echo -e "  ${Bred}FAILED${reset}: Compiler output does not match expected output"
-          echo -e "${match}"
+          echo "${match}"
           return 1
-      }
+      fi
     fi
   else
     # This is a file check test

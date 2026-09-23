@@ -2,22 +2,6 @@
 #include "core/hash.h"
 #include "lang/frontend/flag.h"
 
-bool isIrTypeDestructible(const IrType *type)
-{
-    if (type == NULL)
-        return false;
-
-    if (type->category == irTypeCatClass || type->category == irTypeCatStruct ||
-        type->category == irTypeCatTuple || type->category == irTypeCatUnion) {
-        return true;
-    }
-
-    if (type->tag == irTypeArray) {
-        return isIrTypeDestructible(type->array.elem);
-    }
-    return false;
-}
-
 bool isIrTypeCopyable(const IrType *type)
 {
     return isIrTypeDestructible(type);
@@ -27,7 +11,7 @@ static inline bool isIrVarDestructible(const IrNode *decl)
 {
     if (decl == NULL || hasFlag(decl, Returned))
         return false;
-    return hasFlag(decl, ReferenceMembers);
+    return hasFlag(decl, ReferenceMembers) || isIrTypeDestructible(decl->type);
 }
 
 static TrackedVar *getTrackedVar(MemMgmtContext *ctx, const IrNode *decl)
@@ -49,7 +33,8 @@ static TrackedVar *addTrackedVar(MemMgmtContext *ctx, IrNode *decl, cstring name
         .scopeId = scopeId,
         .dropFlagIndex = 0,
         .needsDropFlag = false,
-        .isTemporary = (name && (strncmp(name, "__t", 3) == 0 || strncmp(name, "__opt", 5) == 0 || strncmp(name, "__copy", 6) == 0)),
+        .isTemporary = (decl && hasFlag(decl, Temporary)),
+        .isEphemeral = (decl && hasFlag(decl, Ephemeral)),
         .type = type,
         .state = irVarUninitialized
     };
@@ -60,7 +45,9 @@ static TrackedVar *addTrackedVar(MemMgmtContext *ctx, IrNode *decl, cstring name
                       sizeof(TrackedVar),
                       comparePointers);
 
-    return getTrackedVar(ctx, decl);
+    TrackedVar *stored = getTrackedVar(ctx, decl);
+    pushOnDynArray(&ctx->trackedVarList, &stored);
+    return stored;
 }
 
 static void collectScopeVariables(MemMgmtContext *ctx, IrNode *func)
@@ -90,68 +77,47 @@ static IrNode *findVarDeclInNode(const IrNode *node)
         return NULL;
     if (node->tag == irVarRef)
         return node->varRef.target;
+    if (node->tag == irMember)
+        return findVarDeclInNode(node->member.target);
+    if (node->tag == irIndex)
+        return findVarDeclInNode(node->index.target);
+    if (node->tag == irDeref)
+        return findVarDeclInNode(node->deref.target);
     return NULL;
 }
 
-static void collectUsedTemporaries(MemMgmtContext *ctx, const IrNode *expr, DynArray *usedTemps)
-{
-    if (expr == NULL)
-        return;
 
-    if (expr->tag == irVarRef) {
-        TrackedVar *var = getTrackedVar(ctx, expr->varRef.target);
-        if (var && var->isTemporary && var->state == irVarAssigned) {
-            pushOnDynArray(usedTemps, &var);
-        }
-        return;
-    }
-
-    if (expr->tag == irCall) {
-        for (const IrNode *arg = expr->call.args; arg; arg = arg->next) {
-            collectUsedTemporaries(ctx, arg, usedTemps);
-        }
-        return;
-    }
-
-    if (expr->tag == irMember) {
-        collectUsedTemporaries(ctx, expr->member.target, usedTemps);
-        return;
-    }
-
-    if (expr->tag == irIndex) {
-        collectUsedTemporaries(ctx, expr->index.target, usedTemps);
-        collectUsedTemporaries(ctx, expr->index.index, usedTemps);
-        return;
-    }
-
-    if (expr->tag == irBinary) {
-        collectUsedTemporaries(ctx, expr->binary.lhs, usedTemps);
-        collectUsedTemporaries(ctx, expr->binary.rhs, usedTemps);
-        return;
-    }
-
-    if (expr->tag == irUnary) {
-        collectUsedTemporaries(ctx, expr->unary.operand, usedTemps);
-        return;
-    }
-}
 
 static void scanForConditionalAssignments(MemMgmtContext *ctx, IrNode *func)
 {
     IrNode *entryBB = func->function.firstBlock;
     for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
-        if (bb->tag != irBasicBlock || bb == entryBB)
+        if (bb->tag != irBasicBlock)
             continue;
         for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
             if (stmt->tag == irAssign) {
                 IrNode *lhsDecl = findVarDeclInNode(stmt->assign.lhs);
                 TrackedVar *lhsVar = getTrackedVar(ctx, lhsDecl);
-                if (lhsVar && !lhsVar->isTemporary && lhsVar->decl && lhsVar->decl->tag == irVarDecl) {
+                if (bb != entryBB && lhsVar && !lhsVar->isTemporary && lhsVar->decl && lhsVar->decl->tag == irVarDecl) {
                     if (!lhsVar->needsDropFlag) {
                         lhsVar->needsDropFlag = true;
                         lhsVar->state = irVarMaybeAssigned;
                         lhsVar->dropFlagIndex = (u32)ctx->dropFlagVars.size;
                         pushOnDynArray(&ctx->dropFlagVars, &lhsVar);
+                    }
+                }
+
+                IrNode *rhs = stmt->assign.rhs;
+                if (rhs && rhs->tag == irMove) {
+                    IrNode *rhsDecl = findVarDeclInNode(rhs->move.src);
+                    TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
+                    if (rhsVar && !rhsVar->isTemporary && rhsVar->decl && rhsVar->decl->tag == irVarDecl) {
+                        if (!rhsVar->needsDropFlag) {
+                            rhsVar->needsDropFlag = true;
+                            rhsVar->state = irVarMaybeAssigned;
+                            rhsVar->dropFlagIndex = (u32)ctx->dropFlagVars.size;
+                            pushOnDynArray(&ctx->dropFlagVars, &rhsVar);
+                        }
                     }
                 }
             }
@@ -173,7 +139,7 @@ static void synthesizeDropFlags(MemMgmtContext *ctx, IrNode *func)
         fields[i] = (IrField){.name = var->name, .type = u64Type, .index = (u32)i, .bits = 1};
     }
 
-    const IrType *dropFlagsType = makeIrStructType(ctx->types, "__drop_flags_t", "__drop_flags_t", fields, flagCount);
+    const IrType *dropFlagsType = makeIrStructType(ctx->types, flgNone, "__drop_flags_t", "__drop_flags_t", fields, flagCount);
     IrNode *dropFlagsDecl = makeIrVarDecl(ctx->pool, &func->loc, flgNone, "__drop_flags", "__drop_flags", dropFlagsType, 0);
     ctx->dropFlagsDecl = dropFlagsDecl;
 
@@ -219,34 +185,32 @@ static void injectCallArgumentCopies(MemMgmtContext *ctx, IrNode *bb, IrNode **p
         IrNode *arg = call->call.args;
         for (u64 i = 0; arg && i < calleeType->func.count; i++) {
             const IrType *paramType = calleeType->func.params[i];
-            if (isIrTypeDestructible(paramType)) {
-                if (arg->tag == irVarRef && !hasFlag(arg->varRef.target, Returned)) {
-                    TrackedVar *argVar = getTrackedVar(ctx, arg->varRef.target);
-                    if (argVar && !argVar->isTemporary) {
-                        cstring tempName = makeStringf(ctx->strings, "__copy%u", ctx->tempCounter++);
-                        IrNode *tempVar = makeIrVarDecl(ctx->pool, &arg->loc, flgNone, tempName, tempName, arg->type, ctx->currentScopeId);
-                        TrackedVar *tv = addTrackedVar(ctx, tempVar, tempName, ctx->currentScopeId, arg->type);
-                        if (tv)
-                            tv->state = irVarMoved;
+            if (paramType && paramType->category != irTypeCatReference && isIrTypeDestructible(paramType) && arg->tag == irVarRef && !hasFlag(arg->varRef.target, Returned) && isIrVarDestructible(arg->varRef.target)) {
+                TrackedVar *argVar = getTrackedVar(ctx, arg->varRef.target);
+                if (argVar && !argVar->isTemporary) {
+                    cstring tempName = makeStringf(ctx->strings, "__copy%u", ctx->tempCounter++);
+                    IrNode *tempVar = makeIrVarDecl(ctx->pool, &arg->loc, flgTemporary | (arg->varRef.target->flags & flgReferenceMembers), tempName, tempName, arg->type, ctx->currentScopeId);
+                    TrackedVar *tv = addTrackedVar(ctx, tempVar, tempName, ctx->currentScopeId, arg->type);
+                    if (tv)
+                        tv->state = irVarMoved;
 
-                        IrNode *dstRef = makeIrVarRef(ctx->pool, &arg->loc, tempVar);
-                        IrNode *copyStmt = makeIrCopy(ctx->pool, &arg->loc, arg, dstRef);
+                    IrNode *dstRef = makeIrVarRef(ctx->pool, &arg->loc, tempVar);
+                    IrNode *copyStmt = makeIrCopy(ctx->pool, &arg->loc, arg, dstRef);
 
-                        tempVar->next = copyStmt;
-                        copyStmt->next = callStmt;
-                        if (*prevRef)
-                            (*prevRef)->next = tempVar;
-                        else
-                            bb->basicBlock.first = tempVar;
-                        *prevRef = copyStmt;
+                    tempVar->next = copyStmt;
+                    copyStmt->next = callStmt;
+                    if (*prevRef)
+                        (*prevRef)->next = tempVar;
+                    else
+                        bb->basicBlock.first = tempVar;
+                    *prevRef = copyStmt;
 
-                        dstRef->next = arg->next;
-                        if (prevArg)
-                            prevArg->next = dstRef;
-                        else
-                            call->call.args = dstRef;
-                        arg = dstRef;
-                    }
+                    dstRef->next = arg->next;
+                    if (prevArg)
+                        prevArg->next = dstRef;
+                    else
+                        call->call.args = dstRef;
+                    arg = dstRef;
                 }
             }
             prevArg = arg;
@@ -255,9 +219,20 @@ static void injectCallArgumentCopies(MemMgmtContext *ctx, IrNode *bb, IrNode **p
     }
 }
 
+static bool shouldPromoteAssignToCopy(const IrNode *lhsDecl, const IrNode *lhs, const IrNode *rhs)
+{
+    if (!isIrVarDestructible(lhsDecl) && !isIrTypeDestructible(lhs->type))
+        return false;
+    if (rhs->tag == irVarRef) {
+        return rhs->varRef.target && !hasFlag(rhs->varRef.target, Temporary);
+    }
+    return rhs->tag == irMember || rhs->tag == irIndex;
+}
+
 static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
 {
     ctx->trackedVars = newHashTable(sizeof(TrackedVar), ctx->pool);
+    ctx->trackedVarList = newDynArray(sizeof(TrackedVar *));
     ctx->dropFlagVars = newDynArray(sizeof(TrackedVar *));
     ctx->dropFlagsDecl = NULL;
 
@@ -312,9 +287,9 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
                         }
                     }
                 }
-                else if (lhsVar && lhsVar->isTemporary) {
+                else if (lhsVar && lhsVar->isEphemeral) {
                     lhsVar->state = irVarAssigned;
-                    if (rhs && rhs->tag == irCall) {
+                    if (isIrTypeDestructible(lhsVar->type)) {
                         IrNode *dropTemp = makeIrDrop(ctx->pool, &stmt->loc, stmt->assign.lhs);
                         dropTemp->next = next;
                         stmt->next = dropTemp;
@@ -342,7 +317,7 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
                     else if (rhs->tag == irCall) {
                         injectCallArgumentCopies(ctx, bb, &prev, stmt, rhs);
                     }
-                    else if (isIrVarDestructible(lhsDecl) && (rhs->tag == irVarRef || rhs->tag == irMember || rhs->tag == irIndex)) {
+                    else if (shouldPromoteAssignToCopy(lhsDecl, stmt->assign.lhs, rhs)) {
                         IrNode *lhs = stmt->assign.lhs;
                         stmt->tag = irCopy;
                         stmt->copy.src = rhs;
@@ -352,19 +327,6 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
             }
             else if (stmt->tag == irCall) {
                 injectCallArgumentCopies(ctx, bb, &prev, stmt, stmt);
-
-                DynArray usedTemps = newDynArray(sizeof(TrackedVar *));
-                collectUsedTemporaries(ctx, stmt, &usedTemps);
-                for (u64 i = 0; i < usedTemps.size; i++) {
-                    TrackedVar *tempVar = ((TrackedVar **)usedTemps.elems)[i];
-                    IrNode *tempRef = makeIrVarRef(ctx->pool, &stmt->loc, tempVar->decl);
-                    IrNode *dropTemp = makeIrDrop(ctx->pool, &stmt->loc, tempRef);
-                    dropTemp->next = next;
-                    stmt->next = dropTemp;
-                    next = dropTemp;
-                    tempVar->state = irVarUninitialized;
-                }
-                freeDynArray(&usedTemps);
             }
             else if (stmt->tag == irScopeEnter) {
                 ctx->currentScopeId = stmt->scopeEnter.scopeId;
@@ -372,9 +334,8 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
             else if (stmt->tag == irScopeExit) {
                 u32 exitingScope = stmt->scopeExit.scopeId;
                 ctx->currentScopeId = exitingScope > 0 ? exitingScope - 1 : 0;
-                HashtableIt it = newHashTableIt(&ctx->trackedVars, sizeof(TrackedVar));
-                while (hashTableItHasNext(&it)) {
-                    TrackedVar *var = (TrackedVar *)hashTableItNext(&it);
+                for (i64 i = (i64)ctx->trackedVarList.size - 1; i >= 0; i--) {
+                    TrackedVar *var = ((TrackedVar **)ctx->trackedVarList.elems)[i];
                     if (var == NULL || var->scopeId != exitingScope || !isIrVarDestructible(var->decl))
                         continue;
 
@@ -397,7 +358,6 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
                         else
                             bb->basicBlock.first = dropStmt;
                         prev = dropStmt;
-                        var->state = irVarUninitialized;
                     }
                 }
             }
@@ -413,6 +373,7 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
     }
 
     freeHashTable(&ctx->trackedVars);
+    freeDynArray(&ctx->trackedVarList);
     freeDynArray(&ctx->dropFlagVars);
 }
 

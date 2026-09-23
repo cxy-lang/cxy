@@ -47,33 +47,43 @@ void *initCompilerBackend(CompilerDriver *driver, int argc, char **argv)
     (void)argv;
     csAssert0(driver->backend == NULL);
     Options *options = &driver->options;
+
+    bool toStdout = (options->output == NULL && options->cmd == cmdDev &&
+                     options->dev.lastStage == ccsCodegen);
+
+    FILE *f = NULL;
     cstring filename = NULL;
-    if (options->output == NULL) {
-        filename =
-            joinPath(driver->strings, options->buildDir ?: "./", "app.c");
-    }
-    else if (options->output[0] == '/') {
-        filename = makeStringConcat(driver->strings, options->output, ".c");
+    if (toStdout) {
+        f = stdout;
     }
     else {
-        filename =
-            joinPath(driver->strings,
-                     options->buildDir ?: "./",
-                     makeStringConcat(driver->strings, options->output, ".c"));
-    }
+        if (options->output == NULL) {
+            filename =
+                joinPath(driver->strings, options->buildDir ?: "./", "app.c");
+        }
+        else if (options->output[0] == '/') {
+            filename = makeStringConcat(driver->strings, options->output, ".c");
+        }
+        else {
+            filename =
+                joinPath(driver->strings,
+                         options->buildDir ?: "./",
+                         makeStringConcat(driver->strings, options->output, ".c"));
+        }
 
-    struct stat st;
-    if (stat(filename, &st) == 0) {
-        remove(filename);
-    }
+        struct stat st;
+        if (stat(filename, &st) == 0) {
+            remove(filename);
+        }
 
-    FILE *f = fopen(filename, "w+");
-    if (f == NULL) {
-        logError(driver->L,
-                 builtinLoc(),
-                 "creating output file '{s}' failed: '{s}'",
-                 (FormatArg[]){{.s = filename}, {.s = strerror(errno)}});
-        return NULL;
+        f = fopen(filename, "w+");
+        if (f == NULL) {
+            logError(driver->L,
+                     builtinLoc(),
+                     "creating output file '{s}' failed: '{s}'",
+                     (FormatArg[]){{.s = filename}, {.s = strerror(errno)}});
+            return NULL;
+        }
     }
 
     CBackend *backend = callocFromMemPool(driver->pool, 1, sizeof(CBackend));
@@ -82,10 +92,12 @@ void *initCompilerBackend(CompilerDriver *driver, int argc, char **argv)
     backend->filename = filename;
     backend->testMode = options->cmd == cmdTest;
 
-    if (driver->options.withMemoryTrace) {
-        fputs("#define ENABLE_MEMORY_TRACE 1\n", f);
+    if (!toStdout || (!options->dev.cleanAst && !options->withoutBuiltins)) {
+        if (driver->options.withMemoryTrace) {
+            fputs("#define ENABLE_MEMORY_TRACE 1\n", f);
+        }
+        fwrite(CXY_PROLOGUE_SOURCE, 1, CXY_PROLOGUE_SOURCE_SIZE - 1, f);
     }
-    fwrite(CXY_PROLOGUE_SOURCE, 1, CXY_PROLOGUE_SOURCE_SIZE - 1, f);
     return backend;
 }
 
@@ -281,7 +293,7 @@ static void emitCast(ConstIrVisitor *visitor, const IrNode *node)
 static void emitUnary(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
-    format(&ctx->state, "(%s(", (FormatArg[]){{.s = getUnaryOpString(node->unary.op)}});
+    format(&ctx->state, "({s}(", (FormatArg[]){{.s = getUnaryOpString(node->unary.op)}});
     irConstVisit(visitor, node->unary.operand);
     format(&ctx->state, "))", NULL);
 }
@@ -378,12 +390,7 @@ static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
         break;
     case irTypeCatStruct:
         if (type->name) {
-            if (ctx->moduleName && ctx->moduleName[0]) {
-                format(&ctx->state, "{s}_{s}_op__destructor(&(", (FormatArg[]){{.s = ctx->moduleName}, {.s = type->name}});
-            }
-            else {
-                format(&ctx->state, "{s}_op__destructor(&(", (FormatArg[]){{.s = type->name}});
-            }
+            format(&ctx->state, "{s}_op__destructor(&(", (FormatArg[]){{.s = type->name}});
             irConstVisit(visitor, target);
             format(&ctx->state, "));\n", NULL);
         }
@@ -433,12 +440,7 @@ static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
         if (type->name) {
             format(&ctx->state, "  ", NULL);
             irConstVisit(visitor, dst);
-            if (ctx->moduleName && ctx->moduleName[0]) {
-                format(&ctx->state, " = {s}_{s}_op__copy(&(", (FormatArg[]){{.s = ctx->moduleName}, {.s = type->name}});
-            }
-            else {
-                format(&ctx->state, " = {s}_op__copy(&(", (FormatArg[]){{.s = type->name}});
-            }
+            format(&ctx->state, " = {s}_op__copy(&(", (FormatArg[]){{.s = type->name}});
             irConstVisit(visitor, src);
             format(&ctx->state, "));\n", NULL);
         }
@@ -639,10 +641,15 @@ static void emitCFieldDecl(FormatState *state, const IrType *type, cstring name)
     }
 }
 
-static void emitTypeGraphDefinitions(FormatState *state, const IrModule *module, MemPool *pool)
+static void emitTypeGraphDefinitions(FormatState *state, const DynArray *modules, MemPool *pool)
 {
     IrTypeGraph *g = newIrTypeGraph(pool);
-    buildIrTypeGraph(g, module);
+    for (size_t i = 0; i < modules->size; i++) {
+        const IrModule *module = dynArrayAt(const IrNode **, modules, i);
+        if (module)
+            collectIrTypesFromModule(g, module);
+    }
+    sortIrTypeGraph(g);
 
     // Pass 1: Forward typedefs for all structs and unions
     dynArrayFor(it, const IrType *, &g->sorted) {
@@ -688,8 +695,32 @@ static void emitTypeGraphDefinitions(FormatState *state, const IrModule *module,
 static void emitFunctionPrototypes(FormatState *state, const IrModule *module)
 {
     for (const IrNode *func = module->module.functions; func; func = func->next) {
-        if (hasFlag(func, Extern))
+        if (hasFlag(func, Extern)) {
+            if (func->function.isHint)
+                continue;
+            format(state, "extern ", NULL);
+            emitCTypeName(state, func->type ? func->type->func.ret : NULL);
+            format(state, " {s}(", (FormatArg[]){{.s = func->function.name}});
+            if (func->function.params == NULL && !hasFlag(func, Variadic)) {
+                format(state, "void", NULL);
+            }
+            else {
+                for (const IrNode *p = func->function.params; p; p = p->next) {
+                    emitCTypeName(state, p->type);
+                    format(state, " {s}", (FormatArg[]){{.s = p->funcParam.name}});
+                    if (p->next)
+                        format(state, ", ", NULL);
+                }
+                if (hasFlag(func, Variadic)) {
+                    if (func->function.params)
+                        format(state, ", ...", NULL);
+                    else
+                        format(state, "...", NULL);
+                }
+            }
+            format(state, ");\n", NULL);
             continue;
+        }
         format(state, "static ", NULL);
         emitCTypeName(state, func->type ? func->type->func.ret : NULL);
         format(state, " {s}(", (FormatArg[]){{.s = func->function.name}});
@@ -717,25 +748,40 @@ static void emitModule(ConstIrVisitor *visitor, const IrNode *module)
         irConstVisit(visitor, func);
 }
 
-static bool emitCModule(CompilerDriver *driver, const IrModule *module, FILE *file)
+static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE *file)
 {
+    DynArray modules;
+    if (driver->finalizedModules.size > 0) {
+        modules = driver->finalizedModules;
+    }
+    else {
+        modules = newDynArray(sizeof(IrNode *));
+        if (rootModule) {
+            pushOnDynArrayExplicit(&modules, &rootModule, sizeof(IrNode *));
+        }
+    }
+
     CodegenContext ctx = {
         .backend = driver->backend,
         .strings = driver->strings,
-        .moduleName = module ? module->module.name : NULL,
+        .moduleName = rootModule ? rootModule->module.name : NULL,
         .state = newFormatState("  ", true),
         .types = newFormatState("  ", true)};
 
-    // Types
-    emitTypeGraphDefinitions(&ctx.types, module, driver->pool);
+    // Types across all finalized modules
+    emitTypeGraphDefinitions(&ctx.types, &modules, driver->pool);
     char *typesCode = formatStateToString(&ctx.types);
     if (typesCode) {
         fputs(typesCode, file);
         free(typesCode);
     }
 
-    // Function prototypes
-    emitFunctionPrototypes(&ctx.state, module);
+    // Function prototypes across all finalized modules
+    for (size_t i = 0; i < modules.size; i++) {
+        const IrModule *mod = dynArrayAt(const IrNode **, &modules, i);
+        if (mod)
+            emitFunctionPrototypes(&ctx.state, mod);
+    }
 
     // clang-format off
     ConstIrVisitor visitor = makeConstIrVisitor(&ctx, {
@@ -777,14 +823,27 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *module, FILE *fi
     });
     // clang-format on
 
-    irConstVisit(&visitor, module);
+    for (size_t i = 0; i < modules.size; i++) {
+        const IrModule *mod = dynArrayAt(const IrNode **, &modules, i);
+        if (mod) {
+            ctx.moduleName = mod->module.name;
+            irConstVisit(&visitor, mod);
+        }
+    }
 
     // Main entry point wrapper
     const IrNode *mainFunc = NULL;
-    for (const IrNode *func = module->module.functions; func; func = func->next) {
-        if (hasFlag(func, Main) || func->function.display == S_main) {
-            mainFunc = func;
-            break;
+    for (size_t i = 0; i < modules.size; i++) {
+        const IrModule *mod = dynArrayAt(const IrNode **, &modules, i);
+        if (mod) {
+            for (const IrNode *func = mod->module.functions; func; func = func->next) {
+                if (hasFlag(func, Main) || func->function.display == S_main) {
+                    mainFunc = func;
+                    break;
+                }
+            }
+            if (mainFunc)
+                break;
         }
     }
 
@@ -807,6 +866,10 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *module, FILE *fi
     }
     freeFormatState(&ctx.state);
     freeFormatState(&ctx.types);
+
+    if (driver->finalizedModules.size == 0) {
+        freeDynArray(&modules);
+    }
     return true;
 }
 
@@ -834,7 +897,7 @@ void deinitCompilerBackend(CompilerDriver *driver)
         return;
     CBackend *backend = (CBackend *)driver->backend;
     driver->backend = NULL;
-    if (backend->output) {
+    if (backend->output && backend->output != stdout) {
         fwrite(CXY_EPILOGUE_SOURCE, 1, CXY_EPILOGUE_SOURCE_SIZE, backend->output);
         fclose(backend->output);
         backend->output = NULL;

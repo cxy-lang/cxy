@@ -153,6 +153,7 @@ struct IrNode {
             IrNode *firstBlock;
             IrNode *lastBlock;
             u32 nextScopeId;
+            bool isHint;
         } function;
         struct { cstring name; IrNode *init; } globalVar;
         struct {
@@ -197,7 +198,7 @@ IrNode *makeIrBinary(MemPool *pool, const FileLoc *loc, Operator op, IrNode *lhs
 IrNode *makeIrCall(MemPool *pool, const FileLoc *loc, IrNode *callee, IrNode *args, u64 argsCount, const IrType *retType);
 IrNode *makeIrAddrOf(MemPool *pool, const FileLoc *loc, IrNode *target, const IrType *ptrType);
 IrNode *makeIrDeref(MemPool *pool, const FileLoc *loc, IrNode *target, const IrType *valType);
-IrNode *makeIrSizeof(MemPool *pool, const FileLoc *loc, const IrType *targetType);
+IrNode *makeIrSizeof(MemPool *pool, const FileLoc *loc, const IrType *targetType, const IrType *u64Type);
 IrNode *makeIrAlloca(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size);
 IrNode *makeIrMalloc(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size);
 

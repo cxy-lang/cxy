@@ -7,6 +7,7 @@ static HashCode hashIrType(HashCode hash, const IrType *type)
 {
     hash = hashUint32(hash, type->tag);
     hash = hashUint32(hash, (u32)type->category);
+    hash = hashUint64(hash, type->flags);
     switch (type->tag) {
     case irTypePointer:
         return hashPtr(hash, type->pointer.pointee);
@@ -42,7 +43,7 @@ static bool compareIrTypes(const void *lhs, const void *rhs)
     const IrType *r = *(const IrType **)rhs;
     if (l == r)
         return true;
-    if (l->tag != r->tag || l->category != r->category)
+    if (l->tag != r->tag || l->category != r->category || l->flags != r->flags)
         return false;
 
     switch (l->tag) {
@@ -138,12 +139,13 @@ const IrType *getIrPrimitiveType(IrTypeTable *table, IrTypeTag tag)
     return table->primitives[tag];
 }
 
-const IrType *makeIrClassType(IrTypeTable *table, const IrType *structType)
+const IrType *makeIrClassType(IrTypeTable *table, Flags flags, const IrType *structType)
 {
     cstring display = makeStringf(table->strings, "^%s", structType ? (structType->display ?: structType->name) : "void");
     IrType type = {
         .tag = irTypePointer,
         .category = irTypeCatClass,
+        .flags = flags,
         .size = sizeof(void *),
         .align = sizeof(void *),
         .display = display,
@@ -151,11 +153,12 @@ const IrType *makeIrClassType(IrTypeTable *table, const IrType *structType)
     return getOrInsertIrType(table, &type);
 }
 
-const IrType *makeIrPointerType(IrTypeTable *table, const IrType *pointee)
+const IrType *makeIrPointerType(IrTypeTable *table, Flags flags, const IrType *pointee)
 {
     cstring display = makeStringf(table->strings, "^%s", pointee ? (pointee->display ?: pointee->name) : "void");
     IrType type = {
         .tag = irTypePointer,
+        .flags = flags,
         .size = sizeof(void *),
         .align = sizeof(void *),
         .display = display,
@@ -163,7 +166,7 @@ const IrType *makeIrPointerType(IrTypeTable *table, const IrType *pointee)
     return getOrInsertIrType(table, &type);
 }
 
-const IrType *makeIrArrayType(IrTypeTable *table, const IrType *elem, u64 len)
+const IrType *makeIrArrayType(IrTypeTable *table, Flags flags, const IrType *elem, u64 len)
 {
     u64 size = (len == UINT64_MAX) ? 0 : (elem->size * len);
     cstring display = (len == UINT64_MAX)
@@ -171,6 +174,7 @@ const IrType *makeIrArrayType(IrTypeTable *table, const IrType *elem, u64 len)
                           : makeStringf(table->strings, "[%s, %llu]", elem ? (elem->display ?: elem->name) : "void", (unsigned long long)len);
     IrType type = {
         .tag = irTypeArray,
+        .flags = flags,
         .size = size,
         .align = elem->align,
         .display = display,
@@ -178,7 +182,7 @@ const IrType *makeIrArrayType(IrTypeTable *table, const IrType *elem, u64 len)
     return getOrInsertIrType(table, &type);
 }
 
-const IrType *makeIrStructType(IrTypeTable *table, cstring name, cstring display, IrField *fields, u64 count)
+const IrType *makeIrStructType(IrTypeTable *table, Flags flags, cstring name, cstring display, IrField *fields, u64 count)
 {
     u64 offset = 0, maxAlign = 1;
     for (u64 i = 0; i < count; i++) {
@@ -194,6 +198,7 @@ const IrType *makeIrStructType(IrTypeTable *table, cstring name, cstring display
 
     IrType type = {
         .tag = irTypeStruct,
+        .flags = flags,
         .name = name,
         .display = display ?: name,
         .size = totalSize,
@@ -202,7 +207,7 @@ const IrType *makeIrStructType(IrTypeTable *table, cstring name, cstring display
     return getOrInsertIrType(table, &type);
 }
 
-const IrType *makeIrUntaggedUnionType(IrTypeTable *table, cstring name, cstring display, IrField *fields, u64 count)
+const IrType *makeIrUntaggedUnionType(IrTypeTable *table, Flags flags, cstring name, cstring display, IrField *fields, u64 count)
 {
     u64 maxSize = 0, maxAlign = 1;
     for (u64 i = 0; i < count; i++) {
@@ -219,6 +224,7 @@ const IrType *makeIrUntaggedUnionType(IrTypeTable *table, cstring name, cstring 
 
     IrType type = {
         .tag = irTypeUntaggedUnion,
+        .flags = flags,
         .name = name,
         .display = display ?: name,
         .size = totalSize,
@@ -227,7 +233,7 @@ const IrType *makeIrUntaggedUnionType(IrTypeTable *table, cstring name, cstring 
     return getOrInsertIrType(table, &type);
 }
 
-const IrType *makeIrFuncType(IrTypeTable *table, const IrType **params, u64 count, const IrType *ret, bool variadic)
+const IrType *makeIrFuncType(IrTypeTable *table, Flags flags, const IrType **params, u64 count, const IrType *ret, bool variadic)
 {
     char buf[256];
     int len = snprintf(buf, sizeof(buf), "func(");
@@ -244,6 +250,7 @@ const IrType *makeIrFuncType(IrTypeTable *table, const IrType **params, u64 coun
 
     IrType type = {
         .tag = irTypeFunc,
+        .flags = flags,
         .size = sizeof(void *),
         .align = sizeof(void *),
         .display = display,

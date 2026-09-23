@@ -48,7 +48,7 @@ static void evaluateStructMembers(AstVisitor *visitor, AstNode *node)
             if (isClassType(type)) {
                 node->flags |= flgReferenceMembers;
             }
-            else if (isStructType(type) || isTupleType(type)) {
+            else if (isStructType(type) || isTupleType(type) || isUnionType(type)) {
                 node->flags |= (type->flags & flgReferenceMembers);
             }
         }

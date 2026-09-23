@@ -16,6 +16,7 @@ extern "C" {
     f(main)                         \
     f(_main)                        \
     f(__builtins)               \
+    f(builtins)                 \
     f(__cxy_assert)             \
     f(CXY__builtins_sizeof)     \
     f(this)                     \
@@ -97,6 +98,7 @@ extern "C" {
     f(append)                   \
     f(OutputStream)             \
     f(Exception)                \
+    f(void)                     \
     f(Void)                     \
     f(what)                     \
     f(push)                     \
@@ -141,6 +143,25 @@ extern "C" {
     f(valid)                    \
     f(setup)                    \
     f(cleanup)                  \
+    f(bool)                     \
+    f(i8)                       \
+    f(i16)                      \
+    f(i32)                      \
+    f(i64)                      \
+    f(i128)                     \
+    f(u8)                       \
+    f(u16)                      \
+    f(u32)                      \
+    f(u64)                      \
+    f(u128)                     \
+    f(f32)                      \
+    f(f64)                      \
+    f(arr)                      \
+    f(struct)                   \
+    f(union)                    \
+    f(func)                     \
+    f(ok)                       \
+    f(tag)                      \
     ff(__LLVM_global_ctors, "llvm.global_ctors") \
     ff(ctor_section,        ".ctor")             \
     ff(sptr_ref,            "__smart_ptr_get")   \

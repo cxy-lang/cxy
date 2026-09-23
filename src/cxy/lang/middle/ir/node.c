@@ -361,9 +361,9 @@ IrNode *makeIrDeref(MemPool *pool, const FileLoc *loc, IrNode *target, const IrT
     return node;
 }
 
-IrNode *makeIrSizeof(MemPool *pool, const FileLoc *loc, const IrType *targetType)
+IrNode *makeIrSizeof(MemPool *pool, const FileLoc *loc, const IrType *targetType, const IrType *u64Type)
 {
-    IrNode *node = makeIrNode(pool, loc, flgNone, irSizeof, NULL);
+    IrNode *node = makeIrNode(pool, loc, flgNone, irSizeof, u64Type);
     node->sizeofVal.targetType = targetType;
     return node;
 }

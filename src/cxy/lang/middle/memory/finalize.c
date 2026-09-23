@@ -121,43 +121,7 @@ static void verifyBlockTerminators(MemPool *pool, IrNode *func)
     }
 }
 
-static bool hasFunctionDeclaration(const IrModule *module, cstring name)
-{
-    for (const IrNode *func = module->module.functions; func; func = func->next) {
-        if (func->tag == irFunction && func->function.name == name)
-            return true;
-    }
-    return false;
-}
 
-static void resolveReferencedDeclarations(CompilerDriver *driver, IrModule *module, const IrNode *node)
-{
-    if (node == NULL)
-        return;
-
-    if (node->tag == irGlobalRef && node->globalRef.target == NULL && node->type && node->type->tag == irTypeFunc) {
-        cstring name = node->globalRef.name;
-        if (name && !hasFunctionDeclaration(module, name)) {
-            IrNode *externFunc = makeIrFunction(driver->pool, &node->loc, flgExtern, name, name, node->type, NULL, 0);
-            if (module->module.functions) {
-                IrNode *last = module->module.functions;
-                while (last->next)
-                    last = last->next;
-                last->next = externFunc;
-            }
-            else {
-                module->module.functions = externFunc;
-            }
-        }
-    }
-
-    if (node->tag == irCall) {
-        resolveReferencedDeclarations(driver, module, node->call.callee);
-        for (const IrNode *arg = node->call.args; arg; arg = arg->next) {
-            resolveReferencedDeclarations(driver, module, arg);
-        }
-    }
-}
 
 IrModule *runFinalize(CompilerDriver *driver, IrModule *module)
 {
@@ -170,14 +134,6 @@ IrModule *runFinalize(CompilerDriver *driver, IrModule *module)
             simplifyBlockBranches(decl);
             eliminateEmptyTrampolineBlocks(decl);
             verifyBlockTerminators(driver->pool, decl);
-
-            for (IrNode *bb = decl->function.firstBlock; bb; bb = bb->next) {
-                if (bb->tag != irBasicBlock)
-                    continue;
-                for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
-                    resolveReferencedDeclarations(driver, module, stmt);
-                }
-            }
         }
     }
 

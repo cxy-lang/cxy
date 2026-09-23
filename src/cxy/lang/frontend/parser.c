@@ -595,12 +595,7 @@ static inline AstNode *parseInteger(Parser *P, bool isNegative)
     AstNode *node = newAstNode(
         P,
         (isNegative ? &prev : &tok),
-        &(AstNode){.tag = astIntegerLit, .intLiteral.uValue = tok.iVal});
-
-    if (isNegative) {
-        node->intLiteral.isNegative = true;
-        node->intLiteral.value = -tok.iVal;
-    }
+        &(AstNode){.tag = astIntegerLit, .intLiteral = {.uValue = tok.iVal, .isNegative = isNegative}});
 
     // Handle suffix first (e.g., 10.ns or 10.i64)
     node = wrapLiteralWithSuffix(P, node, &tok.fileLoc, false);

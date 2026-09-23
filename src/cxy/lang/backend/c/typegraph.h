@@ -30,6 +30,8 @@ IrTypeGraph *newIrTypeGraph(MemPool *pool);
 void freeIrTypeGraph(IrTypeGraph *g);
 
 void addIrTypeToGraph(IrTypeGraph *g, const IrType *type);
+void collectIrTypesFromModule(IrTypeGraph *g, const IrModule *module);
+void sortIrTypeGraph(IrTypeGraph *g);
 void buildIrTypeGraph(IrTypeGraph *g, const IrModule *module);
 
 #ifdef __cplusplus

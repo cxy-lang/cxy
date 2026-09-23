@@ -15,6 +15,7 @@
 #include "lang/frontend/strings.h"
 #include "lang/frontend/ttable.h"
 #include "lang/middle/builtins.h"
+#include "lang/middle/ir/node.h"
 #include "plugin.h"
 
 #include "src/builtins.h"
@@ -126,10 +127,10 @@ static AstNode *parseFile(CompilerDriver *driver,
     Parser parser = makeParser(&lexer, driver, testMode);
     AstNode *program = parseProgram(&parser);
     compilerStatsRecord(driver, ccsParse);
-    
+
     // Stop parse timer
     profileParseStop(&driver->profiling);
-    
+
     freeLexer(&lexer);
     free(fileData);
 
@@ -225,8 +226,8 @@ static bool compileProgram(CompilerDriver *driver,
                   maxStage = (options->cmd == cmdDev && mainFile
                                   ? options->dev.lastStage + 1
                                   : ccsCOUNT);
-    if (hasFlag(program, BuiltinsModule))
-        maxStage = MAX(ccsTypeCheck + 1, maxStage);
+    if (!mainFile)
+        maxStage = MIN(maxStage, ccsFinalize + 1);
 
     for (; stage < maxStage; stage++) {
         metadata = executeCompilerStage(driver, stage, metadata);
@@ -249,7 +250,9 @@ static bool compileProgram(CompilerDriver *driver,
 compileProgramDone:
     stopCompilerStats(driver);
     bool dumpStats = !hasFlag(metadata, BuiltinsModule) &&
-                     !(hasFlag(program, ImportedModule));
+                     !(hasFlag(program, ImportedModule)) &&
+                     options->dsmMode != dsmNONE &&
+                     !(options->cmd == cmdDev && options->dev.cleanAst);
     if (dumpStats) {
         if (hasErrors(driver->L))
             printStatusAlways(driver->L,
@@ -307,7 +310,7 @@ bool initCompilerDriver(CompilerDriver *compiler,
 
     // Initialize profiling context
     profileInitContext(&compiler->profiling, pool);
-    
+
     // Enable profiling if requested
     if (options->dev.profile != prfNONE) {
         profileEnable(&compiler->profiling);
@@ -318,6 +321,7 @@ bool initCompilerDriver(CompilerDriver *compiler,
         compiler->linkLibraries = newHashTable(sizeof(cstring), compiler->pool);
         internCommonStrings(compiler->strings);
         compiler->types = newTypeTable(compiler->pool, compiler->strings);
+        compiler->finalizedModules = newDynArray(sizeof(IrNode *));
         compiler->moduleCache =
             newHashTable(sizeof(CachedModule), compiler->pool);
         compiler->backend = initCompilerBackend(compiler, argc, argv);
@@ -346,11 +350,12 @@ void deinitCompilerDriver(CompilerDriver *driver)
         deinitCImporter(driver);
 
         freeHashTable(&driver->moduleCache);
+        freeDynArray(&driver->finalizedModules);
         freeHashTable(&driver->linkLibraries);
         freeHashTable(&driver->nativeSources);
         freeTypeTable(driver->types);
     }
-    
+
     profileDeinitContext(&driver->profiling);
     deinitCommandLineOptions(&driver->options);
 }
@@ -716,9 +721,9 @@ bool compileFile(const char *fileName, CompilerDriver *driver)
     if (!configureDriverSourceDir(driver, &fileName))
         return false;
     startCompilerStats(driver);
-    
+
     bool status = false;
-    
+
     // Profile the entire file compilation (parse + stages)
     PROFILE_FILE(&driver->profiling, fileName) {
         AstNode *program = parseFile(driver, fileName, driver->options.cmd == cmdTest);
@@ -727,7 +732,7 @@ bool compileFile(const char *fileName, CompilerDriver *driver)
             status = compileProgram(driver, program, fileName, true);
         }
     }
-    
+
     // Output profiling results after compilation completes
     if (status) {
         if (driver->options.dev.profile == prfSTDOUT) {
@@ -744,7 +749,7 @@ bool compileFile(const char *fileName, CompilerDriver *driver)
             }
         }
     }
-    
+
     return status;
 }
 

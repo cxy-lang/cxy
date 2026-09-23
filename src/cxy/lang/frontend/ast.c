@@ -191,10 +191,11 @@ AstNode *makeAstNode(MemPool *pool, const FileLoc *loc, const AstNode *init)
 
 AstNode *makeIntegerLiteral(MemPool *pool,
                             const FileLoc *loc,
-                            __int128_t value,
+                            i128 value,
                             AstNode *next,
                             const Type *type)
 {
+    bool isNeg = value < 0;
     return makeAstNode(
         pool,
         loc,
@@ -202,7 +203,7 @@ AstNode *makeIntegerLiteral(MemPool *pool,
                    .flags = flgNone,
                    .next = next,
                    .type = type,
-                   .intLiteral = {.value = value, .isNegative = value < 0}});
+                   .intLiteral = {.uValue = isNeg ? (u128)(-value) : (u128)value, .isNegative = isNeg}});
 }
 
 AstNode *makeUnsignedIntegerLiteral(MemPool *pool,
@@ -2682,6 +2683,8 @@ const char *getDeclarationName(const AstNode *node)
         return node->structField.name;
     case astException:
         return node->exception.name;
+    case astExternDecl:
+        return getDeclarationName(node->externDecl.func);
     case astBackendCall:
         if (node->backendCallExpr.func == bfiDeclare)
             return getDeclarationName(node->backendCallExpr.args);

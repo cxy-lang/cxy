@@ -1,0 +1,25 @@
+class Item {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+func nested(condBreak: bool, condRet: bool): void {
+    for i in 0..3 {
+        var outer = Item(i)
+        for j in 0..3 {
+            var inner = Item(i * 10 + j)
+            if j == 1 && condBreak {
+                break
+            }
+            if i == 2 && j == 2 && condRet {
+                return
+            }
+        }
+    }
+}
+
+func main(): void {
+    nested(true, false)
+    nested(false, true)
+}

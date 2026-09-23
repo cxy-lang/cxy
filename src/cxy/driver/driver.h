@@ -64,6 +64,7 @@ typedef struct CompilerDriver {
     HashTable plugins;
     void *backend;
     void *cImporter;
+    DynArray finalizedModules;
     bool hasTestCases;
 } CompilerDriver;
 

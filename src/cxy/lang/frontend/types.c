@@ -277,7 +277,8 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
             const Type *fromElem = from->array.elementType;
             return unwrapType(toElem, NULL) == unwrapType(fromElem, NULL);
         }
-        if (unwrapType(to->array.elementType, NULL) != unwrapType(from->array.elementType, NULL))
+        if (unwrapType(to->array.elementType, NULL) !=
+            unwrapType(from->array.elementType, NULL))
             return false;
         return to->array.len == from->array.len;
 
@@ -427,6 +428,9 @@ bool isTypeCastAssignable(const Type *to, const Type *from)
         default:
             return unwrappedTo->primitive.id == unwrappedFrom->primitive.id;
         }
+    case typOptional:
+        if (isBooleanType(unwrappedTo))
+            return true;
     case typEnum:
         if (isIntegerType(unwrappedTo))
             return isTypeCastAssignable(to, unwrappedFrom->tEnum.base);
@@ -683,7 +687,8 @@ bool isSliceType(const Type *type)
     if (type == NULL)
         return false;
     type = resolveUnThisUnwrapType(type);
-    return typeIs(type, Array) && (hasFlag(type, Slice) || type->array.len == UINT64_MAX);
+    return typeIs(type, Array) &&
+           (hasFlag(type, Slice) || type->array.len == UINT64_MAX);
 }
 
 bool isPointerType(const Type *type)
@@ -702,12 +707,12 @@ bool isPointerType(const Type *type)
 bool isNullableType(const Type *type)
 {
     type = resolveUnThisUnwrapType(type);
-    switch(type->tag) {
+    switch (type->tag) {
     case typPointer:
     case typOptional:
     case typString:
     case typClass:
-        return  true;
+        return true;
     default:
         return false;
     }
@@ -1387,7 +1392,8 @@ bool hasReferenceMembers(const Type *type)
         return decl && hasFlag(decl, ReferenceMembers);
     }
 
-    return (isTupleType(type) || isUnionType(type)) && hasFlag(type, ReferenceMembers);
+    return (isTupleType(type) || isUnionType(type)) &&
+           hasFlag(type, ReferenceMembers);
 }
 
 bool isDestructible(const Type *type)
@@ -1401,10 +1407,12 @@ bool isDestructible(const Type *type)
         return true;
     if (isStructType(type)) {
         AstNode *decl = getTypeDecl(type);
-        return decl && (hasFlag(decl, ReferenceMembers) || hasFlag(decl, ImplementsDeinit));
+        return decl && (hasFlag(decl, ReferenceMembers) ||
+                        hasFlag(decl, ImplementsDeinit));
     }
 
-    return (isTupleType(type) || isUnionType(type)) && hasFlag(type, ReferenceMembers);
+    return (isTupleType(type) || isUnionType(type)) &&
+           hasFlag(type, ReferenceMembers);
 }
 
 void pushThisReference(const Type *this, AstNode *node)

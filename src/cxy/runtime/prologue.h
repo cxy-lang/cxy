@@ -77,105 +77,168 @@ do {
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-typedef struct builtins__ManagedVariable {
-    void *ptr;
-    void (*cleaner)(void *);
-    const char *name;
-    bool valid;
-} builtins__ManagedVariable;
-
-static void builtins__Var_cleanup(void *ptr)
-{
-    builtins__ManagedVariable *m = ptr;
-    if (m->valid) {
-        m->cleaner(m->ptr);
-        m->valid = false;
-    }
-}
-
-static void builtins__ClsVar_cleanup(void *ptr)
-{
-    builtins__ManagedVariable *m = ptr;
-    if (m->valid) {
-        m->cleaner(*(void **)m->ptr);
-        m->valid = false;
-    }
-}
-
-#define builtins__cleanup_attr(CLEANER)                                        \
-    __attribute__((cleanup(builtins__##CLEANER##_cleanup)))
-
-#define builtins__ManagedVariable_init(T, NAME, CLEANER, VALID, WRAP)          \
-    T NAME;                                                                    \
-    builtins__cleanup_attr(WRAP) builtins__ManagedVariable __mm##NAME = {      \
-        .ptr = &NAME, .cleaner = CLEANER, .valid = VALID, .name = #NAME};      \
-    NAME
-
-#define builtins__ManagedParam_init(T, NAME, CLEANER, VALID, WRAP)             \
-    builtins__cleanup_attr(WRAP) builtins__ManagedVariable __mm##NAME = {      \
-        .ptr = &NAME, .cleaner = CLEANER, .valid = VALID, .name = #NAME}
-
-#define builtins__ManagedVariable_assign(NAME)                                 \
-    ({                                                                         \
-        if (__mm##NAME.valid)                                                  \
-            __mm##NAME.cleaner(__mm##NAME.ptr);                                \
-        __mm##NAME.valid = true;                                               \
-    }),                                                                        \
-        NAME
-
-#define builtins__ManagedVariable_null(NAME)                                   \
-    if (__mm##NAME.valid != nullptr) {                                            \
-        __mm##NAME.cleaner(__mm##NAME.ptr);                                    \
-        __mm##NAME.valid = false                                               \
-    }
-
-#define builtins__ManagedClsVariable_assign(NAME)                              \
-    ({                                                                         \
-        if (__mm##NAME.valid)                                                  \
-            __mm##NAME.cleaner(*(void **)__mm##NAME.ptr);                      \
-        __mm##NAME.valid = true;                                               \
-    }),                                                                        \
-        NAME
-
-#define builtins__ManagedClsVariable_null(NAME)                                \
-    if (__mm##NAME.valid != nullptr) {                                            \
-        __mm##NAME.cleaner(*(void **)__mm##NAME.ptr);                          \
-        __mm##NAME.valid = false                                               \
-    }
-
-#define builtins__ManagedVariable_move(NAME)                                   \
-    ({                                                                         \
-        __mm##NAME.valid = false;                                              \
-        NAME;                                                                  \
-    })
-
-#define builtins__MemberExpr_move(EXPR)                                        \
-    ({                                                                         \
-        typeof(EXPR) tmp = EXPR;                                               \
-        EXPR = (typeof(EXPR)){};                                               \
-        tmp;                                                                   \
-    })
-
-static void builtins__ClosureTuple_cleanup(void *ptr);
-
-// Memory management flags
-#define __CXY_LOOP_CLEANUP(FLAGS, LABEL)                                       \
-    if ((FLAGS) == 1)                                                          \
-        goto LABEL;                                                            \
-    if ((FLAGS) == 2) {                                                        \
-        (FLAGS) = 0;                                                           \
-        break;                                                                 \
-    }
-#define __CXY_BLOCK_CLEANUP(FLAGS, LABEL)                                      \
-    if ((FLAGS) == 1)                                                          \
-        goto LABEL;
-#define __CXY_DROP_WITH_FLAGS(FLAGS, ...)                                      \
-    if (FLAGS)                                                                 \
-    __VA_ARGS__
-
 // Print int128/uint128 macros
 #define INT128(h, l) ((__int128_t)(((__uint128_t)(h) << 64) | (uint64_t)(l)))
 #define UINT128(h, l) ((__uint128_t)(((__uint128_t)(h) << 64) | (uint64_t)(l)))
+
+static inline uint16_t __bswap16(uint16_t x)
+{
+#if __has_builtin(__builtin_bswap16)
+    return __builtin_bswap16(x);
+#else
+    return (uint16_t)(((x >> 8) & 0xff) | ((x & 0xff) << 8));
+#endif
+}
+
+static inline uint32_t __bswap32(uint32_t x)
+{
+#if __has_builtin(__builtin_bswap32)
+    return __builtin_bswap32(x);
+#else
+    return (((x & 0xff000000U) >> 24) | ((x & 0x00ff0000U) >> 8) |
+            ((x & 0x0000ff00U) << 8) | ((x & 0x000000ffU) << 24));
+#endif
+}
+
+static inline uint64_t __bswap64(uint64_t x)
+{
+#if __has_builtin(__builtin_bswap64)
+    return __builtin_bswap64(x);
+#else
+    return (((x & 0xff00000000000000ULL) >> 56) |
+            ((x & 0x00ff000000000000ULL) >> 40) |
+            ((x & 0x0000ff0000000000ULL) >> 24) |
+            ((x & 0x000000ff00000000ULL) >> 8) |
+            ((x & 0x00000000ff000000ULL) << 8) |
+            ((x & 0x0000000000ff0000ULL) << 24) |
+            ((x & 0x000000000000ff00ULL) << 40) |
+            ((x & 0x00000000000000ffULL) << 56));
+#endif
+}
+
+#define FNV_32_PRIME 0x01000193U
+#define FNV_32_INIT 0x811c9dc5U
+
+typedef uint32_t HashCode;
+
+static inline HashCode hash_fnv1a_uint8(HashCode h, uint8_t x)
+{
+    return (h ^ (HashCode)x) * FNV_32_PRIME;
+}
+
+static inline HashCode hash_fnv1a_uint16(HashCode h, uint16_t x)
+{
+    return hash_fnv1a_uint8(hash_fnv1a_uint8(h, (uint8_t)(x & 0xff)), (uint8_t)(x >> 8));
+}
+
+static inline HashCode hash_fnv1a_uint32(HashCode h, uint32_t x)
+{
+    return hash_fnv1a_uint16(hash_fnv1a_uint16(h, (uint16_t)(x & 0xffff)), (uint16_t)(x >> 16));
+}
+
+static inline HashCode hash_fnv1a_uint64(HashCode h, uint64_t x)
+{
+    return hash_fnv1a_uint32(hash_fnv1a_uint32(h, (uint32_t)(x & 0xffffffffU)), (uint32_t)(x >> 32));
+}
+
+static inline HashCode hash_fnv1a_uint128(HashCode h, uint128_t x)
+{
+    return hash_fnv1a_uint64(hash_fnv1a_uint64(h, (uint64_t)(x & 0xffffffffffffffffULL)), (uint64_t)(x >> 64));
+}
+
+static inline HashCode hash_fnv1a_ptr(HashCode h, const void *ptr)
+{
+    return hash_fnv1a_uint64(h, (uint64_t)ptr);
+}
+
+static inline HashCode hash_fnv1a_string(HashCode h, const char *str)
+{
+    if (str == nullptr) return h;
+    while (*str) {
+        h = hash_fnv1a_uint8(h, (uint8_t)*str++);
+    }
+    return h;
+}
+
+static inline HashCode hash_fnv1a_n_string(HashCode h, const char *str, uint64_t len)
+{
+    if (str == nullptr) return h;
+    for (uint64_t i = 0; i < len; i++) {
+        h = hash_fnv1a_uint8(h, (uint8_t)str[i]);
+    }
+    return h;
+}
+
+static inline HashCode hash_fnv1a_string_n_igc(HashCode h, const char *str, uint64_t len)
+{
+    if (str == nullptr) return h;
+    for (uint64_t i = 0; i < len; i++) {
+        h = hash_fnv1a_uint8(h, (uint8_t)toupper((int)(unsigned char)str[i]));
+    }
+    return h;
+}
+
+static inline HashCode hash_fnv1a_string_igc(HashCode h, const char *str)
+{
+    if (str == nullptr) return h;
+    while (*str) {
+        h = hash_fnv1a_uint8(h, (uint8_t)toupper((int)(unsigned char)*str++));
+    }
+    return h;
+}
+
+static inline HashCode hash_fnv1a_bytes(HashCode h, const void *ptr, uint64_t size)
+{
+    if (ptr == nullptr) return h;
+    const uint8_t *p = (const uint8_t *)ptr;
+    for (uint64_t i = 0; i < size; i++) {
+        h = hash_fnv1a_uint8(h, p[i]);
+    }
+    return h;
+}
+
+static inline uint64_t sputu128(uint128_t value, char *buf, uint64_t size)
+{
+    (void)size;
+    const uint64_t D19 = 10000000000000000000ULL;
+    const uint128_t D38 = (uint128_t)D19 * (uint128_t)D19;
+    uint64_t pos = 0;
+
+    if (value < D19) {
+        pos = (uint64_t)sprintf(buf, "%llu", (unsigned long long)(uint64_t)value);
+    }
+    else if (value < D38) {
+        uint64_t high = (uint64_t)(value / D19);
+        uint64_t low = (uint64_t)(value % D19);
+        pos += (uint64_t)sprintf(buf + pos, "%llu", (unsigned long long)high);
+        pos += (uint64_t)sprintf(buf + pos, "%019llu", (unsigned long long)low);
+    }
+    else {
+        uint64_t high = (uint64_t)(value / D38);
+        uint128_t remaining = value % D38;
+        uint64_t mid = (uint64_t)(remaining / D19);
+        uint64_t low = (uint64_t)(remaining % D19);
+
+        pos += (uint64_t)sprintf(buf + pos, "%llu", (unsigned long long)high);
+        pos += (uint64_t)sprintf(buf + pos, "%019llu", (unsigned long long)mid);
+        pos += (uint64_t)sprintf(buf + pos, "%019llu", (unsigned long long)low);
+    }
+    return pos;
+}
+
+static inline uint64_t sputi128(int128_t value, char *buf, uint64_t size)
+{
+    if (value < 0) {
+        if (size > 1) {
+            buf[0] = '-';
+            return 1 + sputu128((uint128_t)(-value), buf + 1, size - 1);
+        }
+        return 0;
+    }
+    else {
+        return sputu128((uint128_t)value, buf, size);
+    }
+}
 
 static inline void __cxy_assert_abort(const char *file, uint64_t line, uint64_t column)
 {

@@ -1,0 +1,25 @@
+class Resource {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+struct Container {
+    res: Resource
+    tag: i32
+}
+
+func testTuple(): void {
+    var tup = (Resource(1), 42)
+}
+
+func testUnion(u: Resource | i32): void {
+    var local = u
+}
+
+func main(): void {
+    testTuple()
+    testUnion(Resource(2))
+    testUnion(10.i32)
+    var c = Container{res: Resource(3), tag: 1}
+}

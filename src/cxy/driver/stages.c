@@ -3,6 +3,8 @@
 //
 
 #include "stages.h"
+#include "core/array.h"
+#include "driver.h"
 #include "profiling.h"
 #include "stats.h"
 
@@ -269,6 +271,22 @@ static AstNode *executeFinalize(CompilerDriver *driver, AstNode *node)
     node->metadata.ir = runFinalize(driver, node->metadata.ir);
     if (hasErrors(driver->L))
         return NULL;
+
+    if (node->metadata.ir) {
+        bool exists = false;
+        for (size_t i = 0; i < driver->finalizedModules.size; i++) {
+            if (dynArrayAt(IrNode **, &driver->finalizedModules, i) == node->metadata.ir) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            pushOnDynArrayExplicit(
+                &driver->finalizedModules,
+                &node->metadata.ir,
+                sizeof(IrNode *));
+        }
+    }
 
     node->metadata.stages |= BIT(ccsFinalize);
     return node;

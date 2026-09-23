@@ -174,7 +174,7 @@ void freeIrTypeGraph(IrTypeGraph *g)
     }
 }
 
-void buildIrTypeGraph(IrTypeGraph *g, const IrModule *module)
+void collectIrTypesFromModule(IrTypeGraph *g, const IrModule *module)
 {
     if (module == NULL)
         return;
@@ -204,7 +204,10 @@ void buildIrTypeGraph(IrTypeGraph *g, const IrModule *module)
     }, .fallback = irConstVisitFallbackVisitAll);
 
     irConstVisit(&collector, module);
+}
 
+void sortIrTypeGraph(IrTypeGraph *g)
+{
     // Pass 2: Topologically sort all collected types
     HashtableIt it = newHashTableIt(&g->nodes, sizeof(IrTypeGraphNode *));
     while (hashTableItHasNext(&it)) {
@@ -213,4 +216,10 @@ void buildIrTypeGraph(IrTypeGraph *g, const IrModule *module)
             topoSortDfs(g, node->type);
         }
     }
+}
+
+void buildIrTypeGraph(IrTypeGraph *g, const IrModule *module)
+{
+    collectIrTypesFromModule(g, module);
+    sortIrTypeGraph(g);
 }

@@ -445,6 +445,8 @@ static void dumpBasicBlock(ConstIrVisitor *visitor, const IrNode *node)
 static void dumpFunction(ConstIrVisitor *visitor, const IrNode *node)
 {
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
+    if (hasFlag(node, Extern))
+        printKeyword(ctx->state, "extern ");
     printKeyword(ctx->state, "func");
     format(ctx->state, " {s}(", (FormatArg[]){{.s = node->function.display ?: (node->function.name ?: "fn")}});
     for (const IrNode *param = node->function.params; param; param = param->next) {
@@ -455,6 +457,12 @@ static void dumpFunction(ConstIrVisitor *visitor, const IrNode *node)
     }
     format(ctx->state, "): ", NULL);
     dumpIrType(ctx->state, node->type ? node->type->func.ret : NULL);
+
+    if (hasFlag(node, Extern) || node->function.firstBlock == NULL) {
+        format(ctx->state, "\n\n", NULL);
+        return;
+    }
+
     format(ctx->state, " {{\n", NULL);
 
     for (const IrNode *block = node->function.firstBlock; block; block = block->next)
