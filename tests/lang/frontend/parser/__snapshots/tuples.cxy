@@ -20,6 +20,3 @@ func main(args: [string]) {
   var k: (string, i32) = (f.1, f.0)
   var num, str = swap(("Hello", 10))
 }
-
-[K[1;32m✓[1;37m Compilation success
-[0m

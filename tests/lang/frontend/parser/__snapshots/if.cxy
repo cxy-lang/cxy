@@ -18,6 +18,3 @@ func main(args: [string]) {
     println(b)
   }
 }
-
-[K[1;32m✓[1;37m Compilation success
-[0m

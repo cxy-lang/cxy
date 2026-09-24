@@ -22,7 +22,7 @@ _L_exit:
 func main.Item.op__destructor(this: ^Item): void {
 _L_entry:
   scope.enter 0
-  main_Item_op__deinit(this)
+  Item_op__deinit(this)
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -32,7 +32,7 @@ _L_exit:
 func main.Item.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  main_Item_op__destructor(<^Item>(ptr))
+  Item_op__destructor(<^Item>(ptr))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -45,10 +45,10 @@ _L_entry:
   var __ret: ^Item
   var __obj0: ^Item
   var __t0: ^void
-  __t0 = __smart_ptr_alloc(sizeof(Item), main_Item_op__destructor_fwd)
+  __t0 = __smart_ptr_alloc(sizeof(Item), Item_op__destructor_fwd)
   __obj0 = <^Item>(__t0)
   zeromem __obj0
-  main_Item_op__init(__obj0, &&id)
+  Item_op__init(__obj0, &&id)
   __ret = &&__obj0
   goto _L_exit
 _L_exit:
@@ -56,32 +56,32 @@ _L_exit:
   return __ret
 }
 
-func main.testBranch(cond: bool): void {
+func testBranch(cond: bool): void {
 _L_entry:
   var __drop_flags: __drop_flags_t
   zeromem __drop_flags
   scope.enter 0
   var x: ^Item
   if cond goto _L_IF0_then else goto _L_IF0_end
-_L_exit:
-  drop-if x, __drop_flags.x
-  scope.exit 0
-  return
 _L_IF0_then:
   scope.enter 1
-  x = main_Item_op__initCover(<i32>(100))
+  x = Item_op__initCover(<i32>(100))
   __drop_flags.x = 1
   scope.exit 1
   goto _L_IF0_end
 _L_IF0_end:
   goto _L_exit
+_L_exit:
+  drop-if x, __drop_flags.x
+  scope.exit 0
+  return
 }
 
 func main(): void {
 _L_entry:
   scope.enter 0
-  main_testBranch(true)
-  main_testBranch(false)
+  testBranch(true)
+  testBranch(false)
   goto _L_exit
 _L_exit:
   scope.exit 0

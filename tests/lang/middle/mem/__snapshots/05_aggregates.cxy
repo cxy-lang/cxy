@@ -22,7 +22,7 @@ _L_exit:
 func main.Resource.op__destructor(this: ^Resource): void {
 _L_entry:
   scope.enter 0
-  main_Resource_op__deinit(this)
+  Resource_op__deinit(this)
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -32,7 +32,7 @@ _L_exit:
 func main.Resource.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  main_Resource_op__destructor(<^Resource>(ptr))
+  Resource_op__destructor(<^Resource>(ptr))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -70,10 +70,10 @@ _L_entry:
   var __ret: ^Resource
   var __obj0: ^Resource
   var __t1: ^void
-  __t1 = __smart_ptr_alloc(sizeof(Resource), main_Resource_op__destructor_fwd)
+  __t1 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd)
   __obj0 = <^Resource>(__t1)
   zeromem __obj0
-  main_Resource_op__init(__obj0, &&id)
+  Resource_op__init(__obj0, &&id)
   __ret = &&__obj0
   goto _L_exit
 _L_exit:
@@ -81,21 +81,23 @@ _L_exit:
   return __ret
 }
 
-func main.testTuple(): void {
+func testTuple(): void {
 _L_entry:
   scope.enter 0
   var tup: (^Resource, i8)
   var __t2: ^Resource
-  __t2 = main_Resource_op__initCover(<i32>(1))
+  __t2 = Resource_op__initCover(<i32>(1))
   tup.0 = __t2
+  drop tup.1
   tup.1 = 42
   goto _L_exit
 _L_exit:
+  drop tup
   scope.exit 0
   return
 }
 
-func main.testUnion(u: ^Resource | i32): void {
+func testUnion(u: ^Resource | i32): void {
 _L_entry:
   scope.enter 0
   var local: ^Resource | i32
@@ -111,26 +113,24 @@ _L_exit:
 func main(): void {
 _L_entry:
   scope.enter 0
-  main_testTuple()
+  testTuple()
   var _a1: ^Resource | i32
   _a1.tag = 0
-  _a1.val._0 = main_Resource_op__initCover(<i32>(2))
-  var __copy0: ^Resource | i32
-  copy _a1 -> __copy0
-  main_testUnion(__copy0)
+  _a1.val._0 = Resource_op__initCover(<i32>(2))
+  testUnion(_a1)
   var _a2: ^Resource | i32
   _a2.tag = 1
   _a2.val._1 = 10
-  var __copy1: ^Resource | i32
-  copy _a2 -> __copy1
-  main_testUnion(__copy1)
+  testUnion(_a2)
   var c: Container
   var __t3: ^Resource
-  __t3 = main_Resource_op__initCover(<i32>(3))
+  __t3 = Resource_op__initCover(<i32>(3))
   c.res = __t3
+  drop c.tag
   c.tag = 1
   goto _L_exit
 _L_exit:
+  drop c
   scope.exit 0
   return
 }
@@ -166,9 +166,6 @@ _L_entry:
     1 -> _L_MATCH0_case_1
     else -> _L_MATCH0_exit
   }
-_L_exit:
-  scope.exit 0
-  return __ret
 _L_MATCH0_exit:
   goto _L_exit
 _L_MATCH0_case_0:
@@ -179,6 +176,9 @@ _L_MATCH0_case_1:
   __ret.tag = 1
   __ret.val._1 = u.val._1
   goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
 }
 
 func __union_dctor_40(u: ^^Resource | i32): void {
@@ -188,12 +188,12 @@ _L_entry:
     0 -> _L_MATCH0_case_0
     else -> _L_MATCH0_exit
   }
-_L_exit:
-  scope.exit 0
-  return
 _L_MATCH0_exit:
   goto _L_exit
 _L_MATCH0_case_0:
   drop u.val._0
   goto _L_MATCH0_exit
+_L_exit:
+  scope.exit 0
+  return
 }

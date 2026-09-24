@@ -1,0 +1,43 @@
+class Awesome {
+    func `init`() {}
+    virtual func say(): string => "Hello"
+
+    func `deinit`() {
+        printf("Awesome: deinitializing....\n")
+    }
+}
+
+class Container: Awesome {
+    func `init`() {
+    }
+
+    func `deinit`() {
+        printf("Container: deinitializing....\n")
+    }
+
+    func say(): string => "From Container"
+}
+
+func takeCopy(x: Awesome) {
+    printf("%s\n", x.say())
+    return (Awesome(), x.say())
+}
+
+func takeRef(x: &Awesome) {
+    printf("%s\n", x.say())
+}
+
+struct Help {
+    what: Awesome|i32
+}
+
+func cond() => true
+
+func main() {
+    var x: Awesome = Container()
+    var y: Awesome = null
+    if cond() {
+        y = x
+    }
+    printf("%s\n", y?.say() ?? "y is null")
+}

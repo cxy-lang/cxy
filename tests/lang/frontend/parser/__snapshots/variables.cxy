@@ -21,6 +21,3 @@ func main(args: [string]) {
     var f, g = (() => (20, 20))()
   }
 }
-
-[K[1;32m✓[1;37m Compilation success
-[0m

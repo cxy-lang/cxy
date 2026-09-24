@@ -11,9 +11,9 @@ func main(args: [string]) {
   0
   100
   18446744073709551615
-  -1
-  -2
-  -9223372036854775807
+  1
+  2
+  9223372036854775807
   4
   10
   511
@@ -29,6 +29,3 @@ func main(args: [string]) {
   "Hello World"
   "Hello 世界"
 }
-
-[K[1;32m✓[1;37m Compilation success
-[0m

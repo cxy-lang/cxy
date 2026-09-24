@@ -31,13 +31,17 @@ struct Help {
     what: Awesome|i32
 }
 
+func cond() => true
+
 func main() {
     var x: Awesome = Container()
     takeCopy(x)
     takeRef(&x)
-    var y: Awesome
-    y = x
-    printf("%s\n", x.say())
+    var y: Awesome = null
+    if cond() {
+        y = x
+    }
+    printf("%s\n", y?.say() ?? "y is null")
     var h = Help{what: x}
     match h.what {
         Awesome as a => printf("%s\n", a.say())

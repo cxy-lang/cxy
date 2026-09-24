@@ -25,7 +25,3 @@ async func hello() { }
 
 
 pub async func hello() { }
-
-
-[K[1;32m✓[1;37m Compilation success
-[0m

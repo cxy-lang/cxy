@@ -166,6 +166,7 @@ typedef struct BlockVarState {
 typedef struct MemMgmtContext {
     CompilerDriver *driver;
     MemPool *pool;
+    MemPool *localPool;
     StrPool *strings;
     IrTypeTable *types;
     IrModule *module;

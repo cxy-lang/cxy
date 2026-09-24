@@ -27,6 +27,3 @@ func main(args: [string]) {
   closureArg2((msg: string) => { }
   )
 }
-
-[K[1;32m✓[1;37m Compilation success
-[0m

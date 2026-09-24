@@ -36,6 +36,3 @@ func main(args: [string]) {
     "=r"(x) :::
   )
 }
-
-[K[1;32m✓[1;37m Compilation success
-[0m

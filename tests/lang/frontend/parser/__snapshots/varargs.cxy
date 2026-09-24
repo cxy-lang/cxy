@@ -17,6 +17,3 @@ func main(args: [string]) {
   varargs(10, "Hello", 'c', 2000.6)
   many(10, 10, 100.6)
 }
-
-[K[1;32m✓[1;37m Compilation success
-[0m

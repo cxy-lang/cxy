@@ -14,21 +14,30 @@ static inline bool isIrVarDestructible(const IrNode *decl)
     return hasFlag(decl, ReferenceMembers) || isIrTypeDestructible(decl->type);
 }
 
+static inline bool compareTrackedVarDecl(const void *a, const void *b)
+{
+    const TrackedVar *va = *(const TrackedVar **)a;
+    const IrNode *decl = (const IrNode *)b;
+    return va && va->decl == decl;
+}
+
 static TrackedVar *getTrackedVar(MemMgmtContext *ctx, const IrNode *decl)
 {
     if (decl == NULL)
         return NULL;
-    return findInHashTable(&ctx->trackedVars,
-                           &(TrackedVar){.decl = (IrNode *)decl},
-                           hashPtr(hashInit(), decl),
-                           sizeof(TrackedVar),
-                           comparePointers);
+    TrackedVar **found = findInHashTable(&ctx->trackedVars,
+                                         decl,
+                                         hashPtr(hashInit(), decl),
+                                         sizeof(TrackedVar *),
+                                         compareTrackedVarDecl);
+    return found ? *found : NULL;
 }
 
 static TrackedVar *addTrackedVar(MemMgmtContext *ctx, IrNode *decl, cstring name, u32 scopeId, const IrType *type)
 {
     u32 index = (u32)ctx->trackedVarList.size;
-    TrackedVar var = {
+    TrackedVar *var = allocFromMemPool(ctx->localPool, sizeof(TrackedVar));
+    *var = (TrackedVar){
         .decl = decl,
         .name = name,
         .scopeId = scopeId,
@@ -44,12 +53,11 @@ static TrackedVar *addTrackedVar(MemMgmtContext *ctx, IrNode *decl, cstring name
     insertInHashTable(&ctx->trackedVars,
                       &var,
                       hashPtr(hashInit(), decl),
-                      sizeof(TrackedVar),
-                      comparePointers);
+                      sizeof(TrackedVar *),
+                      compareTrackedVarDecl);
 
-    TrackedVar *stored = getTrackedVar(ctx, decl);
-    pushOnDynArray(&ctx->trackedVarList, &stored);
-    return stored;
+    pushOnDynArray(&ctx->trackedVarList, &var);
+    return var;
 }
 
 static void collectScopeVariables(MemMgmtContext *ctx, IrNode *func)
@@ -123,21 +131,21 @@ static CfgBlockInfo **buildFunctionCfg(MemMgmtContext *ctx, IrNode *func, u64 *o
     if (count == 0)
         return NULL;
 
-    CfgBlockInfo **blocks = allocFromMemPool(ctx->pool, sizeof(CfgBlockInfo *) * count);
+    CfgBlockInfo **blocks = allocFromMemPool(ctx->localPool, sizeof(CfgBlockInfo *) * count);
     u64 idx = 0;
     u64 numVars = ctx->trackedVarList.size;
 
     for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
         if (bb->tag != irBasicBlock)
             continue;
-        CfgBlockInfo *info = allocFromMemPool(ctx->pool, sizeof(CfgBlockInfo));
+        CfgBlockInfo *info = allocFromMemPool(ctx->localPool, sizeof(CfgBlockInfo));
         info->bb = bb;
-        info->gen = makeBitSet(ctx->pool, numVars);
-        info->kill = makeBitSet(ctx->pool, numVars);
-        info->mayIn = makeBitSet(ctx->pool, numVars);
-        info->mayOut = makeBitSet(ctx->pool, numVars);
-        info->mustIn = makeBitSet(ctx->pool, numVars);
-        info->mustOut = makeBitSet(ctx->pool, numVars);
+        info->gen = makeBitSet(ctx->localPool, numVars);
+        info->kill = makeBitSet(ctx->localPool, numVars);
+        info->mayIn = makeBitSet(ctx->localPool, numVars);
+        info->mayOut = makeBitSet(ctx->localPool, numVars);
+        info->mustIn = makeBitSet(ctx->localPool, numVars);
+        info->mustOut = makeBitSet(ctx->localPool, numVars);
         info->preds = newDynArray(sizeof(CfgBlockInfo *));
         info->succs = newDynArray(sizeof(CfgBlockInfo *));
         blocks[idx++] = info;
@@ -257,8 +265,8 @@ static void runDataflowAnalysis(MemMgmtContext *ctx, CfgBlockInfo **blocks, u64 
         bitSetUnion(&blocks[i]->mustOut, &blocks[i]->gen);
     }
 
-    BitSet tempMay = makeBitSet(ctx->pool, varCount);
-    BitSet tempMust = makeBitSet(ctx->pool, varCount);
+    BitSet tempMay = makeBitSet(ctx->localPool, varCount);
+    BitSet tempMust = makeBitSet(ctx->localPool, varCount);
     bool changed = true;
 
     while (changed) {
@@ -324,8 +332,8 @@ static void runDataflowAnalysis(MemMgmtContext *ctx, CfgBlockInfo **blocks, u64 
 static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks, u64 count)
 {
     u64 varCount = ctx->trackedVarList.size;
-    BitSet currMay = makeBitSet(ctx->pool, varCount);
-    BitSet currMust = makeBitSet(ctx->pool, varCount);
+    BitSet currMay = makeBitSet(ctx->localPool, varCount);
+    BitSet currMust = makeBitSet(ctx->localPool, varCount);
 
     for (u64 i = 0; i < count; i++) {
         CfgBlockInfo *block = blocks[i];
@@ -373,21 +381,6 @@ static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks
                         bitSetReset(&currMay, rhsVar->varIndex);
                         bitSetReset(&currMust, rhsVar->varIndex);
                     }
-                }
-            }
-            else if (stmt->tag == irCopy) {
-                IrNode *dstDecl = findVarDeclInNode(stmt->copy.dst);
-                TrackedVar *dstVar = getTrackedVar(ctx, dstDecl);
-                if (dstVar && !dstVar->isTemporary) {
-                    if (bitSetTest(&currMay, dstVar->varIndex) && !bitSetTest(&currMust, dstVar->varIndex)) {
-                        if (!dstVar->needsDropFlag) {
-                            dstVar->needsDropFlag = true;
-                            dstVar->dropFlagIndex = (u32)ctx->dropFlagVars.size;
-                            pushOnDynArray(&ctx->dropFlagVars, &dstVar);
-                        }
-                    }
-                    bitSetSet(&currMay, dstVar->varIndex);
-                    bitSetSet(&currMust, dstVar->varIndex);
                 }
             }
             else if (stmt->tag == irScopeExit) {
@@ -518,8 +511,8 @@ static bool shouldPromoteAssignToCopy(const IrNode *lhsDecl, const IrNode *lhs, 
 static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **blocks, u64 count)
 {
     u64 varCount = ctx->trackedVarList.size;
-    BitSet currMay = makeBitSet(ctx->pool, varCount);
-    BitSet currMust = makeBitSet(ctx->pool, varCount);
+    BitSet currMay = makeBitSet(ctx->localPool, varCount);
+    BitSet currMust = makeBitSet(ctx->localPool, varCount);
 
     for (u64 b = 0; b < count; b++) {
         CfgBlockInfo *block = blocks[b];
@@ -622,45 +615,6 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                     }
                 }
             }
-            else if (stmt->tag == irCopy) {
-                IrNode *dstDecl = findVarDeclInNode(stmt->copy.dst);
-                TrackedVar *dstVar = getTrackedVar(ctx, dstDecl);
-                if (dstVar && !dstVar->isTemporary) {
-                    if (bitSetTest(&currMay, dstVar->varIndex)) {
-                        if (dstVar->needsDropFlag && !bitSetTest(&currMust, dstVar->varIndex)) {
-                            IrNode *flagAccess = makeDropFlagAccess(ctx, &stmt->loc, dstVar);
-                            IrNode *dropStmt = makeIrDropIf(ctx->pool, &stmt->loc, stmt->copy.dst, flagAccess);
-                            dropStmt->next = stmt;
-                            if (prev)
-                                prev->next = dropStmt;
-                            else
-                                bb->basicBlock.first = dropStmt;
-                            prev = dropStmt;
-                        }
-                        else if (bitSetTest(&currMust, dstVar->varIndex)) {
-                            IrNode *dropStmt = makeIrDrop(ctx->pool, &stmt->loc, stmt->copy.dst);
-                            dropStmt->next = stmt;
-                            if (prev)
-                                prev->next = dropStmt;
-                            else
-                                bb->basicBlock.first = dropStmt;
-                            prev = dropStmt;
-                        }
-                    }
-
-                    bitSetSet(&currMay, dstVar->varIndex);
-                    bitSetSet(&currMust, dstVar->varIndex);
-
-                    if (dstVar->needsDropFlag) {
-                        IrNode *setFlag = makeDropFlagAssign(ctx, &stmt->loc, dstVar, true);
-                        if (setFlag) {
-                            setFlag->next = next;
-                            stmt->next = setFlag;
-                            next = setFlag;
-                        }
-                    }
-                }
-            }
             else if (stmt->tag == irCall) {
                 injectCallArgumentCopies(ctx, bb, &prev, stmt, stmt);
             }
@@ -711,7 +665,9 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
 
 static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
 {
-    ctx->trackedVars = newHashTable(sizeof(TrackedVar), ctx->pool);
+    MemPool localPool = newMemPool();
+    ctx->localPool = &localPool;
+    ctx->trackedVars = newHashTable(sizeof(TrackedVar *), ctx->localPool);
     ctx->trackedVarList = newDynArray(sizeof(TrackedVar *));
     ctx->dropFlagVars = newDynArray(sizeof(TrackedVar *));
     ctx->dropFlagsDecl = NULL;
@@ -731,6 +687,8 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
     freeHashTable(&ctx->trackedVars);
     freeDynArray(&ctx->trackedVarList);
     freeDynArray(&ctx->dropFlagVars);
+    freeMemPool(&localPool);
+    ctx->localPool = NULL;
 }
 
 IrModule *runMemoryManagement(CompilerDriver *driver, IrModule *module)

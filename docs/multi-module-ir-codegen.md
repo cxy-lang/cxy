@@ -80,7 +80,63 @@ typedef struct CompilerDriver {
 
 ---
 
-## 5. Benefits & Future Optimizations
+## 5. Implementation Plan
+
+### Phase 1: Pipeline & Driver Integration (Foundation)
+- [x] **Ordered Module Registration (`driver/driver.c`, `driver/stages.c`)**
+  - `driver->finalizedModules` initialized in `initCompilerDriver` and deallocated in `deinitCompilerDriver`.
+  - `compileBuiltin` parses and compiles `__builtins.cxy` up to `ccsFinalize`, pushing `IrModule: builtins` first.
+  - `compileModule` compiles imported libraries up to `ccsFinalize`, pushing modules in depth-first order.
+  - `compileProgram(main)` compiles `main` through `ccsFinalize`, pushing the main module last.
+  - `executeFinalize` prevents duplicate registration.
+- [x] **Symbol & Module Naming Verification (`ir/lower.c`, `backend/c/generate.c`)**
+  - `builtins`: symbol prefix `builtins_` for internal methods/types, bare name for extern libc.
+  - `imported modules`: symbol prefix `<module>_`.
+  - `main`: bare symbol names without `main_` prefix.
+  - `@hint` functions: marked with `flgHint` and skipped in IR function prototype emission.
+- [x] **Dataflow-Based Definite Initialization & Drop Elaboration (`middle/memory/manage.c`)**
+  - CFG construction (`buildFunctionCfg`) extracting predecessor and successor edge graphs.
+  - Intra-block `Gen` / `Kill` computation.
+  - Fixed-point forward May/Must dataflow analysis.
+  - `__drop_flags` synthesis and selective static `irDrop` vs conditional `irDropIf` elaboration.
+
+### Phase 2: Whole-Program Reachability & Tree Shaking (`middle/ir/reachability.c`)
+- [ ] **Root Collection (`collectRoots`)**
+  - Locate `main()` / `_main()`.
+  - Locate test case entry points (`hasFlag(func, TestCase)` or `allTestCases`).
+  - Locate exported symbols, module initializers, and `@__cc` roots.
+- [ ] **Graph Traversal & Marking (`markReachableSymbols`)**
+  - From root functions, traverse IR statements and expressions:
+    - `irCall` / `irGlobalRef` $\to$ mark callee/target `irFunction` as `flgReachable`.
+    - `irVarRef` to global variable $\to$ mark `irGlobalVar` as `flgReachable`.
+    - Node types $\to$ register referenced `IrType` in active type set.
+  - Traverse basic blocks and CFG branches to discover all transitively referenced symbols.
+- [ ] **Module Pruning**
+  - Mark unvisited `builtins` and library functions as dead, omitting them from code generation.
+
+### Phase 3: Centralized Backend Codegen (`backend/c/generate.c`, `backend/c/typegraph.c`)
+- [x] **Aggregated Type Graph Synthesis**
+  - `emitTypeGraphDefinitions` iterates all modules in `driver->finalizedModules`.
+  - Emits forward declarations and full struct/union/tuple definitions in dependency order.
+- [x] **Unified Function Prototype Emission**
+  - `emitFunctionPrototypes` iterates all finalized modules, emitting `static` prototypes and non-hinted `extern` declarations.
+- [x] **Sequential Function Definition Emission**
+  - Emits global variables and function bodies across all finalized modules (`builtins` $\to$ imports $\to$ `main`).
+- [x] **Driver Entry Point Wrapper**
+  - Emits `int main(int argc, char **argv)` calling the resolved root `mainFunc`.
+
+### Phase 4: Verification & Regression Testing
+- [ ] Run test suite for basic RAII and memory tests:
+  - `01_basic_raii.cxy`
+  - `02_reassignment.cxy`
+  - `03_conditional_drop_flags.cxy`
+  - `04_nested_loops_unwind.cxy`
+  - `05_aggregates.cxy`
+- [ ] Verify multi-module imports and `builtins` tree-shaking reduction in generated output.
+
+---
+
+## 6. Benefits & Future Optimizations
 - **Dead Code Elimination (Tree-shaking)**: Reachability graph starting from `main()` marks used symbols; unvisited functions and struct definitions in `builtins` are skipped in codegen.
 - **Cross-Module Inline Expansion**: Small pure functions from imported modules can be inlined directly in IR before finalization.
 - **Unified Diagnostic Verification**: IR snapshot tests can dump individual or linked IR modules cleanly.
