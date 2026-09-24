@@ -100,6 +100,21 @@ void irVisitFallbackVisitAll(IrVisitor *visitor, IrNode *node)
     case irAlias:
         irVisit(visitor, node->alias.expr);
         break;
+    case irCopy:
+        irVisit(visitor, node->copy.src);
+        irVisit(visitor, node->copy.dst);
+        break;
+    case irMove:
+        irVisit(visitor, node->move.src);
+        break;
+    case irDrop:
+        irVisit(visitor, node->drop.target);
+        if (node->drop.flag)
+            irVisit(visitor, node->drop.flag);
+        break;
+    case irZeromem:
+        irVisit(visitor, node->zeromem.target);
+        break;
     case irStructConst:
         irVisitManyNodes(visitor, node->structConst.fields);
         break;
@@ -172,6 +187,21 @@ void irConstVisitFallbackVisitAll(ConstIrVisitor *visitor, const IrNode *node)
         break;
     case irAlias:
         irConstVisit(visitor, node->alias.expr);
+        break;
+    case irCopy:
+        irConstVisit(visitor, node->copy.src);
+        irConstVisit(visitor, node->copy.dst);
+        break;
+    case irMove:
+        irConstVisit(visitor, node->move.src);
+        break;
+    case irDrop:
+        irConstVisit(visitor, node->drop.target);
+        if (node->drop.flag)
+            irConstVisit(visitor, node->drop.flag);
+        break;
+    case irZeromem:
+        irConstVisit(visitor, node->zeromem.target);
         break;
     case irStructConst:
         irConstVisitManyNodes(visitor, node->structConst.fields);

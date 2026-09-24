@@ -715,6 +715,19 @@ static inline bool isIrLValueOrConst(const IrNode *node)
     }
 }
 
+static bool isIrPureValueExpr(const IrNode *node)
+{
+    if (node == NULL)
+        return false;
+    if (isIrLValueOrConst(node))
+        return true;
+    if (node->tag == irUnary)
+        return isIrPureValueExpr(node->unary.operand);
+    if (node->tag == irBinary)
+        return isIrPureValueExpr(node->binary.lhs) && isIrPureValueExpr(node->binary.rhs);
+    return false;
+}
+
 static IrNode *lowerFlattenedOperand(AstVisitor *visitor, AstNode *node)
 {
     if (node == NULL)
@@ -724,7 +737,8 @@ static IrNode *lowerFlattenedOperand(AstVisitor *visitor, AstNode *node)
     if (val == NULL)
         return NULL;
 
-    if (isIrLValueOrConst(val))
+    if (isIrPureValueExpr(val) && !isIrTypeDestructible(val->type))
+    // if (isIrLValueOrConst(val))
         return val;
 
     LowerContext *ctx = getAstVisitorContext(visitor);

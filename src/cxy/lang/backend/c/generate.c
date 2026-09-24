@@ -615,12 +615,22 @@ static void emitBranch(ConstIrVisitor *visitor, const IrNode *node)
 static void emitBranchIf(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
-    format(&ctx->state, "  if (", NULL);
-    irConstVisit(visitor, node->branchIf.cond);
-    format(&ctx->state, ") goto {s}; else goto {s};\n",
-           (FormatArg[]){
-               {.s = node->branchIf.trueTarget ? node->branchIf.trueTarget->basicBlock.name : ""},
-               {.s = node->branchIf.falseTarget ? node->branchIf.falseTarget->basicBlock.name : ""}});
+    if (node->branchIf.cond && node->branchIf.cond->tag == irBinary) {
+        format(&ctx->state, "  if ", NULL);
+        irConstVisit(visitor, node->branchIf.cond);
+        format(&ctx->state, " goto {s}; else goto {s};\n",
+               (FormatArg[]){
+                   {.s = node->branchIf.trueTarget ? node->branchIf.trueTarget->basicBlock.name : ""},
+                   {.s = node->branchIf.falseTarget ? node->branchIf.falseTarget->basicBlock.name : ""}});
+    }
+    else {
+        format(&ctx->state, "  if (", NULL);
+        irConstVisit(visitor, node->branchIf.cond);
+        format(&ctx->state, ") goto {s}; else goto {s};\n",
+               (FormatArg[]){
+                   {.s = node->branchIf.trueTarget ? node->branchIf.trueTarget->basicBlock.name : ""},
+                   {.s = node->branchIf.falseTarget ? node->branchIf.falseTarget->basicBlock.name : ""}});
+    }
 }
 
 static void emitSwitch(ConstIrVisitor *visitor, const IrNode *node)
