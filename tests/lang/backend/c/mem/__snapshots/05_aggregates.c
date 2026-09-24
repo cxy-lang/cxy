@@ -1,21 +1,12 @@
 typedef struct Tuple_ptr_i8 Tuple_ptr_i8;
-typedef struct Resource Resource;
-typedef struct Container Container;
 typedef union UnionPayload40 UnionPayload40;
 typedef struct Union_ptr_i32 Union_ptr_i32;
+typedef struct Container Container;
+typedef struct Resource Resource;
 
 struct Tuple_ptr_i8 {
   Resource * _0;
   int8_t _1;
-};
-
-struct Resource {
-  int32_t id;
-};
-
-struct Container {
-  Resource * res;
-  int32_t tag;
 };
 
 union UnionPayload40 {
@@ -28,17 +19,24 @@ struct Union_ptr_i32 {
   UnionPayload40 val;
 };
 
+struct Container {
+  Resource * res;
+  int32_t tag;
+};
+
+struct Resource {
+  int32_t id;
+};
+
 static void Resource_op__init(Resource * this, int32_t id);
 static void Resource_op__deinit(Resource * this);
 static void Resource_op__destructor(Resource * this);
 static void Resource_op__destructor_fwd(void * ptr);
-static Container Container_op__copy(Container * this);
 static void Container_op__destructor(Container * this);
 static Resource * Resource_op__initCover(int32_t id);
 static void testTuple();
 static void testUnion(Union_ptr_i32 u);
 static void _main();
-static Tuple_ptr_i8 __tuple_copy_36(Tuple_ptr_i8 * tup);
 static void __tuple_dctor_36(Tuple_ptr_i8 * tup);
 static Union_ptr_i32 __union_copy_40(Union_ptr_i32 * u);
 static void __union_dctor_40(Union_ptr_i32 * u);
@@ -74,18 +72,6 @@ _L_exit:;
   return;
 }
 
-static Container Container_op__copy(Container * this) {
-  Container __ret;
-  void * __t0;
-_L_entry:;
-  __t0 = __smart_ptr_get(this->res);
-  __ret.res = ((Resource *)(__t0));
-  __ret.tag = this->tag;
-  goto _L_exit;
-_L_exit:;
-  return __ret;
-}
-
 static void Container_op__destructor(Container * this) {
 _L_entry:;
   __smart_ptr_drop(this->res);
@@ -98,7 +84,7 @@ _L_exit:;
 static Resource * Resource_op__initCover(int32_t id) {
   Resource * __ret;
   Resource * __obj0;
-  void * __t1;
+  Resource * __t1;
 _L_entry:;
   __t1 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
   __obj0 = ((Resource *)(__t1));
@@ -115,8 +101,7 @@ static void testTuple() {
   Resource * __t2;
 _L_entry:;
   __t2 = Resource_op__initCover(((int32_t)(1)));
-  tup._0 = __t2;
-    tup._1 = 42;
+  tup = (Tuple_ptr_i8){__t2, 42};
   goto _L_exit;
 _L_exit:;
   __tuple_dctor_36(&(tup));
@@ -136,34 +121,25 @@ _L_exit:;
 
 static void _main() {
   Union_ptr_i32 _a1;
+  Resource * __t3;
   Union_ptr_i32 _a2;
   Container c;
-  Resource * __t3;
+  Resource * __t4;
 _L_entry:;
   testTuple();
+  __t3 = Resource_op__initCover(((int32_t)(2)));
   _a1.tag = 0;
-  _a1.val._0 = Resource_op__initCover(((int32_t)(2)));
+  _a1.val._0 = __t3;
   testUnion(_a1);
   _a2.tag = 1;
   _a2.val._1 = 10;
   testUnion(_a2);
-  __t3 = Resource_op__initCover(((int32_t)(3)));
-  c.res = __t3;
-    c.tag = 1;
+  __t4 = Resource_op__initCover(((int32_t)(3)));
+  c = (Container){__t4, 1};
   goto _L_exit;
 _L_exit:;
   Container_op__destructor(&(c));
   return;
-}
-
-static Tuple_ptr_i8 __tuple_copy_36(Tuple_ptr_i8 * tup) {
-  Tuple_ptr_i8 __ret;
-_L_entry:;
-  __ret._0 = __smart_ptr_get(tup->_0);
-  __ret._1 = tup->_1;
-  goto _L_exit;
-_L_exit:;
-  return __ret;
 }
 
 static void __tuple_dctor_36(Tuple_ptr_i8 * tup) {
@@ -176,6 +152,7 @@ _L_exit:;
 
 static Union_ptr_i32 __union_copy_40(Union_ptr_i32 * u) {
   Union_ptr_i32 __ret;
+  Resource * __t6;
 _L_entry:;
   switch (u->tag) {
     case 0: goto _L_MATCH0_case_0;
@@ -183,8 +160,9 @@ _L_entry:;
     default: goto _L_exit;
   }
 _L_MATCH0_case_0:;
+  __t6 = __smart_ptr_get(u->val._0);
   __ret.tag = 0;
-  __ret.val._0 = __smart_ptr_get(u->val._0);
+  __ret.val._0 = __t6;
   goto _L_exit;
 _L_MATCH0_case_1:;
   __ret.tag = 1;

@@ -174,6 +174,56 @@ static CfgBlockInfo **buildFunctionCfg(MemMgmtContext *ctx, IrNode *func, u64 *o
     return blocks;
 }
 
+static inline IrNode *findMovedVarDecl(const IrNode *src)
+{
+    if (src && src->tag == irVarRef)
+        return src->varRef.target;
+    return NULL;
+}
+
+static void forEachMovedSource(IrNode *rhs, void (*cb)(IrNode *src, void *ctx), void *cbCtx)
+{
+    if (rhs == NULL)
+        return;
+    if (rhs->tag == irMove) {
+        cb(rhs->move.src, cbCtx);
+    }
+    else if (rhs->tag == irUnionValue && rhs->unionValue.value && rhs->unionValue.value->tag == irMove) {
+        cb(rhs->unionValue.value->move.src, cbCtx);
+    }
+    else if (rhs->tag == irOptionalValue && rhs->optionalValue.hasValue && rhs->optionalValue.value && rhs->optionalValue.value->tag == irMove) {
+        cb(rhs->optionalValue.value->move.src, cbCtx);
+    }
+    else if (rhs->tag == irStructConst) {
+        for (IrNode *f = rhs->structConst.fields; f; f = f->next) {
+            if (f->tag == irMove)
+                cb(f->move.src, cbCtx);
+        }
+    }
+    else if (rhs->tag == irArrayConst) {
+        for (IrNode *elem = rhs->arrayConst.elements; elem; elem = elem->next) {
+            if (elem->tag == irMove)
+                cb(elem->move.src, cbCtx);
+        }
+    }
+}
+
+typedef struct MoveGenKillContext {
+    MemMgmtContext *ctx;
+    CfgBlockInfo *block;
+} MoveGenKillContext;
+
+static void onMoveInGenKill(IrNode *src, void *ctxPtr)
+{
+    MoveGenKillContext *data = ctxPtr;
+    IrNode *rhsDecl = findMovedVarDecl(src);
+    TrackedVar *rhsVar = getTrackedVar(data->ctx, rhsDecl);
+    if (rhsVar && !rhsVar->isTemporary) {
+        bitSetSet(&data->block->kill, rhsVar->varIndex);
+        bitSetReset(&data->block->gen, rhsVar->varIndex);
+    }
+}
+
 static void computeIntraBlockGenKill(MemMgmtContext *ctx, CfgBlockInfo *block)
 {
     for (IrNode *stmt = block->bb->basicBlock.first; stmt; stmt = stmt->next) {
@@ -181,9 +231,11 @@ static void computeIntraBlockGenKill(MemMgmtContext *ctx, CfgBlockInfo *block)
             IrNode *lhsDecl = findVarDeclInNode(stmt->assign.lhs);
             TrackedVar *lhsVar = getTrackedVar(ctx, lhsDecl);
             if (lhsVar && !lhsVar->isTemporary) {
-                if (stmt->assign.rhs && stmt->assign.rhs->tag == irNullConst) {
-                    bitSetSet(&block->kill, lhsVar->varIndex);
-                    bitSetReset(&block->gen, lhsVar->varIndex);
+                if (stmt->assign.rhs && (stmt->assign.rhs->tag == irNullConst || (stmt->assign.rhs->tag == irOptionalValue && !stmt->assign.rhs->optionalValue.hasValue))) {
+                    if (stmt->assign.lhs->tag == irVarRef) {
+                        bitSetSet(&block->kill, lhsVar->varIndex);
+                        bitSetReset(&block->gen, lhsVar->varIndex);
+                    }
                 }
                 else {
                     bitSetSet(&block->gen, lhsVar->varIndex);
@@ -191,15 +243,8 @@ static void computeIntraBlockGenKill(MemMgmtContext *ctx, CfgBlockInfo *block)
                 }
             }
 
-            IrNode *rhs = stmt->assign.rhs;
-            if (rhs && rhs->tag == irMove) {
-                IrNode *rhsDecl = findVarDeclInNode(rhs->move.src);
-                TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
-                if (rhsVar && !rhsVar->isTemporary) {
-                    bitSetSet(&block->kill, rhsVar->varIndex);
-                    bitSetReset(&block->gen, rhsVar->varIndex);
-                }
-            }
+            MoveGenKillContext moveCtx = {.ctx = ctx, .block = block};
+            forEachMovedSource(stmt->assign.rhs, onMoveInGenKill, &moveCtx);
         }
         else if (stmt->tag == irCopy) {
             IrNode *dstDecl = findVarDeclInNode(stmt->copy.dst);
@@ -329,6 +374,23 @@ static void runDataflowAnalysis(MemMgmtContext *ctx, CfgBlockInfo **blocks, u64 
     }
 }
 
+typedef struct MoveDropFlagContext {
+    MemMgmtContext *ctx;
+    BitSet *currMay;
+    BitSet *currMust;
+} MoveDropFlagContext;
+
+static void onMoveInDropFlagId(IrNode *src, void *ctxPtr)
+{
+    MoveDropFlagContext *data = ctxPtr;
+    IrNode *rhsDecl = findMovedVarDecl(src);
+    TrackedVar *rhsVar = getTrackedVar(data->ctx, rhsDecl);
+    if (rhsVar && !rhsVar->isTemporary) {
+        bitSetReset(data->currMay, rhsVar->varIndex);
+        bitSetReset(data->currMust, rhsVar->varIndex);
+    }
+}
+
 static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks, u64 count)
 {
     u64 varCount = ctx->trackedVarList.size;
@@ -356,16 +418,18 @@ static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks
                 IrNode *lhsDecl = findVarDeclInNode(stmt->assign.lhs);
                 TrackedVar *lhsVar = getTrackedVar(ctx, lhsDecl);
                 if (lhsVar && !lhsVar->isTemporary) {
-                    if (bitSetTest(&currMay, lhsVar->varIndex) && !bitSetTest(&currMust, lhsVar->varIndex)) {
+                    if (stmt->assign.lhs->tag == irVarRef && bitSetTest(&currMay, lhsVar->varIndex) && !bitSetTest(&currMust, lhsVar->varIndex)) {
                         if (!lhsVar->needsDropFlag) {
                             lhsVar->needsDropFlag = true;
                             lhsVar->dropFlagIndex = (u32)ctx->dropFlagVars.size;
                             pushOnDynArray(&ctx->dropFlagVars, &lhsVar);
                         }
                     }
-                    if (stmt->assign.rhs && stmt->assign.rhs->tag == irNullConst) {
-                        bitSetReset(&currMay, lhsVar->varIndex);
-                        bitSetReset(&currMust, lhsVar->varIndex);
+                    if (stmt->assign.rhs && (stmt->assign.rhs->tag == irNullConst || (stmt->assign.rhs->tag == irOptionalValue && !stmt->assign.rhs->optionalValue.hasValue))) {
+                        if (stmt->assign.lhs->tag == irVarRef) {
+                            bitSetReset(&currMay, lhsVar->varIndex);
+                            bitSetReset(&currMust, lhsVar->varIndex);
+                        }
                     }
                     else {
                         bitSetSet(&currMay, lhsVar->varIndex);
@@ -373,15 +437,8 @@ static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks
                     }
                 }
 
-                IrNode *rhs = stmt->assign.rhs;
-                if (rhs && rhs->tag == irMove) {
-                    IrNode *rhsDecl = findVarDeclInNode(rhs->move.src);
-                    TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
-                    if (rhsVar && !rhsVar->isTemporary) {
-                        bitSetReset(&currMay, rhsVar->varIndex);
-                        bitSetReset(&currMust, rhsVar->varIndex);
-                    }
-                }
+                MoveDropFlagContext moveCtx = {.ctx = ctx, .currMay = &currMay, .currMust = &currMust};
+                forEachMovedSource(stmt->assign.rhs, onMoveInDropFlagId, &moveCtx);
             }
             else if (stmt->tag == irScopeExit) {
                 u32 exitingScope = stmt->scopeExit.scopeId;
@@ -418,7 +475,9 @@ static void synthesizeDropFlags(MemMgmtContext *ctx, IrNode *func)
         fields[i] = (IrField){.name = var->name, .type = u64Type, .index = (u32)i, .bits = 1};
     }
 
-    const IrType *dropFlagsType = makeIrStructType(ctx->types, flgNone, "__drop_flags_t", "__drop_flags_t", fields, flagCount);
+    csAssert0(func->function.name);
+    cstring typeName = makeStringf(ctx->strings, "__drop_flags_%s_t", func->function.name);
+    const IrType *dropFlagsType = makeIrStructType(ctx->types, flgNone, typeName, typeName, fields, flagCount);
     IrNode *dropFlagsDecl = makeIrVarDecl(ctx->pool, &func->loc, flgNone, "__drop_flags", "__drop_flags", dropFlagsType, 0);
     ctx->dropFlagsDecl = dropFlagsDecl;
 
@@ -498,6 +557,118 @@ static void injectCallArgumentCopies(MemMgmtContext *ctx, IrNode *bb, IrNode **p
     }
 }
 
+static void processPayloadItem(MemMgmtContext *ctx,
+                               IrNode *bb,
+                               IrNode **prevRef,
+                               IrNode *stmt,
+                               IrNode **itemRef,
+                               IrNode **afterStmtRef,
+                               BitSet *currMay,
+                               BitSet *currMust)
+{
+    IrNode *val = *itemRef;
+    if (val == NULL)
+        return;
+
+    if (val->tag == irMove) {
+        IrNode *src = val->move.src;
+        *itemRef = src;
+
+        IrNode *rhsDecl = findMovedVarDecl(src);
+        if (rhsDecl) {
+            TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
+            if (rhsVar && !rhsVar->isTemporary) {
+                bitSetReset(currMay, rhsVar->varIndex);
+                bitSetReset(currMust, rhsVar->varIndex);
+                if (rhsVar->needsDropFlag) {
+                    IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, rhsVar, false);
+                    if (clearFlag) {
+                        clearFlag->next = *afterStmtRef;
+                        stmt->next = clearFlag;
+                        *afterStmtRef = clearFlag;
+                    }
+                }
+            }
+        }
+        else if (src && (src->tag == irMember || src->tag == irIndex)) {
+            if (src->type && src->type->tag == irTypePointer) {
+                IrNode *nullify = makeIrAssign(ctx->pool, &stmt->loc, src, makeIrNullConst(ctx->pool, &stmt->loc, src->type));
+                nullify->next = *afterStmtRef;
+                stmt->next = nullify;
+                *afterStmtRef = nullify;
+            }
+            else if (isIrTypeDestructible(src->type)) {
+                IrNode *nullify = makeIrZeromem(ctx->pool, &stmt->loc, src);
+                nullify->next = *afterStmtRef;
+                stmt->next = nullify;
+                *afterStmtRef = nullify;
+            }
+        }
+        return;
+    }
+
+    if (isIrTypeDestructible(val->type)) {
+        bool needsCopy = false;
+        if (val->tag == irVarRef) {
+            needsCopy = val->varRef.target && !hasFlag(val->varRef.target, Temporary) && !hasFlag(val->varRef.target, Returned);
+        }
+        else if (val->tag == irMember || val->tag == irIndex) {
+            needsCopy = true;
+        }
+
+        if (needsCopy) {
+            cstring tempName = makeStringf(ctx->strings, "__copy%u", ctx->tempCounter++);
+            IrNode *tempVar = makeIrVarDecl(ctx->pool, &val->loc, flgTemporary, tempName, tempName, val->type, ctx->currentScopeId);
+            TrackedVar *tv = addTrackedVar(ctx, tempVar, tempName, ctx->currentScopeId, val->type);
+            if (tv)
+                tv->state = irVarMoved;
+
+            IrNode *dstRef = makeIrVarRef(ctx->pool, &val->loc, tempVar);
+            IrNode *copyStmt = makeIrCopy(ctx->pool, &val->loc, val, dstRef);
+
+            tempVar->next = copyStmt;
+            copyStmt->next = stmt;
+            if (*prevRef)
+                (*prevRef)->next = tempVar;
+            else
+                bb->basicBlock.first = tempVar;
+            *prevRef = copyStmt;
+
+            *itemRef = dstRef;
+        }
+    }
+}
+
+static void injectCompositePayloadCopies(MemMgmtContext *ctx,
+                                         IrNode *bb,
+                                         IrNode **prevRef,
+                                         IrNode *stmt,
+                                         IrNode *rhs,
+                                         IrNode **afterStmtRef,
+                                         BitSet *currMay,
+                                         BitSet *currMust)
+{
+    if (rhs == NULL)
+        return;
+
+    if (rhs->tag == irUnionValue) {
+        processPayloadItem(ctx, bb, prevRef, stmt, &rhs->unionValue.value, afterStmtRef, currMay, currMust);
+    }
+    else if (rhs->tag == irOptionalValue) {
+        processPayloadItem(ctx, bb, prevRef, stmt, &rhs->optionalValue.value, afterStmtRef, currMay, currMust);
+    }
+    else if (rhs->tag == irStructConst) {
+        for (IrNode **fld = &rhs->structConst.fields; *fld; fld = &(*fld)->next) {
+            processPayloadItem(ctx, bb, prevRef, stmt, fld, afterStmtRef, currMay, currMust);
+        }
+    }
+    else if (rhs->tag == irArrayConst) {
+        for (IrNode **elem = &rhs->arrayConst.elements; *elem; elem = &(*elem)->next) {
+            processPayloadItem(ctx, bb, prevRef, stmt, elem, afterStmtRef, currMay, currMust);
+        }
+    }
+}
+
 static bool shouldPromoteAssignToCopy(const IrNode *lhsDecl, const IrNode *lhs, const IrNode *rhs)
 {
     if (!isIrVarDestructible(lhsDecl) && !isIrTypeDestructible(lhs->type))
@@ -530,7 +701,7 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                 IrNode *rhs = stmt->assign.rhs;
 
                 if (lhsVar && !lhsVar->isTemporary) {
-                    if (bitSetTest(&currMay, lhsVar->varIndex)) {
+                    if (stmt->assign.lhs->tag == irVarRef && bitSetTest(&currMay, lhsVar->varIndex)) {
                         if (lhsVar->needsDropFlag && !bitSetTest(&currMust, lhsVar->varIndex)) {
                             IrNode *flagAccess = makeDropFlagAccess(ctx, &stmt->loc, lhsVar);
                             IrNode *dropStmt = makeIrDropIf(ctx->pool, &stmt->loc, stmt->assign.lhs, flagAccess);
@@ -552,15 +723,17 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         }
                     }
 
-                    if (rhs && rhs->tag == irNullConst) {
-                        bitSetReset(&currMay, lhsVar->varIndex);
-                        bitSetReset(&currMust, lhsVar->varIndex);
-                        if (lhsVar->needsDropFlag) {
-                            IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, lhsVar, false);
-                            if (clearFlag) {
-                                clearFlag->next = next;
-                                stmt->next = clearFlag;
-                                next = clearFlag;
+                    if (rhs && (rhs->tag == irNullConst || (rhs->tag == irOptionalValue && !rhs->optionalValue.hasValue))) {
+                        if (stmt->assign.lhs->tag == irVarRef) {
+                            bitSetReset(&currMay, lhsVar->varIndex);
+                            bitSetReset(&currMust, lhsVar->varIndex);
+                            if (lhsVar->needsDropFlag) {
+                                IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, lhsVar, false);
+                                if (clearFlag) {
+                                    clearFlag->next = next;
+                                    stmt->next = clearFlag;
+                                    next = clearFlag;
+                                }
                             }
                         }
                     }
@@ -568,7 +741,7 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         bitSetSet(&currMay, lhsVar->varIndex);
                         bitSetSet(&currMust, lhsVar->varIndex);
 
-                        if (lhsVar->needsDropFlag) {
+                        if (stmt->assign.lhs->tag == irVarRef && lhsVar->needsDropFlag) {
                             IrNode *setFlag = makeDropFlagAssign(ctx, &stmt->loc, lhsVar, true);
                             if (setFlag) {
                                 setFlag->next = next;
@@ -589,23 +762,44 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
 
                 if (rhs) {
                     if (rhs->tag == irMove) {
-                        IrNode *rhsDecl = findVarDeclInNode(rhs->move.src);
-                        TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
-                        if (rhsVar && !rhsVar->isTemporary) {
-                            bitSetReset(&currMay, rhsVar->varIndex);
-                            bitSetReset(&currMust, rhsVar->varIndex);
-                            if (rhsVar->needsDropFlag) {
-                                IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, rhsVar, false);
-                                if (clearFlag) {
-                                    clearFlag->next = next;
-                                    stmt->next = clearFlag;
-                                    next = clearFlag;
+                        IrNode *src = rhs->move.src;
+                        stmt->assign.rhs = src;
+                        IrNode *rhsDecl = findMovedVarDecl(src);
+                        if (rhsDecl) {
+                            TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
+                            if (rhsVar && !rhsVar->isTemporary) {
+                                bitSetReset(&currMay, rhsVar->varIndex);
+                                bitSetReset(&currMust, rhsVar->varIndex);
+                                if (rhsVar->needsDropFlag) {
+                                    IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, rhsVar, false);
+                                    if (clearFlag) {
+                                        clearFlag->next = next;
+                                        stmt->next = clearFlag;
+                                        next = clearFlag;
+                                    }
                                 }
+                            }
+                        }
+                        else if (src && (src->tag == irMember || src->tag == irIndex)) {
+                            if (src->type && src->type->tag == irTypePointer) {
+                                IrNode *nullify = makeIrAssign(ctx->pool, &stmt->loc, src, makeIrNullConst(ctx->pool, &stmt->loc, src->type));
+                                nullify->next = next;
+                                stmt->next = nullify;
+                                next = nullify;
+                            }
+                            else if (isIrTypeDestructible(src->type)) {
+                                IrNode *nullify = makeIrZeromem(ctx->pool, &stmt->loc, src);
+                                nullify->next = next;
+                                stmt->next = nullify;
+                                next = nullify;
                             }
                         }
                     }
                     else if (rhs->tag == irCall) {
                         injectCallArgumentCopies(ctx, bb, &prev, stmt, rhs);
+                    }
+                    else if (rhs->tag == irUnionValue || rhs->tag == irOptionalValue || rhs->tag == irStructConst || rhs->tag == irArrayConst) {
+                        injectCompositePayloadCopies(ctx, bb, &prev, stmt, rhs, &next, &currMay, &currMust);
                     }
                     else if (shouldPromoteAssignToCopy(lhsDecl, stmt->assign.lhs, rhs)) {
                         IrNode *lhs = stmt->assign.lhs;

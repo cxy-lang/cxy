@@ -95,11 +95,6 @@ static inline void emitBranchIfNotTerminated(LowerContext *ctx, IrNode *target)
     }
 }
 
-static inline bool isAggregateAstExpr(const AstNode *node)
-{
-    return node && (nodeIs(node, ArrayExpr) || nodeIs(node, TupleExpr) ||
-                    nodeIs(node, StructExpr));
-}
 
 static inline bool isBackendCopyExpr(const AstNode *node)
 {
@@ -737,8 +732,7 @@ static IrNode *lowerFlattenedOperand(AstVisitor *visitor, AstNode *node)
     if (val == NULL)
         return NULL;
 
-    if (isIrPureValueExpr(val) && !isIrTypeDestructible(val->type))
-    // if (isIrLValueOrConst(val))
+    if (isIrLValueOrConst(val) || (isIrPureValueExpr(val) && !isIrTypeDestructible(val->type)))
         return val;
 
     LowerContext *ctx = getAstVisitorContext(visitor);
@@ -762,94 +756,6 @@ static IrNode *lowerFlattenedOperand(AstVisitor *visitor, AstNode *node)
     return makeIrVarRef(ctx->pool, &node->loc, tempVar);
 }
 
-static void lowerAggregateIntoTarget(LowerContext *ctx,
-                                     AstVisitor *visitor,
-                                     const AstNode *expr,
-                                     IrNode *targetLValue)
-{
-    if (expr == NULL || targetLValue == NULL)
-        return;
-
-    if (nodeIs(expr, ArrayExpr)) {
-        u64 idx = 0;
-        for (AstNode *elem = expr->arrayExpr.elements; elem;
-             elem = elem->next, idx++) {
-            const IrType *elemType = lowerType(ctx, elem->type);
-            IrNode *indexNode =
-                makeIrIntConst(ctx->pool,
-                               &elem->loc,
-                               idx,
-                               false,
-                               getIrPrimitiveType(ctx->types, irTypeU64));
-            IrNode *elemTarget = makeIrIndex(
-                ctx->pool, &elem->loc, targetLValue, indexNode, elemType);
-            if (isAggregateAstExpr(elem)) {
-                lowerAggregateIntoTarget(ctx, visitor, elem, elemTarget);
-            }
-            else if (isBackendCopyExpr(elem)) {
-                IrNode *src =
-                    lowerFlattenedOperand(visitor, elem->backendCallExpr.args);
-                emitStmt(ctx,
-                         makeIrCopy(ctx->pool, &elem->loc, src, elemTarget));
-            }
-            else {
-                IrNode *val = lowerFlattenedOperand(visitor, elem);
-                emitStmt(ctx,
-                         makeIrAssign(ctx->pool, &elem->loc, elemTarget, val));
-            }
-        }
-    }
-    else if (nodeIs(expr, TupleExpr)) {
-        u32 idx = 0;
-        for (AstNode *elem = expr->tupleExpr.elements; elem;
-             elem = elem->next, idx++) {
-            const IrType *elemType = lowerType(ctx, elem->type);
-            IrNode *elemTarget = makeIrMember(
-                ctx->pool, &elem->loc, targetLValue, idx, NULL, elemType);
-            if (isAggregateAstExpr(elem)) {
-                lowerAggregateIntoTarget(ctx, visitor, elem, elemTarget);
-            }
-            else if (isBackendCopyExpr(elem)) {
-                IrNode *src =
-                    lowerFlattenedOperand(visitor, elem->backendCallExpr.args);
-                emitStmt(ctx,
-                         makeIrCopy(ctx->pool, &elem->loc, src, elemTarget));
-            }
-            else {
-                IrNode *val = lowerFlattenedOperand(visitor, elem);
-                emitStmt(ctx,
-                         makeIrAssign(ctx->pool, &elem->loc, elemTarget, val));
-            }
-        }
-    }
-    else if (nodeIs(expr, StructExpr)) {
-        u32 idx = 0;
-        for (AstNode *fld = expr->structExpr.fields; fld;
-             fld = fld->next, idx++) {
-            AstNode *valNode = fld->fieldExpr.value;
-            const IrType *fldType = lowerType(ctx, valNode->type);
-            IrNode *fldTarget = makeIrMember(ctx->pool,
-                                             &fld->loc,
-                                             targetLValue,
-                                             idx,
-                                             fld->fieldExpr.name,
-                                             fldType);
-            if (isAggregateAstExpr(valNode)) {
-                lowerAggregateIntoTarget(ctx, visitor, valNode, fldTarget);
-            }
-            else if (isBackendCopyExpr(valNode)) {
-                IrNode *src = lowerFlattenedOperand(
-                    visitor, valNode->backendCallExpr.args);
-                emitStmt(ctx, makeIrCopy(ctx->pool, &fld->loc, src, fldTarget));
-            }
-            else {
-                IrNode *val = lowerFlattenedOperand(visitor, valNode);
-                emitStmt(ctx,
-                         makeIrAssign(ctx->pool, &fld->loc, fldTarget, val));
-            }
-        }
-    }
-}
 
 static IrNode *lowerConditionOperand(LowerContext *ctx,
                                      AstVisitor *visitor,
@@ -946,40 +852,15 @@ static void lowerOptionalIntoTarget(LowerContext *ctx,
                                     const AstNode *expr,
                                     IrNode *targetLValue)
 {
-    const IrType *boolType = getIrPrimitiveType(ctx->types, irTypeBool);
-    IrNode *okTarget = makeIrMember(
-        ctx->pool, &targetLValue->loc, targetLValue, 0, S_ok, boolType);
-
     if (expr == NULL || nodeIs(expr, NullLit)) {
-        emitStmt(
-            ctx,
-            makeIrAssign(ctx->pool,
-                         &targetLValue->loc,
-                         okTarget,
-                         makeIrBoolConst(
-                             ctx->pool, &targetLValue->loc, false, boolType)));
+        IrNode *optVal = makeIrOptionalValue(ctx->pool, &targetLValue->loc, NULL, targetLValue->type);
+        emitStmt(ctx, makeIrAssign(ctx->pool, &targetLValue->loc, targetLValue, optVal));
         return;
     }
 
-    emitStmt(ctx,
-             makeIrAssign(ctx->pool,
-                          &targetLValue->loc,
-                          okTarget,
-                          makeIrBoolConst(
-                              ctx->pool, &targetLValue->loc, true, boolType)));
-    const IrType *valType = lowerType(ctx, expr->type);
-    IrNode *valTarget =
-        makeIrMember(ctx->pool, &expr->loc, targetLValue, 1, S_val, valType);
-
-    if (isAggregateAstExpr(expr)) {
-        lowerAggregateIntoTarget(ctx, visitor, expr, valTarget);
-    }
-    else {
-        astVisit(visitor, (AstNode *)expr);
-        IrNode *val = (IrNode *)expr->codegen;
-        if (val)
-            emitStmt(ctx, makeIrAssign(ctx->pool, &expr->loc, valTarget, val));
-    }
+    IrNode *val = lowerFlattenedOperand(visitor, (AstNode *)expr);
+    IrNode *optVal = makeIrOptionalValue(ctx->pool, &expr->loc, val, targetLValue->type);
+    emitStmt(ctx, makeIrAssign(ctx->pool, &expr->loc, targetLValue, optVal));
 }
 
 static void lowerTaggedUnionIntoTarget(LowerContext *ctx,
@@ -988,153 +869,34 @@ static void lowerTaggedUnionIntoTarget(LowerContext *ctx,
                                        IrNode *targetLValue,
                                        const Type *targetAstType)
 {
-    const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
-    IrNode *tagTarget = makeIrMember(
-        ctx->pool, &targetLValue->loc, targetLValue, 0, S_tag, u32Type);
-    const IrType *payloadUnionType = targetLValue->type->strct.fields[1].type;
-    IrNode *valTarget = makeIrMember(ctx->pool,
-                                     &targetLValue->loc,
-                                     targetLValue,
-                                     1,
-                                     S_val,
-                                     payloadUnionType);
-
     if (expr == NULL) {
-        emitStmt(ctx,
-                 makeIrAssign(
-                     ctx->pool,
-                     &targetLValue->loc,
-                     tagTarget,
-                     makeIrIntConst(
-                         ctx->pool, &targetLValue->loc, 0, false, u32Type)));
+        IrNode *uVal = makeIrUnionValue(ctx->pool, &targetLValue->loc, 0, NULL, targetLValue->type);
+        emitStmt(ctx, makeIrAssign(ctx->pool, &targetLValue->loc, targetLValue, uVal));
         return;
     }
 
     if (nodeIs(expr, UnionValueExpr)) {
         u32 idx = expr->unionValue.idx;
-        if (payloadUnionType == NULL || idx >= payloadUnionType->strct.count) {
-            logError(ctx->driver->L,
-                     &expr->loc,
-                     "variant index {u32} out of bounds for union payload",
-                     (FormatArg[]){{.u32 = idx}});
-            return;
-        }
-        AstNode *innerValNode = expr->unionValue.value;
-        cstring fieldName = makeStringf(ctx->strings, "_%u", idx);
-        const IrType *memberIrType = payloadUnionType->strct.fields[idx].type;
-        IrNode *payloadTarget = makeIrMember(
-            ctx->pool, &expr->loc, valTarget, idx, fieldName, memberIrType);
-
-        emitStmt(ctx,
-                 makeIrAssign(ctx->pool,
-                              &expr->loc,
-                              tagTarget,
-                              makeIrIntConst(
-                                  ctx->pool, &expr->loc, idx, false, u32Type)));
-        if (isAggregateAstExpr(innerValNode)) {
-            lowerAggregateIntoTarget(ctx, visitor, innerValNode, payloadTarget);
-        }
-        else if (hasFlag(innerValNode->type, Optional) ||
-                 typeIs(innerValNode->type, Optional)) {
-            lowerOptionalIntoTarget(ctx, visitor, innerValNode, payloadTarget);
-        }
-        else if (hasFlag(innerValNode->type, Slice) ||
-                 isSliceType(innerValNode->type)) {
-            lowerSliceIntoTarget(ctx, visitor, innerValNode, payloadTarget);
-        }
-        else {
-            astVisit(visitor, innerValNode);
-            IrNode *innerVal = (IrNode *)innerValNode->codegen;
-            if (innerVal == NULL) {
-                logError(ctx->driver->L,
-                         &innerValNode->loc,
-                         "failed to lower union variant value",
-                         NULL);
-                return;
-            }
-            emitStmt(
-                ctx,
-                makeIrAssign(ctx->pool, &expr->loc, payloadTarget, innerVal));
-        }
+        IrNode *innerVal = lowerFlattenedOperand(visitor, expr->unionValue.value);
+        IrNode *uVal = makeIrUnionValue(ctx->pool, &expr->loc, idx, innerVal, targetLValue->type);
+        emitStmt(ctx, makeIrAssign(ctx->pool, &expr->loc, targetLValue, uVal));
     }
     else if (expr->type && isUnionType(expr->type)) {
         astVisit(visitor, (AstNode *)expr);
         IrNode *rhsVal = (IrNode *)expr->codegen;
-        if (rhsVal == NULL) {
-            logError(ctx->driver->L,
-                     &expr->loc,
-                     "failed to lower union expression",
-                     NULL);
-            return;
-        }
-        emitStmt(ctx,
-                 makeIrAssign(ctx->pool, &expr->loc, targetLValue, rhsVal));
+        if (rhsVal)
+            emitStmt(ctx, makeIrAssign(ctx->pool, &expr->loc, targetLValue, rhsVal));
     }
     else {
-        if (!isUnionType(targetAstType)) {
-            logError(
-                ctx->driver->L,
-                &expr->loc,
-                "target type is not a union type during tagged union lowering",
-                NULL);
-            return;
-        }
         u32 idx = findUnionTypeIndex(targetAstType, expr->type);
         if (idx == UINT32_MAX) {
-            logError(ctx->driver->L,
-                     &expr->loc,
-                     "type '{t}' is not a member of union type '{t}'",
+            logError(ctx->driver->L, &expr->loc, "type '{t}' is not a member of union type '{t}'",
                      (FormatArg[]){{.t = expr->type}, {.t = targetAstType}});
             return;
         }
-        if (payloadUnionType == NULL || idx >= payloadUnionType->strct.count) {
-            logError(ctx->driver->L,
-                     &expr->loc,
-                     "variant index {u32} out of bounds for union payload",
-                     (FormatArg[]){{.u32 = idx}});
-            return;
-        }
-        cstring fieldName = makeStringf(ctx->strings, "_%u", idx);
-        const IrType *memberIrType = payloadUnionType->strct.fields[idx].type;
-        IrNode *payloadTarget = makeIrMember(
-            ctx->pool, &expr->loc, valTarget, idx, fieldName, memberIrType);
-
-        emitStmt(ctx,
-                 makeIrAssign(ctx->pool,
-                              &expr->loc,
-                              tagTarget,
-                              makeIrIntConst(
-                                  ctx->pool, &expr->loc, idx, false, u32Type)));
-        if (isAggregateAstExpr(expr)) {
-            lowerAggregateIntoTarget(ctx, visitor, expr, payloadTarget);
-        }
-        else if (hasFlag(expr->type, Optional) ||
-                 typeIs(expr->type, Optional)) {
-            lowerOptionalIntoTarget(ctx, visitor, expr, payloadTarget);
-        }
-        else if (hasFlag(expr->type, Slice) || isSliceType(expr->type)) {
-            lowerSliceIntoTarget(ctx, visitor, expr, payloadTarget);
-        }
-        else if (isBackendCopyExpr(expr)) {
-            IrNode *src =
-                lowerFlattenedOperand(visitor, expr->backendCallExpr.args);
-            emitStmt(ctx,
-                     makeIrCopy(ctx->pool, &expr->loc, src, payloadTarget));
-        }
-        else {
-            astVisit(visitor, (AstNode *)expr);
-            IrNode *innerVal = (IrNode *)expr->codegen;
-            if (innerVal == NULL) {
-                logError(ctx->driver->L,
-                         &expr->loc,
-                         "failed to lower union variant value",
-                         NULL);
-                return;
-            }
-            emitStmt(
-                ctx,
-                makeIrAssign(ctx->pool, &expr->loc, payloadTarget, innerVal));
-        }
+        IrNode *innerVal = lowerFlattenedOperand(visitor, (AstNode *)expr);
+        IrNode *uVal = makeIrUnionValue(ctx->pool, &expr->loc, idx, innerVal, targetLValue->type);
+        emitStmt(ctx, makeIrAssign(ctx->pool, &expr->loc, targetLValue, uVal));
     }
 }
 
@@ -2241,140 +2003,71 @@ static void visitArrayExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     const IrType *arrType = lowerType(ctx, node->type);
-    if (ctx->currentFunc == NULL) {
-        IrNode *elemsFirst = NULL, *elemsLast = NULL;
-        u64 count = 0;
-        for (AstNode *elem = node->arrayExpr.elements; elem;
-             elem = elem->next, count++) {
-            IrNode *elemVal = lowerFlattenedOperand(visitor, elem);
-            if (elemsLast) {
-                elemsLast->next = elemVal;
-                elemsLast = elemVal;
-            }
-            else {
-                elemsFirst = elemsLast = elemVal;
-            }
+    IrNode *elemsFirst = NULL, *elemsLast = NULL;
+    u64 count = 0;
+    for (AstNode *elem = node->arrayExpr.elements; elem;
+         elem = elem->next, count++) {
+        IrNode *elemVal = lowerFlattenedOperand(visitor, elem);
+        if (elemsLast) {
+            elemsLast->next = elemVal;
+            elemsLast = elemVal;
         }
-        node->codegen =
-            makeIrArrayConst(ctx->pool, &node->loc, elemsFirst, count, arrType);
-        return;
+        else {
+            elemsFirst = elemsLast = elemVal;
+        }
     }
-    cstring tempName = makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
-    Flags flags = flgTemporary;
-    if (isIrTypeDestructible(arrType))
-        flags |= flgReferenceMembers;
-    IrNode *tempVar = makeIrVarDecl(ctx->pool,
-                                    &node->loc,
-                                    flags,
-                                    tempName,
-                                    tempName,
-                                    arrType,
-                                    ctx->currentScopeId);
-    emitStmt(ctx, tempVar);
-    lowerAggregateIntoTarget(
-        ctx, visitor, node, makeIrVarRef(ctx->pool, &node->loc, tempVar));
-    node->codegen = makeIrVarRef(ctx->pool, &node->loc, tempVar);
+    node->codegen =
+        makeIrArrayConst(ctx->pool, &node->loc, elemsFirst, count, arrType);
 }
 
 static void visitTupleExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     const IrType *tupType = lowerType(ctx, node->type);
-    if (ctx->currentFunc == NULL) {
-        IrNode *elemsFirst = NULL, *elemsLast = NULL;
-        u64 count = 0;
-        for (AstNode *elem = node->tupleExpr.elements; elem;
-             elem = elem->next, count++) {
-            IrNode *elemVal = lowerFlattenedOperand(visitor, elem);
-            if (elemsLast) {
-                elemsLast->next = elemVal;
-                elemsLast = elemVal;
-            }
-            else {
-                elemsFirst = elemsLast = elemVal;
-            }
+    IrNode *elemsFirst = NULL, *elemsLast = NULL;
+    u64 count = 0;
+    for (AstNode *elem = node->tupleExpr.elements; elem;
+         elem = elem->next, count++) {
+        IrNode *elemVal = lowerFlattenedOperand(visitor, elem);
+        if (elemsLast) {
+            elemsLast->next = elemVal;
+            elemsLast = elemVal;
         }
-        node->codegen = makeIrStructConst(
-            ctx->pool, &node->loc, elemsFirst, count, tupType);
-        return;
+        else {
+            elemsFirst = elemsLast = elemVal;
+        }
     }
-    cstring tempName = makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
-    Flags flags = flgTemporary;
-    if (isIrTypeDestructible(tupType))
-        flags |= flgReferenceMembers;
-    IrNode *tempVar = makeIrVarDecl(ctx->pool,
-                                    &node->loc,
-                                    flags,
-                                    tempName,
-                                    tempName,
-                                    tupType,
-                                    ctx->currentScopeId);
-    emitStmt(ctx, tempVar);
-    lowerAggregateIntoTarget(
-        ctx, visitor, node, makeIrVarRef(ctx->pool, &node->loc, tempVar));
-    node->codegen = makeIrVarRef(ctx->pool, &node->loc, tempVar);
+    node->codegen =
+        makeIrStructConst(ctx->pool, &node->loc, elemsFirst, count, tupType);
 }
 
 static void visitStructExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     const IrType *strctType = lowerType(ctx, node->type);
-    if (ctx->currentFunc == NULL) {
-        IrNode *fieldsFirst = NULL, *fieldsLast = NULL;
-        u64 count = 0;
-        for (AstNode *f = node->structExpr.fields; f; f = f->next, count++) {
-            IrNode *fVal = lowerFlattenedOperand(visitor, f->fieldExpr.value);
-            if (fieldsLast) {
-                fieldsLast->next = fVal;
-                fieldsLast = fVal;
-            }
-            else {
-                fieldsFirst = fieldsLast = fVal;
-            }
+    IrNode *fieldsFirst = NULL, *fieldsLast = NULL;
+    u64 count = 0;
+    for (AstNode *f = node->structExpr.fields; f; f = f->next, count++) {
+        IrNode *fVal = lowerFlattenedOperand(visitor, f->fieldExpr.value);
+        if (fieldsLast) {
+            fieldsLast->next = fVal;
+            fieldsLast = fVal;
         }
-        node->codegen = makeIrStructConst(
-            ctx->pool, &node->loc, fieldsFirst, count, strctType);
-        return;
+        else {
+            fieldsFirst = fieldsLast = fVal;
+        }
     }
-    cstring tempName = makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
-    Flags flags = flgTemporary;
-    if (isIrTypeDestructible(strctType))
-        flags |= flgReferenceMembers;
-    IrNode *tempVar = makeIrVarDecl(ctx->pool,
-                                    &node->loc,
-                                    flags,
-                                    tempName,
-                                    tempName,
-                                    strctType,
-                                    ctx->currentScopeId);
-    emitStmt(ctx, tempVar);
-    lowerAggregateIntoTarget(
-        ctx, visitor, node, makeIrVarRef(ctx->pool, &node->loc, tempVar));
-    node->codegen = makeIrVarRef(ctx->pool, &node->loc, tempVar);
+    node->codegen =
+        makeIrStructConst(ctx->pool, &node->loc, fieldsFirst, count, strctType);
 }
 
 static void visitUnionValueExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     const IrType *unionIrType = lowerType(ctx, node->type);
-    cstring tempName = makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
-    Flags flags = flgTemporary;
-    if (isIrTypeDestructible(unionIrType))
-        flags |= flgReferenceMembers;
-    IrNode *tempVar = makeIrVarDecl(ctx->pool,
-                                    &node->loc,
-                                    flags,
-                                    tempName,
-                                    tempName,
-                                    unionIrType,
-                                    ctx->currentScopeId);
-    emitStmt(ctx, tempVar);
-    lowerTaggedUnionIntoTarget(ctx,
-                               visitor,
-                               node,
-                               makeIrVarRef(ctx->pool, &node->loc, tempVar),
-                               node->type);
-    node->codegen = makeIrVarRef(ctx->pool, &node->loc, tempVar);
+    IrNode *innerVal = lowerFlattenedOperand(visitor, node->unionValue.value);
+    node->codegen = makeIrUnionValue(
+        ctx->pool, &node->loc, node->unionValue.idx, innerVal, unionIrType);
 }
 
 static void visitBackendCall(AstVisitor *visitor, AstNode *node)
@@ -2567,13 +2260,6 @@ static void visitVarDecl(AstVisitor *visitor, AstNode *node)
                                 src,
                                 makeIrVarRef(ctx->pool, &node->loc, varDecl)));
         }
-        else if (isAggregateAstExpr(initNode)) {
-            lowerAggregateIntoTarget(
-                ctx,
-                visitor,
-                initNode,
-                makeIrVarRef(ctx->pool, &node->loc, varDecl));
-        }
         else {
             astVisit(visitor, initNode);
             IrNode *val = (IrNode *)initNode->codegen;
@@ -2633,9 +2319,6 @@ static void visitAssignExpr(AstVisitor *visitor, AstNode *node)
         IrNode *src =
             lowerFlattenedOperand(visitor, rhsNode->backendCallExpr.args);
         emitStmt(ctx, makeIrCopy(ctx->pool, &node->loc, src, lhs));
-    }
-    else if (isAggregateAstExpr(rhsNode)) {
-        lowerAggregateIntoTarget(ctx, visitor, rhsNode, lhs);
     }
     else {
         astVisit(visitor, rhsNode);
@@ -3113,9 +2796,6 @@ static void visitReturnStmt(AstVisitor *visitor, AstNode *node)
                   (exprAstType && !typeIs(exprAstType, Union)))) {
             lowerTaggedUnionIntoTarget(
                 ctx, visitor, retExpr, retVarRef, retAstType);
-        }
-        else if (isAggregateAstExpr(retExpr)) {
-            lowerAggregateIntoTarget(ctx, visitor, retExpr, retVarRef);
         }
         else if (isBackendCopyExpr(retExpr)) {
             IrNode *src =

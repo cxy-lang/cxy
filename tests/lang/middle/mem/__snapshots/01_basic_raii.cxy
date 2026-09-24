@@ -44,12 +44,12 @@ _L_entry:
   scope.enter 0
   var __ret: ^Item
   var __obj0: ^Item
-  var __t0: ^void
-  __t0 = __smart_ptr_alloc(sizeof(Item), Item_op__destructor_fwd)
+  var __t0: ^Item
+  __t0 = alloc(^Item)
   __obj0 = <^Item>(__t0)
   zeromem __obj0
   Item_op__init(__obj0, &&id)
-  __ret = &&__obj0
+  __ret = __obj0
   goto _L_exit
 _L_exit:
   scope.exit 0

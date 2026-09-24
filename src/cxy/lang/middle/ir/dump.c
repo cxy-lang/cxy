@@ -254,6 +254,27 @@ static void dumpAlias(ConstIrVisitor *visitor, const IrNode *node)
     irConstVisit(visitor, node->alias.expr);
 }
 
+static void dumpOptionalValue(ConstIrVisitor *visitor, const IrNode *node)
+{
+    IrDumpContext *ctx = getConstIrVisitorContext(visitor);
+    if (node->optionalValue.hasValue) {
+        format(ctx->state, "Some(", NULL);
+        irConstVisit(visitor, node->optionalValue.value);
+        format(ctx->state, ")", NULL);
+    }
+    else {
+        format(ctx->state, "None", NULL);
+    }
+}
+
+static void dumpUnionValue(ConstIrVisitor *visitor, const IrNode *node)
+{
+    IrDumpContext *ctx = getConstIrVisitorContext(visitor);
+    format(ctx->state, "variant({u32}, ", (FormatArg[]){{.u32 = node->unionValue.index}});
+    irConstVisit(visitor, node->unionValue.value);
+    format(ctx->state, ")", NULL);
+}
+
 static void dumpVarDecl(ConstIrVisitor *visitor, const IrNode *node)
 {
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
@@ -552,7 +573,9 @@ AstNode *dumpIr(CompilerDriver *driver, const IrNode *module, FILE *file)
         [irAddrOf] = dumpAddrOf,
         [irDeref] = dumpDeref,
         [irSizeof] = dumpSizeof,
-        [irAlias] = dumpAlias
+        [irAlias] = dumpAlias,
+        [irOptionalValue] = dumpOptionalValue,
+        [irUnionValue] = dumpUnionValue
     });
     // clang-format on
 

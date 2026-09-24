@@ -45,7 +45,7 @@ _L_exit:;
 static Item * Item_op__initCover(int32_t id) {
   Item * __ret;
   Item * __obj0;
-  void * __t0;
+  Item * __t0;
 _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(Item), Item_op__destructor_fwd);
   __obj0 = ((Item *)(__t0));

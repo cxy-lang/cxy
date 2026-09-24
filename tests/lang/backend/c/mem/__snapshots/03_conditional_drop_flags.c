@@ -1,11 +1,11 @@
 typedef struct Item Item;
-typedef struct __drop_flags_t __drop_flags_t;
+typedef struct __drop_flags_testBranch_t __drop_flags_testBranch_t;
 
 struct Item {
   int32_t id;
 };
 
-struct __drop_flags_t {
+struct __drop_flags_testBranch_t {
   uint64_t x;
 };
 
@@ -51,7 +51,7 @@ _L_exit:;
 static Item * Item_op__initCover(int32_t id) {
   Item * __ret;
   Item * __obj0;
-  void * __t0;
+  Item * __t0;
 _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(Item), Item_op__destructor_fwd);
   __obj0 = ((Item *)(__t0));
@@ -64,10 +64,10 @@ _L_exit:;
 }
 
 static void testBranch(bool cond) {
-  __drop_flags_t __drop_flags;
+  __drop_flags_testBranch_t __drop_flags;
   Item * x;
 _L_entry:;
-  memset(&(__drop_flags), 0, sizeof(__drop_flags_t));
+  memset(&(__drop_flags), 0, sizeof(__drop_flags_testBranch_t));
   if (cond) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
   x = Item_op__initCover(((int32_t)(100)));

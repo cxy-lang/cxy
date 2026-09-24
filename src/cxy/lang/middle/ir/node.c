@@ -211,6 +211,14 @@ IrNode *cloneIrNode(MemPool *pool, const IrNode *node)
         break;
     case irNullConst:
         break;
+    case irArrayConst:
+        copy->arrayConst.count = node->arrayConst.count;
+        copy->arrayConst.elements = cloneIrNodes(pool, node->arrayConst.elements);
+        break;
+    case irStructConst:
+        copy->structConst.count = node->structConst.count;
+        copy->structConst.fields = cloneIrNodes(pool, node->structConst.fields);
+        break;
     case irGlobalRef:
         copy->globalRef = node->globalRef;
         break;
@@ -251,6 +259,14 @@ IrNode *cloneIrNode(MemPool *pool, const IrNode *node)
         copy->alias.name = node->alias.name;
         copy->alias.expr = cloneIrNode(pool, node->alias.expr);
         break;
+    case irOptionalValue:
+        copy->optionalValue.hasValue = node->optionalValue.hasValue;
+        copy->optionalValue.value = cloneIrNode(pool, node->optionalValue.value);
+        break;
+    case irUnionValue:
+        copy->unionValue.index = node->unionValue.index;
+        copy->unionValue.value = cloneIrNode(pool, node->unionValue.value);
+        break;
     case irAlloc:
         copy->alloc.type = node->alloc.type;
         break;
@@ -275,6 +291,19 @@ IrNode *cloneIrNode(MemPool *pool, const IrNode *node)
         break;
     }
     return copy;
+}
+
+IrNode *cloneIrNodes(MemPool *pool, const IrNode *node)
+{
+    if (node == NULL)
+        return NULL;
+    IrNode *first = cloneIrNode(pool, node);
+    IrNode *curr = first;
+    for (const IrNode *it = node->next; it; it = it->next) {
+        curr->next = cloneIrNode(pool, it);
+        curr = curr->next;
+    }
+    return first;
 }
 
 IrNode *makeIrMember(MemPool *pool,
@@ -384,6 +413,22 @@ IrNode *makeIrMalloc(MemPool *pool, const FileLoc *loc, const IrType *elemType, 
     IrNode *node = makeIrNode(pool, loc, flgNone, irMalloc, NULL);
     node->malloc.elemType = elemType;
     node->malloc.size = size;
+    return node;
+}
+
+IrNode *makeIrOptionalValue(MemPool *pool, const FileLoc *loc, IrNode *value, const IrType *type)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irOptionalValue, type);
+    node->optionalValue.hasValue = (value != NULL);
+    node->optionalValue.value = value;
+    return node;
+}
+
+IrNode *makeIrUnionValue(MemPool *pool, const FileLoc *loc, u32 index, IrNode *value, const IrType *type)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irUnionValue, type);
+    node->unionValue.index = index;
+    node->unionValue.value = value;
     return node;
 }
 

@@ -45,8 +45,7 @@ _L_entry:
   var __ret: Container
   var __t0: ^void
   copy this.res -> __t0
-  __ret.res = <^Resource>(__t0)
-  __ret.tag = this.tag
+  __ret = Container {<^Resource>(__t0), this.tag}
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -69,12 +68,12 @@ _L_entry:
   scope.enter 0
   var __ret: ^Resource
   var __obj0: ^Resource
-  var __t1: ^void
-  __t1 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd)
+  var __t1: ^Resource
+  __t1 = alloc(^Resource)
   __obj0 = <^Resource>(__t1)
   zeromem __obj0
   Resource_op__init(__obj0, &&id)
-  __ret = &&__obj0
+  __ret = __obj0
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -87,9 +86,7 @@ _L_entry:
   var tup: (^Resource, i8)
   var __t2: ^Resource
   __t2 = Resource_op__initCover(<i32>(1))
-  tup.0 = __t2
-  drop tup.1
-  tup.1 = 42
+  tup = Tuple_ptr_i8 {__t2, 42}
   goto _L_exit
 _L_exit:
   drop tup
@@ -115,19 +112,17 @@ _L_entry:
   scope.enter 0
   testTuple()
   var _a1: ^Resource | i32
-  _a1.tag = 0
-  _a1.val._0 = Resource_op__initCover(<i32>(2))
+  var __t3: ^Resource
+  __t3 = Resource_op__initCover(<i32>(2))
+  _a1 = variant(0, __t3)
   testUnion(_a1)
   var _a2: ^Resource | i32
-  _a2.tag = 1
-  _a2.val._1 = 10
+  _a2 = variant(1, 10)
   testUnion(_a2)
   var c: Container
-  var __t3: ^Resource
-  __t3 = Resource_op__initCover(<i32>(3))
-  c.res = __t3
-  drop c.tag
-  c.tag = 1
+  var __t4: ^Resource
+  __t4 = Resource_op__initCover(<i32>(3))
+  c = Container {__t4, 1}
   goto _L_exit
 _L_exit:
   drop c
@@ -139,8 +134,9 @@ func __tuple_copy_36(tup: ^(^Resource, i8)): (^Resource, i8) {
 _L_entry:
   scope.enter 0
   var __ret: (^Resource, i8)
-  copy tup.0 -> __ret.0
-  __ret.1 = tup.1
+  var __t5: ^Resource
+  copy tup.0 -> __t5
+  __ret = Tuple_ptr_i8 {__t5, tup.1}
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -169,12 +165,12 @@ _L_entry:
 _L_MATCH0_exit:
   goto _L_exit
 _L_MATCH0_case_0:
-  __ret.tag = 0
-  copy u.val._0 -> __ret.val._0
+  var __t6: ^Resource
+  copy u.val._0 -> __t6
+  __ret = variant(0, __t6)
   goto _L_exit
 _L_MATCH0_case_1:
-  __ret.tag = 1
-  __ret.val._1 = u.val._1
+  __ret = variant(1, u.val._1)
   goto _L_exit
 _L_exit:
   scope.exit 0

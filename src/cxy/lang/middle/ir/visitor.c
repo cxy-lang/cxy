@@ -100,6 +100,13 @@ void irVisitFallbackVisitAll(IrVisitor *visitor, IrNode *node)
     case irAlias:
         irVisit(visitor, node->alias.expr);
         break;
+    case irOptionalValue:
+        if (node->optionalValue.hasValue)
+            irVisit(visitor, node->optionalValue.value);
+        break;
+    case irUnionValue:
+        irVisit(visitor, node->unionValue.value);
+        break;
     case irCopy:
         irVisit(visitor, node->copy.src);
         irVisit(visitor, node->copy.dst);
@@ -187,6 +194,13 @@ void irConstVisitFallbackVisitAll(ConstIrVisitor *visitor, const IrNode *node)
         break;
     case irAlias:
         irConstVisit(visitor, node->alias.expr);
+        break;
+    case irOptionalValue:
+        if (node->optionalValue.hasValue)
+            irConstVisit(visitor, node->optionalValue.value);
+        break;
+    case irUnionValue:
+        irConstVisit(visitor, node->unionValue.value);
         break;
     case irCopy:
         irConstVisit(visitor, node->copy.src);

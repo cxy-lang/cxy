@@ -44,12 +44,12 @@ _L_entry:
   scope.enter 0
   var __ret: ^Item
   var __obj0: ^Item
-  var __t0: ^void
-  __t0 = __smart_ptr_alloc(sizeof(Item), Item_op__destructor_fwd)
+  var __t0: ^Item
+  __t0 = alloc(^Item)
   __obj0 = <^Item>(__t0)
   zeromem __obj0
   Item_op__init(__obj0, &&id)
-  __ret = &&__obj0
+  __ret = __obj0
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -58,7 +58,7 @@ _L_exit:
 
 func nested(condBreak: bool, condRet: bool): void {
 _L_entry:
-  var __drop_flags: __drop_flags_t
+  var __drop_flags: __drop_flags_nested_t
   zeromem __drop_flags
   scope.enter 0
   var i: i8
@@ -85,17 +85,13 @@ _L_FOR1_cond:
 _L_FOR1_body:
   scope.enter 2
   var _a1: i8
-  var __t1: i8
-  __t1 = i * 10
-  _a1 = __t1 + j
+  _a1 = i * 10 + j
   var inner: ^Item
   drop-if inner, __drop_flags.inner
   inner = Item_op__initCover(<i32>(_a1))
   __drop_flags.inner = 1
-  var __t2: bool
-  __t2 = j == 1
-  var __cond3: bool
-  if __t2 goto _L_AND0_rhs else goto _L_AND0_false
+  var __cond1: bool
+  if j == 1 goto _L_AND0_rhs else goto _L_AND0_false
 _L_FOR1_update:
   j = j + 1
   goto _L_FOR1_cond
@@ -104,13 +100,13 @@ _L_FOR1_exit:
   scope.exit 1
   goto _L_FOR0_update
 _L_AND0_rhs:
-  __cond3 = condBreak
+  __cond1 = condBreak
   goto _L_AND0_merge
 _L_AND0_false:
-  __cond3 = false
+  __cond1 = false
   goto _L_AND0_merge
 _L_AND0_merge:
-  if __cond3 goto _L_IF0_then else goto _L_IF0_end
+  if __cond1 goto _L_IF0_then else goto _L_IF0_end
 _L_IF0_then:
   scope.enter 3
   scope.exit 3
@@ -118,29 +114,25 @@ _L_IF0_then:
   scope.exit 2
   goto _L_FOR1_exit
 _L_IF0_end:
-  var __t4: bool
-  __t4 = i == 2
-  var __cond5: bool
-  if __t4 goto _L_AND1_rhs else goto _L_AND1_false
+  var __cond2: bool
+  if i == 2 goto _L_AND1_rhs else goto _L_AND1_false
 _L_AND1_rhs:
-  var __t6: bool
-  __t6 = j == 2
-  __cond5 = __t6
+  __cond2 = j == 2
   goto _L_AND1_merge
 _L_AND1_false:
-  __cond5 = false
+  __cond2 = false
   goto _L_AND1_merge
 _L_AND1_merge:
-  var __cond7: bool
-  if __cond5 goto _L_AND2_rhs else goto _L_AND2_false
+  var __cond3: bool
+  if __cond2 goto _L_AND2_rhs else goto _L_AND2_false
 _L_AND2_rhs:
-  __cond7 = condRet
+  __cond3 = condRet
   goto _L_AND2_merge
 _L_AND2_false:
-  __cond7 = false
+  __cond3 = false
   goto _L_AND2_merge
 _L_AND2_merge:
-  if __cond7 goto _L_IF1_then else goto _L_IF1_end
+  if __cond3 goto _L_IF1_then else goto _L_IF1_end
 _L_IF1_then:
   scope.enter 4
   goto _L_UNWIND4_return

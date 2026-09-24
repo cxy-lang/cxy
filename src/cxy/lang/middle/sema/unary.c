@@ -6,6 +6,7 @@
 
 #include "lang/frontend/flag.h"
 #include "lang/frontend/strings.h"
+#include "lang/frontend/types.h"
 
 static void spreadTupleExpr(AstVisitor *visitor,
                             const Type *operand,
@@ -163,8 +164,8 @@ static const Type *checkPrefixExpr(AstVisitor *visitor,
         }
         break;
     case opDeref:
-        if (typeIs(operand, Optional)) {
-            operand = operand->optional.target;
+        if (isOptionalType(operand)) {
+            operand = getOptionalTargetType(operand);
         }
         else if (isClassOrStructType(stripReference(operand))) {
             FileLoc loc = node->unaryExpr.operand->loc;

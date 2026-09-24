@@ -589,6 +589,35 @@ static void emitZeromem(ConstIrVisitor *visitor, const IrNode *node)
     }
 }
 
+static void emitOptionalValue(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "(", NULL);
+    emitCTypeName(&ctx->state, node->type);
+    if (node->optionalValue.hasValue) {
+        format(&ctx->state, "){{ .ok = true, .val = ", NULL);
+        irConstVisit(visitor, node->optionalValue.value);
+        format(&ctx->state, " }", NULL);
+    }
+    else {
+        format(&ctx->state, "){{ .ok = false }", NULL);
+    }
+}
+
+static void emitUnionValue(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "(", NULL);
+    emitCTypeName(&ctx->state, node->type);
+    format(&ctx->state, "){{ .tag = {u32}", (FormatArg[]){{.u32 = node->unionValue.index}});
+    if (node->unionValue.value) {
+        format(&ctx->state, ", .val = {{ ._{u32} = ", (FormatArg[]){{.u32 = node->unionValue.index}});
+        irConstVisit(visitor, node->unionValue.value);
+        format(&ctx->state, " }", NULL);
+    }
+    format(&ctx->state, " }", NULL);
+}
+
 static void emitVarDecl(ConstIrVisitor *visitor, const IrNode *node)
 {
     (void)visitor;
@@ -598,6 +627,41 @@ static void emitVarDecl(ConstIrVisitor *visitor, const IrNode *node)
 static void emitAssign(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    IrNode *lhs = node->assign.lhs;
+    IrNode *rhs = node->assign.rhs;
+
+    if (rhs && rhs->tag == irOptionalValue) {
+        if (rhs->optionalValue.hasValue) {
+            format(&ctx->state, "  ", NULL);
+            irConstVisit(visitor, lhs);
+            format(&ctx->state, ".ok = true;\n  ", NULL);
+            irConstVisit(visitor, lhs);
+            format(&ctx->state, ".val = ", NULL);
+            irConstVisit(visitor, rhs->optionalValue.value);
+            format(&ctx->state, ";\n", NULL);
+        }
+        else {
+            format(&ctx->state, "  ", NULL);
+            irConstVisit(visitor, lhs);
+            format(&ctx->state, ".ok = false;\n", NULL);
+        }
+        return;
+    }
+
+    if (rhs && rhs->tag == irUnionValue) {
+        format(&ctx->state, "  ", NULL);
+        irConstVisit(visitor, lhs);
+        format(&ctx->state, ".tag = {u32};\n", (FormatArg[]){{.u32 = rhs->unionValue.index}});
+        if (rhs->unionValue.value) {
+            format(&ctx->state, "  ", NULL);
+            irConstVisit(visitor, lhs);
+            format(&ctx->state, ".val._{u32} = ", (FormatArg[]){{.u32 = rhs->unionValue.index}});
+            irConstVisit(visitor, rhs->unionValue.value);
+            format(&ctx->state, ";\n", NULL);
+        }
+        return;
+    }
+
     format(&ctx->state, "  ", NULL);
     irConstVisit(visitor, node->assign.lhs);
     format(&ctx->state, " = ", NULL);
@@ -985,7 +1049,9 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         [irDrop] = emitDrop,
         [irZeromem] = emitZeromem,
         [irSizeof] = emitSizeof,
-        [irAlias] = emitAlias
+        [irAlias] = emitAlias,
+        [irOptionalValue] = emitOptionalValue,
+        [irUnionValue] = emitUnionValue
     });
     // clang-format on
 

@@ -804,7 +804,7 @@ bool isClassType(const Type *type)
 
 bool isOptionalType(const Type *type)
 {
-    type = resolveType(type);
+    type = resolveUnThisUnwrapType(type);
     return typeIs(type, Optional);
 }
 
@@ -1342,7 +1342,7 @@ const Type *getPointedType(const Type *type)
 
 const Type *getOptionalTargetType(const Type *type)
 {
-    type = resolveType(type);
+    type = resolveUnThisUnwrapType(type);
     if (!typeIs(type, Optional))
         return NULL;
 

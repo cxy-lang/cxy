@@ -657,7 +657,7 @@ static AstNode *isOptional(EvalContext *ctx,
     const Type *type = node->type ?: evalType(ctx, node);
     type = resolveAndUnThisType(unwrapType(type, NULL));
 
-    bool isOptional = typeIs(type, Struct) && hasFlag(type, Optional);
+    bool isOptional = isOptionalType(type);
     return makeAstNode(
         ctx->pool,
         loc,

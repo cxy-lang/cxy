@@ -36,7 +36,9 @@ extern "C" {
     f(Alloca)                       \
     f(Malloc)                       \
     f(Sizeof)                       \
-    f(Alias)
+    f(Alias)                        \
+    f(OptionalValue)                \
+    f(UnionValue)
 
 #define CXY_IR_RAII_TAGS(f)         \
     f(Alloc)                        \
@@ -125,6 +127,8 @@ struct IrNode {
         struct { const IrType *elemType; IrNode *size; } malloc;
         struct { const IrType *targetType; } sizeofVal;
         struct { cstring name; IrNode *expr; } alias;
+        struct { bool hasValue; IrNode *value; } optionalValue;
+        struct { u32 index; IrNode *value; } unionValue;
 
         // RAII
         struct { const IrType *type; } alloc;
@@ -192,6 +196,7 @@ IrNode *makeIrVarRef(MemPool *pool, const FileLoc *loc, IrNode *decl);
 IrNode *makeIrGlobalRef(MemPool *pool, const FileLoc *loc, cstring name, IrNode *target, const IrType *type);
 IrNode *makeIrAlias(MemPool *pool, const FileLoc *loc, cstring name, IrNode *expr);
 IrNode *cloneIrNode(MemPool *pool, const IrNode *node);
+IrNode *cloneIrNodes(MemPool *pool, const IrNode *node);
 IrNode *makeIrMember(MemPool *pool, const FileLoc *loc, IrNode *target, u32 index, cstring name, const IrType *type);
 IrNode *makeIrIndex(MemPool *pool, const FileLoc *loc, IrNode *target, IrNode *index, const IrType *type);
 IrNode *makeIrCast(MemPool *pool, const FileLoc *loc, IrNode *expr, const IrType *toType);
@@ -203,6 +208,8 @@ IrNode *makeIrDeref(MemPool *pool, const FileLoc *loc, IrNode *target, const IrT
 IrNode *makeIrSizeof(MemPool *pool, const FileLoc *loc, const IrType *targetType, const IrType *u64Type);
 IrNode *makeIrAlloca(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size);
 IrNode *makeIrMalloc(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size);
+IrNode *makeIrOptionalValue(MemPool *pool, const FileLoc *loc, IrNode *value, const IrType *type);
+IrNode *makeIrUnionValue(MemPool *pool, const FileLoc *loc, u32 index, IrNode *value, const IrType *type);
 
 IrNode *makeIrMove(MemPool *pool, const FileLoc *loc, IrNode *src);
 IrNode *makeIrAlloc(MemPool *pool, const FileLoc *loc, const IrType *type);
