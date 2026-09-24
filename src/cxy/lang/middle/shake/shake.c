@@ -3,6 +3,7 @@
 //
 #include "shake.h"
 
+#include "lang/frontend/operator.h"
 #include "lang/middle/builtins.h"
 #include "lang/operations.h"
 
@@ -1093,9 +1094,15 @@ static void shakeStringExpr(AstVisitor *visitor, AstNode *node)
     var->next = makeExprStmt(ctx->pool, &node->loc, flgNone, sb, NULL, NULL);
     astModifierAdd(&ctx->block, var);
 
-    node->tag = astPath;
-    node->path.elements = makePathElement(
-        ctx->pool, &node->loc, var->varDecl.name, var->flags, NULL, NULL);
+    node->tag = astUnaryExpr;
+    node->unaryExpr.isPrefix = true;
+    node->unaryExpr.op = opMove;
+    node->unaryExpr.operand = makePath(
+        ctx->pool,
+        &node->loc,
+        var->varDecl.name,
+        var->flags,
+        NULL);
 }
 
 static void shakeClassOrStructDecl(AstVisitor *visitor, AstNode *node)

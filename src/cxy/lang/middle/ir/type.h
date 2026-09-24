@@ -11,6 +11,8 @@
 extern "C" {
 #endif
 
+struct IrNode;
+
 // clang-format off
 #define CXY_IR_TYPE_PRIMITIVE_TAGS(f)       \
     f(Void)                                 \
@@ -88,6 +90,18 @@ struct IrType {
         struct {
             IrField *fields;
             u64 count;
+            union {
+                const struct AstNode *dctorAst;
+                struct IrNode *dctor;
+            };
+            union {
+                const struct AstNode *dctorFwdAst;
+                struct IrNode *dctorFwd;
+            };
+            union {
+                const struct AstNode *copyAst;
+                struct IrNode *copy;
+            };
         } strct;
         struct {
             const IrType **params;

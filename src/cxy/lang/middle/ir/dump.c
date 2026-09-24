@@ -356,6 +356,15 @@ static void dumpUnreachable(ConstIrVisitor *visitor, const IrNode *node)
     format(ctx->state, "\n", NULL);
 }
 
+static void dumpAlloc(ConstIrVisitor *visitor, const IrNode *node)
+{
+    IrDumpContext *ctx = getConstIrVisitorContext(visitor);
+    printKeyword(ctx->state, "alloc");
+    format(ctx->state, "(", NULL);
+    dumpIrType(ctx->state, node->alloc.type);
+    format(ctx->state, ")", NULL);
+}
+
 static void dumpCopy(ConstIrVisitor *visitor, const IrNode *node)
 {
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
@@ -519,6 +528,7 @@ AstNode *dumpIr(CompilerDriver *driver, const IrNode *module, FILE *file)
         [irSwitch] = dumpSwitch,
         [irReturn] = dumpReturn,
         [irUnreachable] = dumpUnreachable,
+        [irAlloc] = dumpAlloc,
         [irCopy] = dumpCopy,
         [irMove] = dumpMove,
         [irDrop] = dumpDrop,

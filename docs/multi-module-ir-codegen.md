@@ -101,18 +101,19 @@ typedef struct CompilerDriver {
   - `__drop_flags` synthesis and selective static `irDrop` vs conditional `irDropIf` elaboration.
 
 ### Phase 2: Whole-Program Reachability & Tree Shaking (`middle/ir/reachability.c`)
-- [ ] **Root Collection (`collectRoots`)**
+- [x] **Root Collection (`collectRoots`)**
   - Locate `main()` / `_main()`.
-  - Locate test case entry points (`hasFlag(func, TestCase)` or `allTestCases`).
-  - Locate exported symbols, module initializers, and `@__cc` roots.
-- [ ] **Graph Traversal & Marking (`markReachableSymbols`)**
+  - Locate test case entry points (`hasFlag(func, TestContext)` or `allTestCases`).
+  - Locate exported symbols when building plugins (`hasFlag(func, Public)`).
+- [x] **Graph Traversal & Marking (`markReachableSymbols`)**
   - From root functions, traverse IR statements and expressions:
     - `irCall` / `irGlobalRef` $\to$ mark callee/target `irFunction` as `flgReachable`.
     - `irVarRef` to global variable $\to$ mark `irGlobalVar` as `flgReachable`.
-    - Node types $\to$ register referenced `IrType` in active type set.
+    - `irAddrOf` $\to$ mark referenced global variable or global function as `flgReachable`.
+    - `irDrop` / `irCopy` $\to$ mark lifecycle operators as `flgReachable`.
   - Traverse basic blocks and CFG branches to discover all transitively referenced symbols.
-- [ ] **Module Pruning**
-  - Mark unvisited `builtins` and library functions as dead, omitting them from code generation.
+- [x] **Module Pruning**
+  - Only reachable functions, globals, and types are emitted into the final C translation unit.
 
 ### Phase 3: Centralized Backend Codegen (`backend/c/generate.c`, `backend/c/typegraph.c`)
 - [x] **Aggregated Type Graph Synthesis**

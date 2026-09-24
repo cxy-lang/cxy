@@ -39,5 +39,7 @@ func main() {
     if cond() {
         y = x
     }
-    printf("%s\n", y?.say() ?? "y is null")
+    stdout << "\n"
+    var s = f"Hello {10}\n"
+    stdout << Repeat('H', 10)
 }

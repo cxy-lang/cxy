@@ -25,14 +25,14 @@ static inline bool isBlockTerminated(const IrNode *bb)
         return false;
     IrNode *last = bb->basicBlock.last;
     switch (bb->basicBlock.last->tag) {
-        case irBranch:
-        case irBranchIf:
-        case irSwitch:
-        case irReturn:
-        case irUnreachable:
-            return true;
-        default:
-            return false;
+    case irBranch:
+    case irBranchIf:
+    case irSwitch:
+    case irReturn:
+    case irUnreachable:
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -400,18 +400,17 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
         break;
     }
     case typString:
-        result = makeIrPointerType(ctx->types,
-                                   flgNone,
-                                   getIrPrimitiveType(ctx->types, irTypeChar));
+        result = makeIrPointerType(
+            ctx->types, flgNone, getIrPrimitiveType(ctx->types, irTypeChar));
         break;
     case typArray:
         if (hasFlag(type, Slice) || type->array.len == UINT64_MAX) {
             const IrType *elemType = lowerType(ctx, type->array.elementType);
             IrField *fields = allocFromMemPool(ctx->pool, sizeof(IrField) * 2);
-            fields[0] =
-                (IrField){.name = S_ptr,
-                          .type = makeIrPointerType(ctx->types, flgNone, elemType),
-                          .bits = 0};
+            fields[0] = (IrField){
+                .name = S_ptr,
+                .type = makeIrPointerType(ctx->types, flgNone, elemType),
+                .bits = 0};
             fields[1] =
                 (IrField){.name = S_len,
                           .type = getIrPrimitiveType(ctx->types, irTypeU64),
@@ -420,7 +419,8 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
             cstring name = makeStringf(ctx->strings, "Slice_%s", elemName);
             cstring display = makeStringf(
                 ctx->strings, "[%s]", elemType->display ?: elemName);
-            result = makeIrStructType(ctx->types, flgNone, name, display, fields, 2);
+            result =
+                makeIrStructType(ctx->types, flgNone, name, display, fields, 2);
             ((IrType *)result)->category = irTypeCatSlice;
             ((IrType *)result)->index = type->index;
         }
@@ -443,9 +443,15 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
         cstring name = makeDescriptiveTupleName(ctx, type, fields, count);
         cstring display = makeDescriptiveTupleDisplay(ctx, fields, count);
         Flags flags = isDestructible(type) ? flgReferenceMembers : flgNone;
-        result = makeIrStructType(ctx->types, flags, name, display, fields, count);
+        result =
+            makeIrStructType(ctx->types, flags, name, display, fields, count);
         ((IrType *)result)->category = irTypeCatTuple;
         ((IrType *)result)->index = type->index;
+        if (type->tuple.destructorFunc && type->tuple.destructorFunc->func.decl)
+            ((IrType *)result)->strct.dctorAst =
+                type->tuple.destructorFunc->func.decl;
+        if (type->tuple.copyFunc && type->tuple.copyFunc->func.decl)
+            ((IrType *)result)->strct.copyAst = type->tuple.copyFunc->func.decl;
         break;
     }
     case typOptional: {
@@ -468,11 +474,9 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
         cstring rawName =
             type->name
                 ?: makeStringf(ctx->strings, "Struct%u", (unsigned)type->index);
-        cstring modName = ctx->module ? ctx->module->module.name : NULL;
-        cstring name = rawName;
-        if (modName && modName != S_main && type->name) {
-            name = makeStringf(ctx->strings, "%s_%s", modName, rawName);
-        }
+        cstring name = type->ns
+                           ? makeStringf(ctx->strings, "%s_%s", type->ns, rawName)
+                           : rawName;
         u64 count = type->tStruct.members ? type->tStruct.members->count : 0;
         u64 fieldCount = 0;
         for (u64 i = 0; i < count; i++) {
@@ -481,11 +485,20 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
         }
         IrField *fields =
             allocFromMemPool(ctx->pool, sizeof(IrField) * (fieldCount ?: 1));
+        memset(fields, 0, sizeof(IrField) * (fieldCount ?: 1));
         Flags flags = isDestructible(type) ? flgReferenceMembers : flgNone;
-        const IrType *structType =
-            makeIrStructType(ctx->types, flags, name, type->name, fields, fieldCount);
+        const IrType *structType = makeIrStructType(
+            ctx->types, flags, name, type->name, fields, fieldCount);
         ((IrType *)structType)->category = irTypeCatStruct;
         ((IrType *)structType)->index = type->index;
+        const NamedTypeMember *dctorMember =
+            findStructMember(type, S_DestructorOverload);
+        if (dctorMember && dctorMember->decl)
+            ((IrType *)structType)->strct.dctorAst = dctorMember->decl;
+        const NamedTypeMember *copyMember =
+            findStructMember(type, S_CopyOverload);
+        if (copyMember && copyMember->decl)
+            ((IrType *)structType)->strct.copyAst = copyMember->decl;
         cacheType(ctx, type, structType);
 
         u64 fi = 0;
@@ -525,19 +538,17 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
         cstring name =
             type->name
                 ?: makeStringf(ctx->strings, "Union%u", (unsigned)type->index);
-        result =
-            makeIrUntaggedUnionType(ctx->types, flgNone, name, type->name, fields, fi);
+        result = makeIrUntaggedUnionType(
+            ctx->types, flgNone, name, type->name, fields, fi);
         break;
     }
     case typClass: {
         cstring rawName =
             type->name
                 ?: makeStringf(ctx->strings, "Class%u", (unsigned)type->index);
-        cstring modName = ctx->module ? ctx->module->module.name : NULL;
-        cstring name = rawName;
-        if (modName && modName != S_main && type->name) {
-            name = makeStringf(ctx->strings, "%s_%s", modName, rawName);
-        }
+        cstring name = type->ns
+                           ? makeStringf(ctx->strings, "%s_%s", type->ns, rawName)
+                           : rawName;
         u64 count = type->tClass.members ? type->tClass.members->count : 0;
         u64 fieldCount = 0;
         for (u64 i = 0; i < count; i++) {
@@ -546,12 +557,37 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
         }
         IrField *fields =
             allocFromMemPool(ctx->pool, sizeof(IrField) * (fieldCount ?: 1));
-        const IrType *structType =
-            makeIrStructType(ctx->types, flgReferenceMembers, name, type->name, fields, fieldCount);
+        memset(fields, 0, sizeof(IrField) * (fieldCount ?: 1));
+        const IrType *structType = makeIrStructType(ctx->types,
+                                                    flgReferenceMembers,
+                                                    name,
+                                                    type->name,
+                                                    fields,
+                                                    fieldCount);
         ((IrType *)structType)->category = irTypeCatClass;
         ((IrType *)structType)->index = type->index;
-        const IrType *ptrType = makeIrClassType(ctx->types, flgReferenceMembers, structType);
+        const NamedTypeMember *classDctor =
+            findClassMember(type, S_DestructorOverload);
+        if (classDctor && classDctor->decl)
+            ((IrType *)structType)->strct.dctorAst = classDctor->decl;
+        const NamedTypeMember *classDctorFwd =
+            findClassMember(type, S_DestructorFwd);
+        if (classDctorFwd && classDctorFwd->decl)
+            ((IrType *)structType)->strct.dctorFwdAst = classDctorFwd->decl;
+        const NamedTypeMember *classCopy =
+            findClassMember(type, S_CopyOverload);
+        if (classCopy && classCopy->decl)
+            ((IrType *)structType)->strct.copyAst = classCopy->decl;
+        const IrType *ptrType =
+            makeIrClassType(ctx->types, flgReferenceMembers, structType);
         ((IrType *)ptrType)->index = type->index;
+        ((IrType *)ptrType)->category = irTypeCatClass;
+        ((IrType *)ptrType)->strct.dctorAst =
+            ((IrType *)structType)->strct.dctorAst;
+        ((IrType *)ptrType)->strct.dctorFwdAst =
+            ((IrType *)structType)->strct.dctorFwdAst;
+        ((IrType *)ptrType)->strct.copyAst =
+            ((IrType *)structType)->strct.copyAst;
         cacheType(ctx, type, ptrType);
 
         u64 fi = 0;
@@ -593,9 +629,17 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
 
         cstring name = makeDescriptiveUnionName(ctx, type, unionFields, count);
         cstring display = makeDescriptiveUnionDisplay(ctx, unionFields, count);
-        result = makeIrStructType(ctx->types, flags, name, display, structFields, 2);
+        result =
+            makeIrStructType(ctx->types, flags, name, display, structFields, 2);
         ((IrType *)result)->category = irTypeCatUnion;
         ((IrType *)result)->index = type->index;
+        if (type->tUnion.destructorFunc &&
+            type->tUnion.destructorFunc->func.decl)
+            ((IrType *)result)->strct.dctorAst =
+                type->tUnion.destructorFunc->func.decl;
+        if (type->tUnion.copyFunc && type->tUnion.copyFunc->func.decl)
+            ((IrType *)result)->strct.copyAst =
+                type->tUnion.copyFunc->func.decl;
         break;
     }
     case typEnum:
@@ -614,7 +658,8 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
         bool isVariadic =
             hasFlag(type, Variadic) ||
             (type->func.decl && hasFlag(type->func.decl, Variadic));
-        result = makeIrFuncType(ctx->types, flgNone, params, count, ret, isVariadic);
+        result =
+            makeIrFuncType(ctx->types, flgNone, params, count, ret, isVariadic);
         break;
     }
     case typResult: {
@@ -799,7 +844,10 @@ static IrNode *lowerConditionOperand(LowerContext *ctx,
     const Type *astType = condNode->type;
     IrNode *cond = lowerFlattenedOperand(visitor, condNode);
     if (cond == NULL) {
-        return makeIrBoolConst(ctx->pool, &condNode->loc, false, getIrPrimitiveType(ctx->types, irTypeBool));
+        return makeIrBoolConst(ctx->pool,
+                               &condNode->loc,
+                               false,
+                               getIrPrimitiveType(ctx->types, irTypeBool));
     }
 
     if (isOptionalType(astType)) {
@@ -830,8 +878,8 @@ static void lowerSliceIntoTarget(LowerContext *ctx,
         ctx->pool, &targetLValue->loc, targetLValue, 1, S_len, u64Type);
 
     if (nodeIs(expr, ArrayExpr)) {
-        const IrType *fixedArrType =
-            makeIrArrayType(ctx->types, flgNone, elemIrType->pointer.pointee, len);
+        const IrType *fixedArrType = makeIrArrayType(
+            ctx->types, flgNone, elemIrType->pointer.pointee, len);
         cstring arrTempName =
             makeStringf(ctx->strings, "__arr%u", ctx->tempCounter++);
         IrNode *arrVar = makeIrVarDecl(ctx->pool,
@@ -990,9 +1038,9 @@ static void lowerTaggedUnionIntoTarget(LowerContext *ctx,
                          NULL);
                 return;
             }
-            emitStmt(ctx,
-                     makeIrAssign(
-                         ctx->pool, &expr->loc, payloadTarget, innerVal));
+            emitStmt(
+                ctx,
+                makeIrAssign(ctx->pool, &expr->loc, payloadTarget, innerVal));
         }
     }
     else if (expr->type && isUnionType(expr->type)) {
@@ -1010,10 +1058,11 @@ static void lowerTaggedUnionIntoTarget(LowerContext *ctx,
     }
     else {
         if (!isUnionType(targetAstType)) {
-            logError(ctx->driver->L,
-                     &expr->loc,
-                     "target type is not a union type during tagged union lowering",
-                     NULL);
+            logError(
+                ctx->driver->L,
+                &expr->loc,
+                "target type is not a union type during tagged union lowering",
+                NULL);
             return;
         }
         u32 idx = findUnionTypeIndex(targetAstType, expr->type);
@@ -1068,9 +1117,9 @@ static void lowerTaggedUnionIntoTarget(LowerContext *ctx,
                          NULL);
                 return;
             }
-            emitStmt(ctx,
-                     makeIrAssign(
-                         ctx->pool, &expr->loc, payloadTarget, innerVal));
+            emitStmt(
+                ctx,
+                makeIrAssign(ctx->pool, &expr->loc, payloadTarget, innerVal));
         }
     }
 }
@@ -1288,8 +1337,8 @@ static void lowerResolvedDecl(LowerContext *ctx,
         return;
     }
 
-    cstring identName = nodeIs(node, Identifier) ? node->ident.value
-                                                 : getDeclarationName(node);
+    cstring identName =
+        nodeIs(node, Identifier) ? node->ident.value : getDeclarationName(node);
     if (ctx->currentFunc && identName) {
         for (IrNode *p = ctx->currentFunc->function.params; p; p = p->next) {
             if (p->funcParam.name == identName) {
@@ -1708,7 +1757,8 @@ static void visitUnaryExpr(AstVisitor *visitor, AstNode *node)
     const IrType *irType = lowerType(ctx, node->type);
     if (node->unaryExpr.op == opPtrof || node->unaryExpr.op == opRefof) {
         const Type *opType = node->unaryExpr.operand->type;
-        if (isClassType(opType) || (node->unaryExpr.op == opRefof && isReferenceType(opType))) {
+        if (isClassType(opType) ||
+            (node->unaryExpr.op == opRefof && isReferenceType(opType))) {
             node->codegen = operand;
         }
         else
@@ -1728,10 +1778,15 @@ static void visitUnaryExpr(AstVisitor *visitor, AstNode *node)
     else if (node->unaryExpr.op == opNot) {
         const Type *opType = node->unaryExpr.operand->type;
         if (isOptionalType(opType)) {
-            IrNode *okMember = makeIrMember(
-                ctx->pool, &node->loc, operand, 0, S_ok, getIrPrimitiveType(ctx->types, irTypeBool));
-            node->codegen = makeIrUnary(
-                ctx->pool, &node->loc, opNot, okMember, irType);
+            IrNode *okMember =
+                makeIrMember(ctx->pool,
+                             &node->loc,
+                             operand,
+                             0,
+                             S_ok,
+                             getIrPrimitiveType(ctx->types, irTypeBool));
+            node->codegen =
+                makeIrUnary(ctx->pool, &node->loc, opNot, okMember, irType);
         }
         else {
             node->codegen = makeIrUnary(
@@ -1748,7 +1803,8 @@ static void visitPointerOf(AstVisitor *visitor, AstNode *node)
     LowerContext *ctx = getAstVisitorContext(visitor);
     IrNode *operand = lowerFlattenedOperand(visitor, node->unaryExpr.operand);
     const Type *opType = node->unaryExpr.operand->type;
-    if (isClassType(opType) || (nodeIs(node, ReferenceOf) && isReferenceType(opType))) {
+    if (isClassType(opType) ||
+        (nodeIs(node, ReferenceOf) && isReferenceType(opType))) {
         node->codegen = operand;
         return;
     }
@@ -1757,8 +1813,8 @@ static void visitPointerOf(AstVisitor *visitor, AstNode *node)
 }
 
 static void lowerTypeCoercion(AstVisitor *visitor,
-                               AstNode *node,
-                               AstNode *subExpr)
+                              AstNode *node,
+                              AstNode *subExpr)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     const Type *targetType = node->type;
@@ -1786,12 +1842,13 @@ static void lowerTypeCoercion(AstVisitor *visitor,
 
     if (srcType && isOptionalType(srcType) && isBooleanType(targetType)) {
         IrNode *expr = lowerFlattenedOperand(visitor, subExpr);
-        node->codegen = makeIrMember(ctx->pool,
-                                     &node->loc,
-                                     expr,
-                                     0,
-                                     S_ok,
-                                     getIrPrimitiveType(ctx->types, irTypeBool));
+        node->codegen =
+            makeIrMember(ctx->pool,
+                         &node->loc,
+                         expr,
+                         0,
+                         S_ok,
+                         getIrPrimitiveType(ctx->types, irTypeBool));
         return;
     }
 
@@ -1847,13 +1904,8 @@ static void lowerTypeCoercion(AstVisitor *visitor,
 
                     const IrType *params[] = {
                         boolType, strType, u64Type, u64Type};
-                    const IrType *assertFuncType =
-                        makeIrFuncType(ctx->types,
-                                       flgNone,
-                                       params,
-                                       4,
-                                       voidType,
-                                       false);
+                    const IrType *assertFuncType = makeIrFuncType(
+                        ctx->types, flgNone, params, 4, voidType, false);
                     IrNode *callee = makeIrGlobalRef(ctx->pool,
                                                      &node->loc,
                                                      S___cxy_assert,
@@ -2076,12 +2128,12 @@ static void lowerOptionalCallExpr(AstVisitor *visitor,
                      0,
                      S_ok,
                      boolType);
-    emitStmt(ctx,
-             makeIrAssign(
-                 ctx->pool,
-                 &node->loc,
-                 elseOkField,
-                 makeIrBoolConst(ctx->pool, &node->loc, false, boolType)));
+    emitStmt(
+        ctx,
+        makeIrAssign(ctx->pool,
+                     &node->loc,
+                     elseOkField,
+                     makeIrBoolConst(ctx->pool, &node->loc, false, boolType)));
     emitBranchIfNotTerminated(ctx, mergeBB);
 
     setBlock(ctx, mergeBB);
@@ -2303,12 +2355,11 @@ static void visitUnionValueExpr(AstVisitor *visitor, AstNode *node)
                                     unionIrType,
                                     ctx->currentScopeId);
     emitStmt(ctx, tempVar);
-    lowerTaggedUnionIntoTarget(
-        ctx,
-        visitor,
-        node,
-        makeIrVarRef(ctx->pool, &node->loc, tempVar),
-        node->type);
+    lowerTaggedUnionIntoTarget(ctx,
+                               visitor,
+                               node,
+                               makeIrVarRef(ctx->pool, &node->loc, tempVar),
+                               node->type);
     node->codegen = makeIrVarRef(ctx->pool, &node->loc, tempVar);
 }
 
@@ -2325,52 +2376,7 @@ static void visitBackendCall(AstVisitor *visitor, AstNode *node)
         if (typeIs(allocType, Pointer))
             allocType = allocType->pointer.pointed;
         const IrType *elemIrType = lowerType(ctx, allocType);
-        const IrType *allocStructType =
-            (elemIrType && elemIrType->tag == irTypePointer)
-                ? elemIrType->pointer.pointee
-                : elemIrType;
-        IrNode *sizeNode = makeIrSizeof(
-            ctx->pool, &node->loc, allocStructType, getIrPrimitiveType(ctx->types, irTypeU64));
-        AstNode *dctorArg = args ? args->next : NULL;
-        IrNode *dctorNode =
-            dctorArg ? lowerFlattenedOperand(visitor, dctorArg)
-                     : makeIrNullConst(
-                           ctx->pool,
-                           &node->loc,
-                           getIrPrimitiveType(ctx->types, irTypePointer));
-        sizeNode->next = dctorNode;
-
-        bool trace = ctx->driver->options.withMemoryTrace;
-        u64 argsCount = 2;
-        if (trace) {
-            const IrType *strType = makeIrPointerType(
-                ctx->types, flgNone, getIrPrimitiveType(ctx->types, irTypeChar));
-            const IrType *u64Type = getIrPrimitiveType(ctx->types, irTypeU64);
-            IrNode *fileNode = makeIrStringConst(
-                ctx->pool, &node->loc, node->loc.fileName ?: "", strType);
-            IrNode *lineNode = makeIrIntConst(
-                ctx->pool, &node->loc, node->loc.begin.row, false, u64Type);
-            dctorNode->next = fileNode;
-            fileNode->next = lineNode;
-            argsCount = 4;
-        }
-
-        cstring allocFunc =
-            trace ? "__smart_ptr_alloc_trace" : "__smart_ptr_alloc";
-        IrNode *callee = makeIrGlobalRef(
-            ctx->pool,
-            &node->loc,
-            allocFunc,
-            NULL,
-            makeIrPointerType(ctx->types,
-                              flgNone,
-                              getIrPrimitiveType(ctx->types, irTypeVoid)));
-        node->codegen = makeIrCall(ctx->pool,
-                                   &node->loc,
-                                   callee,
-                                   sizeNode,
-                                   argsCount,
-                                   lowerType(ctx, node->type));
+        node->codegen = makeIrAlloc(ctx->pool, &node->loc, elemIrType);
         break;
     }
     case bfiZeromem: {
@@ -2380,8 +2386,10 @@ static void visitBackendCall(AstVisitor *visitor, AstNode *node)
     }
     case bfiSizeOf: {
         const IrType *targetType = lowerType(ctx, args->type);
-        node->codegen = makeIrSizeof(
-            ctx->pool, &node->loc, targetType, getIrPrimitiveType(ctx->types, irTypeU64));
+        node->codegen = makeIrSizeof(ctx->pool,
+                                     &node->loc,
+                                     targetType,
+                                     getIrPrimitiveType(ctx->types, irTypeU64));
         break;
     }
     case bfiAlloca: {
@@ -2570,6 +2578,19 @@ static void visitVarDecl(AstVisitor *visitor, AstNode *node)
     }
 }
 
+static inline Operator assignOpToBinaryOp(Operator op)
+{
+    switch (op) {
+#define f(O, ...)                                                              \
+    case op##O##Equal:                                                         \
+        return op##O;
+        AST_ASSIGN_EXPR_LIST(f)
+#undef f
+    default:
+        return opInvalid;
+    }
+}
+
 static void visitAssignExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
@@ -2605,8 +2626,18 @@ static void visitAssignExpr(AstVisitor *visitor, AstNode *node)
     else {
         astVisit(visitor, rhsNode);
         IrNode *rhs = (IrNode *)rhsNode->codegen;
-        if (rhs)
+        if (rhs) {
+            Operator op = node->assignExpr.op;
+            if (op != opAssign && op != opInvalid) {
+                rhs = makeIrBinary(ctx->pool,
+                                   &node->loc,
+                                   op,
+                                   cloneIrNode(ctx->pool, lhs),
+                                   rhs,
+                                   lowerType(ctx, lhsAstType));
+            }
             emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, lhs, rhs));
+        }
     }
 }
 
@@ -3470,6 +3501,25 @@ static void visitProgram(AstVisitor *visitor, AstNode *node)
     }
 }
 
+static void finalizeLifecycleTypes(LowerContext *ctx)
+{
+    HashtableIt it = newHashTableIt(&ctx->types->types, sizeof(IrType *));
+    while (hashTableItHasNext(&it)) {
+        IrType *type = *(IrType **)hashTableItNext(&it);
+        if (type && (type->category == irTypeCatStruct ||
+                     type->category == irTypeCatTuple ||
+                     type->category == irTypeCatUnion ||
+                     type->category == irTypeCatClass)) {
+            const AstNode *dAst = type->strct.dctorAst;
+            const AstNode *fAst = type->strct.dctorFwdAst;
+            const AstNode *cAst = type->strct.copyAst;
+            type->strct.dctor = dAst ? dAst->ir : NULL;
+            type->strct.dctorFwd = fAst ? fAst->ir : NULL;
+            type->strct.copy = cAst ? cAst->ir : NULL;
+        }
+    }
+}
+
 IrModule *lowerToIr(CompilerDriver *driver, AstNode *node)
 {
     AstNode *program = nodeIs(node, Metadata) ? node->metadata.node : node;
@@ -3534,6 +3584,8 @@ IrModule *lowerToIr(CompilerDriver *driver, AstNode *node)
     // clang-format on
 
     astVisit(&visitor, program);
+
+    finalizeLifecycleTypes(&context);
 
     if (nodeIs(node, Metadata)) {
         node->metadata.ir = context.module;

@@ -6,6 +6,7 @@
 #include "lang/middle/ir/dump.h"
 #include "lang/middle/ir/lower.h"
 #include "lang/middle/ir/node.h"
+#include "lang/middle/ir/reachability.h"
 #include "lang/middle/ir/type.h"
 #include "lang/middle/ir/visitor.h"
 #include "lang/operations.h"
@@ -238,7 +239,37 @@ static void emitVarRef(ConstIrVisitor *visitor, const IrNode *node)
 static void emitGlobalRef(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
-    format(&ctx->state, "{s}", (FormatArg[]){{.s = node->globalRef.name ?: "global"}});
+    cstring name = node->globalRef.name;
+    if (name == NULL && node->globalRef.target && node->globalRef.target->tag == irFunction)
+        name = node->globalRef.target->function.name;
+    else if (name == NULL && node->globalRef.target && node->globalRef.target->tag == irGlobalVar)
+        name = node->globalRef.target->globalVar.name;
+    format(&ctx->state, "{s}", (FormatArg[]){{.s = name ?: "global"}});
+}
+
+static void emitAlloc(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    const IrType *type = node->alloc.type;
+    const IrType *st = isIrPointerType(type) ? type->pointer.pointee : type;
+    bool trace = ctx->memTraceEnabled;
+    cstring allocFunc = trace ? "__smart_ptr_alloc_trace" : "__smart_ptr_alloc";
+    format(&ctx->state, "{s}(sizeof(", (FormatArg[]){{.s = allocFunc}});
+    emitCTypeName(&ctx->state, st);
+    format(&ctx->state, "), ", NULL);
+    if (st && st->strct.dctorFwd) {
+        format(&ctx->state, "{s}", (FormatArg[]){{.s = st->strct.dctorFwd->function.name}});
+    }
+    else if (st && st->strct.dctor) {
+        format(&ctx->state, "{s}", (FormatArg[]){{.s = st->strct.dctor->function.name}});
+    }
+    else {
+        format(&ctx->state, "nullptr", NULL);
+    }
+    if (trace) {
+        format(&ctx->state, ", \"{s}\", {u64}", (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
+    }
+    format(&ctx->state, ")", NULL);
 }
 
 static void emitMember(ConstIrVisitor *visitor, const IrNode *node)
@@ -378,19 +409,56 @@ static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
         irConstVisit(visitor, target);
         format(&ctx->state, ");\n", NULL);
         break;
+    case irTypeCatOptional: {
+        const IrType *elemType = type->strct.count > 1 ? type->strct.fields[1].type : NULL;
+        if (elemType && isIrTypeDestructible(elemType)) {
+            format(&ctx->state, "  if (", NULL);
+            irConstVisit(visitor, target);
+            if (isIrPointerType(target->type))
+                format(&ctx->state, "->ok) ", NULL);
+            else
+                format(&ctx->state, ".ok) ", NULL);
+
+            if (elemType->category == irTypeCatClass) {
+                format(&ctx->state, "__smart_ptr_drop(", NULL);
+                irConstVisit(visitor, target);
+                if (isIrPointerType(target->type))
+                    format(&ctx->state, "->val);\n", NULL);
+                else
+                    format(&ctx->state, ".val);\n", NULL);
+            }
+            else if (elemType->category == irTypeCatStruct && elemType->name) {
+                format(&ctx->state, "{s}_op__destructor(&(", (FormatArg[]){{.s = elemType->name}});
+                irConstVisit(visitor, target);
+                if (isIrPointerType(target->type))
+                    format(&ctx->state, "->val));\n", NULL);
+                else
+                    format(&ctx->state, ".val));\n", NULL);
+            }
+            else if (elemType->category == irTypeCatTuple) {
+                format(&ctx->state, "__tuple_dctor_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)elemType->index}});
+                irConstVisit(visitor, target);
+                if (isIrPointerType(target->type))
+                    format(&ctx->state, "->val));\n", NULL);
+                else
+                    format(&ctx->state, ".val));\n", NULL);
+            }
+            else if (elemType->category == irTypeCatUnion) {
+                format(&ctx->state, "__union_dctor_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)elemType->index}});
+                irConstVisit(visitor, target);
+                if (isIrPointerType(target->type))
+                    format(&ctx->state, "->val));\n", NULL);
+                else
+                    format(&ctx->state, ".val));\n", NULL);
+            }
+        }
+        break;
+    }
     case irTypeCatTuple:
-        format(&ctx->state, "__tuple_dctor_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)type->index}});
-        irConstVisit(visitor, target);
-        format(&ctx->state, "));\n", NULL);
-        break;
     case irTypeCatUnion:
-        format(&ctx->state, "__union_dctor_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)type->index}});
-        irConstVisit(visitor, target);
-        format(&ctx->state, "));\n", NULL);
-        break;
     case irTypeCatStruct:
-        if (type->name) {
-            format(&ctx->state, "{s}_op__destructor(&(", (FormatArg[]){{.s = type->name}});
+        if (type->strct.dctor) {
+            format(&ctx->state, "{s}(&(", (FormatArg[]){{.s = type->strct.dctor->function.name}});
             irConstVisit(visitor, target);
             format(&ctx->state, "));\n", NULL);
         }
@@ -422,25 +490,59 @@ static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
         irConstVisit(visitor, src);
         format(&ctx->state, ");\n", NULL);
         break;
-    case irTypeCatTuple:
-        format(&ctx->state, "  ", NULL);
-        irConstVisit(visitor, dst);
-        format(&ctx->state, " = __tuple_copy_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)type->index}});
-        irConstVisit(visitor, src);
-        format(&ctx->state, "));\n", NULL);
-        break;
-    case irTypeCatUnion:
-        format(&ctx->state, "  ", NULL);
-        irConstVisit(visitor, dst);
-        format(&ctx->state, " = __union_copy_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)type->index}});
-        irConstVisit(visitor, src);
-        format(&ctx->state, "));\n", NULL);
-        break;
-    case irTypeCatStruct:
-        if (type->name) {
+    case irTypeCatOptional: {
+        const IrType *elemType = type->strct.count > 1 ? type->strct.fields[1].type : NULL;
+        if (elemType && isIrTypeDestructible(elemType)) {
             format(&ctx->state, "  ", NULL);
             irConstVisit(visitor, dst);
-            format(&ctx->state, " = {s}_op__copy(&(", (FormatArg[]){{.s = type->name}});
+            format(&ctx->state, ".ok = ", NULL);
+            irConstVisit(visitor, src);
+            format(&ctx->state, ".ok;\n", NULL);
+            format(&ctx->state, "  if (", NULL);
+            irConstVisit(visitor, src);
+            format(&ctx->state, ".ok) ", NULL);
+
+            if (elemType->category == irTypeCatClass) {
+                irConstVisit(visitor, dst);
+                format(&ctx->state, ".val = __smart_ptr_get(", NULL);
+                irConstVisit(visitor, src);
+                format(&ctx->state, ".val);\n", NULL);
+            }
+            else if (elemType->category == irTypeCatStruct && elemType->name) {
+                irConstVisit(visitor, dst);
+                format(&ctx->state, ".val = {s}_op__copy(&(", (FormatArg[]){{.s = elemType->name}});
+                irConstVisit(visitor, src);
+                format(&ctx->state, ".val));\n", NULL);
+            }
+            else if (elemType->category == irTypeCatTuple) {
+                irConstVisit(visitor, dst);
+                format(&ctx->state, ".val = __tuple_copy_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)elemType->index}});
+                irConstVisit(visitor, src);
+                format(&ctx->state, ".val));\n", NULL);
+            }
+            else if (elemType->category == irTypeCatUnion) {
+                irConstVisit(visitor, dst);
+                format(&ctx->state, ".val = __union_copy_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)elemType->index}});
+                irConstVisit(visitor, src);
+                format(&ctx->state, ".val));\n", NULL);
+            }
+        }
+        else {
+            format(&ctx->state, "  ", NULL);
+            irConstVisit(visitor, dst);
+            format(&ctx->state, " = ", NULL);
+            irConstVisit(visitor, src);
+            format(&ctx->state, ";\n", NULL);
+        }
+        break;
+    }
+    case irTypeCatTuple:
+    case irTypeCatUnion:
+    case irTypeCatStruct:
+        if (type->strct.copy) {
+            format(&ctx->state, "  ", NULL);
+            irConstVisit(visitor, dst);
+            format(&ctx->state, " = {s}(&(", (FormatArg[]){{.s = type->strct.copy->function.name}});
             irConstVisit(visitor, src);
             format(&ctx->state, "));\n", NULL);
         }
@@ -575,13 +677,42 @@ static void emitBasicBlock(ConstIrVisitor *visitor, const IrNode *node)
     }
 }
 
+static void emitCVarDecl(FormatState *state, const IrType *type, cstring name)
+{
+    if (type && type->tag == irTypeArray) {
+        emitCTypeName(state, type->array.elem);
+        format(state, " {s}[{u64}];\n", (FormatArg[]){{.s = name}, {.u64 = type->array.len}});
+    }
+    else if (type && type->tag == irTypeFunc) {
+        emitCTypeName(state, type->func.ret);
+        format(state, " (*{s})(", (FormatArg[]){{.s = name}});
+        for (u64 i = 0; i < type->func.count; i++) {
+            if (i > 0)
+                format(state, ", ", NULL);
+            emitCTypeName(state, type->func.params[i]);
+        }
+        if (type->func.count == 0)
+            format(state, "void", NULL);
+        format(state, ");\n", NULL);
+    }
+    else {
+        emitCTypeName(state, type);
+        format(state, " {s};\n", (FormatArg[]){{.s = name}});
+    }
+}
+
 static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
     if (hasFlag(node, Extern))
         return;
 
-    format(&ctx->state, "static ", NULL);
+    if (hasFlag(node, ModuleInit) || (node->function.name && strstr(node->function.name, "___init"))) {
+        format(&ctx->state, "__attribute__((constructor)) static ", NULL);
+    }
+    else {
+        format(&ctx->state, "static ", NULL);
+    }
     emitCTypeName(&ctx->state, node->type ? node->type->func.ret : NULL);
     format(&ctx->state, " {s}(", (FormatArg[]){{.s = node->function.name}});
     for (const IrNode *p = node->function.params; p; p = p->next) {
@@ -596,8 +727,7 @@ static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
         for (const IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
             if (stmt->tag == irVarDecl) {
                 format(&ctx->state, "  ", NULL);
-                emitCTypeName(&ctx->state, stmt->type);
-                format(&ctx->state, " {s};\n", (FormatArg[]){{.s = stmt->varDecl.name ?: "__v"}});
+                emitCVarDecl(&ctx->state, stmt->type, stmt->varDecl.name ?: "__v");
             }
         }
     }
@@ -612,8 +742,14 @@ static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
 static void emitGlobalVar(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
-    emitCTypeName(&ctx->state, node->type);
-    format(&ctx->state, " {s}", (FormatArg[]){{.s = node->globalVar.name}});
+    if (node->type && node->type->tag == irTypeArray) {
+        emitCTypeName(&ctx->state, node->type->array.elem);
+        format(&ctx->state, " {s}[{u64}]", (FormatArg[]){{.s = node->globalVar.name}, {.u64 = node->type->array.len}});
+    }
+    else {
+        emitCTypeName(&ctx->state, node->type);
+        format(&ctx->state, " {s}", (FormatArg[]){{.s = node->globalVar.name}});
+    }
     if (node->globalVar.init) {
         format(&ctx->state, " = ", NULL);
         irConstVisit(visitor, node->globalVar.init);
@@ -623,7 +759,11 @@ static void emitGlobalVar(ConstIrVisitor *visitor, const IrNode *node)
 
 static void emitCFieldDecl(FormatState *state, const IrType *type, cstring name)
 {
-    if (type && type->tag == irTypeFunc) {
+    if (type && type->tag == irTypeArray) {
+        emitCTypeName(state, type->array.elem);
+        format(state, " {s}[{u64}];\n", (FormatArg[]){{.s = name ?: "_a"}, {.u64 = type->array.len}});
+    }
+    else if (type && type->tag == irTypeFunc) {
         emitCTypeName(state, type->func.ret);
         format(state, " (*{s})(", (FormatArg[]){{.s = name ?: "_f"}});
         for (u64 i = 0; i < type->func.count; i++) {
@@ -695,6 +835,9 @@ static void emitTypeGraphDefinitions(FormatState *state, const DynArray *modules
 static void emitFunctionPrototypes(FormatState *state, const IrModule *module)
 {
     for (const IrNode *func = module->module.functions; func; func = func->next) {
+        if (!hasFlag(func, Reachable))
+            continue;
+
         if (hasFlag(func, Extern)) {
             if (func->function.isHint)
                 continue;
@@ -721,7 +864,12 @@ static void emitFunctionPrototypes(FormatState *state, const IrModule *module)
             format(state, ");\n", NULL);
             continue;
         }
-        format(state, "static ", NULL);
+        if (hasFlag(func, ModuleInit) || (func->function.name && strstr(func->function.name, "___init"))) {
+            format(state, "__attribute__((constructor)) static ", NULL);
+        }
+        else {
+            format(state, "static ", NULL);
+        }
         emitCTypeName(state, func->type ? func->type->func.ret : NULL);
         format(state, " {s}(", (FormatArg[]){{.s = func->function.name}});
         for (const IrNode *p = func->function.params; p; p = p->next) {
@@ -738,14 +886,18 @@ static void emitFunctionPrototypes(FormatState *state, const IrModule *module)
 static void emitModule(ConstIrVisitor *visitor, const IrNode *module)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
-    for (const IrNode *glob = module->module.globals; glob; glob = glob->next)
-        irConstVisit(visitor, glob);
+    for (const IrNode *glob = module->module.globals; glob; glob = glob->next) {
+        if (hasFlag(glob, Reachable))
+            irConstVisit(visitor, glob);
+    }
 
     if (module->module.globals)
         format(&ctx->state, "\n", NULL);
 
-    for (const IrNode *func = module->module.functions; func; func = func->next)
-        irConstVisit(visitor, func);
+    for (const IrNode *func = module->module.functions; func; func = func->next) {
+        if (hasFlag(func, Reachable))
+            irConstVisit(visitor, func);
+    }
 }
 
 static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE *file)
@@ -764,9 +916,12 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
     CodegenContext ctx = {
         .backend = driver->backend,
         .strings = driver->strings,
+        .memTraceEnabled = driver->options.withMemoryTrace,
         .moduleName = rootModule ? rootModule->module.name : NULL,
         .state = newFormatState("  ", true),
         .types = newFormatState("  ", true)};
+
+    runReachabilityAnalysis(driver);
 
     // Types across all finalized modules
     emitTypeGraphDefinitions(&ctx.types, &modules, driver->pool);
@@ -814,6 +969,7 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         [irBinary] = emitBinary,
         [irAddrOf] = emitAddrOf,
         [irDeref] = emitDeref,
+        [irAlloc] = emitAlloc,
         [irMove] = emitMove,
         [irCopy] = emitCopy,
         [irDrop] = emitDrop,

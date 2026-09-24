@@ -4,11 +4,22 @@
 
 #include <string.h>
 
+static inline HashCode hashGraphNodeType(const IrType *type)
+{
+    if (type && type->name)
+        return hashStr(hashInit(), type->name);
+    return hashPtr(hashInit(), type);
+}
+
 static bool compareGraphNodes(const void *lhs, const void *rhs)
 {
     const IrTypeGraphNode *l = *(const IrTypeGraphNode **)lhs;
     const IrTypeGraphNode *r = *(const IrTypeGraphNode **)rhs;
-    return l->type == r->type;
+    if (l->type == r->type)
+        return true;
+    if (l->type && r->type && l->type->name && r->type->name)
+        return l->type->name == r->type->name || strcmp(l->type->name, r->type->name) == 0;
+    return false;
 }
 
 static IrTypeGraphNode *findGraphNode(IrTypeGraph *g, const IrType *type)
@@ -18,7 +29,7 @@ static IrTypeGraphNode *findGraphNode(IrTypeGraph *g, const IrType *type)
     IrTypeGraphNode dummy = {.type = type};
     IrTypeGraphNode *dummyPtr = &dummy;
     IrTypeGraphNode **found = findInHashTable(
-        &g->nodes, &dummyPtr, hashPtr(hashInit(), type),
+        &g->nodes, &dummyPtr, hashGraphNodeType(type),
         sizeof(IrTypeGraphNode *), compareGraphNodes);
     return found ? *found : NULL;
 }
@@ -40,7 +51,7 @@ static IrTypeGraphNode *findOrAddGraphNode(IrTypeGraph *g, const IrType *type)
     node->inStack = false;
     node->emitted = false;
 
-    insertInHashTable(&g->nodes, &node, hashPtr(hashInit(), type),
+    insertInHashTable(&g->nodes, &node, hashGraphNodeType(type),
                       sizeof(IrTypeGraphNode *), compareGraphNodes);
     return node;
 }
@@ -102,6 +113,11 @@ void addIrTypeToGraph(IrTypeGraph *g, const IrType *type)
 static void collectTypesFromNode(ConstIrVisitor *visitor, const IrNode *node)
 {
     IrTypeGraph *g = getConstIrVisitorContext(visitor);
+    if (node->tag == irFunction && !hasFlag(node, Reachable))
+        return;
+    if (node->tag == irGlobalVar && !hasFlag(node, Reachable))
+        return;
+
     if (node->type)
         addIrTypeToGraph(g, node->type);
 

@@ -100,6 +100,12 @@ void irVisitFallbackVisitAll(IrVisitor *visitor, IrNode *node)
     case irAlias:
         irVisit(visitor, node->alias.expr);
         break;
+    case irStructConst:
+        irVisitManyNodes(visitor, node->structConst.fields);
+        break;
+    case irArrayConst:
+        irVisitManyNodes(visitor, node->arrayConst.elements);
+        break;
     default:
         break;
     }
@@ -166,6 +172,12 @@ void irConstVisitFallbackVisitAll(ConstIrVisitor *visitor, const IrNode *node)
         break;
     case irAlias:
         irConstVisit(visitor, node->alias.expr);
+        break;
+    case irStructConst:
+        irConstVisitManyNodes(visitor, node->structConst.fields);
+        break;
+    case irArrayConst:
+        irConstVisitManyNodes(visitor, node->arrayConst.elements);
         break;
     default:
         break;

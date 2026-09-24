@@ -39,6 +39,7 @@ extern "C" {
     f(Alias)
 
 #define CXY_IR_RAII_TAGS(f)         \
+    f(Alloc)                        \
     f(Copy)                         \
     f(Move)                         \
     f(Drop)                         \
@@ -126,6 +127,7 @@ struct IrNode {
         struct { cstring name; IrNode *expr; } alias;
 
         // RAII
+        struct { const IrType *type; } alloc;
         struct { IrNode *src; IrNode *dst; } copy;
         struct { IrNode *src; } move;
         struct { IrNode *target; IrNode *flag; } drop;
@@ -203,6 +205,7 @@ IrNode *makeIrAlloca(MemPool *pool, const FileLoc *loc, const IrType *elemType, 
 IrNode *makeIrMalloc(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size);
 
 IrNode *makeIrMove(MemPool *pool, const FileLoc *loc, IrNode *src);
+IrNode *makeIrAlloc(MemPool *pool, const FileLoc *loc, const IrType *type);
 IrNode *makeIrCopy(MemPool *pool, const FileLoc *loc, IrNode *src, IrNode *dst);
 IrNode *makeIrDrop(MemPool *pool, const FileLoc *loc, IrNode *target);
 IrNode *makeIrDropIf(MemPool *pool, const FileLoc *loc, IrNode *target, IrNode *flag);

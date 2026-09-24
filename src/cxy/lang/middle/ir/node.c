@@ -251,6 +251,9 @@ IrNode *cloneIrNode(MemPool *pool, const IrNode *node)
         copy->alias.name = node->alias.name;
         copy->alias.expr = cloneIrNode(pool, node->alias.expr);
         break;
+    case irAlloc:
+        copy->alloc.type = node->alloc.type;
+        break;
     case irMove:
         copy->move.src = cloneIrNode(pool, node->move.src);
         break;
@@ -381,6 +384,13 @@ IrNode *makeIrMalloc(MemPool *pool, const FileLoc *loc, const IrType *elemType, 
     IrNode *node = makeIrNode(pool, loc, flgNone, irMalloc, NULL);
     node->malloc.elemType = elemType;
     node->malloc.size = size;
+    return node;
+}
+
+IrNode *makeIrAlloc(MemPool *pool, const FileLoc *loc, const IrType *type)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irAlloc, type);
+    node->alloc.type = type;
     return node;
 }
 

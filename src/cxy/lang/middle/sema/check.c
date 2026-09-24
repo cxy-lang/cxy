@@ -6,6 +6,7 @@
 #include "../builtins.h"
 #include "../eval/eval.h"
 
+#include "lang/frontend/strings.h"
 #include "lang/operations.h"
 
 #include "lang/frontend/ast.h"
@@ -829,7 +830,9 @@ const Type *checkMaybeComptime(AstVisitor *visitor, AstNode *node)
 AstNode *checkAst(CompilerDriver *driver, AstNode *node)
 {
     cstring ns =
-        node->program.module ? node->program.module->moduleDecl.name : NULL;
+        node->program.module
+            ? node->program.module->moduleDecl.name
+            : (hasFlag(node, BuiltinsModule) ? S_builtins : NULL);
     TypingContext context = {.L = driver->L,
                              .pool = driver->pool,
                              .strings = driver->strings,

@@ -69,7 +69,7 @@ extern "C" {
     f(Abstract,             52)                 \
     f(ModuleInit,           53)                 \
     f(Move,                 54)                 \
-    f(Scoping,              55)                 \
+    f(Reachable,            55)                 \
     f(BlockValue,           56)                 \
     f(DiDisable,            57)                 \
     f(Forced,               58)                 \
