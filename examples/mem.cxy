@@ -1,4 +1,28 @@
+func say(fn: func()-> void ) {
+    fn()
+}
+
+struct Hello {
+    fn: func() -> void
+    func `init`(@escaping fn: func() -> void) {
+        this.fn = &&fn
+    }
+
+    func say() {
+        fn()
+    }
+}
+
+func check(s: String) {
+    return &&s
+}
+
 func main() {
-    var y = () => { return "Hello" }
-    y()
+    var x = "Hello".S
+    var y = () => {
+        printf("Hello, World! %s\n", x.str())
+    }
+    var hello = Hello(y)
+    hello.say()
+    check(&&x)
 }

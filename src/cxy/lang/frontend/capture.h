@@ -13,9 +13,10 @@ struct Capture {
     AstNode *field;
     u32 id;
     u64 flags;
+    CaptureMode mode;
 };
 
-Capture *addClosureCapture(ClosureCapture *set, AstNode *node);
+Capture *addClosureCapture(ClosureCapture *set, AstNode *node, CaptureMode mode);
 u64 getOrderedCapture(ClosureCapture *set, Capture *capture, u64 count);
 cstring getCapturedNodeName(const AstNode *node);
 AstNode *getCapturedNodeType(const AstNode *node);

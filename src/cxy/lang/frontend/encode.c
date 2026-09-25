@@ -469,11 +469,32 @@ static void visitCallExpr(ConstAstVisitor *visitor, const AstNode *node)
 
 static void visitClosureExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
+    AstNodeUnpackContext *ctx = getConstAstVisitorContext(visitor);
     nodePackHeader(visitor, node);
 
+    msgpack_pack_uint32(&ctx->packer, (uint32_t)node->closureExpr.defaultMode);
+    manyNodesToBinary(visitor, node->closureExpr.captures);
     nodeToBinary(visitor, node->closureExpr.ret);
     manyNodesToBinary(visitor, node->closureExpr.params);
     nodeToBinary(visitor, node->closureExpr.body);
+}
+
+static void visitClosureCapture(ConstAstVisitor *visitor, const AstNode *node)
+{
+    AstNodeUnpackContext *ctx = getConstAstVisitorContext(visitor);
+    nodePackHeader(visitor, node);
+
+    packString(&ctx->packer, node->closureCapture.name);
+    msgpack_pack_uint32(&ctx->packer, (uint32_t)node->closureCapture.mode);
+    nodeToBinary(visitor, node->closureCapture.var);
+}
+
+static void visitClosureValue(ConstAstVisitor *visitor, const AstNode *node)
+{
+    nodePackHeader(visitor, node);
+
+    nodeToBinary(visitor, node->closureValue.env);
+    nodeToBinary(visitor, node->closureValue.func);
 }
 
 static void visitFieldExpr(ConstAstVisitor *visitor, const AstNode *node)
@@ -624,6 +645,8 @@ bool binaryEncodeAstNode(struct msgpack_sbuffer *sbuf,
         [astCallExpr] = visitCallExpr,
         [astMacroCallExpr] = visitCallExpr,
         [astClosureExpr] = visitClosureExpr,
+        [astClosureCapture] = visitClosureCapture,
+        [astClosureValue] = visitClosureValue,
         [astFieldExpr] = visitFieldExpr,
         [astStructExpr] = visitStructExpr,
         [astExprStmt] = visitExpressionStmt,

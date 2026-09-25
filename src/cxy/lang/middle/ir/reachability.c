@@ -121,7 +121,7 @@ static void markTypeLifecycleFunctions(ReachabilityContext *ctx, const IrType *t
     if (type == NULL)
         return;
 
-    if (type->category == irTypeCatClass) {
+    if (type->category == irTypeCatClass || type->category == irTypeCatClosure) {
         markSymbolByName(ctx, isCopy ? S_sptr_ref : S_sptr_drop);
         const IrType *st = isIrPointerType(type) ? type->pointer.pointee : type;
         if (st) {
@@ -179,9 +179,9 @@ static void visitAlloc(ConstIrVisitor *visitor, const IrNode *node)
 {
     ReachabilityContext *ctx = getConstIrVisitorContext(visitor);
     if (node->alloc.type) {
+        markSymbolByName(ctx, ctx->driver->options.withMemoryTrace ? S_sptr_alloc_trace : S_sptr_alloc);
         const IrType *st = isIrPointerType(node->alloc.type) ? node->alloc.type->pointer.pointee : node->alloc.type;
-        if (st && st->category == irTypeCatClass) {
-            markSymbolByName(ctx, ctx->driver->options.withMemoryTrace ? S_sptr_alloc_trace : S_sptr_alloc);
+        if (st) {
             if (st->strct.dctorFwd)
                 markAndEnqueue(ctx, st->strct.dctorFwd);
             else if (st->strct.dctor)

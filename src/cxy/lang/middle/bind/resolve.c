@@ -56,6 +56,21 @@ static inline bool shouldCaptureSymbol(const AstNode *closure,
             nodeIs(symbol, FieldDecl));
 }
 
+static CaptureMode getClosureCaptureModeForSymbol(const AstNode *closure,
+                                                  const AstNode *symbol)
+{
+    if (closure && closure->closureExpr.captures) {
+        cstring symbolName = getCapturedNodeName(symbol);
+        for (AstNode *cap = closure->closureExpr.captures; cap; cap = cap->next) {
+            if (cap->closureCapture.name && (cap->closureCapture.name == symbolName ||
+                                             strcmp(cap->closureCapture.name, symbolName) == 0)) {
+                return cap->closureCapture.mode;
+            }
+        }
+    }
+    return closure ? closure->closureExpr.defaultMode : capValue;
+}
+
 static AstNode *captureSymbol(BindContext *ctx,
                               AstNode *closure,
                               AstNode *node,
@@ -82,7 +97,8 @@ static AstNode *captureSymbol(BindContext *ctx,
             if (prev)
                 prev->flags = flgMember;
 
-            prev = addClosureCapture(&parent->closureExpr.captureSet, symbol);
+            CaptureMode mode = getClosureCaptureModeForSymbol(parent, symbol);
+            prev = addClosureCapture(&parent->closureExpr.captureSet, symbol, mode);
             root->flags |= flgMember;
             if (nodeIs(symbol, FieldDecl))
                 prev->flags |= flgMember;
@@ -609,6 +625,22 @@ void bindIfStmt(AstVisitor *visitor, AstNode *node)
 void bindClosureExpr(AstVisitor *visitor, AstNode *node)
 {
     BindContext *ctx = getAstVisitorContext(visitor);
+
+    // Validate explicit captures in enclosing scope
+    for (AstNode *cap = node->closureExpr.captures; cap; cap = cap->next) {
+        if (cap->closureCapture.name != NULL) {
+            AstNode *symbol = findSymbol(ctx->env, NULL, cap->closureCapture.name, &cap->loc);
+            if (symbol == NULL) {
+                logError(ctx->L,
+                         &cap->loc,
+                         "variable '{s}' in capture list not found in enclosing scope",
+                         (FormatArg[]){{.s = cap->closureCapture.name}});
+            }
+            else {
+                cap->closureCapture.var = symbol;
+            }
+        }
+    }
 
     astVisit(visitor, node->closureExpr.ret);
 

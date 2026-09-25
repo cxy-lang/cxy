@@ -267,6 +267,11 @@ IrNode *cloneIrNode(MemPool *pool, const IrNode *node)
         copy->unionValue.index = node->unionValue.index;
         copy->unionValue.value = cloneIrNode(pool, node->unionValue.value);
         break;
+    case irClosureValue:
+        copy->closureValue.env = cloneIrNode(pool, node->closureValue.env);
+        copy->closureValue.func = cloneIrNode(pool, node->closureValue.func);
+        copy->closureValue.dtor = cloneIrNode(pool, node->closureValue.dtor);
+        break;
     case irAlloc:
         copy->alloc.type = node->alloc.type;
         break;
@@ -474,6 +479,15 @@ IrNode *makeIrZeromem(MemPool *pool, const FileLoc *loc, IrNode *target)
 {
     IrNode *node = makeIrNode(pool, loc, flgNone, irZeromem, NULL);
     node->zeromem.target = target;
+    return node;
+}
+
+IrNode *makeIrClosureValue(MemPool *pool, const FileLoc *loc, IrNode *env, IrNode *func, IrNode *dtor, const IrType *type)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irClosureValue, type);
+    node->closureValue.env = env;
+    node->closureValue.func = func;
+    node->closureValue.dtor = dtor;
     return node;
 }
 

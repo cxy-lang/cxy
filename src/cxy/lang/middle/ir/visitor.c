@@ -107,6 +107,13 @@ void irVisitFallbackVisitAll(IrVisitor *visitor, IrNode *node)
     case irUnionValue:
         irVisit(visitor, node->unionValue.value);
         break;
+    case irClosureValue:
+        if (node->closureValue.env)
+            irVisit(visitor, node->closureValue.env);
+        irVisit(visitor, node->closureValue.func);
+        if (node->closureValue.dtor)
+            irVisit(visitor, node->closureValue.dtor);
+        break;
     case irCopy:
         irVisit(visitor, node->copy.src);
         irVisit(visitor, node->copy.dst);
@@ -201,6 +208,13 @@ void irConstVisitFallbackVisitAll(ConstIrVisitor *visitor, const IrNode *node)
         break;
     case irUnionValue:
         irConstVisit(visitor, node->unionValue.value);
+        break;
+    case irClosureValue:
+        if (node->closureValue.env)
+            irConstVisit(visitor, node->closureValue.env);
+        irConstVisit(visitor, node->closureValue.func);
+        if (node->closureValue.dtor)
+            irConstVisit(visitor, node->closureValue.dtor);
         break;
     case irCopy:
         irConstVisit(visitor, node->copy.src);

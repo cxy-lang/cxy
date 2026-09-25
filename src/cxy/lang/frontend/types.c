@@ -335,6 +335,17 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
         }
         return true;
     }
+    case typClosure: {
+        if (stripPointer(from)->tag == typNull)
+            return true;
+        if (typeIs(from, Closure)) {
+            return isTypeAssignableFrom(to->closure.fn, from->closure.fn);
+        }
+        if (typeIs(from, Func)) {
+            return isTypeAssignableFrom(to->closure.fn, from);
+        }
+        return false;
+    }
     case typEnum:
         return typeIs(from, Enum) &&
                isTypeAssignableFrom(to->tEnum.base, from->tEnum.base);
@@ -795,6 +806,12 @@ bool isVoidType(const Type *type)
     return typeIs(type, Void);
 }
 
+bool isClosureType(const Type *type)
+{
+    type = resolveUnThisUnwrapType(type);
+    return typeIs(type, Closure);
+}
+
 bool isClassType(const Type *type)
 {
     type = unwrapType(resolveType(type), NULL);
@@ -1034,6 +1051,14 @@ void printType_(FormatState *state, const Type *type, bool keyword)
             state, type->func.params, type->func.paramsCount, ", ", keyword);
         format(state, ") -> ", NULL);
         printType_(state, type->func.retType, keyword);
+        break;
+    case typClosure:
+        if (type->closure.fn) {
+            printType_(state, type->closure.fn, keyword);
+        }
+        else {
+            format(state, "closure", NULL);
+        }
         break;
     case typThis:
         if (type->_this.that != NULL)
@@ -1402,6 +1427,8 @@ bool isDestructible(const Type *type)
         return false;
     type = unwrapType(type, NULL);
     if (isClassType(type))
+        return true;
+    if (typeIs(type, Closure) && type->closure.isEscaping)
         return true;
     if (hasFlag(type, ReferenceMembers) || hasFlag(type, ImplementsDeinit))
         return true;

@@ -287,9 +287,21 @@ static void unpackNodeBody(AstNodeUnpackContext *ctx, AstNode *node)
         node->callExpr.args = unpackManyNodes(ctx, NULL);
         break;
     case astClosureExpr:
+        node->closureExpr.defaultMode = (CaptureMode)unpackU64(ctx);
+        node->closureExpr.captures = unpackManyNodes(ctx, NULL);
         node->closureExpr.ret = unpackNode(ctx);
         node->closureExpr.params = unpackManyNodes(ctx, NULL);
         node->closureExpr.body = unpackNode(ctx);
+        break;
+    case astClosureCapture:
+        node->closureCapture.name = unpackString(ctx);
+        node->closureCapture.mode = (CaptureMode)unpackU64(ctx);
+        node->closureCapture.var = unpackNode(ctx);
+        break;
+    case astClosureValue:
+        node->closureValue.env = unpackNode(ctx);
+        node->closureValue.func = unpackNode(ctx);
+        node->closureValue.canonicalType = NULL;
         break;
     case astFieldExpr:
         node->fieldExpr.name = unpackString(ctx);

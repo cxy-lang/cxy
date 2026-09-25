@@ -79,6 +79,7 @@ typedef enum {
     f(Opaque)                   \
     f(Tuple)                    \
     f(Func)                     \
+    f(Closure)                  \
     f(Enum)                     \
     f(Module)                   \
     f(Struct)                   \
@@ -257,6 +258,12 @@ typedef struct Type {
         } func;
 
         struct {
+            const Type *env;
+            const Type *fn;
+            bool isEscaping;
+        } closure;
+
+        struct {
             const Type *base;
             cstring *names;
             u64 namesCount;
@@ -386,6 +393,8 @@ bool isReferable(const Type *type);
 bool isVoidPointer(const Type *type);
 
 bool isVoidType(const Type *type);
+
+bool isClosureType(const Type *type);
 
 bool isClassType(const Type *type);
 

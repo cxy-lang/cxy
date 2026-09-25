@@ -38,7 +38,8 @@ extern "C" {
     f(Sizeof)                       \
     f(Alias)                        \
     f(OptionalValue)                \
-    f(UnionValue)
+    f(UnionValue)                   \
+    f(ClosureValue)
 
 #define CXY_IR_RAII_TAGS(f)         \
     f(Alloc)                        \
@@ -129,6 +130,7 @@ struct IrNode {
         struct { cstring name; IrNode *expr; } alias;
         struct { bool hasValue; IrNode *value; } optionalValue;
         struct { u32 index; IrNode *value; } unionValue;
+        struct { IrNode *env; IrNode *func; IrNode *dtor; } closureValue;
 
         // RAII
         struct { const IrType *type; } alloc;
@@ -210,6 +212,7 @@ IrNode *makeIrAlloca(MemPool *pool, const FileLoc *loc, const IrType *elemType, 
 IrNode *makeIrMalloc(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size);
 IrNode *makeIrOptionalValue(MemPool *pool, const FileLoc *loc, IrNode *value, const IrType *type);
 IrNode *makeIrUnionValue(MemPool *pool, const FileLoc *loc, u32 index, IrNode *value, const IrType *type);
+IrNode *makeIrClosureValue(MemPool *pool, const FileLoc *loc, IrNode *env, IrNode *func, IrNode *dtor, const IrType *type);
 
 IrNode *makeIrMove(MemPool *pool, const FileLoc *loc, IrNode *src);
 IrNode *makeIrAlloc(MemPool *pool, const FileLoc *loc, const IrType *type);

@@ -275,6 +275,23 @@ static void dumpUnionValue(ConstIrVisitor *visitor, const IrNode *node)
     format(ctx->state, ")", NULL);
 }
 
+static void dumpClosureValue(ConstIrVisitor *visitor, const IrNode *node)
+{
+    IrDumpContext *ctx = getConstIrVisitorContext(visitor);
+    format(ctx->state, "ClosureValue(", NULL);
+    if (node->closureValue.env)
+        irConstVisit(visitor, node->closureValue.env);
+    else
+        format(ctx->state, "null", NULL);
+    format(ctx->state, ", ", NULL);
+    irConstVisit(visitor, node->closureValue.func);
+    if (node->closureValue.dtor) {
+        format(ctx->state, ", ", NULL);
+        irConstVisit(visitor, node->closureValue.dtor);
+    }
+    format(ctx->state, ")", NULL);
+}
+
 static void dumpVarDecl(ConstIrVisitor *visitor, const IrNode *node)
 {
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
@@ -575,7 +592,8 @@ AstNode *dumpIr(CompilerDriver *driver, const IrNode *module, FILE *file)
         [irSizeof] = dumpSizeof,
         [irAlias] = dumpAlias,
         [irOptionalValue] = dumpOptionalValue,
-        [irUnionValue] = dumpUnionValue
+        [irUnionValue] = dumpUnionValue,
+        [irClosureValue] = dumpClosureValue
     });
     // clang-format on
 

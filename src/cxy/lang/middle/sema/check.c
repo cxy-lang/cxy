@@ -227,6 +227,14 @@ static void checkReturnStmt(AstVisitor *visitor, AstNode *node)
             node->returnStmt.expr = expr;
         }
 
+        if (!promoteClosureToEscaping(ctx, expr, ret->type, "return")) {
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        if (expr && nodeIs(expr, ClosureValue)) {
+            expr_ = expr->closureValue.canonicalType;
+        }
+
         if (!isTypeCastAssignable(ret->type, expr_) &&
             !isTypeAssignableFrom(ret->type, expr_)) {
             logError(ctx->L,
@@ -703,6 +711,16 @@ static void checkField(AstVisitor *visitor, AstNode *node)
     if (typeIs(type, Error)) {
         node->type = ERROR_TYPE(ctx);
         return;
+    }
+
+    if (typeIs(type, Func) && !hasFlag(node, Pure) &&
+        !findAttribute(node, S_pure)) {
+        type =
+            makeClosureType(ctx->types, makeVoidType(ctx->types), type, true);
+    }
+    else if (typeIs(type, Closure) && !type->closure.isEscaping) {
+        type = makeClosureType(
+            ctx->types, type->closure.env, type->closure.fn, true);
     }
 
     if (node->structField.value)

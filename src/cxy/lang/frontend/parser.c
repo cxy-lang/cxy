@@ -1163,10 +1163,13 @@ static inline bool maybeClosure(Parser *P)
            || (checkPeek(P, 1, tokElipsis) && checkPeek(P, 2, tokIdent) &&
                checkPeek(P, 2, tokColon)) // (...a: Type)
            ||
-           (checkPeek(P, 1, tokIdent) && checkPeek(P, 2, tokColon)) // (a: Type)
-           || (checkPeek(P, 1, tokRParen) &&
-               (checkPeek(P, 2, tokColon)         // () : Type
-                || checkPeek(P, 2, tokFatArrow))) // () =>
+           (checkPeek(P, 1, tokIdent) &&
+            checkPeek(P, 2, tokColon)) // (a: Type)
+            ||
+            (checkPeek(P, 1, tokRParen) &&
+            (checkPeek(P, 2, tokColon)         // () : Type
+            ||
+            checkPeek(P, 2, tokFatArrow))) // () =>
         ;
 }
 
@@ -1279,7 +1282,63 @@ static AstNode *funcReturnType(Parser *P)
     return ret;
 }
 
-static AstNode *closure(Parser *P)
+static AstNode *closure(Parser *P, AstNode *captures, CaptureMode defaultMode);
+
+static AstNode *closureWithCaptures(Parser *P)
+{
+    Token start = *consume0(P, tokBOr);
+    CaptureMode defaultMode = capValue;
+    AstNodeList list = {};
+
+    while (!check(P, tokBOr) && !isEoF(P)) {
+        if (check(P, tokLAnd) && (checkPeek(P, 1, tokBOr) || checkPeek(P, 1, tokComma))) {
+            defaultMode = capMove;
+            consume0(P, tokLAnd);
+            if (check(P, tokComma)) {
+                consume0(P, tokComma);
+                if (!check(P, tokBOr)) {
+                    parserError(P, &previous(P)->fileLoc, "default capture mode '&&' must appear at the end of the capture list", NULL);
+                }
+            }
+        }
+        else if (check(P, tokBAnd) && (checkPeek(P, 1, tokBOr) || checkPeek(P, 1, tokComma))) {
+            defaultMode = capReference;
+            consume0(P, tokBAnd);
+            if (check(P, tokComma)) {
+                consume0(P, tokComma);
+                if (!check(P, tokBOr)) {
+                    parserError(P, &previous(P)->fileLoc, "default capture mode '&' must appear at the end of the capture list", NULL);
+                }
+            }
+        }
+        else {
+            CaptureMode mode = capValue;
+            Token tok = *current(P);
+            if (match(P, tokLAnd)) {
+                mode = capMove;
+            }
+            else if (match(P, tokBAnd)) {
+                mode = capReference;
+            }
+
+            const char *name = getTokenString(P, consume0(P, tokIdent), false);
+            AstNode *cap = makeAstClosureCapture(P->memPool, &tok.fileLoc, name, mode, NULL);
+            insertAstNode(&list, cap);
+            if (check(P, tokComma)) {
+                consume0(P, tokComma);
+            }
+        }
+    }
+
+    consume0(P, tokBOr);
+    if (list.first == NULL && defaultMode == capValue) {
+        parserError(P, &start.fileLoc, "expecting at least 1 capture in capture list", NULL);
+    }
+
+    return closure(P, list.first, defaultMode);
+}
+
+static AstNode *closure(Parser *P, AstNode *captures, CaptureMode defaultMode)
 {
     AstNode *ret = NULL, *body = NULL;
     u64 flags = match(P, tokAsync) ? flgAsync : flgNone;
@@ -1301,7 +1360,11 @@ static AstNode *closure(Parser *P)
         &(AstNode){
             .tag = astClosureExpr,
             .flags = flags,
-            .closureExpr = {.params = params, .ret = ret, .body = body}});
+            .closureExpr = {.captures = captures,
+                            .params = params,
+                            .ret = ret,
+                            .body = body,
+                            .defaultMode = defaultMode}});
 }
 
 static AstNode *async(Parser *P)
@@ -1483,7 +1546,7 @@ static AstNode *parseReferenceType(Parser *P)
 static AstNode *parenExpr(Parser *P, bool strict)
 {
     if (maybeClosure(P))
-        return closure(P);
+        return closure(P, NULL, capValue);
 
     const Token start = *consume0(P, tokLParen);
     bool isSpread = match(P, tokElipsis);
@@ -2036,6 +2099,8 @@ static AstNode *primary_(Parser *P, bool allowStructs)
         return range(P);
     case tokAsync:
         return async(P);
+    case tokBOr:
+        return closureWithCaptures(P);
     default:
         reportUnexpectedToken(P, "a primary expression");
     }

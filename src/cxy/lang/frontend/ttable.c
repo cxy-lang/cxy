@@ -125,6 +125,13 @@ static HashCode hashType(HashCode hash, const Type *type)
         hash = hashTypes(hash, type->func.params, type->func.paramsCount);
         hash = hashType(hash, type->func.retType);
         break;
+    case typClosure:
+        if (type->closure.env)
+            hash = hashType(hash, type->closure.env);
+        if (type->closure.fn)
+            hash = hashType(hash, type->closure.fn);
+        hash = hashUint64(hash, type->closure.isEscaping ? 1 : 0);
+        break;
     case typStruct:
         if (hasFlag(type, Anonymous)) {
             for (u64 i = 0; i < type->tStruct.members->count; i++) {
@@ -321,6 +328,10 @@ bool compareTypes(const Type *lhs, const Type *rhs)
                compareManyTypes(left->func.params,
                                 right->func.params,
                                 right->func.paramsCount);
+    case typClosure:
+        return compareTypes(left->closure.env, right->closure.env) &&
+               compareTypes(left->closure.fn, right->closure.fn) &&
+               left->closure.isEscaping == right->closure.isEscaping;
     case typApplied:
         return compareTypes(left->applied.from, right->applied.from) &&
                right->applied.totalArgsCount == left->applied.totalArgsCount &&
@@ -998,6 +1009,19 @@ const Type *changeFunctionRetType(TypeTable *table,
     Type type = *func;
     type.func.retType = ret;
     return replaceTypeScoped(table, func, &type);
+}
+
+const Type *makeClosureType(TypeTable *table,
+                            const Type *env,
+                            const Type *fn,
+                            bool isEscaping)
+{
+    Type type = {.tag = typClosure,
+                 .flags = flgNone,
+                 .closure = {.env = env ?: makeVoidType(table),
+                             .fn = fn,
+                             .isEscaping = isEscaping}};
+    return getOrInsertType(table, &type).s;
 }
 
 const Type *makeEnum(TypeTable *table, const Type *init)

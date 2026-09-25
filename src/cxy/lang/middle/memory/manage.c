@@ -206,6 +206,16 @@ static void forEachMovedSource(IrNode *rhs, void (*cb)(IrNode *src, void *ctx), 
                 cb(elem->move.src, cbCtx);
         }
     }
+    else if (rhs->tag == irClosureValue) {
+        if (rhs->closureValue.env && rhs->closureValue.env->tag == irMove)
+            cb(rhs->closureValue.env->move.src, cbCtx);
+    }
+    else if (rhs->tag == irCall) {
+        for (IrNode *arg = rhs->call.args; arg; arg = arg->next) {
+            if (arg->tag == irMove)
+                cb(arg->move.src, cbCtx);
+        }
+    }
 }
 
 typedef struct MoveGenKillContext {
@@ -245,6 +255,10 @@ static void computeIntraBlockGenKill(MemMgmtContext *ctx, CfgBlockInfo *block)
 
             MoveGenKillContext moveCtx = {.ctx = ctx, .block = block};
             forEachMovedSource(stmt->assign.rhs, onMoveInGenKill, &moveCtx);
+        }
+        else if (stmt->tag == irCall) {
+            MoveGenKillContext moveCtx = {.ctx = ctx, .block = block};
+            forEachMovedSource(stmt, onMoveInGenKill, &moveCtx);
         }
         else if (stmt->tag == irCopy) {
             IrNode *dstDecl = findVarDeclInNode(stmt->copy.dst);
@@ -512,47 +526,41 @@ static IrNode *makeDropFlagAccess(MemMgmtContext *ctx, const FileLoc *loc, Track
     return makeIrMember(ctx->pool, loc, flagsRef, var->dropFlagIndex, var->name, u64Type);
 }
 
-static void injectCallArgumentCopies(MemMgmtContext *ctx, IrNode *bb, IrNode **prevRef, IrNode *callStmt, IrNode *call)
+static void processPayloadItem(MemMgmtContext *ctx,
+                               IrNode *bb,
+                               IrNode **prevRef,
+                               IrNode *stmt,
+                               IrNode **itemRef,
+                               IrNode **afterStmtRef,
+                               BitSet *currMay,
+                               BitSet *currMust);
+
+static void injectCallArgumentCopies(MemMgmtContext *ctx,
+                                     IrNode *bb,
+                                     IrNode **prevRef,
+                                     IrNode *callStmt,
+                                     IrNode *call,
+                                     IrNode **afterStmtRef,
+                                     BitSet *currMay,
+                                     BitSet *currMust)
 {
     if (call == NULL || call->tag != irCall || call->call.callee == NULL)
         return;
 
     const IrType *calleeType = call->call.callee->type;
     if (calleeType && calleeType->tag == irTypeFunc) {
-        IrNode *prevArg = NULL;
-        IrNode *arg = call->call.args;
-        for (u64 i = 0; arg && i < calleeType->func.count; i++) {
+        IrNode **argRef = &call->call.args;
+        for (u64 i = 0; *argRef && i < calleeType->func.count; i++) {
             const IrType *paramType = calleeType->func.params[i];
-            if (paramType && paramType->category != irTypeCatReference && isIrTypeDestructible(paramType) && arg->tag == irVarRef && !hasFlag(arg->varRef.target, Returned) && isIrVarDestructible(arg->varRef.target)) {
-                TrackedVar *argVar = getTrackedVar(ctx, arg->varRef.target);
-                if (argVar && !argVar->isTemporary) {
-                    cstring tempName = makeStringf(ctx->strings, "__copy%u", ctx->tempCounter++);
-                    IrNode *tempVar = makeIrVarDecl(ctx->pool, &arg->loc, flgTemporary | (arg->varRef.target->flags & flgReferenceMembers), tempName, tempName, arg->type, ctx->currentScopeId);
-                    TrackedVar *tv = addTrackedVar(ctx, tempVar, tempName, ctx->currentScopeId, arg->type);
-                    if (tv)
-                        tv->state = irVarMoved;
-
-                    IrNode *dstRef = makeIrVarRef(ctx->pool, &arg->loc, tempVar);
-                    IrNode *copyStmt = makeIrCopy(ctx->pool, &arg->loc, arg, dstRef);
-
-                    tempVar->next = copyStmt;
-                    copyStmt->next = callStmt;
-                    if (*prevRef)
-                        (*prevRef)->next = tempVar;
-                    else
-                        bb->basicBlock.first = tempVar;
-                    *prevRef = copyStmt;
-
-                    dstRef->next = arg->next;
-                    if (prevArg)
-                        prevArg->next = dstRef;
-                    else
-                        call->call.args = dstRef;
-                    arg = dstRef;
-                }
+            if (paramType && paramType->category == irTypeCatReference) {
+                if ((*argRef)->tag == irMove)
+                    *argRef = (*argRef)->move.src;
+                argRef = &(*argRef)->next;
+                continue;
             }
-            prevArg = arg;
-            arg = arg->next;
+
+            processPayloadItem(ctx, bb, prevRef, callStmt, argRef, afterStmtRef, currMay, currMust);
+            argRef = &(*argRef)->next;
         }
     }
 }
@@ -665,6 +673,11 @@ static void injectCompositePayloadCopies(MemMgmtContext *ctx,
     else if (rhs->tag == irArrayConst) {
         for (IrNode **elem = &rhs->arrayConst.elements; *elem; elem = &(*elem)->next) {
             processPayloadItem(ctx, bb, prevRef, stmt, elem, afterStmtRef, currMay, currMust);
+        }
+    }
+    else if (rhs->tag == irClosureValue) {
+        if (rhs->closureValue.env) {
+            processPayloadItem(ctx, bb, prevRef, stmt, &rhs->closureValue.env, afterStmtRef, currMay, currMust);
         }
     }
 }
@@ -796,9 +809,9 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         }
                     }
                     else if (rhs->tag == irCall) {
-                        injectCallArgumentCopies(ctx, bb, &prev, stmt, rhs);
+                        injectCallArgumentCopies(ctx, bb, &prev, stmt, rhs, &next, &currMay, &currMust);
                     }
-                    else if (rhs->tag == irUnionValue || rhs->tag == irOptionalValue || rhs->tag == irStructConst || rhs->tag == irArrayConst) {
+                    else if (rhs->tag == irUnionValue || rhs->tag == irOptionalValue || rhs->tag == irStructConst || rhs->tag == irArrayConst || rhs->tag == irClosureValue) {
                         injectCompositePayloadCopies(ctx, bb, &prev, stmt, rhs, &next, &currMay, &currMust);
                     }
                     else if (shouldPromoteAssignToCopy(lhsDecl, stmt->assign.lhs, rhs)) {
@@ -810,7 +823,7 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                 }
             }
             else if (stmt->tag == irCall) {
-                injectCallArgumentCopies(ctx, bb, &prev, stmt, stmt);
+                injectCallArgumentCopies(ctx, bb, &prev, stmt, stmt, &next, &currMay, &currMust);
             }
             else if (stmt->tag == irScopeExit) {
                 u32 exitingScope = stmt->scopeExit.scopeId;

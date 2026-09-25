@@ -104,6 +104,14 @@ void checkAssignExpr(AstVisitor *visitor, AstNode *node)
         return;
     }
 
+    if (!promoteClosureToEscaping(ctx, right, lhs, "assign")) {
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
+    if (isClosureType(lhs) && lhs->closure.isEscaping && nodeIs(right, ClosureValue)) {
+        rhs = right->closureValue.canonicalType;
+    }
+
     bool isLeftAuto = typeIs(lhs, Auto);
 
     // TODO check r-value-ness

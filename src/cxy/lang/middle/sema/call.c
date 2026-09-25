@@ -8,6 +8,7 @@
 #include "lang/frontend/strings.h"
 
 #include "core/alloc.h"
+#include "lang/frontend/types.h"
 
 static inline u64 getCalleeContextFlags(const AstNode *node)
 {
@@ -58,6 +59,87 @@ static void reAssignCalleeType(AstNode *node, const Type *type)
     node->type = type;
 }
 
+static AstNode *synthesizeClosureThunkForFunc(AstVisitor *visitor,
+                                              AstNode *funcArg,
+                                              const Type *closureType)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    const Type *funcType = funcArg->type;
+    const FileLoc *loc = &funcArg->loc;
+    cstring thunkName = makeAnonymousVariable(ctx->strings, "__thunk");
+
+    const Type *voidPtrType = makeVoidPointerType(ctx->types, flgNone);
+    AstNode *envThisParam = makeFunctionParam(
+        ctx->pool,
+        loc,
+        S_this,
+        makeTypeReferenceNode(ctx->pool, voidPtrType, loc),
+        NULL,
+        flgNone,
+        NULL);
+
+    AstNodeList paramsList = {};
+    AstNodeList argsList = {};
+    for (u64 i = 0; i < funcType->func.paramsCount; i++) {
+        cstring paramName = makeStringf(ctx->strings, "_a%u", (unsigned)i);
+        const Type *paramType = funcType->func.params[i];
+        AstNode *pDecl = makeFunctionParam(
+            ctx->pool,
+            loc,
+            paramName,
+            makeTypeReferenceNode(ctx->pool, paramType, loc),
+            NULL,
+            flgNone,
+            NULL);
+        pDecl->type = paramType;
+        insertAstNode(&paramsList, pDecl);
+
+        AstNode *argRef = makeResolvedPath(
+            ctx->pool, loc, paramName, flgNone, pDecl, NULL, paramType);
+        insertAstNode(&argsList, argRef);
+    }
+
+    const Type *retType = funcType->func.retType;
+    AstNode *forwardCall = makeCallExpr(
+        ctx->pool,
+        loc,
+        funcArg,
+        argsList.first,
+        flgNone,
+        NULL,
+        retType);
+
+    AstNode *retStmt = isVoidType(retType)
+                           ? makeExprStmt(ctx->pool, loc, flgNone, forwardCall, NULL, retType)
+                           : makeReturnAstNode(ctx->pool, loc, flgNone, forwardCall, NULL, retType);
+    AstNode *bodyBlock = makeBlockStmt(ctx->pool, loc, retStmt, NULL, retType);
+
+    AstNode *thunkFunc = makeFunctionDecl(
+        ctx->pool,
+        loc,
+        thunkName,
+        paramsList.first,
+        makeTypeReferenceNode(ctx->pool, retType, loc),
+        bodyBlock,
+        flgNone,
+        NULL,
+        NULL);
+    thunkFunc->funcDecl.this_ = envThisParam;
+
+    const Type *thunkType = checkType(visitor, thunkFunc);
+    if (typeIs(thunkType, Error))
+        return NULL;
+
+    astModifierAdd(&ctx->root, thunkFunc);
+
+    AstNode *nullEnv = makeNullLiteral(ctx->pool, loc, NULL, voidPtrType);
+    AstNode *thunkRef = makeResolvedPath(
+        ctx->pool, loc, thunkName, flgNone, thunkFunc, NULL, thunkType);
+
+    return makeAstClosureValue(
+        ctx->pool, loc, nullEnv, thunkRef, closureType, closureType);
+}
+
 static void checkFunctionCallEpilogue(AstVisitor *visitor,
                                       const Type *func,
                                       AstNode *node,
@@ -81,13 +163,6 @@ static void checkFunctionCallEpilogue(AstVisitor *visitor,
         if (nodeIs(tmp, Noop))
             continue;
 
-        if (hasFlag(type, Closure)) {
-            tmp = transformClosureArgument(visitor, tmp);
-            if (typeIs(tmp->type, Error)) {
-                node->type = ERROR_TYPE(ctx);
-                continue;
-            }
-        }
         insertAstNode(&newArgs, tmp);
     }
     if (typeIs(node->type, Error))
@@ -100,6 +175,11 @@ static void checkFunctionCallEpilogue(AstVisitor *visitor,
     arg = args;
     for (u64 i = 0; arg; arg = arg->next, i++) {
         argTypes[i] = arg->type;
+    }
+
+    if (isClosureType(func)) {
+        node->type = func->closure.fn->func.retType;
+        return;
     }
 
     callee_ = matchOverloadedFunction(
@@ -236,38 +316,7 @@ void checkCallExpr(AstVisitor *visitor, AstNode *node)
             }
         }
     }
-    else if (typeIs(rawType, Tuple) && hasFlag(rawType, FuncTypeParam)) {
-        node->callExpr.callee = makeMemberExpr(
-            ctx->pool,
-            &callee->loc,
-            callee->flags,
-            deepCloneAstNode(ctx->pool, callee),
-            makeIntegerLiteral(ctx->pool,
-                               &callee->loc,
-                               1,
-                               NULL,
-                               getPrimitiveType(ctx->types, prtI64)),
-            NULL,
-            rawType->tuple.members[1]);
-
-        node->callExpr.args = makeMemberExpr(
-            ctx->pool,
-            &callee->loc,
-            callee->flags,
-            callee,
-            makeIntegerLiteral(ctx->pool,
-                               &callee->loc,
-                               0,
-                               NULL,
-                               getPrimitiveType(ctx->types, prtI64)),
-            node->callExpr.args,
-            rawType->tuple.members[0]);
-
-        node->type = checkType(visitor, node);
-        return;
-    }
-
-    if (!typeIs(callee_, Func)) {
+    if (!typeIs(callee_, Func) && !isClosureType(callee_)) {
         logError(ctx->L,
                  &callee->loc,
                  "type '{t}' is not a callable type",
@@ -283,20 +332,36 @@ void checkCallExpr(AstVisitor *visitor, AstNode *node)
     callee_ = node->callExpr.callee->type;
     AstNode *arg = node->callExpr.args, *prev = NULL;
     bool isVariadic = hasFlag(callee_, Variadic);
-    for (u64 i = 0; arg; arg = arg->next, i++) {
+    for (u64 i = 0; arg; i++) {
         if (isVariadic && i >= callee_->func.paramsCount)
             break;
 
         const Type *type = callee_->func.params[i], *expr = arg->type;
-        if (hasFlag(type, FuncTypeParam))
-            arg->type = type;
+        if (isClosureType(type)) {
+            if (typeIs(arg->type, Func)) {
+                AstNode *closureVal = synthesizeClosureThunkForFunc(visitor, arg, type);
+                if (closureVal) {
+                    closureVal->next = arg->next;
+                    if (prev)
+                        prev->next = closureVal;
+                    else
+                        node->callExpr.args = closureVal;
+                    arg = closureVal;
+                }
+            }
+            else if (!promoteClosureToEscaping(ctx, arg, type, "pass")) {
+                node->type = ERROR_TYPE(ctx);
+            }
+        }
+
         if (!evalExplicitConstruction(visitor, type, arg)) {
             logError(ctx->L,
                      &arg->loc,
                      "incompatible argument types, expecting '{t}' but got "
                      "'{t}'",
-                     (FormatArg[]){{.t = type}, {.t = type}});
+                     (FormatArg[]){{.t = type}, {.t = expr}});
             prev = arg;
+            arg = arg->next;
             continue;
         }
 
@@ -310,6 +375,7 @@ void checkCallExpr(AstVisitor *visitor, AstNode *node)
             arg = newArg;
         }
         prev = arg;
+        arg = arg->next;
     }
 
     if (!typeIs(node->type, Error) && !explicitCatch) {

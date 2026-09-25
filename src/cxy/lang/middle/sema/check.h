@@ -158,7 +158,6 @@ AstNode *inheritanceBuildVTableType(AstVisitor *visitor, AstNode *node);
 AstNode *inheritanceBuildVTable(TypingContext *ctx, AstNode *node);
 
 const Type *transformToConstructCallExpr(AstVisitor *visitor, AstNode *node);
-AstNode *transformClosureArgument(AstVisitor *visitor, AstNode *node);
 const Type *transformToInitCoverCallExpr(AstVisitor *visitor,
                                          AstNode *node,
                                          const Type *target);
@@ -219,6 +218,10 @@ void checkIndexExpr(AstVisitor *visitor, AstNode *node);
 void checkStructExpr(AstVisitor *visitor, AstNode *node);
 void checkNewExpr(AstVisitor *visitor, AstNode *node);
 void checkClosureExpr(AstVisitor *visitor, AstNode *node);
+bool promoteClosureToEscaping(TypingContext *ctx,
+                             AstNode *expr,
+                             const Type *targetType,
+                             cstring actionContext);
 void checkArrayExpr(AstVisitor *visitor, AstNode *node);
 void checkCallExpr(AstVisitor *visitor, AstNode *node);
 void checkTupleExpr(AstVisitor *visitor, AstNode *node);

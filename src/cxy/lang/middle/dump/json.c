@@ -803,11 +803,37 @@ static void visitClosureExpr(ConstAstVisitor *visitor, const AstNode *node)
     cJSON *jsonNode = nodeCreateJSON(visitor, node);
 
     cJSON_AddItemToObject(
+        jsonNode, "captures", manyNodesToJson(visitor, node->closureExpr.captures));
+    cJSON_AddItemToObject(
         jsonNode, "ret", nodeToJson(visitor, node->closureExpr.ret));
     cJSON_AddItemToObject(
         jsonNode, "params", manyNodesToJson(visitor, node->closureExpr.params));
     cJSON_AddItemToObject(
         jsonNode, "body", nodeToJson(visitor, node->closureExpr.body));
+
+    Return(ctx, jsonNode);
+}
+
+static void visitClosureCapture(ConstAstVisitor *visitor, const AstNode *node)
+{
+    JsonConverterContext *ctx = getConstAstVisitorContext(visitor);
+    cJSON *jsonNode = nodeCreateJSON(visitor, node);
+
+    if (node->closureCapture.name)
+        cJSON_AddStringToObject(jsonNode, "name", node->closureCapture.name);
+    cJSON_AddNumberToObject(jsonNode, "mode", (double)node->closureCapture.mode);
+    cJSON_AddItemToObject(jsonNode, "var", nodeToJson(visitor, node->closureCapture.var));
+
+    Return(ctx, jsonNode);
+}
+
+static void visitClosureValue(ConstAstVisitor *visitor, const AstNode *node)
+{
+    JsonConverterContext *ctx = getConstAstVisitorContext(visitor);
+    cJSON *jsonNode = nodeCreateJSON(visitor, node);
+
+    cJSON_AddItemToObject(jsonNode, "env", nodeToJson(visitor, node->closureValue.env));
+    cJSON_AddItemToObject(jsonNode, "func", nodeToJson(visitor, node->closureValue.func));
 
     Return(ctx, jsonNode);
 }
@@ -1033,6 +1059,8 @@ AstNode *dumpAstJson(CompilerDriver *driver, AstNode *node, FILE *file)
         [astCallExpr] = visitCallExpr,
         [astMacroCallExpr] = visitCallExpr,
         [astClosureExpr] = visitClosureExpr,
+        [astClosureCapture] = visitClosureCapture,
+        [astClosureValue] = visitClosureValue,
         [astFieldExpr] = visitFieldExpr,
         [astStructExpr] = visitStructExpr,
         [astXformExpr] = visitXformExpr,

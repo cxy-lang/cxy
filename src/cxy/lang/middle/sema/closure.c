@@ -6,428 +6,289 @@
 #include "lang/frontend/capture.h"
 #include "lang/frontend/flag.h"
 #include "lang/frontend/strings.h"
+#include "lang/frontend/visitor.h"
 
 #include "core/alloc.h"
+#include "lang/middle/shake/shake.h"
 
-static const Type *createStructForClosure(AstVisitor *visitor, AstNode *node)
+static bool checkClosureParameters(AstVisitor *visitor,
+                                   AstNode *params,
+                                   u64 *paramsCountOut)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
-    AstNodeList members = {};
-
-    for (u64 i = 0; i < node->closureExpr.captureCount; i++) {
-        Capture *capture = &node->closureExpr.capture[i];
-        AstNode *field = capture->field;
-        capture->field = NULL;
-        insertAstNode(&members, field);
-    }
-
-    AstNode *func = insertAstNode(&members,
-                                  makeFunctionDecl(ctx->pool,
-                                                   &node->loc,
-                                                   S_CallOverload,
-                                                   node->closureExpr.params,
-                                                   node->closureExpr.ret,
-                                                   node->closureExpr.body,
-                                                   flgPublic,
-                                                   NULL,
-                                                   NULL));
-    AstNode *init = insertAstNode(
-        &members,
-        makeFunctionDecl(ctx->pool,
-                         &node->loc,
-                         S_InitOverload,
-                         NULL,
-                         NULL,
-                         makeBlockStmt(ctx->pool, &node->loc, NULL, NULL, NULL),
-                         flgPublic,
-                         NULL,
-                         NULL));
-
-    AstNode *closure = makeAstNode(
-        ctx->pool,
-        &node->loc,
-        &(AstNode){.tag = members.first ? astClassDecl : astStructDecl,
-                   .flags = flgClosure,
-                   .structDecl = {
-                       .name = makeAnonymousVariable(ctx->strings, "__Closure"),
-                       .members = members.first}});
-
-    AstNode *thisType =
-        makePointerAstNode(ctx->pool,
-                           &func->loc,
-                           flgNone,
-                           makeResolvedPath(ctx->pool,
-                                            &func->loc,
-                                            closure->structDecl.name,
-                                            flgNone,
-                                            closure,
-                                            func->funcDecl.signature->params,
-                                            NULL),
-                           NULL,
-                           NULL);
-    func->funcDecl.this_ = makeFunctionParam(ctx->pool,
-                                             &func->loc,
-                                             S_this,
-                                             thisType,
-                                             NULL,
-                                             flgNone,
-                                             func->funcDecl.signature->params);
-    init->funcDecl.this_ = makeFunctionParam(
-        ctx->pool, &func->loc, S_this, thisType, NULL, flgNone, NULL);
-
-    AstNode *it = members.first;
-    for (; it; it = it->next) {
-        it->parentScope = closure;
-    }
-
-    const Type *type = checkType(visitor, closure);
-    if (typeIs(type, Error))
-        return type;
-
-    astModifierAdd(&ctx->root, closure);
-    return type;
-}
-
-static void transformClosureToStructExpr(AstVisitor *visitor,
-                                         const Type *type,
-                                         AstNode *node)
-{
-    TypingContext *ctx = getAstVisitorContext(visitor);
-    AstNodeList stmts = {};
-    AstNode *var =
-        insertAstNode(&stmts, createAllocateClass(ctx, type, &node->loc));
-
-    for (u64 i = 0; i < node->closureExpr.captureCount; i++) {
-        Capture *capture = &node->closureExpr.capture[i];
-        cstring name = getCapturedNodeName(capture->node);
-        const Type *fieldType = capture->node->type;
-        AstNode *value = makeResolvedPath(
-            ctx->pool,
-            &node->loc,
-            name,
-            capture->node->flags | capture->flags |
-                (nodeIs(capture->node, FieldDecl) ? flgAddThis : flgNone),
-            capture->node,
-            NULL,
-            fieldType);
-        if (isClassOrStructType(fieldType) || isUnionType(fieldType) ||
-            isTupleType(fieldType))
-            value = makeReferenceOfExpr(
-                ctx->pool,
-                &value->loc,
-                value->flags,
-                value,
-                NULL,
-                makeReferenceType(
-                    ctx->types,
-                    fieldType,
-                    fieldType->flags & ~(flgReferenceMembers|flgImplementsDeinit)));
-
-        insertAstNode(
-            &stmts,
-            makeExprStmt(
-                ctx->pool,
-                &node->loc,
-                flgNone,
-                makeAssignExpr(
-                    ctx->pool,
-                    &node->loc,
-                    flgNone,
-                    makeMemberExpr(
-                        ctx->pool,
-                        &node->loc,
-                        capture->flags,
-                        makeResolvedIdentifier(ctx->pool,
-                                               &node->loc,
-                                               var->varDecl.name,
-                                               0,
-                                               var,
-                                               NULL,
-                                               var->type),
-                        makeResolvedIdentifier(ctx->pool,
-                                               &node->loc,
-                                               name,
-                                               0,
-                                               findMemberDeclInType(type, name),
-                                               NULL,
-                                               value->type),
-                        NULL,
-                        value->type),
-                    opAssign,
-                    value,
-                    NULL,
-                    value->type),
-                NULL,
-                var->type));
-    }
-    insertAstNode(&stmts,
-                  makeExprStmt(ctx->pool,
-                               &node->loc,
-                               flgNone,
-                               makeResolvedPath(ctx->pool,
-                                                &node->loc,
-                                                var->_namedNode.name,
-                                                flgTemporary,
-                                                var,
-                                                NULL,
-                                                var->type),
-                               NULL,
-                               var->type));
-
-    node->tag = astStmtExpr;
-    node->type = var->type;
-    clearAstBody(node);
-    node->stmtExpr.stmt =
-        makeBlockStmt(ctx->pool, &node->loc, stmts.first, NULL, var->type);
-    node->stmtExpr.stmt->flags |= flgBlockReturns;
-}
-
-static AstNode *makeClosureForwardFunction(AstVisitor *visitor, AstNode *node)
-{
-    TypingContext *ctx = getAstVisitorContext(visitor);
-    AstNode *call = findInAstNode(node, S_CallOverload);
-    csAssert0(call);
-    const Type *ret = call->type->func.retType;
-
-    AstNodeList params = {};
-    AstNodeList argList = {NULL};
-
-    insertAstNode(
-        &params,
-        makeFunctionParam(
-            ctx->pool,
-            &node->loc,
-            S_ptr,
-            makeTypeReferenceNode(ctx->pool,
-                                  makeVoidPointerType(ctx->types, flgNone),
-                                  &node->loc),
-            NULL,
-            flgNone,
-            NULL));
-
-    AstNode *param = call->funcDecl.signature->params;
-    for (; param; param = param->next) {
-        insertAstNode(&params, shallowCloneAstNode(ctx->pool, param));
-        insertAstNode(&argList,
-                      makeUnaryExpr(ctx->pool,
-                                    &param->loc,
-                                    flgNone,
-                                    true,
-                                    opMove,
-                                    makeResolvedPath(ctx->pool,
-                                                     &param->loc,
-                                                     param->funcParam.name,
-                                                     param->flags,
-                                                     params.last,
-                                                     NULL,
-                                                     param->type),
-                                    NULL,
-                                    param->type));
-    }
-
-    AstNode *var = makeVarDecl(
-        ctx->pool,
-        builtinLoc(),
-        flgNone,
-        makeStringConcat(ctx->strings, S_self, "_"),
-        NULL,
-        makeTypedExpr(ctx->pool,
-                      &node->loc,
-                      flgNone,
-                      // self
-                      makeResolvedPath(ctx->pool,
-                                       &node->loc,
-                                       S_ptr,
-                                       flgNone,
-                                       params.first,
-                                       NULL,
-                                       params.first->type),
-                      // __Closure
-                      makeTypeReferenceNode(ctx->pool, node->type, &node->loc),
-                      NULL,
-                      node->type),
-        NULL,
-        node->type);
-    AstNode *call_ =
-        makeCallExpr(ctx->pool,
-                     &node->loc,
-                     // self_.op__call
-                     makeMemberExpr(ctx->pool,
-                                    &node->loc,
-                                    flgNone,
-                                    // (<&__Closure>self)
-                                    makeResolvedPath(ctx->pool,
-                                                     &node->loc,
-                                                     var->_name,
-                                                     flgNone,
-                                                     var,
-                                                     NULL,
-                                                     var->type),
-                                    // op__call
-                                    makeResolvedPath(ctx->pool,
-                                                     &node->loc,
-                                                     S_CallOverload,
-                                                     call->flags,
-                                                     call,
-                                                     NULL,
-                                                     call->type),
-                                    NULL,
-                                    call->type),
-                     argList.first,
-                     flgNone,
-                     NULL,
-                     ret);
-    var->next =
-        isVoidType(ret)
-            ? makeExprStmt(
-                  ctx->pool, builtinLoc(), flgNone, call_, NULL, call_->type)
-            : makeReturnAstNode(
-                  ctx->pool, builtinLoc(), flgNone, call_, NULL, call_->type);
-
-    // func __Closure__fwd(self: &void, ...) : Ret =>
-    //      (<&__Closure>self).op__call(...)
-    AstNode *body = makeBlockStmt(ctx->pool, &node->loc, var, NULL, NULL);
-    AstNode *forward = makeFunctionDecl(
-        ctx->pool,
-        &node->loc,
-        makeStringConcat(ctx->strings, node->structDecl.name, "__fwd"),
-        // self: &void, ...
-        params.first,
-        // Ret
-        makeTypeReferenceNode(ctx->pool, call->type->func.retType, &node->loc),
-        body,
-        flgNone,
-        NULL,
-        NULL);
-
-    const Type *type = checkType(visitor, forward);
-    if (typeIs(type, Error))
-        return NULL;
-
-    astModifierAdd(&ctx->root, forward);
-    node->structDecl.closureForward = forward;
-    return forward;
-}
-
-AstNode *transformClosureArgument(AstVisitor *visitor, AstNode *node)
-{
-    TypingContext *ctx = getConstAstVisitorContext(visitor);
-    AstNode *forward =
-        node->type->tStruct.decl->structDecl.closureForward
-            ?: makeClosureForwardFunction(visitor, node->type->tStruct.decl);
-    if (forward == NULL) {
-        node->type = ERROR_TYPE(ctx);
-        return node;
-    }
-
-    AstNode *next = node->next;
-    AstNode *forwardRef = makeResolvedPath(ctx->pool,
-                                           &node->loc,
-                                           forward->funcDecl.name,
-                                           flgNone,
-                                           forward,
-                                           NULL,
-                                           forward->type);
-    node->next = NULL;
-    node = makeTupleExpr(
-        ctx->pool,
-        &node->loc,
-        flgNone,
-        makeCastExpr(
-            ctx->pool,
-            &node->loc,
-            flgNone,
-            //            typeIs(node->type, Pointer)
-            //                ? node
-            //                : makePointerOfExpr(
-            //                      ctx->pool,
-            //                      &node->loc,
-            //                      flgNone,
-            //                      node,
-            //                      NULL,
-            //                      makePointerType(ctx->types, node->type,
-            //                      flgNone)),
-            node,
-            makeTypeReferenceNode(ctx->pool,
-                                  makeVoidPointerType(ctx->types, flgNone),
-                                  &node->loc),
-            forwardRef,
-            makeVoidPointerType(ctx->types, flgNone)),
-        next,
-        NULL);
-
-    node->type = checkType(visitor, node);
-    return node;
-}
-
-void checkClosureExpr(AstVisitor *visitor, AstNode *node)
-{
-    TypingContext *ctx = getAstVisitorContext(visitor);
-    AstNode *params = node->closureExpr.params, *param = params,
-            *ret = node->closureExpr.ret, *body = node->closureExpr.body;
-    ctx->currentEnclosure = node;
-    const Type *ret_ = ret ? checkType(visitor, ret) : makeAutoType(ctx->types);
-
-    const Type *type = ret_;
-    u64 defaultValues = 0;
-    for (u64 i = 0; param; param = param->next, i++) {
+    u64 count = 0;
+    for (AstNode *param = params; param; param = param->next, count++) {
         param->type ?: checkType(visitor, param);
-        if (typeIs(param->type, Error)) {
-            type = param->type;
-            continue;
-        }
+        if (typeIs(param->type, Error))
+            return false;
 
         if (hasFlag(param, Variadic)) {
             logError(ctx->L,
                      &param->loc,
                      "variadic parameters are not supported on closures",
                      NULL);
-            continue;
+            return false;
         }
+    }
+    *paramsCountOut = count;
+    return true;
+}
 
-        defaultValues += (param->funcParam.def != NULL);
+static bool synthesizeClosureEnvironment(AstVisitor *visitor,
+                                         const FileLoc *loc,
+                                         Capture *captures,
+                                         u64 captureCount,
+                                         const Type **envTypeOut,
+                                         AstNode **envExprOut)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    if (captureCount == 0) {
+        *envTypeOut = makeVoidType(ctx->types);
+        *envExprOut = makeNullLiteral(ctx->pool,
+                                      loc,
+                                      NULL,
+                                      makeVoidPointerType(ctx->types, flgNone));
+        return true;
     }
 
-    // Bind closed in fields
-    for (u64 i = 0; i < node->closureExpr.captureCount; i++) {
-        Capture *capture = &node->closureExpr.capture[i];
-        AstNode *field = capture->field;
-        const Type *fieldType = capture->node->type;
-        if (isClassOrStructType(fieldType) || isUnionType(fieldType) ||
-            isTupleType(fieldType))
-            fieldType = makeReferenceType(
-                ctx->types, capture->node->type,
-                capture->node->type->flags & ~(flgReferenceMembers|flgImplementsDeinit));
+    NamedTypeMember *envMembers =
+        allocFromMemPool(ctx->pool, sizeof(NamedTypeMember) * captureCount);
+    AstNodeList envFieldDecls = {};
+    AstNodeList envInitArgs = {};
 
+    for (u64 i = 0; i < captureCount; i++) {
+        Capture *capture = &captures[i];
+        cstring name = getCapturedNodeName(capture->node);
+        const Type *outerType = capture->node->type;
+        const Type *fieldType = (capture->mode == capReference)
+                                    ? makeReferenceType(ctx->types, outerType, flgNone)
+                                    : outerType;
+
+        AstNode *field = capture->field;
+        csAssert0(field != NULL);
         field->structField.type =
             makeTypeReferenceNode(ctx->pool, fieldType, &capture->node->loc);
         field->type = fieldType;
+        field->structField.index = (u32)i;
+
+        envMembers[i] = (NamedTypeMember){
+            .name = name, .type = fieldType, .decl = field};
+        insertAstNode(&envFieldDecls, field);
+
+        AstNode *val = makeResolvedPath(ctx->pool,
+                                        loc,
+                                        name,
+                                        capture->node->flags,
+                                        capture->node,
+                                        NULL,
+                                        outerType);
+        if (capture->mode == capReference) {
+            val = makeReferenceOfExpr(
+                ctx->pool, loc, flgNone, val, NULL, fieldType);
+        }
+        else if (capture->mode == capMove) {
+            val = makeUnaryExpr(
+                ctx->pool, loc, flgNone, true, opMove, val, NULL, fieldType);
+        }
+        insertAstNode(&envInitArgs,
+                      makeFieldExpr(ctx->pool, loc, name, flgNone, val, field, NULL));
     }
 
-    if (typeIs(type, Error)) {
+    cstring envName = makeAnonymousVariable(ctx->strings, "__closure_env");
+    AstNode *envDecl = makeStructDecl(
+        ctx->pool, loc, flgNone, envName, envFieldDecls.first, NULL, NULL);
+
+    AstNode *builtins = createClassOrStructBuiltins(ctx->pool, envDecl),
+            *builtin = builtins;
+    for (; builtin; builtin = builtin->next) {
+        builtin->funcDecl.this_ =
+            makeFunctionParam(ctx->pool,
+                              &builtin->loc,
+                              S_this,
+                              NULL,
+                              NULL,
+                              flgNone,
+                              builtin->funcDecl.signature->params);
+        builtin->parentScope = envDecl;
+    }
+    insertAstNode(&envFieldDecls, builtins);
+    envDecl->structDecl.members = envFieldDecls.first;
+    envDecl->parentScope = ctx->root.parent;
+
+    const Type *envType = checkType(visitor, envDecl);
+    if (typeIs(envType, Error))
+        return false;
+
+    astModifierAdd(&ctx->root, envDecl);
+
+    *envTypeOut = envType;
+    *envExprOut = makeStructExpr(ctx->pool,
+                                 loc,
+                                 flgNone,
+                                 makeTypeReferenceNode(ctx->pool, envType, loc),
+                                 envInitArgs.first,
+                                 NULL,
+                                 envType);
+    return true;
+}
+
+static AstNode *synthesizeClosureBodyFunction(AstVisitor *visitor,
+                                              const FileLoc *loc,
+                                              const Type *envType,
+                                              AstNode *params,
+                                              AstNode *ret,
+                                              AstNode *body,
+                                              AstNode **funcRefOut,
+                                              const Type **fnTypeOut)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    cstring bodyName = makeAnonymousVariable(ctx->strings, "__closure_body");
+    const Type *envPtrType =
+        isVoidType(envType)
+            ? makeVoidPointerType(ctx->types, flgNone)
+            : makePointerType(ctx->types, envType, flgNone);
+    AstNode *envThisParam =
+        makeFunctionParam(ctx->pool,
+                          loc,
+                          S_this,
+                          makeTypeReferenceNode(ctx->pool, envPtrType, loc),
+                          NULL,
+                          flgNone,
+                          NULL);
+
+    AstNode *bodyFunc = makeFunctionDecl(ctx->pool,
+                                         loc,
+                                         bodyName,
+                                         params,
+                                         ret,
+                                         body,
+                                         flgNone,
+                                         NULL,
+                                         NULL);
+    bodyFunc->funcDecl.this_ = envThisParam;
+
+    const Type *fnType = checkType(visitor, bodyFunc);
+    if (typeIs(fnType, Error))
+        return NULL;
+
+    astModifierAdd(&ctx->root, bodyFunc);
+
+    *fnTypeOut = fnType;
+    *funcRefOut =
+        makeResolvedPath(ctx->pool, loc, bodyName, flgNone, bodyFunc, NULL, fnType);
+    return bodyFunc;
+}
+
+void checkClosureExpr(AstVisitor *visitor, AstNode *node)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    ctx->currentEnclosure = node;
+
+    u64 paramsCount = 0;
+    if (!checkClosureParameters(visitor, node->closureExpr.params, &paramsCount)) {
         node->type = ERROR_TYPE(ctx);
         return;
     }
 
-    bool currentReturnState = ctx->returnState,
-         currentExplicitCatch = ctx->explicitCatch;
-    ctx->returnState = false;
-    ctx->explicitCatch = false;
-    const Type *body_ = checkType(visitor, body);
-    ctx->returnState = currentReturnState;
-    ctx->explicitCatch = currentExplicitCatch;
-    if (typeIs(body_, Error)) {
+    const Type *envType = NULL;
+    AstNode *envExpr = NULL;
+    if (!synthesizeClosureEnvironment(visitor,
+                                      &node->loc,
+                                      node->closureExpr.capture,
+                                      node->closureExpr.captureCount,
+                                      &envType,
+                                      &envExpr)) {
         node->type = ERROR_TYPE(ctx);
         return;
     }
 
-    type = createStructForClosure(visitor, node);
-    ctx->returnState = currentReturnState;
-    ctx->explicitCatch = currentExplicitCatch;
-    if (typeIs(type, Error)) {
+    const Type *fnType = NULL;
+    AstNode *funcRef = NULL;
+    AstNode *bodyFunc = synthesizeClosureBodyFunction(visitor,
+                                                      &node->loc,
+                                                      envType,
+                                                      node->closureExpr.params,
+                                                      node->closureExpr.ret,
+                                                      node->closureExpr.body,
+                                                      &funcRef,
+                                                      &fnType);
+    if (bodyFunc == NULL || typeIs(fnType, Error)) {
         node->type = ERROR_TYPE(ctx);
         return;
     }
 
-    transformClosureToStructExpr(visitor, type, node);
+    const Type **userParamTypes =
+        paramsCount > 0
+            ? allocFromMemPool(ctx->pool, sizeof(Type *) * paramsCount)
+            : NULL;
+    u64 pIdx = 0;
+    for (AstNode *p = node->closureExpr.params; p; p = p->next, pIdx++) {
+        userParamTypes[pIdx] = p->type;
+    }
+    const Type *userFnType = makeFuncType(
+        ctx->types,
+        &(Type){.tag = typFunc,
+                .flags = flgNone,
+                .func = {.params = userParamTypes,
+                         .paramsCount = (u16)paramsCount,
+                         .retType = bodyFunc->type->func.retType}});
+
+    const Type *closureType = makeClosureType(ctx->types, envType, userFnType, false);
+    const Type *canonicalType =
+        makeClosureType(ctx->types, makeVoidType(ctx->types), userFnType, false);
+    clearAstBody(node);
+    node->tag = astClosureValue;
+    node->type = closureType;
+    node->closureValue.env = envExpr;
+    node->closureValue.func = funcRef;
+    node->closureValue.canonicalType = canonicalType;
+}
+
+bool promoteClosureToEscaping(TypingContext *ctx,
+                             AstNode *expr,
+                             const Type *targetType,
+                             cstring actionContext)
+{
+    if (!expr || !isClosureType(targetType) || !targetType->closure.isEscaping)
+        return true;
+
+    AstNode *target = expr;
+    if (nodeIs(target, Path) && target->path.elements &&
+        target->path.elements->pathElement.resolvesTo) {
+        target = target->path.elements->pathElement.resolvesTo;
+    }
+
+    if (nodeIs(target, FuncParamDecl) && isClosureType(target->type) &&
+        !target->type->closure.isEscaping) {
+        logError(ctx->L,
+                 &expr->loc,
+                 "cannot {s} non-escaping closure parameter '{s}' to an "
+                 "escaping destination",
+                 (FormatArg[]){{.s = actionContext},
+                               {.s = target->funcParam.name}});
+        return false;
+    }
+
+    const Type *canonical = targetType->closure.env
+                                ? makeClosureType(ctx->types,
+                                                  makeVoidType(ctx->types),
+                                                  targetType->closure.fn,
+                                                  true)
+                                : targetType;
+
+    if (nodeIs(target, VarDecl) && target->varDecl.init &&
+        nodeIs(target->varDecl.init, ClosureValue)) {
+        AstNode *val = target->varDecl.init;
+        val->type = makeClosureType(
+            ctx->types, val->type->closure.env, val->type->closure.fn, true);
+        val->closureValue.canonicalType = canonical;
+        target->type = canonical;
+    }
+    else if (nodeIs(expr, ClosureValue)) {
+        expr->type = makeClosureType(
+            ctx->types, expr->type->closure.env, expr->type->closure.fn, true);
+        expr->closureValue.canonicalType = canonical;
+    }
+
+    return true;
 }

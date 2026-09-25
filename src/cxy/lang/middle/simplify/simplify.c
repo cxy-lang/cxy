@@ -130,7 +130,7 @@ static void simplifyCastExpression(SimplifyContext *ctx,
 {
     const Type *from = unwrapType(node->type, NULL);
 
-    if (isSliceType(type) || isArrayType(type) || isSliceType(type) || isArrayType(from))
+    if (isSliceType(type) || isArrayType(type) || isSliceType(from) || isArrayType(from) || isClosureType(type) || isClosureType(from))
         return;
 
 #if defined(LLVM_BACKEND)
@@ -554,6 +554,12 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
 {
     SimplifyContext *ctx = getAstVisitorContext(visitor);
     AstNode *callee = node->callExpr.callee, *args = node->callExpr.args;
+    if (isClosureType(callee->type)) {
+        callee->parentScope = node;
+        astVisit(visitor, callee);
+        astVisitManyNodes(visitor, args);
+        return;
+    }
     AstNode *func = callee->type->func.decl;
     callee->parentScope = node;
     astVisit(visitor, callee);

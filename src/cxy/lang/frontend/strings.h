@@ -114,6 +114,10 @@ extern "C" {
     f(testCleanup)              \
     f(testonly)                 \
     f(disabled)                 \
+    f(env)                      \
+    f(fn)                       \
+    f(dtor)                     \
+    f(escaping)                 \
     f(__init)                   \
     f(__defaults_init)          \
     f(__startup)                \

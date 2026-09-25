@@ -1070,6 +1070,39 @@ static void dumpFuncDecl(ConstAstVisitor *visitor, const AstNode *node)
     dumpFuncDeclWithParams(visitor, node, NULL);
 }
 
+static void dumpClosureCapture(ConstAstVisitor *visitor, const AstNode *node)
+{
+    DumpContext *ctx = getConstAstVisitorContext(visitor);
+    switch (node->closureCapture.mode) {
+    case capDefaultRef:
+        format(ctx->state, "&", NULL);
+        break;
+    case capDefaultMove:
+        format(ctx->state, "&&", NULL);
+        break;
+    case capReference:
+        format(ctx->state, "&{s}", (FormatArg[]){{.s = node->closureCapture.name}});
+        break;
+    case capMove:
+        format(ctx->state, "&&{s}", (FormatArg[]){{.s = node->closureCapture.name}});
+        break;
+    case capValue:
+    default:
+        format(ctx->state, "{s}", (FormatArg[]){{.s = node->closureCapture.name}});
+        break;
+    }
+}
+
+static void dumpClosureValue(ConstAstVisitor *visitor, const AstNode *node)
+{
+    DumpContext *ctx = getConstAstVisitorContext(visitor);
+    format(ctx->state, "ClosureValue(", NULL);
+    astConstVisit(visitor, node->closureValue.env);
+    format(ctx->state, ", ", NULL);
+    astConstVisit(visitor, node->closureValue.func);
+    format(ctx->state, ")", NULL);
+}
+
 static void dumpClosureExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     DumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -1077,6 +1110,25 @@ static void dumpClosureExpr(ConstAstVisitor *visitor, const AstNode *node)
     if (hasFlag(node, Async)) {
         printKeyword(ctx->state, "async");
         AddSpace();
+    }
+    if (node->closureExpr.captures || node->closureExpr.defaultMode != capValue) {
+        format(ctx->state, "|", NULL);
+        if (node->closureExpr.captures) {
+            dumpManyAstNodes(visitor, node->closureExpr.captures, ", ");
+        }
+        if (node->closureExpr.defaultMode == capReference) {
+            if (node->closureExpr.captures)
+                format(ctx->state, ", &", NULL);
+            else
+                format(ctx->state, "&", NULL);
+        }
+        else if (node->closureExpr.defaultMode == capMove) {
+            if (node->closureExpr.captures)
+                format(ctx->state, ", &&", NULL);
+            else
+                format(ctx->state, "&&", NULL);
+        }
+        format(ctx->state, "|", NULL);
     }
     dumpManyAstNodesEnclosed(visitor, node->closureExpr.params, "(", ", ", ")");
     if (node->closureExpr.ret) {
@@ -1398,6 +1450,8 @@ AstNode *dumpCxySource(CompilerDriver *driver, AstNode *node, FILE *file)
         [astImportDecl] = dumpImportDecl,
         [astFuncDecl] = dumpFuncDecl,
         [astClosureExpr] = dumpClosureExpr,
+        [astClosureCapture] = dumpClosureCapture,
+        [astClosureValue] = dumpClosureValue,
         [astExternDecl] = dumpExternDecl,
         [astGenericDecl] = dumpGenericDecl,
         }, .dispatch = dispatch);

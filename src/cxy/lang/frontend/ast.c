@@ -1607,14 +1607,33 @@ AstNode *makeBranchAstNode(MemPool *pool,
                    .branch = {.target = target, .condition = cond}});
 }
 
-AstNode *makeAstClosureCapture(MemPool *pool, AstNode *captured)
+AstNode *makeAstClosureCapture(MemPool *pool,
+                               const FileLoc *loc,
+                               cstring name,
+                               CaptureMode mode,
+                               AstNode *next)
 {
     return makeAstNode(pool,
-                       &captured->loc,
-                       &(AstNode){.tag = astIndexExpr,
-                                  .flags = captured->flags,
-                                  .type = captured->type,
-                                  .capture = {.captured = captured}});
+                       loc,
+                       &(AstNode){.tag = astClosureCapture,
+                                  .next = next,
+                                  .closureCapture = {.name = name, .mode = mode}});
+}
+
+AstNode *makeAstClosureValue(MemPool *pool,
+                             const FileLoc *loc,
+                             AstNode *env,
+                             AstNode *func,
+                             const Type *type,
+                             const Type *canonicalType)
+{
+    return makeAstNode(pool,
+                       loc,
+                       &(AstNode){.tag = astClosureValue,
+                                  .type = type,
+                                  .closureValue = {.env = env,
+                                                   .func = func,
+                                                   .canonicalType = canonicalType}});
 }
 
 AstNode *makeAstNop(MemPool *pool, const FileLoc *loc)
@@ -2377,9 +2396,21 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
                 cloneClosureCapture(config,
                                     node->closureExpr.capture,
                                     node->closureExpr.captureCount);
+        CLONE_MANY(closureExpr, captures);
         CLONE_ONE(closureExpr, ret);
         CLONE_MANY(closureExpr, params);
         CLONE_ONE(closureExpr, body);
+        clone->closureExpr.defaultMode = node->closureExpr.defaultMode;
+        break;
+    case astClosureCapture:
+        clone->closureCapture.name = node->closureCapture.name;
+        clone->closureCapture.mode = node->closureCapture.mode;
+        CLONE_ONE(closureCapture, var);
+        break;
+    case astClosureValue:
+        CLONE_ONE(closureValue, env);
+        CLONE_ONE(closureValue, func);
+        clone->closureValue.canonicalType = node->closureValue.canonicalType;
         break;
     case astArrayExpr:
         CLONE_MANY(arrayExpr, elements);

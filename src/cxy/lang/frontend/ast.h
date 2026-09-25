@@ -45,6 +45,7 @@ struct Plugin;
     f(BackendCall)                          \
     f(AliasExpr)                            \
     f(UnionValueExpr)                       \
+    f(ClosureValue)                         \
     f(XformExpr)
 
 #define CXY_LANG_AST_STMT_TAGS(f)           \
@@ -183,6 +184,14 @@ typedef struct CaptureSet {
     HashTable *table;
     u64 index;
 } ClosureCapture;
+
+typedef enum {
+    capValue = 0,
+    capReference,
+    capMove,
+    capDefaultRef,
+    capDefaultMove
+} CaptureMode;
 
 typedef struct Capture Capture;
 
@@ -709,11 +718,25 @@ struct AstNode {
                     u64 captureCount;
                 };
             };
+            AstNode *captures;
             AstNode *params;
             AstNode *ret;
             AstNode *body;
             AstNode *construct;
+            CaptureMode defaultMode;
         } closureExpr;
+
+        struct {
+            cstring name;
+            CaptureMode mode;
+            AstNode *var;
+        } closureCapture;
+
+        struct {
+            AstNode *env;
+            AstNode *func;
+            const Type *canonicalType;
+        } closureValue;
 
         struct {
             const char *name;
@@ -1507,7 +1530,18 @@ AstNode *makeNodeArray(MemPool *pool,
                        AstNode **nodes,
                        u64 nodesCount);
 
-AstNode *makeAstClosureCapture(MemPool *pool, AstNode *captured);
+AstNode *makeAstClosureCapture(MemPool *pool,
+                               const FileLoc *loc,
+                               cstring name,
+                               CaptureMode mode,
+                               AstNode *next);
+
+AstNode *makeAstClosureValue(MemPool *pool,
+                             const FileLoc *loc,
+                             AstNode *env,
+                             AstNode *func,
+                             const Type *type,
+                             const Type *canonicalType);
 
 AstNode *makeAstNop(MemPool *pool, const FileLoc *loc);
 

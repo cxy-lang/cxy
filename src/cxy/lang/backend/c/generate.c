@@ -355,9 +355,8 @@ static void emitCall(ConstIrVisitor *visitor, const IrNode *node)
 static void emitAddrOf(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
-    format(&ctx->state, "(&(", NULL);
+    format(&ctx->state, "&", NULL);
     irConstVisit(visitor, node->addrOf.target);
-    format(&ctx->state, "))", NULL);
 }
 
 static void emitDeref(ConstIrVisitor *visitor, const IrNode *node)
@@ -463,6 +462,25 @@ static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
             format(&ctx->state, "));\n", NULL);
         }
         break;
+    case irTypeCatClosure: {
+        format(&ctx->state, "if (", NULL);
+        irConstVisit(visitor, target);
+        if (isIrPointerType(target->type))
+            format(&ctx->state, "->dtor) ", NULL);
+        else
+            format(&ctx->state, ".dtor) ", NULL);
+        irConstVisit(visitor, target);
+        if (isIrPointerType(target->type))
+            format(&ctx->state, "->dtor(", NULL);
+        else
+            format(&ctx->state, ".dtor(", NULL);
+        irConstVisit(visitor, target);
+        if (isIrPointerType(target->type))
+            format(&ctx->state, "->env);\n", NULL);
+        else
+            format(&ctx->state, ".env);\n", NULL);
+        break;
+    }
     default:
         if (type->tag == irTypePointer) {
             format(&ctx->state, "__smart_ptr_drop(", NULL);
@@ -547,6 +565,19 @@ static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
             format(&ctx->state, "));\n", NULL);
         }
         break;
+    case irTypeCatClosure: {
+        format(&ctx->state, "  ", NULL);
+        irConstVisit(visitor, dst);
+        format(&ctx->state, " = ", NULL);
+        irConstVisit(visitor, src);
+        format(&ctx->state, ";\n", NULL);
+        format(&ctx->state, "  if (", NULL);
+        irConstVisit(visitor, src);
+        format(&ctx->state, ".dtor) __smart_ptr_get(", NULL);
+        irConstVisit(visitor, src);
+        format(&ctx->state, ".env);\n", NULL);
+        break;
+    }
     default:
         if (type->tag == irTypePointer) {
             format(&ctx->state, "  ", NULL);
@@ -615,6 +646,28 @@ static void emitUnionValue(ConstIrVisitor *visitor, const IrNode *node)
         irConstVisit(visitor, node->unionValue.value);
         format(&ctx->state, " }", NULL);
     }
+    format(&ctx->state, " }", NULL);
+}
+
+static void emitClosureValue(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    format(&ctx->state, "(", NULL);
+    emitCTypeName(&ctx->state, node->type);
+    format(&ctx->state, "){{ .env = ", NULL);
+    if (node->closureValue.env)
+        irConstVisit(visitor, node->closureValue.env);
+    else
+        format(&ctx->state, "nullptr", NULL);
+    format(&ctx->state, ", .fn = ", NULL);
+    irConstVisit(visitor, node->closureValue.func);
+    format(&ctx->state, ", .dtor = ", NULL);
+    if (node->closureValue.dtor)
+        irConstVisit(visitor, node->closureValue.dtor);
+    else if (node->closureValue.env && hasFlag(node->type, ReferenceMembers))
+        format(&ctx->state, "__smart_ptr_drop", NULL);
+    else
+        format(&ctx->state, "nullptr", NULL);
     format(&ctx->state, " }", NULL);
 }
 
@@ -1051,7 +1104,8 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         [irSizeof] = emitSizeof,
         [irAlias] = emitAlias,
         [irOptionalValue] = emitOptionalValue,
-        [irUnionValue] = emitUnionValue
+        [irUnionValue] = emitUnionValue,
+        [irClosureValue] = emitClosureValue
     });
     // clang-format on
 

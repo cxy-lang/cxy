@@ -68,7 +68,11 @@ void checkVarDecl(AstVisitor *visitor, AstNode *node)
         }
     }
 
-    node->type = typeIs(type_, Auto) ? init_ : type_;
+    const Type *inferredType = init_;
+    if (init && nodeIs(init, ClosureValue) && init->closureValue.canonicalType)
+        inferredType = init->closureValue.canonicalType;
+
+    node->type = typeIs(type_, Auto) ? inferredType : type_;
     if (typeIs(type_, Union) && type_ != init_) {
         u32 idx = findUnionTypeIndex(type_, init_);
         csAssert0(idx != UINT32_MAX);

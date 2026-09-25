@@ -57,7 +57,8 @@ typedef enum IrTypeCategory {
     irTypeCatUnion,
     irTypeCatOptional,
     irTypeCatSlice,
-    irTypeCatResult
+    irTypeCatResult,
+    irTypeCatClosure
 } IrTypeCategory;
 
 typedef struct IrType IrType;

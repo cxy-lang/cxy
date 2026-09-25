@@ -94,6 +94,7 @@ static void addNodeEdge(GraphNode *node, const Type *type)
     case typTuple:
     case typUnion:
     case typFunc:
+    case typClosure:
     case typClass:
     case typStruct:
     case typUntaggedUnion:
@@ -201,6 +202,16 @@ void addTypeGraphNode(TypeGraph *g, const Type *type)
         for (int i = 0; i < type->func.paramsCount; i++) {
             addNodeEdge(node, type->func.params[i]);
             addTypeGraphNode(g, type->func.params[i]);
+        }
+        break;
+    case typClosure:
+        if (type->closure.env) {
+            addNodeEdge(node, type->closure.env);
+            addTypeGraphNode(g, type->closure.env);
+        }
+        if (type->closure.fn) {
+            addNodeEdge(node, type->closure.fn);
+            addTypeGraphNode(g, type->closure.fn);
         }
         break;
     case typClass:

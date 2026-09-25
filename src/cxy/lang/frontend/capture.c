@@ -21,10 +21,10 @@ static void initClosureCapture(ClosureCapture *set)
     *set->table = newTempHashTable(sizeof(Capture));
 }
 
-Capture *addClosureCapture(ClosureCapture *set, AstNode *node)
+Capture *addClosureCapture(ClosureCapture *set, AstNode *node, CaptureMode mode)
 {
     HashCode hash = hashStr(hashInit(), getCapturedNodeName(node));
-    Capture cap = {.node = node, .id = set->index};
+    Capture cap = {.node = node, .id = set->index, .mode = mode};
 
     if (set->table == NULL)
         initClosureCapture(set);

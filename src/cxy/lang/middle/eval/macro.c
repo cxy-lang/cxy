@@ -1137,43 +1137,21 @@ static AstNode *makeLambdaOfAstNode(AstVisitor *visitor,
         return NULL;
 
     const Type *func = resolveType(args->type ?: evalType(ctx, args));
-    if (!typeIs(func, Func)) {
+    if (!typeIs(func, Func) && !typeIs(func, Closure)) {
         logError(ctx->L,
                  &args->loc,
                  "`lambda_of!` macro expecting a function type, given '{t}'",
                  (FormatArg[]){{.t = func}});
         return NULL;
     }
-    AstNode *decl = deepCloneAstNode(ctx->pool, func->func.decl);
-    AstNode *params = decl->funcType.params;
-    params = makeFunctionParam(
-        ctx->pool,
-        &args->loc,
-        makeString(ctx->strings, "_"),
-        makeTypeReferenceNode(
-            ctx->pool, makeVoidPointerType(ctx->types, flgNone), &args->loc),
-        NULL,
-        flgNone,
-        params);
-    decl->funcType.params = params;
-    decl->type = NULL;
-    func = evalType(ctx, decl);
-    csAssert0(typeIs(func, Func));
 
-    return makeTupleTypeAst(
-        ctx->pool,
-        &decl->loc,
-        flgTypeinfo | flgComptime,
-        makeTypeReferenceNode2(ctx->pool,
-                               makeVoidPointerType(ctx->types, flgNone),
-                               &decl->loc,
-                               decl),
-        NULL,
-        makeTupleType(
-            ctx->types,
-            (const Type *[]){makeVoidPointerType(ctx->types, flgNone), func},
-            2,
-            flgFuncTypeParam | flgReferenceMembers));
+    const Type *closureType =
+        typeIs(func, Closure)
+            ? func
+            : makeClosureType(
+                  ctx->types, makeVoidType(ctx->types), func, false);
+
+    return makeTypeReferenceNode(ctx->pool, closureType, &node->loc);
 }
 
 static AstNode *makeTypeinfoNode(AstVisitor *visitor,

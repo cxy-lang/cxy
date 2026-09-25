@@ -237,9 +237,17 @@
         MODE##VisitManyNodes(visitor, node->macroCallExpr.args);               \
         break;                                                                 \
     case astClosureExpr:                                                       \
+        MODE##VisitManyNodes(visitor, node->closureExpr.captures);             \
         MODE##Visit(visitor, node->closureExpr.ret);                           \
         MODE##VisitManyNodes(visitor, node->closureExpr.params);               \
         MODE##Visit(visitor, node->closureExpr.body);                          \
+        break;                                                                 \
+    case astClosureCapture:                                                    \
+        MODE##Visit(visitor, node->closureCapture.var);                        \
+        break;                                                                 \
+    case astClosureValue:                                                      \
+        MODE##Visit(visitor, node->closureValue.env);                          \
+        MODE##Visit(visitor, node->closureValue.func);                         \
         break;                                                                 \
     case astFieldExpr:                                                         \
         MODE##Visit(visitor, node->fieldExpr.value);                           \

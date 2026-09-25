@@ -17,15 +17,13 @@ static inline bool isInlineFunction(const AstNode *node)
 
 static inline bool isIteratorFunction(const Type *type)
 {
-    if (!typeIs(type, Class) || !hasFlag(type, Closure))
+    if (!isClosureType(type))
         return false;
 
-    const Type *iter = findClassMemberType(type, S_CallOverload);
-    if (iter == NULL)
-        return false;
+    const Type *iter = type->closure.fn;
 
     const Type *ret = iter->func.retType;
-    return typeIs(ret, Optional);
+    return isOptionalType(ret);
 }
 
 static bool validateMainFunction(TypingContext *ctx,
@@ -73,6 +71,25 @@ const Type *matchOverloadedFunctionPerfectMatch(Log *L,
                                                 u64 flags,
                                                 bool perfectMatch)
 {
+    if (typeIs(callee, Closure)) {
+        const Type *fn = callee->closure.fn;
+        u64 offset = (fn->func.paramsCount > 0 && fn->func.decl && fn->func.decl->funcDecl.this_) ? 1 : 0;
+        u64 paramsCount = fn->func.paramsCount - offset;
+        if (argsCount != paramsCount) {
+            logError(L, loc, "calling closure expecting {u64} arguments, got {u64}", (FormatArg[]){{.u64 = paramsCount}, {.u64 = argsCount}});
+            return NULL;
+        }
+        for (u64 i = 0; i < argsCount; i++) {
+            const Type *paramType = resolveAndUnThisType(fn->func.params[i + offset]);
+            const Type *argType = resolveAndUnThisType(argTypes[i]);
+            if (!isTypeAssignableFrom(paramType, argType)) {
+                logError(L, loc, "closure argument {u64} type '{t}' is incompatible with parameter type '{t}'", (FormatArg[]){{.u64 = i + 1}, {.t = argType}, {.t = paramType}});
+                return NULL;
+            }
+        }
+        return callee;
+    }
+
     AstNode *decls = callee->func.decl->list.first ?: callee->func.decl,
             *decl = decls;
     const Type *found = NULL;
@@ -215,8 +232,9 @@ bool checkMemberFunctions(AstVisitor *visitor,
                 logError(ctx->L,
                          &member->loc,
                          "expecting an iterator function overload to return an "
-                         "iterator, got '{t}'",
-                         (FormatArg[]){{.t = type->func.retType}});
+                         "iterator, got '{t}', got '{t}'",
+                         (FormatArg[]){{.t = type->func.retType},
+                                       {.t = type->func.retType}});
                 node->type = ERROR_TYPE(ctx);
                 return false;
             }
@@ -247,38 +265,8 @@ void checkFunctionParam(AstVisitor *visitor, AstNode *node)
         type_ = makeWrappedType(ctx->types, type_, flgConst);
 
     if (typeIs(type_, Func) && !hasFlags(parent, flgPure | flgExtern)) {
-        type = deepCloneAstNode(ctx->pool, type_->func.decl);
-        type->funcType.params = makeFunctionParam(
-            ctx->pool,
-            &type->loc,
-            makeString(ctx->strings, "_"),
-            makeTypeReferenceNode(ctx->pool,
-                                  makeVoidPointerType(ctx->types, flgNone),
-                                  &type->loc),
-            NULL,
-            flgNone,
-            type->funcType.params);
-        type->type = NULL;
-        type_ = checkType(visitor, type);
-        if (typeIs(type_, Error))
-            return;
-
-        type = node->funcParam.type = makeTupleTypeAst(
-            ctx->pool,
-            &type->loc,
-            flgNone,
-            makeTypeReferenceNode2(ctx->pool,
-                                   makeVoidPointerType(ctx->types, flgNone),
-                                   &type->loc,
-                                   type),
-            NULL,
-            makeTupleType(ctx->types,
-                          (const Type *[]){
-                              makeVoidPointerType(ctx->types, flgNone), type_},
-                          2,
-                          flgFuncTypeParam | flgReferenceMembers));
-        node->type = type->type;
-        node->flags |= flgFuncTypeParam;
+        bool isEscaping = findAttribute(node, S_escaping) != NULL;
+        node->type = makeClosureType(ctx->types, makeVoidType(ctx->types), type_, isEscaping);
         return;
     }
 

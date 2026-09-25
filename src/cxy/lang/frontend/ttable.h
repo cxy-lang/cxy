@@ -143,6 +143,11 @@ const Type *makeThisType(TypeTable *table, cstring name, u64 flags);
 
 const Type *makeFuncType(TypeTable *table, const Type *init);
 
+const Type *makeClosureType(TypeTable *table,
+                            const Type *env,
+                            const Type *fn,
+                            bool isEscaping);
+
 const Type *changeFunctionRetType(TypeTable *table,
                                   const Type *func,
                                   const Type *ret);

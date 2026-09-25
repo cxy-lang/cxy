@@ -308,6 +308,26 @@ static cstring makeDescriptiveResultDisplay(LowerContext *ctx,
     return makeStringf(ctx->strings, "!%s", targetDisplay);
 }
 
+static const IrType *lowerClosureFnPtrType(LowerContext *ctx,
+                                           const Type *closureType)
+{
+    const IrType *voidPtrType = makeIrPointerType(
+        ctx->types,
+        flgNone,
+        getIrPrimitiveType(ctx->types, irTypeVoid));
+    const Type *fnSig = closureType->closure.fn;
+    u64 totalParams = 1 + fnSig->func.paramsCount;
+    const IrType **fnParams =
+        allocFromMemPool(ctx->pool, sizeof(IrType *) * totalParams);
+    fnParams[0] = voidPtrType;
+    for (u64 i = 0; i < fnSig->func.paramsCount; i++) {
+        fnParams[i + 1] = lowerType(ctx, fnSig->func.params[i]);
+    }
+    const IrType *retType = lowerType(ctx, fnSig->func.retType);
+    return makeIrFuncType(
+        ctx->types, flgNone, fnParams, totalParams, retType, false);
+}
+
 const IrType *lowerType(LowerContext *ctx, const Type *type)
 {
     if (type == NULL)
@@ -655,6 +675,33 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
             (type->func.decl && hasFlag(type->func.decl, Variadic));
         result =
             makeIrFuncType(ctx->types, flgNone, params, count, ret, isVariadic);
+        break;
+    }
+    case typClosure: {
+        const IrType *voidPtrType = makeIrPointerType(
+            ctx->types,
+            flgNone,
+            getIrPrimitiveType(ctx->types, irTypeVoid));
+        const IrType *fnType = lowerClosureFnPtrType(ctx, type);
+        const IrType *dtorType = makeIrFuncType(
+            ctx->types,
+            flgNone,
+            (const IrType *[]){voidPtrType},
+            1,
+            getIrPrimitiveType(ctx->types, irTypeVoid),
+            false);
+        IrField *fields = allocFromMemPool(ctx->pool, sizeof(IrField) * 3);
+        fields[0] = (IrField){.name = S_env, .type = voidPtrType, .bits = 0};
+        fields[1] = (IrField){.name = S_fn, .type = fnType, .bits = 0};
+        fields[2] = (IrField){.name = S_dtor, .type = dtorType, .bits = 0};
+        cstring name =
+            makeStringf(ctx->strings, "Closure_%u", (unsigned)type->index);
+        cstring display =
+            makeStringf(ctx->strings, "Closure_%u", (unsigned)type->index);
+        Flags flags = isDestructible(type) ? flgReferenceMembers : flgNone;
+        result = makeIrStructType(ctx->types, flags, name, display, fields, 3);
+        ((IrType *)result)->category = irTypeCatClosure;
+        ((IrType *)result)->index = type->index;
         break;
     }
     case typResult: {
@@ -1936,6 +1983,22 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
     IrNode *argsFirst = lowerCallArguments(
         ctx, visitor, node->callExpr.args, calleeType, 0, NULL, &argsCount);
 
+    if (calleeType && isClosureType(calleeType)) {
+        const IrType *voidPtrType = makeIrPointerType(
+            ctx->types,
+            flgNone,
+            getIrPrimitiveType(ctx->types, irTypeVoid));
+        const IrType *fnPtrType = lowerClosureFnPtrType(ctx, calleeType);
+        IrNode *fnCallee = makeIrMember(
+            ctx->pool, &node->loc, cloneIrNode(ctx->pool, callee), 1, S_fn, fnPtrType);
+        IrNode *envArg =
+            makeIrMember(ctx->pool, &node->loc, callee, 0, S_env, voidPtrType);
+        envArg->next = argsFirst;
+        argsFirst = envArg;
+        argsCount++;
+        callee = fnCallee;
+    }
+
     node->codegen = makeIrCall(ctx->pool,
                                &node->loc,
                                callee,
@@ -2059,6 +2122,65 @@ static void visitStructExpr(AstVisitor *visitor, AstNode *node)
     }
     node->codegen =
         makeIrStructConst(ctx->pool, &node->loc, fieldsFirst, count, strctType);
+}
+
+static void visitClosureValue(AstVisitor *visitor, AstNode *node)
+{
+    LowerContext *ctx = getAstVisitorContext(visitor);
+    const IrType *closureType =
+        lowerType(ctx, node->closureValue.canonicalType ?: node->type);
+
+    IrNode *envVal = NULL;
+    IrNode *dtorVal = NULL;
+    if (node->closureValue.env && !nodeIs(node->closureValue.env, NullLit)) {
+        IrNode *envStruct =
+            lowerFlattenedOperand(visitor, node->closureValue.env);
+
+        if (node->type && node->type->closure.isEscaping) {
+            const IrType *envPtrType =
+                makeIrPointerType(ctx->types, flgNone, envStruct->type);
+            IrNode *allocNode =
+                makeIrAlloc(ctx->pool, &node->loc, envStruct->type);
+            cstring tempName =
+                makeStringf(ctx->strings, "__env%u", ctx->tempCounter++);
+            IrNode *envVar = makeIrVarDecl(ctx->pool,
+                                           &node->loc,
+                                           flgTemporary,
+                                           tempName,
+                                           tempName,
+                                           envPtrType,
+                                           ctx->currentScopeId);
+            emitStmt(ctx, envVar);
+            emitStmt(ctx,
+                     makeIrAssign(ctx->pool,
+                                  &node->loc,
+                                  makeIrVarRef(ctx->pool, &node->loc, envVar),
+                                  allocNode));
+            emitStmt(
+                ctx,
+                makeIrAssign(
+                    ctx->pool,
+                    &node->loc,
+                    makeIrDeref(ctx->pool,
+                                &node->loc,
+                                makeIrVarRef(ctx->pool, &node->loc, envVar),
+                                envStruct->type),
+                    envStruct));
+            envVal = makeIrVarRef(ctx->pool, &node->loc, envVar);
+        }
+        else {
+            envVal = makeIrAddrOf(
+                ctx->pool,
+                &node->loc,
+                envStruct,
+                makeIrPointerType(ctx->types, flgNone, envStruct->type));
+        }
+    }
+
+    IrNode *fnVal = lowerFlattenedOperand(visitor, node->closureValue.func);
+
+    node->codegen = makeIrClosureValue(
+        ctx->pool, &node->loc, envVal, fnVal, dtorVal, closureType);
 }
 
 static void visitUnionValueExpr(AstVisitor *visitor, AstNode *node)
@@ -3258,6 +3380,7 @@ IrModule *lowerToIr(CompilerDriver *driver, AstNode *node)
         [astTupleExpr] = visitTupleExpr,
         [astStructExpr] = visitStructExpr,
         [astUnionValueExpr] = visitUnionValueExpr,
+        [astClosureValue] = visitClosureValue,
         [astVarDecl] = visitVarDecl,
         [astAssignExpr] = visitAssignExpr,
         [astExprStmt] = visitExprStmt,

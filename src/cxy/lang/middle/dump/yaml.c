@@ -946,9 +946,33 @@ static void visitClosureExpr(ConstAstVisitor *visitor, const AstNode *node)
     YamlDumpContext *ctx = getConstAstVisitorContext(visitor);
     nodeAddHeader(visitor, node);
 
+    manyNodesToYaml(visitor, "captures", node->closureExpr.captures);
     nodeToYaml(visitor, "ret", node->closureExpr.ret);
     manyNodesToYaml(visitor, "params", node->closureExpr.params);
     nodeToYaml(visitor, "body", node->closureExpr.body);
+}
+
+static void visitClosureCapture(ConstAstVisitor *visitor, const AstNode *node)
+{
+    YamlDumpContext *ctx = getConstAstVisitorContext(visitor);
+    nodeAddHeader(visitor, node);
+
+    if (node->closureCapture.name) {
+        emitMapKey(ctx, node, "name");
+        emitMapKey(ctx, node, node->closureCapture.name);
+    }
+    emitMapKey(ctx, node, "mode");
+    emitUInteger(ctx, node, (uint64_t)node->closureCapture.mode);
+    nodeToYaml(visitor, "var", node->closureCapture.var);
+}
+
+static void visitClosureValue(ConstAstVisitor *visitor, const AstNode *node)
+{
+    YamlDumpContext *ctx = getConstAstVisitorContext(visitor);
+    nodeAddHeader(visitor, node);
+
+    nodeToYaml(visitor, "env", node->closureValue.env);
+    nodeToYaml(visitor, "func", node->closureValue.func);
 }
 
 static void visitFieldExpr(ConstAstVisitor *visitor, const AstNode *node)
@@ -1140,6 +1164,8 @@ AstNode *dumpAstToYaml(CompilerDriver *driver, AstNode *node, FILE *file)
         [astCallExpr] = visitCallExpr,
         [astMacroCallExpr] = visitCallExpr,
         [astClosureExpr] = visitClosureExpr,
+        [astClosureCapture] = visitClosureCapture,
+        [astClosureValue] = visitClosureValue,
         [astFieldExpr] = visitFieldExpr,
         [astStructExpr] = visitStructExpr,
         [astExprStmt] = visitExpressionStmt,
