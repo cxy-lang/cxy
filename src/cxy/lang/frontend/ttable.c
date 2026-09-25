@@ -1394,11 +1394,11 @@ const Type *promoteType(TypeTable *table, const Type *left, const Type *right)
 {
     left = resolveType(left);
     right = resolveType(right);
-    const Type *_left = unwrapType(left, NULL),
-               *_right = unwrapType(right, NULL);
+    const Type *_left = unwrapType(stripReference(left), NULL),
+               *_right = unwrapType(stripReference(right), NULL);
 
     if (_left == _right)
-        return left;
+        return _left;
 
     if ((typeIs(_left, String) || typeIs(_left, Pointer) ||
          typeIs(_left, Opaque) || typeIs(_left, Func) ||

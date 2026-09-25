@@ -1,0 +1,264 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/08_closures_mem_managed.cxy
+func main.Resource.op__init(this: ^Resource, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__deinit(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__destructor(<^Resource>(ptr))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__initCover(id: i32): ^Resource {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Resource
+  var __obj0: ^Resource
+  var __t0: ^Resource
+  __t0 = alloc(^Resource)
+  __obj0 = <^Resource>(__t0)
+  zeromem __obj0
+  Resource_op__init(__obj0, &&id)
+  __ret = __obj0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.__closure_env1.op__copy(this: ^__closure_env1): __closure_env1 {
+_L_entry:
+  scope.enter 0
+  var __ret: __closure_env1
+  var __t1: ^Resource
+  copy this.r -> __t1
+  __ret = __closure_env1 {__t1}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.__closure_env1.op__destructor(this: ^__closure_env1): void {
+_L_entry:
+  scope.enter 0
+  drop this.r
+  zeromem this.r
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func __closure_body2(this: ^__closure_env1): i32 {
+_L_entry:
+  scope.enter 0
+  var __ret: i32
+  __ret = this.r.id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func testCaptureClassByValue(): void {
+_L_entry:
+  scope.enter 0
+  var r: ^Resource
+  r = Resource_op__initCover(<i32>(1))
+  var c: Closure_39
+  var __t2: __closure_env1
+  var __copy0: ^Resource
+  copy r -> __copy0
+  __t2 = __closure_env1 {__copy0}
+  var __env3: __closure_env1
+  __env3 = __t2
+  c = ClosureValue(&__env3, __closure_body2)
+  c.fn(c.env)
+  goto _L_exit
+_L_exit:
+  drop __env3
+  drop r
+  scope.exit 0
+  return
+}
+
+func main.__closure_env3.op__copy(this: ^__closure_env3): __closure_env3 {
+_L_entry:
+  scope.enter 0
+  var __ret: __closure_env3
+  var __t4: ^Resource
+  copy this.r -> __t4
+  __ret = __closure_env3 {__t4}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.__closure_env3.op__destructor(this: ^__closure_env3): void {
+_L_entry:
+  scope.enter 0
+  drop this.r
+  zeromem this.r
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func __closure_body4(this: ^__closure_env3): i32 {
+_L_entry:
+  scope.enter 0
+  var __ret: i32
+  __ret = this.r.id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func testCaptureClassByMove(): void {
+_L_entry:
+  scope.enter 0
+  var r: ^Resource
+  r = Resource_op__initCover(<i32>(2))
+  var c: Closure_39
+  var __t5: __closure_env3
+  __t5 = __closure_env3 {r}
+  var __env6: __closure_env3
+  __env6 = __t5
+  c = ClosureValue(&__env6, __closure_body4)
+  c.fn(c.env)
+  goto _L_exit
+_L_exit:
+  drop __env6
+  scope.exit 0
+  return
+}
+
+func main.X.op__init(this: ^X, s: ^char): void {
+_L_entry:
+  scope.enter 0
+  this.s = s
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.X.op__initCover(s: ^char): ^X {
+_L_entry:
+  scope.enter 0
+  var __ret: ^X
+  var __obj5: ^X
+  var __t7: ^X
+  __t7 = alloc(^X)
+  __obj5 = <^X>(__t7)
+  zeromem __obj5
+  X_op__init(__obj5, &&s)
+  __ret = __obj5
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.__closure_env6.op__copy(this: ^__closure_env6): __closure_env6 {
+_L_entry:
+  scope.enter 0
+  var __ret: __closure_env6
+  var __t8: ^X
+  copy this.s -> __t8
+  __ret = __closure_env6 {__t8}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.__closure_env6.op__destructor(this: ^__closure_env6): void {
+_L_entry:
+  scope.enter 0
+  drop this.s
+  zeromem this.s
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func __closure_body7(this: ^__closure_env6): u64 {
+_L_entry:
+  scope.enter 0
+  var __ret: u64
+  __ret = strlen(this.s.s)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func testCaptureString(): void {
+_L_entry:
+  scope.enter 0
+  var s: ^X
+  s = X_op__initCover("Hello")
+  var c: Closure_62
+  var __t9: __closure_env6
+  var __copy1: ^X
+  copy s -> __copy1
+  __t9 = __closure_env6 {__copy1}
+  var __env10: __closure_env6
+  __env10 = __t9
+  c = ClosureValue(&__env10, __closure_body7)
+  c.fn(c.env)
+  goto _L_exit
+_L_exit:
+  drop __env10
+  drop s
+  scope.exit 0
+  return
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  testCaptureClassByValue()
+  testCaptureClassByMove()
+  testCaptureString()
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}

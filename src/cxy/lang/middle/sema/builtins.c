@@ -291,6 +291,16 @@ static void implementStructCopyFunction(AstVisitor *visitor,
                                  NULL);
             refMembers = true;
         }
+        else if (isClosureType(type) && hasFlag(type, ReferenceMembers)) {
+            expr = makeFieldExpr(ctx->pool,
+                                 &copy->loc,
+                                 member->structField.name,
+                                 member->flags,
+                                 makeCopyReferenceCall(ctx, member, &copy->loc),
+                                 member,
+                                 NULL);
+            refMembers = true;
+        }
         else if (isStructType(type) && hasFlag(type, ReferenceMembers)) {
             const NamedTypeMember *copy_ =
                 findStructMember(type, S_CopyOverload);
@@ -401,6 +411,9 @@ static void implementDestructorFunction(AstVisitor *visitor,
             call = implementCallUnionDestructor(ctx, member, &destructor->loc);
         }
         else if (isClassType(type)) {
+            call = makeDropReferenceCall(ctx, member, &destructor->loc);
+        }
+        else if (isClosureType(type) && isDestructible(type)) {
             call = makeDropReferenceCall(ctx, member, &destructor->loc);
         }
         else {

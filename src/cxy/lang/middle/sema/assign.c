@@ -134,13 +134,17 @@ void checkAssignExpr(AstVisitor *visitor, AstNode *node)
                 ctx->L, &node->loc, "assign to an array is not allowed", NULL);
         node->type = ERROR_TYPE(ctx);
     }
-    else if (!isTypeAssignableFrom(lhs, rhs) &&
-             !(typeIs(lhs, Pointer) && typeIs(rhs, Null))) {
+    const Type *targetType =
+        (isReferenceType(lhs) && !isClassType(stripReference(lhs)))
+            ? stripReference(lhs)
+            : lhs;
+    if (!isTypeAssignableFrom(targetType, rhs) &&
+        !(typeIs(lhs, Pointer) && typeIs(rhs, Null))) {
         logError(ctx->L,
                  &node->assignExpr.rhs->loc,
                  "incompatible types on assigment expression, expecting '{t}', "
                  "got '{t}'",
-                 (FormatArg[]){{.t = lhs}, {.t = rhs}});
+                 (FormatArg[]){{.t = targetType}, {.t = rhs}});
         node->type = ERROR_TYPE(ctx);
     }
 

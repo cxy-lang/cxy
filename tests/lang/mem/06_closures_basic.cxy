@@ -1,0 +1,14 @@
+func testSimple(): void {
+    var c = () => { }
+    c()
+}
+
+func testParamsAndRet(): i32 {
+    var add = (a: i32, b: i32): i32 => a + b
+    return add(10, 20)
+}
+
+func main(): void {
+    testSimple()
+    testParamsAndRet()
+}

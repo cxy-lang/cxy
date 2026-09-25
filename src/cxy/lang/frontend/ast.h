@@ -215,6 +215,7 @@ typedef struct {
     f(Drop)                    \
     f(Move)                    \
     f(Assign)                  \
+    f(StrLen)                  \
     f(AtomicLoad)              \
     f(AtomicStore)             \
     f(AtomicExchange)          \

@@ -59,11 +59,9 @@ _L_exit:;
 }
 
 static void takeItem(Item * item) {
-  int32_t _a1;
   Item * local;
 _L_entry:;
-  _a1 = (item->id + 1);
-  local = Item_op__initCover(_a1);
+  local = Item_op__initCover((item->id + 1));
   goto _L_exit;
 _L_exit:;
   __smart_ptr_drop(local);

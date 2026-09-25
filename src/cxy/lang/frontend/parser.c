@@ -1216,6 +1216,54 @@ static AstNode *functionParam(Parser *P)
     return param;
 }
 
+static AstNode *parseFuncTypeParam(Parser *P)
+{
+    AstNode *attrs = NULL;
+    Token tok = *current(P);
+    if (check(P, tokAt))
+        attrs = attributes(P);
+
+    u64 flags = match(P, tokElipsis) ? flgVariadic : flgNone;
+    cstring name = NULL;
+    AstNode *type = NULL;
+    AstNode *def = NULL;
+
+    if (check(P, tokIdent) && checkPeek(P, 1, tokColon)) {
+        name = getTokenString(P, consume0(P, tokIdent), false);
+        if (name == S_underscore) {
+            name = makeAnonymousVariable(P->strPool, name);
+            attrs = makeAttribute(P->memPool, &tok.fileLoc, S_unused, NULL, attrs);
+        }
+        consume0(P, tokColon);
+        bool isConst = match(P, tokConst);
+        type = parseType(P);
+        type->flags |= (isConst ? flgConst : flgNone);
+    }
+    else {
+        name = makeAnonymousVariable(P->strPool, S_underscore);
+        attrs = makeAttribute(P->memPool, &tok.fileLoc, S_unused, NULL, attrs);
+        bool isConst = match(P, tokConst);
+        type = parseType(P);
+        type->flags |= (isConst ? flgConst : flgNone);
+    }
+
+    if (match(P, tokAssign)) {
+        def = expression(P, true);
+    }
+
+    AstNode *param = newAstNode(
+        P,
+        &tok,
+        &(AstNode){.tag = astFuncParamDecl,
+                   .attrs = attrs,
+                   .flags = flags,
+                   .funcParam = {.name = name, .type = type, .def = def}});
+#ifndef CXY_PLUGIN_LIB
+    param = invokePluginActionsOnEntity(P, param);
+#endif
+    return param;
+}
+
 static AstNode *implicitCast(Parser *P)
 {
     AstNode *expr;
@@ -1495,7 +1543,7 @@ static AstNode *parseFuncType(Parser *P)
     }
 
     consume0(P, tokLParen);
-    params = parseMany(P, tokRParen, tokComma, functionParam);
+    params = parseMany(P, tokRParen, tokComma, parseFuncTypeParam);
     consume0(P, tokRParen);
 
     consume0(P, tokThinArrow);

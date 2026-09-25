@@ -1,0 +1,34 @@
+class Resource {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+func testCaptureClassByValue(): void {
+    var r = Resource(1)
+    var c = |r|() => r.id
+    c()
+}
+
+func testCaptureClassByMove(): void {
+    var r = Resource(2)
+    var c = |&&r|() => r.id
+    c()
+}
+
+class X {
+    s: string
+    func `init`(s: string){ this.s = s }
+}
+
+func testCaptureString(): void {
+    var s = X("Hello")
+    var c = |s|() => len!(s.s)
+    c()
+}
+
+func main(): void {
+    testCaptureClassByValue()
+    testCaptureClassByMove()
+    testCaptureString()
+}

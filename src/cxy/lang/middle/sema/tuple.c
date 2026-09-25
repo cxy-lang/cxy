@@ -140,7 +140,7 @@ void checkTupleExpr(AstVisitor *visitor, AstNode *node)
         }
 
         type = unwrapType(type, NULL);
-        if (isClassType(type)) {
+        if (isClassType(type) || isDestructible(type)) {
             node->flags |= flgReferenceMembers;
         }
         else if (isStructType(type)) {
@@ -186,7 +186,7 @@ void checkTupleType(AstVisitor *visitor, AstNode *node)
         if (typeIs(elems_[i], Error)) {
             node->type = ERROR_TYPE(ctx);
         }
-        else if (isClassType(type)) {
+        else if (isClassType(type) || isDestructible(type)) {
             node->flags |= flgReferenceMembers;
         }
         else if (isTupleType(type)) {

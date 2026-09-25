@@ -69,7 +69,6 @@ static void nested(bool condBreak, bool condRet) {
   int8_t i;
   Item * outer;
   int8_t j;
-  int8_t _a1;
   Item * inner;
   bool __cond1;
   bool __cond2;
@@ -92,9 +91,8 @@ _L_FOR0_update:;
 _L_FOR1_cond:;
   if (j < 3) goto _L_FOR1_body; else goto _L_FOR1_exit;
 _L_FOR1_body:;
-  _a1 = ((i * 10) + j);
   if (__drop_flags.inner) __smart_ptr_drop(inner);
-  inner = Item_op__initCover(((int32_t)(_a1)));
+  inner = Item_op__initCover(((int32_t)(((i * 10) + j))));
   __drop_flags.inner = 1;
   if (j == 1) goto _L_AND0_rhs; else goto _L_AND0_false;
 _L_FOR1_update:;

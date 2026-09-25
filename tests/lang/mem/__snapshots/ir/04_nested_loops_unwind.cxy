@@ -1,5 +1,5 @@
 
-// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/mem/04_nested_loops_unwind.cxy
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/04_nested_loops_unwind.cxy
 func main.Item.op__init(this: ^Item, id: i32): void {
 _L_entry:
   scope.enter 0
@@ -84,11 +84,9 @@ _L_FOR1_cond:
   if j < 3 goto _L_FOR1_body else goto _L_FOR1_exit
 _L_FOR1_body:
   scope.enter 2
-  var _a1: i8
-  _a1 = i * 10 + j
   var inner: ^Item
   drop-if inner, __drop_flags.inner
-  inner = Item_op__initCover(<i32>(_a1))
+  inner = Item_op__initCover(<i32>(i * 10 + j))
   __drop_flags.inner = 1
   var __cond1: bool
   if j == 1 goto _L_AND0_rhs else goto _L_AND0_false

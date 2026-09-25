@@ -1,0 +1,85 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/10_closures_escaping.cxy
+func main.Storage.op__init(this: ^Storage, cb: Closure_24): void {
+_L_entry:
+  scope.enter 0
+  this.cb = cb
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Storage.op__destructor(this: ^Storage): void {
+_L_entry:
+  scope.enter 0
+  drop this.cb
+  zeromem &this.cb
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Storage.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Storage_op__destructor(<^Storage>(ptr))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Storage.op__initCover(cb: Closure_24): ^Storage {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Storage
+  var __obj0: ^Storage
+  var __t0: ^Storage
+  __t0 = alloc(^Storage)
+  __obj0 = <^Storage>(__t0)
+  zeromem __obj0
+  Storage_op__init(__obj0, &&cb)
+  __ret = __obj0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func storeCallback(cb: Closure_24): ^Storage {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Storage
+  __ret = Storage_op__initCover(cb)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func __closure_body1(this: ^void): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  var x: i8
+  x = 100
+  var s: ^Storage
+  var __t1: Closure_24
+  __t1 = ClosureValue(null, __closure_body1)
+  s = storeCallback(__t1)
+  goto _L_exit
+_L_exit:
+  drop s
+  scope.exit 0
+  return
+}

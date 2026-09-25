@@ -1,0 +1,76 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/11_closures_returned.cxy
+func __closure_body2(this: ^__closure_env1, x: i32): i32 {
+_L_entry:
+  scope.enter 0
+  var __ret: i32
+  __ret = x * this.factor
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func makeMultiplier(factor: i32): Closure_23 {
+_L_entry:
+  scope.enter 0
+  var __ret: Closure_23
+  var __t0: __closure_env1
+  __t0 = __closure_env1 {factor}
+  var __env1: ^__closure_env1
+  __env1 = alloc(__closure_env1)
+  *__env1 = __t0
+  __ret = ClosureValue(__env1, __closure_body2)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func __closure_body4(this: ^__closure_env3): i8 {
+_L_entry:
+  scope.enter 0
+  var __ret: i8
+  __ret = this.count + 1
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func makeCounter(): Closure_34 {
+_L_entry:
+  scope.enter 0
+  var __ret: Closure_34
+  var count: i8
+  count = 0
+  var __t2: __closure_env3
+  __t2 = __closure_env3 {count}
+  var __env3: ^__closure_env3
+  __env3 = alloc(__closure_env3)
+  *__env3 = __t2
+  __ret = ClosureValue(__env3, __closure_body4)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  var mul: Closure_23
+  mul = makeMultiplier(<i32>(5))
+  var r1: i32
+  r1 = mul.fn(mul.env, 10)
+  var cnt: Closure_34
+  cnt = makeCounter()
+  var r2: i32
+  r2 = cnt.fn(cnt.env)
+  goto _L_exit
+_L_exit:
+  drop cnt
+  drop mul
+  scope.exit 0
+  return
+}

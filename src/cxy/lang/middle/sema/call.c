@@ -69,14 +69,6 @@ static AstNode *synthesizeClosureThunkForFunc(AstVisitor *visitor,
     cstring thunkName = makeAnonymousVariable(ctx->strings, "__thunk");
 
     const Type *voidPtrType = makeVoidPointerType(ctx->types, flgNone);
-    AstNode *envThisParam = makeFunctionParam(
-        ctx->pool,
-        loc,
-        S_this,
-        makeTypeReferenceNode(ctx->pool, voidPtrType, loc),
-        NULL,
-        flgNone,
-        NULL);
 
     AstNodeList paramsList = {};
     AstNodeList argsList = {};
@@ -98,6 +90,15 @@ static AstNode *synthesizeClosureThunkForFunc(AstVisitor *visitor,
             ctx->pool, loc, paramName, flgNone, pDecl, NULL, paramType);
         insertAstNode(&argsList, argRef);
     }
+
+    AstNode *envThisParam = makeFunctionParam(
+        ctx->pool,
+        loc,
+        S_this,
+        makeTypeReferenceNode(ctx->pool, voidPtrType, loc),
+        NULL,
+        flgNone,
+        paramsList.first);
 
     const Type *retType = funcType->func.retType;
     AstNode *forwardCall = makeCallExpr(
@@ -330,13 +331,14 @@ void checkCallExpr(AstVisitor *visitor, AstNode *node)
         return;
 
     callee_ = node->callExpr.callee->type;
+    const Type *fnType = isClosureType(callee_) ? callee_->closure.fn : callee_;
     AstNode *arg = node->callExpr.args, *prev = NULL;
-    bool isVariadic = hasFlag(callee_, Variadic);
+    bool isVariadic = hasFlag(fnType, Variadic);
     for (u64 i = 0; arg; i++) {
-        if (isVariadic && i >= callee_->func.paramsCount)
+        if (isVariadic && i >= fnType->func.paramsCount)
             break;
 
-        const Type *type = callee_->func.params[i], *expr = arg->type;
+        const Type *type = fnType->func.params[i], *expr = arg->type;
         if (isClosureType(type)) {
             if (typeIs(arg->type, Func)) {
                 AstNode *closureVal = synthesizeClosureThunkForFunc(visitor, arg, type);

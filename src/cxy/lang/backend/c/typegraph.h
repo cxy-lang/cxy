@@ -22,6 +22,7 @@ typedef struct IrTypeGraphNode {
 typedef struct IrTypeGraph {
     MemPool *pool;
     HashTable nodes;      // const IrType* -> IrTypeGraphNode*
+    DynArray nodeList;    // IrTypeGraphNode* in insertion order
     DynArray sorted;      // Topologically sorted const IrType*
     DynArray forwardDecls;// Types requiring forward declaration
 } IrTypeGraph;

@@ -1,5 +1,5 @@
 
-// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/mem/05_aggregates.cxy
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/05_aggregates.cxy
 func main.Resource.op__init(this: ^Resource, id: i32): void {
 _L_entry:
   scope.enter 0
@@ -43,9 +43,9 @@ func main.Container.op__copy(this: ^Container): Container {
 _L_entry:
   scope.enter 0
   var __ret: Container
-  var __t0: ^void
+  var __t0: ^Resource
   copy this.res -> __t0
-  __ret = Container {<^Resource>(__t0), this.tag}
+  __ret = Container {__t0, this.tag}
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -111,18 +111,18 @@ func main(): void {
 _L_entry:
   scope.enter 0
   testTuple()
-  var _a1: ^Resource | i32
   var __t3: ^Resource
   __t3 = Resource_op__initCover(<i32>(2))
-  _a1 = variant(0, __t3)
-  testUnion(_a1)
-  var _a2: ^Resource | i32
-  _a2 = variant(1, 10)
-  testUnion(_a2)
+  var __t4: ^Resource | i32
+  __t4 = variant(0, __t3)
+  testUnion(__t4)
+  var __t5: ^Resource | i32
+  __t5 = variant(1, 10)
+  testUnion(__t5)
   var c: Container
-  var __t4: ^Resource
-  __t4 = Resource_op__initCover(<i32>(3))
-  c = Container {__t4, 1}
+  var __t6: ^Resource
+  __t6 = Resource_op__initCover(<i32>(3))
+  c = Container {__t6, 1}
   goto _L_exit
 _L_exit:
   drop c
@@ -134,9 +134,9 @@ func __tuple_copy_36(tup: ^(^Resource, i8)): (^Resource, i8) {
 _L_entry:
   scope.enter 0
   var __ret: (^Resource, i8)
-  var __t5: ^Resource
-  copy tup.0 -> __t5
-  __ret = Tuple_ptr_i8 {__t5, tup.1}
+  var __t7: ^Resource
+  copy tup.0 -> __t7
+  __ret = Tuple_ptr_i8 {__t7, tup.1}
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -165,9 +165,9 @@ _L_entry:
 _L_MATCH0_exit:
   goto _L_exit
 _L_MATCH0_case_0:
-  var __t6: ^Resource
-  copy u.val._0 -> __t6
-  __ret = variant(0, __t6)
+  var __t8: ^Resource
+  copy u.val._0 -> __t8
+  __ret = variant(0, __t8)
   goto _L_exit
 _L_MATCH0_case_1:
   __ret = variant(1, u.val._1)

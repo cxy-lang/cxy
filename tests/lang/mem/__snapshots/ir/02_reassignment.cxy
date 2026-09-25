@@ -1,5 +1,5 @@
 
-// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/mem/02_reassignment.cxy
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/02_reassignment.cxy
 func main.Item.op__init(this: ^Item, id: i32): void {
 _L_entry:
   scope.enter 0

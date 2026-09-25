@@ -575,40 +575,6 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
         if (typeIs(func->type->func.params[i], Auto))
             continue;
         astVisit(visitor, arg);
-        if (nodeNeedsTemporaryVar(arg)) {
-            AstNode *var =
-                makeVarDecl(ctx->pool,
-                            &arg->loc,
-                            flgTemporary | (arg->flags & flgConst),
-                            makeAnonymousVariable(ctx->strings, "_a"),
-                            NULL,
-                            deepCloneAstNode(ctx->pool, arg),
-                            NULL,
-                            arg->type);
-            if (ctx->whileCond.visiting) {
-                insertAstNode(
-                    &ctx->whileCond.exprs,
-                    makeAssignExpr(ctx->pool,
-                                   &arg->loc,
-                                   flgNone,
-                                   makeResolvedIdentifier(ctx->pool,
-                                                          &arg->loc,
-                                                          var->varDecl.name,
-                                                          0,
-                                                          var,
-                                                          NULL,
-                                                          var->type),
-                                   opAssign,
-                                   deepCloneAstNode(ctx->pool, arg),
-                                   NULL,
-                                   arg->type));
-            }
-            arg->tag = astIdentifier;
-            arg->ident.value = var->_namedNode.name;
-            arg->ident.resolvesTo = var;
-            arg->flags |= flgMove;
-            astModifierAdd(&ctx->block, var);
-        }
 
         const Type *left = resolveUnThisUnwrapType(func->type->func.params[i]),
                    *right = resolveUnThisUnwrapType(arg->type);

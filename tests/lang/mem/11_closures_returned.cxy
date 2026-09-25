@@ -1,0 +1,18 @@
+func makeMultiplier(factor: i32): func(i32) -> i32 {
+    return |factor|(x: i32) => x * factor
+}
+
+func makeCounter(): func() -> i32 {
+    var count = 0
+    return |count|() => {
+        return count + 1
+    }
+}
+
+func main(): void {
+    var mul = makeMultiplier(5)
+    var r1 = mul(10)
+
+    var cnt = makeCounter()
+    var r2 = cnt()
+}

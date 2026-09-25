@@ -197,9 +197,15 @@ restoreBlock:
 static void checkReturnStmt(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
-    AstNode *expr = node->returnStmt.expr, *func = node->returnStmt.func,
-            *ret = nodeIs(func, FuncDecl) ? func->funcDecl.signature->ret
-                                          : func->closureExpr.ret;
+    AstNode *expr = node->returnStmt.expr, *func = node->returnStmt.func;
+    AstNode *funcDecl =
+        nodeIs(func, ClosureExpr) ? func->closureExpr.construct : func;
+    AstNode *ret = nodeIs(func, FuncDecl)
+                       ? func->funcDecl.signature->ret
+                       : (func->closureExpr.ret ?: (funcDecl
+                                                        ? funcDecl->funcDecl
+                                                              .signature->ret
+                                                        : NULL));
 
     const Type *expr_ =
         expr ? checkType(visitor, expr) : makeVoidType(ctx->types);
@@ -264,10 +270,16 @@ static void checkReturnStmt(AstVisitor *visitor, AstNode *node)
     else {
         node->type = expr_;
         ret = makeTypeReferenceNode(ctx->pool, expr_, &node->loc);
-        if (nodeIs(func, FuncDecl))
+        if (nodeIs(func, FuncDecl)) {
             func->funcDecl.signature->ret = ret;
-        else
+        }
+        else if (nodeIs(func, ClosureExpr)) {
             func->closureExpr.ret = ret;
+            if (func->closureExpr.construct &&
+                nodeIs(func->closureExpr.construct, FuncDecl)) {
+                func->closureExpr.construct->funcDecl.signature->ret = ret;
+            }
+        }
     }
 }
 

@@ -1,0 +1,66 @@
+func testValueCapture(): i32 {
+    var a = 10
+    var c = |a|() => a + 5
+    return c()
+}
+
+func testRefCapture(): i32 {
+    var a = 10
+    var c = |&a|() => a + 20
+    return c()
+}
+
+func testMoveCapture(): i32 {
+    var a = 10
+    var c = |&&a|() => a + 30
+    return c()
+}
+
+func testDefaultRefCapture(): i32 {
+    var a = 10
+    var b = 20
+    var c = |&|() => a + b
+    return c()
+}
+
+func testDefaultMoveCapture(): i32 {
+    var a = 10
+    var b = 20
+    var c = |&&|() => a + b
+    return c()
+}
+
+func testMixedCapture(): i32 {
+    var a = 10
+    var b = 20
+    var c = 30
+    var fn = |a, &b, &&c|() => a + b + c
+    return fn()
+}
+
+func testTrailingDefaultRefCapture(): i32 {
+    var a = 10
+    var b = 20
+    var c = 30
+    var fn = |&&a, &|() => a + b + c
+    return fn()
+}
+
+func testTrailingDefaultMoveCapture(): i32 {
+    var a = 10
+    var b = 20
+    var c = 30
+    var fn = |&a, &&|() => a + b + c
+    return fn()
+}
+
+func main(): void {
+    testValueCapture()
+    testRefCapture()
+    testMoveCapture()
+    testDefaultRefCapture()
+    testDefaultMoveCapture()
+    testMixedCapture()
+    testTrailingDefaultRefCapture()
+    testTrailingDefaultMoveCapture()
+}

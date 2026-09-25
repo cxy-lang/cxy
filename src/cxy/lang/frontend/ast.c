@@ -8,6 +8,7 @@
 
 #include "lang/middle/builtins.h"
 #include "types.h"
+#include <string.h>
 
 typedef struct {
     const AstNode *from;
@@ -2953,6 +2954,25 @@ AstNode *resolvePath(const AstNode *path)
 {
     if (path == NULL)
         return NULL;
+
+    switch (path->tag) {
+        case astPath:
+            break;
+        case astCastExpr:
+            return resolvePath(path->castExpr.expr);
+        case astGroupExpr:
+            return resolvePath(path->groupExpr.expr);
+        case astPointerOf:
+        case astReferenceOf:
+        case astUnaryExpr: {
+            Operator op = path->unaryExpr.op;
+            if (op == opMove || op == opPtrof || opRefof || op == opDeref)
+                return resolvePath(path->unaryExpr.operand);
+            // fallthrough
+        }
+        default:
+            return NULL;
+    }
 
     AstNode *base = path->path.elements;
     if (base->pathElement.resolvesTo == NULL)

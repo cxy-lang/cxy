@@ -248,12 +248,18 @@ const IrType *makeIrFuncType(IrTypeTable *table, Flags flags, const IrType **par
     snprintf(buf + len, sizeof(buf) - len, "): %s", ret ? (ret->display ?: ret->name) : "void");
     cstring display = makeString(table->strings, buf);
 
+    const IrType **savedParams = NULL;
+    if (count > 0 && params != NULL) {
+        savedParams = allocFromMemPool(table->pool, sizeof(IrType *) * count);
+        memcpy(savedParams, params, sizeof(IrType *) * count);
+    }
+
     IrType type = {
         .tag = irTypeFunc,
         .flags = flags,
         .size = sizeof(void *),
         .align = sizeof(void *),
         .display = display,
-        .func = {.params = params, .count = count, .ret = ret, .variadic = variadic}};
+        .func = {.params = savedParams, .count = count, .ret = ret, .variadic = variadic}};
     return getOrInsertIrType(table, &type);
 }

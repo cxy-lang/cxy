@@ -53,6 +53,7 @@ static IrTypeGraphNode *findOrAddGraphNode(IrTypeGraph *g, const IrType *type)
 
     insertInHashTable(&g->nodes, &node, hashGraphNodeType(type),
                       sizeof(IrTypeGraphNode *), compareGraphNodes);
+    pushOnDynArray(&g->nodeList, &node);
     return node;
 }
 
@@ -170,6 +171,7 @@ IrTypeGraph *newIrTypeGraph(MemPool *pool)
     IrTypeGraph *g = allocFromMemPool(pool, sizeof(IrTypeGraph));
     g->pool = pool;
     g->nodes = newHashTable(sizeof(IrTypeGraphNode *), pool);
+    g->nodeList = newDynArray(sizeof(IrTypeGraphNode *));
     g->sorted = newDynArray(sizeof(const IrType *));
     g->forwardDecls = newDynArray(sizeof(const IrType *));
     return g;
@@ -185,6 +187,7 @@ void freeIrTypeGraph(IrTypeGraph *g)
             freeDynArray(&node->pointerDeps);
         }
         freeHashTable(&g->nodes);
+        freeDynArray(&g->nodeList);
         freeDynArray(&g->sorted);
         freeDynArray(&g->forwardDecls);
     }
@@ -224,10 +227,9 @@ void collectIrTypesFromModule(IrTypeGraph *g, const IrModule *module)
 
 void sortIrTypeGraph(IrTypeGraph *g)
 {
-    // Pass 2: Topologically sort all collected types
-    HashtableIt it = newHashTableIt(&g->nodes, sizeof(IrTypeGraphNode *));
-    while (hashTableItHasNext(&it)) {
-        IrTypeGraphNode *node = *(IrTypeGraphNode **)hashTableItNext(&it);
+    // Pass 2: Topologically sort all collected types using deterministic insertion order
+    dynArrayFor(it, IrTypeGraphNode *, &g->nodeList) {
+        IrTypeGraphNode *node = *it;
         if (!node->emitted) {
             topoSortDfs(g, node->type);
         }

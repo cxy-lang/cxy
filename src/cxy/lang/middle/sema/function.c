@@ -305,6 +305,11 @@ const Type *checkFunctionSignature(AstVisitor *visitor, AstNode *node)
 
     const Type **params_ = mallocOrDie(sizeof(Type *) * paramsCount);
     const Type *ret_ = ret ? checkType(visitor, ret) : makeAutoType(ctx->types);
+    if (typeIs(ret_, Func) && !hasFlags(node, flgPure | flgExtern)) {
+        ret_ = makeClosureType(ctx->types, makeVoidType(ctx->types), ret_, true);
+        if (ret)
+            ret->type = ret_;
+    }
 
     const Type *type = ret_;
     u64 defaultValues = 0;

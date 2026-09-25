@@ -1569,6 +1569,20 @@ static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
 
     IrNode *lhs = lowerFlattenedOperand(visitor, node->binaryExpr.lhs);
     IrNode *rhs = lowerFlattenedOperand(visitor, node->binaryExpr.rhs);
+    if (node->binaryExpr.lhs->type &&
+        isReferenceType(node->binaryExpr.lhs->type) &&
+        !isClassType(stripReference(node->binaryExpr.lhs->type))) {
+        const IrType *valType =
+            lowerType(ctx, stripReference(node->binaryExpr.lhs->type));
+        lhs = makeIrDeref(ctx->pool, &node->binaryExpr.lhs->loc, lhs, valType);
+    }
+    if (node->binaryExpr.rhs->type &&
+        isReferenceType(node->binaryExpr.rhs->type) &&
+        !isClassType(stripReference(node->binaryExpr.rhs->type))) {
+        const IrType *valType =
+            lowerType(ctx, stripReference(node->binaryExpr.rhs->type));
+        rhs = makeIrDeref(ctx->pool, &node->binaryExpr.rhs->loc, rhs, valType);
+    }
     node->codegen = makeIrBinary(
         ctx->pool, &node->loc, op, lhs, rhs, lowerType(ctx, node->type));
 }
@@ -1612,13 +1626,27 @@ static void visitUnaryExpr(AstVisitor *visitor, AstNode *node)
                 makeIrUnary(ctx->pool, &node->loc, opNot, okMember, irType);
         }
         else {
+            if (opType && isReferenceType(opType) &&
+                !isClassType(stripReference(opType))) {
+                const IrType *valType = lowerType(ctx, stripReference(opType));
+                operand = makeIrDeref(
+                    ctx->pool, &node->unaryExpr.operand->loc, operand, valType);
+            }
             node->codegen = makeIrUnary(
                 ctx->pool, &node->loc, node->unaryExpr.op, operand, irType);
         }
     }
-    else
+    else {
+        const Type *opType = node->unaryExpr.operand->type;
+        if (opType && isReferenceType(opType) &&
+            !isClassType(stripReference(opType))) {
+            const IrType *valType = lowerType(ctx, stripReference(opType));
+            operand = makeIrDeref(
+                ctx->pool, &node->unaryExpr.operand->loc, operand, valType);
+        }
         node->codegen = makeIrUnary(
             ctx->pool, &node->loc, node->unaryExpr.op, operand, irType);
+    }
 }
 
 static void visitPointerOf(AstVisitor *visitor, AstNode *node)
@@ -2169,11 +2197,30 @@ static void visitClosureValue(AstVisitor *visitor, AstNode *node)
             envVal = makeIrVarRef(ctx->pool, &node->loc, envVar);
         }
         else {
+            const IrType *envStructType = lowerType(ctx, node->closureValue.env->type);
+            cstring envVarName =
+                makeStringf(ctx->strings, "__env%u", ctx->tempCounter++);
+            Flags envFlags = flgNone;
+            if (isIrTypeDestructible(envStructType))
+                envFlags |= flgReferenceMembers;
+            IrNode *envVar = makeIrVarDecl(ctx->pool,
+                                           &node->loc,
+                                           envFlags,
+                                           envVarName,
+                                           envVarName,
+                                           envStructType,
+                                           ctx->currentScopeId);
+            emitStmt(ctx, envVar);
+            emitStmt(ctx,
+                     makeIrAssign(ctx->pool,
+                                  &node->loc,
+                                  makeIrVarRef(ctx->pool, &node->loc, envVar),
+                                  envStruct));
             envVal = makeIrAddrOf(
                 ctx->pool,
                 &node->loc,
-                envStruct,
-                makeIrPointerType(ctx->types, flgNone, envStruct->type));
+                makeIrVarRef(ctx->pool, &node->loc, envVar),
+                makeIrPointerType(ctx->types, flgNone, envStructType));
         }
     }
 
@@ -2219,6 +2266,17 @@ static void visitBackendCall(AstVisitor *visitor, AstNode *node)
                                      &node->loc,
                                      targetType,
                                      getIrPrimitiveType(ctx->types, irTypeU64));
+        break;
+    }
+    case bfiStrLen: {
+        IrNode *target = lowerFlattenedOperand(visitor, args);
+        const IrType *u64Type = getIrPrimitiveType(ctx->types, irTypeU64);
+        const IrType *charPtrType = makeIrPointerType(
+            ctx->types, flgConst, getIrPrimitiveType(ctx->types, irTypeChar));
+        const IrType *fnType = makeIrFuncType(
+            ctx->types, flgNone, (const IrType *[]){charPtrType}, 1, u64Type, false);
+        IrNode *fn = makeIrGlobalRef(ctx->pool, &node->loc, "strlen", NULL, fnType);
+        node->codegen = makeIrCall(ctx->pool, &node->loc, fn, target, 1, u64Type);
         break;
     }
     case bfiAlloca: {
@@ -2420,6 +2478,14 @@ static void visitAssignExpr(AstVisitor *visitor, AstNode *node)
     AstNode *rhsNode = node->assignExpr.rhs;
     const Type *lhsAstType = node->assignExpr.lhs->type;
     const Type *rhsAstType = rhsNode->type;
+
+    if (lhsAstType && isReferenceType(lhsAstType) &&
+        !isClassType(stripReference(lhsAstType))) {
+        lhs = makeIrDeref(ctx->pool,
+                          &node->assignExpr.lhs->loc,
+                          lhs,
+                          lowerType(ctx, stripReference(lhsAstType)));
+    }
 
     if (lhsAstType && (hasFlag(lhsAstType, Slice) || isSliceType(lhsAstType)) &&
         (!rhsAstType ||

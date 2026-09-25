@@ -1266,21 +1266,12 @@ static AstNode *makeLenNode(AstVisitor *visitor,
             args->intLiteral.uValue = len;
             return args;
         }
-        AstNode *strLen = findBuiltinDecl(S_strlen);
-        csAssert0(strLen);
-        return makeCallExpr(ctx->pool,
-                            &node->loc,
-                            makeResolvedPath(ctx->pool,
-                                             &node->loc,
-                                             S_strlen,
-                                             strLen->flags | node->flags,
-                                             strLen,
-                                             NULL,
-                                             strLen->type),
-                            args,
-                            node->flags,
-                            NULL,
-                            strLen->type->func.retType);
+        return makeBackendCallExpr(ctx->pool,
+                                   &node->loc,
+                                   node->flags,
+                                   bfiStrLen,
+                                   args,
+                                   getPrimitiveType(ctx->types, prtU64));
     }
     case typArray:
         // sizeof(a)/sizeof(a[0])

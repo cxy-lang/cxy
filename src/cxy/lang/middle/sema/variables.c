@@ -7,6 +7,7 @@
 #include "../eval/eval.h"
 
 #include "lang/frontend/flag.h"
+#include "lang/frontend/strings.h"
 
 void checkVarDecl(AstVisitor *visitor, AstNode *node)
 {
@@ -20,6 +21,13 @@ void checkVarDecl(AstVisitor *visitor, AstNode *node)
 
     const Type *type_ =
         type ? checkType(visitor, type) : makeAutoType(ctx->types);
+    if (typeIs(type_, Func) && !hasFlag(node, Pure) &&
+        !findAttribute(node, S_pure)) {
+        type_ =
+            makeClosureType(ctx->types, makeVoidType(ctx->types), type_, false);
+        if (type)
+            type->type = type_;
+    }
     const Type *init_ = checkType(visitor, init);
     if (typeIs(init_, Void)) {
         logError(ctx->L,

@@ -1,28 +1,18 @@
-func say(fn: func()-> void ) {
-    fn()
+func apply(x: i32, op: func(i32) -> i32): i32 {
+    return op(x)
 }
 
-struct Hello {
-    fn: func() -> void
-    func `init`(@escaping fn: func() -> void) {
-        this.fn = &&fn
-    }
-
-    func say() {
-        fn()
-    }
+func invokeTwice(cb: func() -> void): void {
+    cb()
+    cb()
 }
 
-func check(s: String) {
-    return &&s
-}
+func main(): void {
+    var factor = 3
+    var res = apply(10, |factor|(x: i32) => x * factor)
 
-func main() {
-    var x = "Hello".S
-    var y = () => {
-        printf("Hello, World! %s\n", x.str())
-    }
-    var hello = Hello(y)
-    hello.say()
-    check(&&x)
+    var count = 0
+    invokeTwice(|&count|() => {
+        count = count + 1
+    })
 }

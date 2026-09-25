@@ -1,0 +1,26 @@
+struct Handler {
+    fn: func(i32) -> i32
+    func `init`(@escaping fn: func(i32) -> i32) {
+        this.fn = &&fn
+    }
+    func call(x: i32): i32 => fn(x)
+}
+
+class Dispatcher {
+    fn: func() -> void
+    func `init`(@escaping fn: func() -> void) {
+        this.fn = &&fn
+    }
+    func dispatch() {
+        fn()
+    }
+}
+
+func main(): void {
+    var offset = 1
+    var h = Handler(|offset|(x: i32) => x + offset)
+    var v = h.call(41)
+
+    var d = Dispatcher(() => { })
+    d.dispatch()
+}

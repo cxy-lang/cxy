@@ -153,6 +153,11 @@ while [[ $# -gt 0 ]]; do
       UPDATE_SNAPSHOT=1
       shift # past argument
       ;;
+    -s|--suite)
+      SUITE_FILTER="$2"
+      shift # past argument
+      shift # past value
+      ;;
     -f|--test-filter)
       TEST_FILTER="$2"
       shift # past argument
@@ -165,6 +170,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --cxy)
       CXY_COMPILER="$2"
+      CXY_DEFAULT_COMMAND="$2"
       shift # past argument
       shift # past value
       ;;
@@ -192,17 +198,26 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Find run configuration up directory stack
-__find_run_cfg() {
+# Find run configuration up directory stack (returns run.cfg or suites/*.cfg)
+__find_configs() {
   local dir=$1
-  while [ "$dir" != "$TESTS_DIR" ]
+  while [ -n "$dir" ] && [ "$dir" != "/" ]
   do
-    if [ -e "$dir/run.cfg" ]
-    then
+    if [ -d "$dir/suites" ]; then
+      local found_suites=( "$dir/suites"/*.cfg )
+      if [ -e "${found_suites[0]}" ]; then
+        echo "${found_suites[@]}"
+        return 0
+      fi
+    fi
+    if [ -e "$dir/run.cfg" ]; then
       echo "$dir/run.cfg"
+      return 0
+    fi
+    if [ "$dir" == "$TESTS_DIR" ]; then
       break
     fi
-    dir=$(dirname $dir)
+    dir=$(dirname "$dir")
   done
 }
 
@@ -231,69 +246,135 @@ __read_cfg() {
     echo "$default"
 }
 
+__exec_with_leaks() {
+  local bin="$1"
+  local exec_args="$2"
+  local out
+  out=$(leaks --atExit --quiet -- "${bin}" ${exec_args} 2>&1)
+  local rc=$?
+
+  echo "${out}"
+  if [ $rc -ne 0 ] || echo "${out}" | grep -Eq "[1-9][0-9]* leaks for [1-9][0-9]* total leaked bytes"; then
+    return 1
+  fi
+  return 0
+}
+
+__exec_with_asan() {
+  local bin="$1"
+  local exec_args="$2"
+  local out
+  out=$("${bin}" ${exec_args} 2>&1)
+  local rc=$?
+
+  echo "${out}"
+  if [ $rc -ne 0 ] || echo "${out}" | grep -Eq "ERROR: (AddressSanitizer|LeakSanitizer)"; then
+    return 1
+  fi
+  return 0
+}
+
 run_test () {
-  test_path=$1
-  test_dir=$(dirname $test_path)
-  test_case="${2}"
+  local test_path=$1
+  local test_dir=$(dirname "$test_path")
+  local test_case="${2}"
+  local run_cfg="${3}"
 
   local snapshot_ext="${CXY_DEFAULT_SNAPSHOT_EXT}"
   local run_args="${CXY_DEFAULT_ARGS}"
   local run_cmd="${CXY_DEFAULT_COMMAND}"
-  # Load current configuration
-  local run_cfg=$(__find_run_cfg "$test_dir")
+  local execute="false"
+  local exec_args=""
+  local suite_name=""
+  local snapshots_dir="${test_dir}/__snapshots"
 
-  if [ -n "${run_cfg}" ]; then
+  if [ -n "${run_cfg}" ] && [ -f "${run_cfg}" ]; then
     snapshot_ext=$(__read_cfg "$run_cfg" "snapshot_ext" "$snapshot_ext")
     run_args=$(__read_cfg "$run_cfg" "run_args" "$run_args")
     run_cmd=$(__read_cfg "$run_cfg" "command" "$run_cmd")
+    execute=$(__read_cfg "$run_cfg" "execute" "false")
+    exec_args=$(__read_cfg "$run_cfg" "exec_args" "$exec_args")
+
+    if [[ "$run_cfg" == *"/suites/"* ]]; then
+      suite_name=$(basename "$run_cfg" .cfg)
+      snapshots_dir="${test_dir}/__snapshots/${suite_name}"
+    fi
   fi
 
-  echo -e "Running test case ${test_case}"
-  expected="${test_dir}/__snapshots/$(basename $2)${snapshot_ext}"
-  output=$(${run_cmd} $run_args $test_path 2>&1)
-  status=$?
+  local display_name="${test_case}"
+  if [ -n "${suite_name}" ]; then
+    display_name="${test_case} [${suite_name}]"
+  fi
+
+  echo -e "Running test case ${display_name}"
+  local expected="${snapshots_dir}/$(basename "$2")${snapshot_ext}"
+  local output=""
+  local status=0
+
+  if [ "${execute}" == "true" ]; then
+    local bin_tmp=$(mktemp /tmp/cxy_exec_XXXXXX)
+    local compile_args="${run_args}"
+    local is_darwin=0
+    [[ "${OSTYPE}" =~ "darwin" ]] && is_darwin=1
+
+    if [ $is_darwin -eq 1 ] && hash leaks 2>/dev/null; then
+      compile_args=$(echo "${run_args}" | sed -E 's/--cflags(=[[:blank:]]*)?-fsanitize=address//g; s/-fsanitize=address//g')
+    fi
+
+    output=$(${run_cmd} ${compile_args} -o "${bin_tmp}" "${test_path}" 2>&1)
+    status=$?
+    if [ $status -eq 0 ] && [ -f "${bin_tmp}" ]; then
+      if [ $is_darwin -eq 1 ] && hash leaks 2>/dev/null; then
+        output=$(__exec_with_leaks "${bin_tmp}" "${exec_args}")
+        status=$?
+      else
+        output=$(__exec_with_asan "${bin_tmp}" "${exec_args}")
+        status=$?
+      fi
+    fi
+    rm -f "${bin_tmp}"
+  else
+    output=$(${run_cmd} ${run_args} "${test_path}" 2>&1)
+    status=$?
+  fi
 
   if ! grep -m 1 -e "^//[[:blank:]]*@TEST:[[:blank:]]*FileCheck"  "$test_path" > /dev/null ; then
-    # Regular snapsho test
+    # Regular snapshot test
     if [ $status -ne 0 ]; then
-      # If there is a failure snapshot, prefer it, otherwise fail the build
-      expected="${directory}/__snapshots/${2}.fail"
+      expected="${snapshots_dir}/$(basename "$2").fail"
       if [ ! -e "$expected" ] ; then
-        echo -e "  ${Bred}FAILED${reset}: Compilation failed for test case ${test_case}"
+        echo -e "  ${Bred}FAILED${reset}: Execution failed for test case ${display_name}"
         echo -e "${output}"
         return 1
       fi
-    elif [ -e "${directory}/__snapshots/${2}.log" ] ; then
-      # Prefer log snapshot
-      expected="${directory}/__snapshots/$(basename $2).log"
+    elif [ -e "${snapshots_dir}/$(basename "$2").log" ] ; then
+      expected="${snapshots_dir}/$(basename "$2").log"
     fi
 
     if [ -n "${UPDATE_SNAPSHOT}" ]
     then
-      # Update snapshots
-      mkdir -p "${test_dir}/__snapshots"
-      echo "${output}" > ${expected}
+      mkdir -p "${snapshots_dir}"
+      echo "${output}" > "${expected}"
     fi
 
     if [ -f "$expected" ] ; then
       if diff --color=always /dev/null /dev/null 2>/dev/null; then
-        match=$(diff --color=always -U2 --label "Expected: ${expected}" --label "Actual: ${1}" "${expected}" <(echo "${output}"))
+        match=$(diff --color=always -U2 --label "Expected: ${expected}" --label "Actual: ${test_path}" "${expected}" <(echo "${output}"))
       else
         match=$(git --no-pager diff --no-index --color=always -U2 "${expected}" <(echo "${output}"))
       fi
       if [ $? -ne 0 ]; then
-          echo -e "  ${Bred}FAILED${reset}: Compiler output does not match expected output"
+          echo -e "  ${Bred}FAILED${reset}: Output does not match expected snapshot"
           echo "${match}"
           return 1
       fi
     fi
   else
-    # This is a file check test
     local file_check=FileCheck
     if [ -z "${CXY_FILE_CHECK_OFF}" ]; then
       [ -n "${FILE_CHECK}" ] && file_check="${FILE_CHECK}"
 
-      match=$(echo "${output}" | "${file_check}" $test_path)
+      match=$(echo "${output}" | "${file_check}" "$test_path")
       [ $? -ne 0 ] && {
           echo -e "  ${Bred}FAILED${reset}: FileCheck failed to verify compiler output"
           echo -e "${match}"
@@ -320,19 +401,42 @@ for test in $(find $TESTS_DIR -type f -name '*.cxy' -not -path '**/__snapshots/*
 
   test_case="${test#"$TESTS_DIR"/}"
   test_case=${test_case%.*}
-  run_test "${test}" "${test_case}"
-  status=$?
-  test_start=$(timestamp)
-  if [ $status -ne 0 ]
-  then
-    FAILED_TESTS=$((FAILED_TESTS + 1))
-    TEST_RESULTS+=(["${test_case}"]="FAILED")
-  else
-    PASSED_TESTS=$((PASSED_TESTS + 1))
-    TEST_RESULTS+=(["${test_case}"]="PASSED")
+  test_dir=$(dirname "$test")
+
+  configs=( $(__find_configs "$test_dir") )
+  if [ ${#configs[@]} -eq 0 ]; then
+    configs=("")
   fi
-  test_end=$(timestamp)
-  TEST_DURATIONS+=(["${test_case}"]=$(((test_end - test_start)/1000000)))
+
+  for cfg in "${configs[@]}"; do
+    suite_name=""
+    if [[ "$cfg" == *"/suites/"* ]]; then
+      suite_name=$(basename "$cfg" .cfg)
+      run_key="${test_case} [${suite_name}]"
+    else
+      run_key="${test_case}"
+    fi
+
+    if [ -n "${SUITE_FILTER}" ] && [ -n "${suite_name}" ] && ! echo "${suite_name}" | grep -Eq "${SUITE_FILTER}"; then
+      continue
+    fi
+
+    test_start=$(timestamp)
+    run_test "${test}" "${test_case}" "${cfg}"
+    status=$?
+    test_end=$(timestamp)
+    duration=$(((test_end - test_start)/1000000))
+
+    if [ $status -ne 0 ]
+    then
+      FAILED_TESTS=$((FAILED_TESTS + 1))
+      TEST_RESULTS+=(["${run_key}"]="FAILED")
+    else
+      PASSED_TESTS=$((PASSED_TESTS + 1))
+      TEST_RESULTS+=(["${run_key}"]="PASSED")
+    fi
+    TEST_DURATIONS+=(["${run_key}"]=${duration})
+  done
 done
 TESTS_DONE=$(timestamp)
 

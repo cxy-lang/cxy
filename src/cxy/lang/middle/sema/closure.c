@@ -133,6 +133,7 @@ static bool synthesizeClosureEnvironment(AstVisitor *visitor,
 }
 
 static AstNode *synthesizeClosureBodyFunction(AstVisitor *visitor,
+                                              AstNode *closureNode,
                                               const FileLoc *loc,
                                               const Type *envType,
                                               AstNode *params,
@@ -154,7 +155,7 @@ static AstNode *synthesizeClosureBodyFunction(AstVisitor *visitor,
                           makeTypeReferenceNode(ctx->pool, envPtrType, loc),
                           NULL,
                           flgNone,
-                          NULL);
+                          params);
 
     AstNode *bodyFunc = makeFunctionDecl(ctx->pool,
                                          loc,
@@ -166,6 +167,8 @@ static AstNode *synthesizeClosureBodyFunction(AstVisitor *visitor,
                                          NULL,
                                          NULL);
     bodyFunc->funcDecl.this_ = envThisParam;
+    if (closureNode)
+        closureNode->closureExpr.construct = bodyFunc;
 
     const Type *fnType = checkType(visitor, bodyFunc);
     if (typeIs(fnType, Error))
@@ -205,6 +208,7 @@ void checkClosureExpr(AstVisitor *visitor, AstNode *node)
     const Type *fnType = NULL;
     AstNode *funcRef = NULL;
     AstNode *bodyFunc = synthesizeClosureBodyFunction(visitor,
+                                                      node,
                                                       &node->loc,
                                                       envType,
                                                       node->closureExpr.params,
@@ -252,11 +256,7 @@ bool promoteClosureToEscaping(TypingContext *ctx,
     if (!expr || !isClosureType(targetType) || !targetType->closure.isEscaping)
         return true;
 
-    AstNode *target = expr;
-    if (nodeIs(target, Path) && target->path.elements &&
-        target->path.elements->pathElement.resolvesTo) {
-        target = target->path.elements->pathElement.resolvesTo;
-    }
+    AstNode *target = resolvePath(expr) ?: expr;
 
     if (nodeIs(target, FuncParamDecl) && isClosureType(target->type) &&
         !target->type->closure.isEscaping) {

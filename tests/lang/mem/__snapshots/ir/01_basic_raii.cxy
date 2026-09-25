@@ -1,5 +1,5 @@
 
-// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/mem/01_basic_raii.cxy
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/01_basic_raii.cxy
 func main.Item.op__init(this: ^Item, id: i32): void {
 _L_entry:
   scope.enter 0
@@ -59,10 +59,8 @@ _L_exit:
 func takeItem(item: ^Item): void {
 _L_entry:
   scope.enter 0
-  var _a1: i32
-  _a1 = item.id + 1
   var local: ^Item
-  local = Item_op__initCover(_a1)
+  local = Item_op__initCover(item.id + 1)
   goto _L_exit
 _L_exit:
   drop local

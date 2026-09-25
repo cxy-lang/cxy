@@ -230,7 +230,7 @@ AstNode *makeDropReferenceCall(TypingContext *ctx,
                                const FileLoc *loc)
 {
     const Type *type = member->type;
-    csAssert0(isClassType(type));
+    csAssert0(isClassType(type) || isClosureType(type));
     return makeExprStmt(
         ctx->pool,
         loc,
@@ -257,7 +257,7 @@ AstNode *makeCopyReferenceCall(TypingContext *ctx,
                                const FileLoc *loc)
 {
     const Type *type = member->type;
-    csAssert0(typeIs(type, Class));
+    csAssert0(isClassType(type) || isClosureType(type));
     return makeBackendCallExpr(
         ctx->pool,
         loc,
@@ -270,7 +270,7 @@ AstNode *makeCopyReferenceCall(TypingContext *ctx,
                          member,
                          NULL,
                          type),
-        makeVoidPointerType(ctx->types, flgNone));
+        type);
 }
 
 void checkClassDecl(AstVisitor *visitor, AstNode *node)

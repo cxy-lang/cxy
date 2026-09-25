@@ -1,0 +1,15 @@
+class Storage {
+    cb: func() -> void
+    func `init`(@escaping cb: func() -> void) {
+        this.cb = &&cb
+    }
+}
+
+func storeCallback(@escaping cb: func() -> void): Storage {
+    return Storage(&&cb)
+}
+
+func main(): void {
+    var x = 100
+    var s = storeCallback(|x|() => { })
+}

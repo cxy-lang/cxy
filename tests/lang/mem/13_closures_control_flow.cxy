@@ -1,0 +1,44 @@
+func testIfElse(cond: bool): i32 {
+    var fn: func() -> i32
+    if cond {
+        var a = 10.i32
+        fn = |a|() => a
+    }
+    else {
+        var b = 20.i32
+        fn = |b|() => b
+    }
+    return fn()
+}
+
+func testLoopBreak(): void {
+    for i in 0..5 {
+        var c = |i|() => i
+        if i == 3 {
+            break
+        }
+    }
+}
+
+func testSwitch(mode: i32): i32 {
+    var fn: func() -> i32
+    switch mode {
+        0 => {
+            var x = 100.i32
+            fn = |x|() => x
+        }
+        ... => {
+            var y = 200.i32
+            fn = |y|() => y
+        }
+    }
+    return fn()
+}
+
+func main(): void {
+    testIfElse(true)
+    testIfElse(false)
+    testLoopBreak()
+    testSwitch(0)
+    testSwitch(1)
+}
