@@ -1,0 +1,210 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/16_slices.cxy
+func main.Resource.op__init(this: ^Resource, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__deinit(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__destructor(<^Resource>(ptr))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func testArraySlice(): void {
+_L_entry:
+  scope.enter 0
+  var arr: [i32, 5]
+  arr = [10, 20, 30, 40, 50]
+  var s1: [i32]
+  s1 = Slice_i32 {&arr[1], 3}
+  var s2: [i32]
+  s2 = Slice_i32 {&arr[2], 3}
+  var s3: [i32]
+  s3 = Slice_i32 {&arr[0], 3}
+  var s4: [i32]
+  s4 = Slice_i32 {&arr[0], 5}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func testReslice(): void {
+_L_entry:
+  scope.enter 0
+  var arr: [i32, 6]
+  arr = [1, 2, 3, 4, 5, 6]
+  var s: [i32]
+  s = Slice_i32 {&arr[1], 4}
+  var sub: [i32]
+  sub = Slice_i32 {s.ptr + 1, 2}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Buffer.op__init(this: ^Buffer, data: ^i32, len: u64): void {
+_L_entry:
+  scope.enter 0
+  this._data = data
+  this._len = len
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Buffer.op__slice(this: ^Buffer, st: i32, e: i32?): [i32] {
+_L_entry:
+  scope.enter 0
+  var __ret: [i32]
+  var end: i32
+  var __t0: i32
+  if e.ok goto _L_COALESCE0_then else goto _L_COALESCE0_else
+_L_COALESCE0_then:
+  __t0 = e.val
+  goto _L_COALESCE0_merge
+_L_COALESCE0_else:
+  __t0 = <i32>(this._len)
+  goto _L_COALESCE0_merge
+_L_COALESCE0_merge:
+  end = __t0
+  __ret = Slice_i32 {this._data + st, <u64>(end - st)}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Buffer.op__initCover(data: ^i32, len: u64): Buffer {
+_L_entry:
+  scope.enter 0
+  var __ret: Buffer
+  var __obj0: Buffer
+  __obj0 = Buffer {}
+  Buffer_op__init(&__obj0, &&data, &&len)
+  __ret = &&__obj0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func testCustomSliceOverload(): void {
+_L_entry:
+  scope.enter 0
+  var raw: [i32, 5]
+  raw = [100, 200, 300, 400, 500]
+  var buf: Buffer
+  buf = Buffer_op__initCover(&raw[0], <u64>(5))
+  var s1: [i32]
+  var __t1: i32?
+  __t1 = Some(4)
+  s1 = Buffer_op__slice(&buf, <i32>(1), __t1)
+  var s2: [i32]
+  var __t2: i32?
+  __t2 = None
+  s2 = Buffer_op__slice(&buf, <i32>(2), __t2)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__initCover(id: i32): ^Resource {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Resource
+  var __obj1: ^Resource
+  var __t3: ^Resource
+  __t3 = alloc(^Resource)
+  __obj1 = <^Resource>(__t3)
+  zeromem __obj1
+  Resource_op__init(__obj1, &&id)
+  __ret = __obj1
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func testManagedArraySlice(): void {
+_L_entry:
+  scope.enter 0
+  var arr: [^Resource, 4]
+  arr = [Resource_op__initCover(<i32>(1)), Resource_op__initCover(<i32>(2)), Resource_op__initCover(<i32>(3)), Resource_op__initCover(<i32>(4))]
+  var s: [^Resource]
+  s = Slice_ptr {&arr[1], 2}
+  goto _L_exit
+_L_exit:
+  drop s
+  drop arr
+  scope.exit 0
+  return
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  testArraySlice()
+  testReslice()
+  testCustomSliceOverload()
+  testManagedArraySlice()
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func __array_dctor_48(arr: [^Resource]): void {
+_L_entry:
+  scope.enter 0
+  var __i: u64
+  __i = 0
+  goto _L_FOR0_cond
+_L_FOR0_cond:
+  if __i < arr.len goto _L_FOR0_body else goto _L_FOR0_exit
+_L_FOR0_body:
+  scope.enter 1
+  drop arr.ptr[__i]
+  scope.exit 1
+  goto _L_FOR0_update
+_L_FOR0_update:
+  __i = __i + 1
+  goto _L_FOR0_cond
+_L_FOR0_exit:
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}

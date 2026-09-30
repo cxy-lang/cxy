@@ -1213,6 +1213,37 @@ static AstNode *makeBackendCallNode(AstVisitor *visitor,
     return args;
 }
 
+static AstNode *makeSliceMacroNode(AstVisitor *visitor,
+                                    const AstNode *node,
+                                    AstNode *args)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (!validateMacroArgumentCount(ctx, &node->loc, args, 2))
+        return NULL;
+
+    const Type *ptrType = args->type ?: evalType(ctx, args);
+    const Type *lenType = args->next->type ?: evalType(ctx, args->next);
+    if (ptrType == NULL || typeIs(ptrType, Error) || lenType == NULL || typeIs(lenType, Error))
+        return NULL;
+
+    ptrType = resolveUnThisUnwrapType(ptrType);
+    const Type *elemType = NULL;
+    if (typeIs(ptrType, Pointer)) {
+        elemType = ptrType->pointer.pointed;
+    }
+    else if (typeIs(ptrType, Array)) {
+        elemType = ptrType->array.elementType;
+    }
+    else {
+        logError(ctx->L, &args->loc, "first argument to 'slice!' must be a pointer or array, got '{t}'",
+                 (FormatArg[]){{.t = ptrType}});
+        return NULL;
+    }
+
+    const Type *sliceType = makeSliceType(ctx->types, elemType);
+    return makeBackendCallExpr(ctx->pool, &node->loc, node->flags, bfiSlice, args, sliceType);
+}
+
 static AstNode *makeLenNode(AstVisitor *visitor,
                             const AstNode *node,
                             AstNode *args)
@@ -1274,7 +1305,14 @@ static AstNode *makeLenNode(AstVisitor *visitor,
                                    getPrimitiveType(ctx->types, prtU64));
     }
     case typArray:
-        // sizeof(a)/sizeof(a[0])
+        if (isSliceType(raw)) {
+            return makeBackendCallExpr(ctx->pool,
+                                       &node->loc,
+                                       node->flags,
+                                       bfiLen,
+                                       args,
+                                       getPrimitiveType(ctx->types, prtU64));
+        }
         args->tag = astIntegerLit;
         args->intLiteral.isNegative = false;
         args->type = getPrimitiveType(ctx->types, prtU64);
@@ -1966,6 +2004,7 @@ static const BuiltinMacro builtinMacros[] = {
     {.name = "require", makeRequireNode},
     {.name = "select", makeSelectNode},
     {.name = "sizeof", makeSizeofNode},
+    {.name = "slice", makeSliceMacroNode},
     {.name = "tupleof", makeTupleOfNode},
     {.name = "typeat", makeTypeAtIdxNode},
     {.name = "typeof", makeTypeofNode},

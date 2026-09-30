@@ -1,0 +1,55 @@
+// Tests for memory management in switch statements and case block scopes
+
+class Resource {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+func testSwitchCaseScopes(val: i32): void {
+    var outer = Resource(1)
+    switch val {
+        0 => {
+            var case0 = Resource(10)
+        }
+        1 => {
+            var case1 = Resource(20)
+            if val == 1 {
+                return
+            }
+        }
+        2, 3 => {
+            var case23 = Resource(30)
+        }
+        ... => {
+            var caseDef = Resource(40)
+        }
+    }
+}
+
+func testSwitchReassignmentInCases(val: i32): void {
+    var res = Resource(100)
+    switch val {
+        0 => {
+            res = Resource(200)
+        }
+        1 => {
+            var tmp = Resource(300)
+            res = &&tmp
+        }
+        ... => {
+            // keep res
+        }
+    }
+}
+
+func main(): void {
+    testSwitchCaseScopes(0)
+    testSwitchCaseScopes(1)
+    testSwitchCaseScopes(2)
+    testSwitchCaseScopes(99)
+
+    testSwitchReassignmentInCases(0)
+    testSwitchReassignmentInCases(1)
+    testSwitchReassignmentInCases(2)
+}

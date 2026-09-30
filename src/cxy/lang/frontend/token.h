@@ -71,6 +71,7 @@ extern "C" {
     f(IndexExpr,       ".[")        \
     f(CallOverride,    "()")        \
     f(IndexOverride,   "[]")        \
+    f(SliceOverride,   "[..]")      \
     f(IndexAssignOvd,  "[]=")       \
     f(AstMacroAccess,  "#.")        \
     f(Define,          "##")        \

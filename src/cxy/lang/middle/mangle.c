@@ -68,9 +68,15 @@ static void mangleType(FormatState *state, const Type *type)
         append(state, "s", 1);
         break;
     case typArray:
-        append(state, "A", 1);
-        format(state, "{u64}", (FormatArg[]){{.u64 = type->array.len}});
-        mangleType(state, type->array.elementType);
+        if (hasFlag(type, Slice) || type->array.len == UINT64_MAX) {
+            append(state, "Slice_", 6);
+            mangleType(state, type->array.elementType);
+        }
+        else {
+            append(state, "A", 1);
+            format(state, "{u64}", (FormatArg[]){{.u64 = type->array.len}});
+            mangleType(state, type->array.elementType);
+        }
         break;
     case typTuple:
         append(state, "T", 1);

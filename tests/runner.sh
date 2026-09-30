@@ -146,9 +146,34 @@ CXY_STDLIB=./stdlib
 CXY_DEFAULT_ARGS="dev --dump-ast CXY --no-color --no-progress --clean-ast --warnings=~RedundantStmt"
 CXY_DEFAULT_SNAPSHOT_EXT=".cxy"
 
+show_help() {
+  cat << EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Options:
+  -f, --test-filter <regex>    Filter tests by path/name (e.g. -f "17_switch|18_match")
+  -s, --suite <name>           Filter suites by name (e.g. -s "asan" or -s "codegen")
+  -d, --test-dir <path>        Directory containing tests (default: script dir)
+  -u, --update-snapshot        Update test snapshot files with current output
+      --cxy <path>             Path to cxy compiler binary (default: ./cxy)
+      --lib <path>             Path to cxy stdlib (default: ./stdlib)
+      --no-check               Disable FileCheck validation
+  -h, --help                   Show this help message
+
+Examples:
+  $(basename "$0") -f "mem/17"
+  $(basename "$0") -f "16_slices" -s asan
+  $(basename "$0") -u -f "17_switch"
+EOF
+}
+
 POSITIONAL_ARGS=()
 while [[ $# -gt 0 ]]; do
   case $1 in
+    -h|--help)
+      show_help
+      exit 0
+      ;;
     -u|--update-snapshot)
       UPDATE_SNAPSHOT=1
       shift # past argument
@@ -254,7 +279,7 @@ __exec_with_leaks() {
   local rc=$?
 
   echo "${out}"
-  if [ $rc -ne 0 ] || echo "${out}" | grep -Eq "[1-9][0-9]* leaks for [1-9][0-9]* total leaked bytes"; then
+  if [ $rc -ne 0 ] || echo "${out}" | grep -Eq "[1-9][0-9]* leaks for [1-9][0-9]* total leaked bytes|panic: invalid smart pointer|assertion failed:"; then
     return 1
   fi
   return 0
@@ -268,7 +293,7 @@ __exec_with_asan() {
   local rc=$?
 
   echo "${out}"
-  if [ $rc -ne 0 ] || echo "${out}" | grep -Eq "ERROR: (AddressSanitizer|LeakSanitizer)"; then
+  if [ $rc -ne 0 ] || echo "${out}" | grep -Eq "ERROR: (AddressSanitizer|LeakSanitizer)|panic: invalid smart pointer|assertion failed:"; then
     return 1
   fi
   return 0

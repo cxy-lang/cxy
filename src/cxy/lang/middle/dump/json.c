@@ -467,6 +467,19 @@ static void visitCastExpr(ConstAstVisitor *visitor, const AstNode *node)
     Return(ctx, jsonNode);
 }
 
+static void visitSliceExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    JsonConverterContext *ctx = getConstAstVisitorContext(visitor);
+    cJSON *jsonNode = nodeCreateJSON(visitor, node);
+
+    cJSON_AddItemToObject(
+        jsonNode, "target", nodeToJson(visitor, node->sliceExpr.target));
+    cJSON_AddItemToObject(
+        jsonNode, "range", nodeToJson(visitor, node->sliceExpr.range));
+
+    Return(ctx, jsonNode);
+}
+
 static void visitIndexExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     JsonConverterContext *ctx = getConstAstVisitorContext(visitor);
@@ -1033,6 +1046,7 @@ AstNode *dumpAstJson(CompilerDriver *driver, AstNode *node, FILE *file)
         [astNewExpr] = visitNewExpr,
         [astCastExpr] = visitCastExpr,
         [astIndexExpr] = visitIndexExpr,
+        [astSliceExpr] = visitSliceExpr,
         [astGenericParam] = visitGenericParam,
         [astGenericDecl] = visitGenericDecl,
         [astPathElem] = visitPathElement,

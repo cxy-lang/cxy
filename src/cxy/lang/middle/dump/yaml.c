@@ -637,6 +637,16 @@ static void visitCastExpr(ConstAstVisitor *visitor, const AstNode *node)
     nodeToYaml(visitor, "exp", node->castExpr.expr);
 }
 
+static void visitSliceExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    YamlDumpContext *ctx = getConstAstVisitorContext(visitor);
+    nodeAddHeader(visitor, node);
+
+    nodeToYaml(visitor, "target", node->sliceExpr.target);
+    if (node->sliceExpr.range)
+        nodeToYaml(visitor, "range", node->sliceExpr.range);
+}
+
 static void visitIndexExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     YamlDumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -1135,6 +1145,7 @@ AstNode *dumpAstToYaml(CompilerDriver *driver, AstNode *node, FILE *file)
         [astNewExpr] = visitNewExpr,
         [astCastExpr] = visitCastExpr,
         [astIndexExpr] = visitIndexExpr,
+        [astSliceExpr] = visitSliceExpr,
         [astXformExpr] = visitXformExpr,
         [astGenericParam] = visitGenericParam,
         [astGenericDecl] = visitGenericDecl,

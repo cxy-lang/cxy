@@ -4,6 +4,7 @@
 
 #include "check.h"
 
+#include "lang/frontend/ast.h"
 #include "lang/frontend/flag.h"
 #include "lang/frontend/strings.h"
 
@@ -40,8 +41,7 @@ static const Type *findIteratorType(TypingContext *ctx, AstNode *range)
         return NULL;
     }
 
-    csAssert0(typeIs(rangeOp, Func) && typeIs(rangeOp->func.retType, Class) &&
-              hasFlag(rangeOp->func.retType, Closure));
+    csAssert0(typeIs(rangeOp, Func) && isClosureType(rangeOp->func.retType));
 
     const Type *iterator =
         findStructMemberType(rangeOp->func.retType, S_CallOverload);
@@ -107,6 +107,90 @@ static bool checkForStmtCustomRange(TypingContext *ctx,
     }
 
     return true;
+}
+
+static void transformForSequence(AstVisitor *visitor,
+                                 AstNode *node,
+                                 u64 numVariables)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    FileLoc loc = node->loc;
+    AstNode *range = node->forStmt.range;
+    AstNode *var = node->forStmt.var;
+    AstNode *body = node->forStmt.body;
+    const Type *u64Type = getPrimitiveType(ctx->types, prtU64);
+
+    cstring seqName = makeAnonymousVariable(ctx->strings, "_seq");
+    AstNode *seqDecl = makeVarDecl(
+        ctx->pool, &loc, flgNone, seqName, NULL, range, NULL, range->type);
+    astModifierAdd(&ctx->blockModifier, seqDecl);
+
+    AstNode *lenExpr = makeBackendCallExpr(
+        ctx->pool,
+        &loc,
+        flgNone,
+        bfiLen,
+        makeResolvedPath(
+            ctx->pool, &loc, seqName, flgNone, seqDecl, NULL, range->type),
+        u64Type);
+
+    cstring idxName = makeAnonymousVariable(ctx->strings, "_idx");
+    AstNode *idxVar = makeVarDecl(
+        ctx->pool, &loc, flgNone, idxName, NULL, NULL, NULL, u64Type);
+    AstNode *rangeExpr = makeAstNode(
+        ctx->pool,
+        &loc,
+        &(AstNode){.tag = astRangeExpr,
+                   .type = u64Type,
+                   .rangeExpr = {.start = makeIntegerLiteral(
+                                     ctx->pool, &loc, 0, NULL, u64Type),
+                                 .end = lenExpr,
+                                 .step = NULL,
+                                 .down = false}});
+
+    AstNode *elemInit = makeIndexExpr(
+        ctx->pool,
+        &loc,
+        flgNone,
+        makeResolvedPath(
+            ctx->pool, &loc, seqName, flgNone, seqDecl, NULL, range->type),
+        makeResolvedPath(
+            ctx->pool, &loc, idxName, flgNone, idxVar, NULL, u64Type),
+        NULL,
+        var->type);
+    AstNode *elemDecl = makeVarDecl(ctx->pool,
+                                    &loc,
+                                    var->flags,
+                                    var->_namedNode.name,
+                                    NULL,
+                                    elemInit,
+                                    NULL,
+                                    var->type);
+
+    if (var->next) {
+        AstNode *userI = var->next;
+        AstNode *iDecl = makeVarDecl(
+            ctx->pool,
+            &loc,
+            userI->flags,
+            userI->_namedNode.name,
+            NULL,
+            makeResolvedPath(
+                ctx->pool, &loc, idxName, flgNone, idxVar, NULL, u64Type),
+            NULL,
+            userI->type);
+        elemDecl->next = iDecl;
+        iDecl->next = body->blockStmt.stmts;
+    }
+    else {
+        elemDecl->next = body->blockStmt.stmts;
+    }
+    body->blockStmt.stmts = elemDecl;
+
+    node->forStmt.var = idxVar;
+    node->forStmt.range = rangeExpr;
+
+    checkType(visitor, node);
 }
 
 static void transformForCustomRange(AstVisitor *visitor,
@@ -376,6 +460,8 @@ void checkForStmt(AstVisitor *visitor, AstNode *node)
         variable->type = range_->array.elementType;
         if (variable->next)
             variable->next->type = getPrimitiveType(ctx->types, prtI64);
+        transformForSequence(visitor, node, numVariables);
+        return;
     }
     else if (typeIs(range_, String)) {
         if (numVariables > 2) {
@@ -391,6 +477,8 @@ void checkForStmt(AstVisitor *visitor, AstNode *node)
         variable->type = getPrimitiveType(ctx->types, prtCChar);
         if (variable->next)
             variable->next->type = getPrimitiveType(ctx->types, prtI64);
+        transformForSequence(visitor, node, numVariables);
+        return;
     }
     else if (isStructType(range_) || isClassType(range_)) {
         if (!checkForStmtCustomRange(ctx, node, numVariables, range_)) {

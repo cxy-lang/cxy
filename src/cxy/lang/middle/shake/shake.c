@@ -161,6 +161,15 @@ static bool validateOperatorOverloadArguments(ShakeAstContext *ctx,
         return reportIfUnexpectedNumberOfParameters(
             ctx, &node->loc, "=[]", count, 2);
 
+    case opSliceOverload:
+        if (count < 1 || count > 2) {
+            logError(ctx->L, &node->loc,
+                     "operator `[..]` overload expects 1 or 2 parameters, got {u64}",
+                     (FormatArg[]){{.u64 = count}});
+            return false;
+        }
+        return true;
+
     case opStringOverload:
         return reportIfUnexpectedNumberOfParameters(
             ctx, &node->loc, "str", count, 1);

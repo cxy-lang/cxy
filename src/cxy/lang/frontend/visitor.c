@@ -130,6 +130,10 @@
         MODE##Visit(visitor, node->indexExpr.target);                          \
         MODE##Visit(visitor, node->indexExpr.index);                           \
         break;                                                                 \
+    case astSliceExpr:                                                         \
+        MODE##Visit(visitor, node->sliceExpr.target);                          \
+        MODE##Visit(visitor, node->sliceExpr.range);                           \
+        break;                                                                 \
     case astXformExpr:                                                         \
         MODE##Visit(visitor, node->xFormExpr.target);                          \
         MODE##Visit(visitor, node->xFormExpr.arg);                             \

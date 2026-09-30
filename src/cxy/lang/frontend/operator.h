@@ -84,6 +84,7 @@ extern "C" {
     f(CallOverload,             "call", "()")                  \
     f(IndexOverload,            "idx", "[]")                   \
     f(IndexAssignOverload,      "idx_assign", "=[]")           \
+    f(SliceOverload,            "slice", "[..]")               \
     f(StringOverload,           "str", "str")                  \
     f(InitOverload,             "init", "init")                \
     f(DeinitOverload,           "deinit", "deinit")            \

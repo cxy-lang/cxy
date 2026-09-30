@@ -35,6 +35,7 @@ struct Plugin;
     f(ClosureExpr)                          \
     f(ArrayExpr)                            \
     f(IndexExpr)                            \
+    f(SliceExpr)                            \
     f(TupleExpr)                            \
     f(FieldExpr)                            \
     f(StructExpr)                           \
@@ -215,6 +216,7 @@ typedef struct {
     f(Drop)                    \
     f(Move)                    \
     f(Assign)                  \
+    f(Slice)                   \
     f(Len)                     \
     f(AtomicLoad)              \
     f(AtomicStore)             \
@@ -781,6 +783,10 @@ struct AstNode {
             AstNode *target;
             AstNode *index;
         } indexExpr;
+        struct {
+            AstNode *target;
+            AstNode *range;
+        } sliceExpr;
 
         struct {
             cstring name;
@@ -1396,6 +1402,13 @@ AstNode *makeIndexExpr(MemPool *pool,
                        u64 flags,
                        AstNode *target,
                        AstNode *index,
+                       AstNode *next,
+                       const Type *type);
+AstNode *makeSliceExpr(MemPool *pool,
+                       const FileLoc *loc,
+                       u64 flags,
+                       AstNode *target,
+                       AstNode *range,
                        AstNode *next,
                        const Type *type);
 

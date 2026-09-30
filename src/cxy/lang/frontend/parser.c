@@ -802,7 +802,67 @@ static AstNode *member(Parser *P, const Token *begin, AstNode *operand, bool isO
 static AstNode *indexExpr(Parser *P, AstNode *operand)
 {
     Token tok = *consume0(P, tokIndexExpr);
+    if (match(P, tokDotDot)) {
+        // .[..] or .[..end]
+        AstNode *end = NULL;
+        if (!check(P, tokRBracket)) {
+            end = expressionWithoutStructs(P);
+        }
+        consume0(P, tokRBracket);
+        AstNode *rng = makeAstNode(P->memPool,
+                                   &tok.fileLoc,
+                                   &(AstNode){.tag = astRangeExpr,
+                                              .rangeExpr = {.start = NULL,
+                                                            .end = end,
+                                                            .step = NULL,
+                                                            .down = false}});
+        return newAstNode(
+            P,
+            &tok,
+            &(AstNode){.tag = astSliceExpr,
+                       .sliceExpr = {.target = operand, .range = rng}});
+    }
+
     AstNode *index = expressionWithoutStructs(P);
+    if (nodeIs(index, BinaryExpr) && index->binaryExpr.op == opRange) {
+        AstNode *start = index->binaryExpr.lhs;
+        AstNode *end = index->binaryExpr.rhs;
+        consume0(P, tokRBracket);
+        AstNode *rng = makeAstNode(P->memPool,
+                                   &tok.fileLoc,
+                                   &(AstNode){.tag = astRangeExpr,
+                                              .rangeExpr = {.start = start,
+                                                            .end = end,
+                                                            .step = NULL,
+                                                            .down = false}});
+        return newAstNode(
+            P,
+            &tok,
+            &(AstNode){.tag = astSliceExpr,
+                       .sliceExpr = {.target = operand, .range = rng}});
+    }
+
+    if (match(P, tokDotDot)) {
+        // .[start..] or .[start..end]
+        AstNode *end = NULL;
+        if (!check(P, tokRBracket)) {
+            end = expressionWithoutStructs(P);
+        }
+        consume0(P, tokRBracket);
+        AstNode *rng = makeAstNode(P->memPool,
+                                   &tok.fileLoc,
+                                   &(AstNode){.tag = astRangeExpr,
+                                              .rangeExpr = {.start = index,
+                                                            .end = end,
+                                                            .step = NULL,
+                                                            .down = false}});
+        return newAstNode(
+            P,
+            &tok,
+            &(AstNode){.tag = astSliceExpr,
+                       .sliceExpr = {.target = operand, .range = rng}});
+    }
+
     consume0(P, tokRBracket);
 
     return newAstNode(
@@ -1080,6 +1140,9 @@ static AstNode *binary(Parser *P,
         AstNode *rhs;
         if (op == opCatch && match(P, tokDiscard)) {
             rhs = newAstNode(P, previous(P), &(AstNode){.tag = astBlockStmt});
+        }
+        else if (op == opRange && check(P, tokRBracket)) {
+            rhs = NULL;
         }
         else {
             int rightPrec = (op == opCoalesce) ? nextPrecedence + 1 : nextPrecedence;
@@ -2679,13 +2742,19 @@ static OperatorOverload operatorOverload(Parser *P)
     OperatorOverload op = {.f = opInvalid};
     consume0(P, tokQuote);
     if (match(P, tokLBracket)) {
-        consume0(P, tokRBracket);
-        if (match(P, tokAssign)) {
-            op = (OperatorOverload){.f = opIndexAssignOverload,
-                                    .s = S_IndexAssignOverload};
+        if (match(P, tokDotDot)) {
+            consume0(P, tokRBracket);
+            op = (OperatorOverload){.f = opSliceOverload, .s = S_SliceOverload};
         }
         else {
-            op = (OperatorOverload){.f = opIndexOverload, .s = S_IndexOverload};
+            consume0(P, tokRBracket);
+            if (match(P, tokAssign)) {
+                op = (OperatorOverload){.f = opIndexAssignOverload,
+                                        .s = S_IndexAssignOverload};
+            }
+            else {
+                op = (OperatorOverload){.f = opIndexOverload, .s = S_IndexOverload};
+            }
         }
     }
     else if (match(P, tokLParen)) {

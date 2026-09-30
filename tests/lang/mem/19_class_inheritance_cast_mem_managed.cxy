@@ -1,0 +1,46 @@
+// Tests for memory management and refcounting when casting classes to base types
+
+class BaseResource {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    virtual func `deinit`() { }
+    virtual func getId(): i32 => this.id
+}
+
+class DerivedResource: BaseResource {
+    extra: i32
+    func `init`(id: i32, extra: i32) {
+        super(id)
+        this.extra = extra
+    }
+    @override
+    func `deinit`() { }
+
+    @override
+    func getId(): i32 => this.id + this.extra
+}
+
+func takeBaseByValue(b: BaseResource): i32 {
+    return b.getId()
+}
+
+func takeBaseByRef(b: &BaseResource): i32 {
+    return b.getId()
+}
+
+func testClassUpcast(): void {
+    var d = DerivedResource(10, 5)
+    var b: BaseResource = d // ref count incremented on shared instance
+    var val1 = takeBaseByValue(d) // passed as BaseResource
+    var val2 = takeBaseByRef(&d)
+}
+
+func testClassMoveUpcast(): void {
+    var d = DerivedResource(100, 20)
+    var b: BaseResource = &&d // ownership moved to base variable
+}
+
+func main(): void {
+    testClassUpcast()
+    testClassMoveUpcast()
+}

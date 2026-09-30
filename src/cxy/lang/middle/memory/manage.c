@@ -174,8 +174,31 @@ static CfgBlockInfo **buildFunctionCfg(MemMgmtContext *ctx, IrNode *func, u64 *o
     return blocks;
 }
 
+static IrNode *rebuildCastChain(MemPool *pool, const IrNode *castTree, IrNode *newRoot)
+{
+    if (castTree == NULL || castTree->tag != irCast)
+        return newRoot;
+    IrNode *inner = rebuildCastChain(pool, castTree->cast.expr, newRoot);
+    return makeIrCast(pool, &castTree->loc, inner, castTree->type);
+}
+
+static inline IrNode *unwrapCasts(IrNode *node)
+{
+    while (node && node->tag == irCast)
+        node = node->cast.expr;
+    return node;
+}
+
+static inline const IrNode *unwrapCastsConst(const IrNode *node)
+{
+    while (node && node->tag == irCast)
+        node = node->cast.expr;
+    return node;
+}
+
 static inline IrNode *findMovedVarDecl(const IrNode *src)
 {
+    src = unwrapCastsConst(src);
     if (src && src->tag == irVarRef)
         return src->varRef.target;
     return NULL;
@@ -552,9 +575,13 @@ static void injectCallArgumentCopies(MemMgmtContext *ctx,
         IrNode **argRef = &call->call.args;
         for (u64 i = 0; *argRef && i < calleeType->func.count; i++) {
             const IrType *paramType = calleeType->func.params[i];
-            if (paramType && paramType->category == irTypeCatReference) {
-                if ((*argRef)->tag == irMove)
-                    *argRef = (*argRef)->move.src;
+            csAssert(paramType != NULL, "Compiler error: paramType is NULL in call argument processing");
+            if (paramType->category == irTypeCatReference) {
+                if ((*argRef)->tag == irMove) {
+                    IrNode *src = (*argRef)->move.src;
+                    src->next = (*argRef)->next;
+                    *argRef = src;
+                }
                 argRef = &(*argRef)->next;
                 continue;
             }
@@ -580,6 +607,7 @@ static void processPayloadItem(MemMgmtContext *ctx,
 
     if (val->tag == irMove) {
         IrNode *src = val->move.src;
+        src->next = val->next;
         *itemRef = src;
 
         IrNode *rhsDecl = findMovedVarDecl(src);
@@ -618,23 +646,24 @@ static void processPayloadItem(MemMgmtContext *ctx,
     }
 
     if (isIrTypeDestructible(val->type)) {
+        IrNode *inner = unwrapCasts(val);
         bool needsCopy = false;
-        if (val->tag == irVarRef) {
-            needsCopy = val->varRef.target && !hasFlag(val->varRef.target, Temporary) && !hasFlag(val->varRef.target, Returned);
+        if (inner && inner->tag == irVarRef) {
+            needsCopy = inner->varRef.target && !hasFlag(inner->varRef.target, Temporary) && !hasFlag(inner->varRef.target, Returned);
         }
-        else if (val->tag == irMember || val->tag == irIndex) {
+        else if (inner && (inner->tag == irMember || inner->tag == irIndex)) {
             needsCopy = true;
         }
 
         if (needsCopy) {
             cstring tempName = makeStringf(ctx->strings, "__copy%u", ctx->tempCounter++);
-            IrNode *tempVar = makeIrVarDecl(ctx->pool, &val->loc, flgTemporary, tempName, tempName, val->type, ctx->currentScopeId);
-            TrackedVar *tv = addTrackedVar(ctx, tempVar, tempName, ctx->currentScopeId, val->type);
+            IrNode *tempVar = makeIrVarDecl(ctx->pool, &inner->loc, flgTemporary, tempName, tempName, inner->type, ctx->currentScopeId);
+            TrackedVar *tv = addTrackedVar(ctx, tempVar, tempName, ctx->currentScopeId, inner->type);
             if (tv)
                 tv->state = irVarMoved;
 
-            IrNode *dstRef = makeIrVarRef(ctx->pool, &val->loc, tempVar);
-            IrNode *copyStmt = makeIrCopy(ctx->pool, &val->loc, val, dstRef);
+            IrNode *dstRef = makeIrVarRef(ctx->pool, &inner->loc, tempVar);
+            IrNode *copyStmt = makeIrCopy(ctx->pool, &inner->loc, inner, dstRef);
 
             tempVar->next = copyStmt;
             copyStmt->next = stmt;
@@ -644,7 +673,9 @@ static void processPayloadItem(MemMgmtContext *ctx,
                 bb->basicBlock.first = tempVar;
             *prevRef = copyStmt;
 
-            *itemRef = dstRef;
+            IrNode *finalArg = rebuildCastChain(ctx->pool, val, dstRef);
+            finalArg->next = val->next;
+            *itemRef = finalArg;
         }
     }
 }
@@ -856,6 +887,14 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         else
                             bb->basicBlock.first = dropStmt;
                         prev = dropStmt;
+
+                        IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, var, false);
+                        if (clearFlag) {
+                            clearFlag->next = stmt;
+                            dropStmt->next = clearFlag;
+                            prev = clearFlag;
+                        }
+
                         bitSetReset(&currMay, var->varIndex);
                         bitSetReset(&currMust, var->varIndex);
                     }
@@ -867,6 +906,16 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         else
                             bb->basicBlock.first = dropStmt;
                         prev = dropStmt;
+
+                        if (var->needsDropFlag) {
+                            IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, var, false);
+                            if (clearFlag) {
+                                clearFlag->next = stmt;
+                                dropStmt->next = clearFlag;
+                                prev = clearFlag;
+                            }
+                        }
+
                         bitSetReset(&currMay, var->varIndex);
                         bitSetReset(&currMust, var->varIndex);
                     }

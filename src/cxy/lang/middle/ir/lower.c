@@ -887,6 +887,11 @@ static void lowerSliceIntoTarget(LowerContext *ctx,
                               makeIrIntConst(
                                   ctx->pool, &expr->loc, len, false, u64Type)));
     }
+    else if (nodeIs(expr, SliceExpr)) {
+        astVisit(visitor, (AstNode *)expr);
+        IrNode *sliceVal = (IrNode *)expr->codegen;
+        emitStmt(ctx, makeIrAssign(ctx->pool, &expr->loc, targetLValue, sliceVal));
+    }
     else {
         IrNode *arrVal = lowerFlattenedOperand(visitor, (AstNode *)expr);
         emitStmt(ctx, makeIrAssign(ctx->pool, &expr->loc, ptrTarget, arrVal));
@@ -1261,8 +1266,7 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
 
         IrNode *cond = NULL;
         IrNode *targetObj = NULL;
-        if (targetAstType && (hasFlag(targetAstType, Optional) ||
-                              typeIs(targetAstType, Optional))) {
+        if (isOptionalType(targetAstType)) {
             cond =
                 makeIrMember(ctx->pool, &node->loc, target, 0, S_ok, boolType);
             targetObj = makeIrMember(ctx->pool,
@@ -1330,6 +1334,57 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
 
     node->codegen = makeIrMember(
         ctx->pool, &node->loc, target, index, name, lowerType(ctx, node->type));
+}
+
+static void visitSliceExpr(AstVisitor *visitor, AstNode *node)
+{
+    LowerContext *ctx = getAstVisitorContext(visitor);
+    IrNode *target = lowerFlattenedOperand(visitor, node->sliceExpr.target);
+    const Type *targetAstType = node->sliceExpr.target->type;
+    const IrType *sliceIrType = lowerType(ctx, node->type);
+    const IrType *u64Type = getIrPrimitiveType(ctx->types, irTypeU64);
+    const IrType *elemPtrType = sliceIrType->strct.fields[0].type;
+
+    AstNode *rng = node->sliceExpr.range;
+    IrNode *startNode = rng->rangeExpr.start
+                            ? lowerFlattenedOperand(visitor, rng->rangeExpr.start)
+                            : makeIrIntConst(ctx->pool, &node->loc, 0, false, u64Type);
+
+    IrNode *endNode = NULL;
+    if (rng->rangeExpr.end) {
+        endNode = lowerFlattenedOperand(visitor, rng->rangeExpr.end);
+    }
+    else {
+        if (isArrayType(targetAstType) && !isSliceType(targetAstType)) {
+            endNode = makeIrIntConst(ctx->pool, &node->loc, targetAstType->array.len, false, u64Type);
+        }
+        else {
+            endNode = makeIrMember(ctx->pool, &node->loc, cloneIrNode(ctx->pool, target), 1, S_len, u64Type);
+        }
+    }
+
+    IrNode *ptrVal = NULL;
+    if (isSliceType(targetAstType)) {
+        IrNode *basePtr = makeIrMember(ctx->pool, &node->loc, target, 0, S_ptr, elemPtrType);
+        ptrVal = makeIrBinary(ctx->pool, &node->loc, opAdd, basePtr, startNode, elemPtrType);
+    }
+    else {
+        IrNode *slot = makeIrIndex(ctx->pool, &node->loc, target, startNode, elemPtrType->pointer.pointee);
+        ptrVal = makeIrAddrOf(ctx->pool, &node->loc, slot, elemPtrType);
+    }
+
+    IrNode *lenVal = NULL;
+    if (startNode->tag == irIntConst && endNode->tag == irIntConst && !startNode->intConst.isNegative && !endNode->intConst.isNegative) {
+        u64 s = (u64)startNode->intConst.value;
+        u64 e = (u64)endNode->intConst.value;
+        lenVal = makeIrIntConst(ctx->pool, &node->loc, (e >= s) ? (e - s) : 0, false, u64Type);
+    }
+    else {
+        lenVal = makeIrBinary(ctx->pool, &node->loc, opSub, endNode, cloneIrNode(ctx->pool, startNode), u64Type);
+    }
+
+    ptrVal->next = lenVal;
+    node->codegen = makeIrStructConst(ctx->pool, &node->loc, ptrVal, 2, sliceIrType);
 }
 
 static void visitIndexExpr(AstVisitor *visitor, AstNode *node)
@@ -1677,7 +1732,19 @@ static void lowerTypeCoercion(AstVisitor *visitor,
     const Type *targetType = node->type;
     const Type *srcType = subExpr->type;
 
-    if (isSliceType(targetType) && isArrayType(srcType)) {
+    if (isOptionalType(targetType)) {
+        const IrType *optIrType = lowerType(ctx, targetType);
+        if (subExpr == NULL || nodeIs(subExpr, NullLit) || (srcType && typeIs(srcType, Null))) {
+            node->codegen = makeIrOptionalValue(ctx->pool, &node->loc, NULL, optIrType);
+            return;
+        }
+        if (!isOptionalType(srcType)) {
+            IrNode *expr = lowerFlattenedOperand(visitor, subExpr);
+            node->codegen = makeIrOptionalValue(ctx->pool, &node->loc, expr, optIrType);
+            return;
+        }
+    }
+    else if (isSliceType(targetType) && isArrayType(srcType)) {
         const IrType *sliceIrType = lowerType(ctx, targetType);
         cstring tempName =
             makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
@@ -1697,7 +1764,7 @@ static void lowerTypeCoercion(AstVisitor *visitor,
         return;
     }
 
-    if (srcType && isOptionalType(srcType) && isBooleanType(targetType)) {
+    if (isOptionalType(srcType) && isBooleanType(targetType)) {
         IrNode *expr = lowerFlattenedOperand(visitor, subExpr);
         node->codegen =
             makeIrMember(ctx->pool,
@@ -2295,6 +2362,14 @@ static void visitBackendCall(AstVisitor *visitor, AstNode *node)
         }
         break;
     }
+    case bfiSlice: {
+        IrNode *ptrArg = lowerFlattenedOperand(visitor, args);
+        IrNode *lenArg = lowerFlattenedOperand(visitor, args->next);
+        const IrType *sliceType = lowerType(ctx, node->type);
+        ptrArg->next = lenArg;
+        node->codegen = makeIrStructConst(ctx->pool, &node->loc, ptrArg, 2, sliceType);
+        break;
+    }
     case bfiAlloca: {
         const IrType *elemType = lowerType(ctx, args->type);
         IrNode *count =
@@ -2409,15 +2484,26 @@ static void visitVarDecl(AstVisitor *visitor, AstNode *node)
     if (node->varDecl.init) {
         AstNode *initNode = node->varDecl.init;
         if (hasFlag(varAstType, Slice) || isSliceType(varAstType)) {
-            lowerSliceIntoTarget(ctx,
-                                 visitor,
-                                 initNode,
-                                 makeIrVarRef(ctx->pool, &node->loc, varDecl));
+            if (initNode->type && isSliceType(initNode->type)) {
+                astVisit(visitor, initNode);
+                IrNode *val = (IrNode *)initNode->codegen;
+                if (val)
+                    emitStmt(ctx,
+                             makeIrAssign(
+                                 ctx->pool,
+                                 &node->loc,
+                                 makeIrVarRef(ctx->pool, &node->loc, varDecl),
+                                 val));
+            }
+            else {
+                lowerSliceIntoTarget(ctx,
+                                     visitor,
+                                     initNode,
+                                     makeIrVarRef(ctx->pool, &node->loc, varDecl));
+            }
         }
-        else if (hasFlag(varAstType, Optional) ||
-                 typeIs(varAstType, Optional)) {
-            if (initNode->type && (hasFlag(initNode->type, Optional) ||
-                                   typeIs(initNode->type, Optional))) {
+        else if (isOptionalType(varAstType)) {
+            if (initNode->type && isOptionalType(initNode->type)) {
                 astVisit(visitor, initNode);
                 IrNode *val = (IrNode *)initNode->codegen;
                 if (val)
@@ -2468,7 +2554,7 @@ static void visitVarDecl(AstVisitor *visitor, AstNode *node)
                                  val));
         }
     }
-    else if (hasFlag(varAstType, Optional) || typeIs(varAstType, Optional)) {
+    else if (isOptionalType(varAstType)) {
         lowerOptionalIntoTarget(
             ctx, visitor, NULL, makeIrVarRef(ctx->pool, &node->loc, varDecl));
     }
@@ -2508,10 +2594,7 @@ static void visitAssignExpr(AstVisitor *visitor, AstNode *node)
          (!hasFlag(rhsAstType, Slice) && !isSliceType(rhsAstType)))) {
         lowerSliceIntoTarget(ctx, visitor, rhsNode, lhs);
     }
-    else if (lhsAstType &&
-             (hasFlag(lhsAstType, Optional) || typeIs(lhsAstType, Optional)) &&
-             (!rhsAstType || (!hasFlag(rhsAstType, Optional) &&
-                              !typeIs(rhsAstType, Optional)))) {
+    else if (isOptionalType(lhsAstType) && !isOptionalType(rhsAstType)) {
         lowerOptionalIntoTarget(ctx, visitor, rhsNode, lhs);
     }
     else if (lhsAstType && typeIs(lhsAstType, Union) &&
@@ -2657,7 +2740,6 @@ static void visitWhileStmt(AstVisitor *visitor, AstNode *node)
 static void visitForStmt(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
-    const Type *rangeAstType = node->forStmt.range->type;
     const IrType *u64Type = getIrPrimitiveType(ctx->types, irTypeU64);
     const IrType *boolType = getIrPrimitiveType(ctx->types, irTypeBool);
 
@@ -2739,150 +2821,6 @@ static void visitForStmt(AstVisitor *visitor, AstNode *node)
                          &node->loc,
                          makeIrVarRef(ctx->pool, &loopVarNode->loc, varDecl),
                          nextVal));
-        emitBranchIfNotTerminated(ctx, condBB);
-
-        setBlock(ctx, exitBB);
-        return;
-    }
-
-    if (rangeAstType &&
-        (isArrayType(rangeAstType) || isSliceType(rangeAstType))) {
-        IrNode *arr = lowerFlattenedOperand(visitor, node->forStmt.range);
-        bool isSlice = isSliceType(rangeAstType);
-        IrNode *lenVal =
-            isSlice
-                ? makeIrMember(ctx->pool, &node->loc, arr, 1, "len", u64Type)
-                : makeIrIntConst(ctx->pool,
-                                 &node->loc,
-                                 rangeAstType->array.len,
-                                 false,
-                                 u64Type);
-        IrNode *dataTarget = isSlice
-                                 ? makeIrMember(ctx->pool,
-                                                &node->loc,
-                                                arr,
-                                                0,
-                                                "ptr",
-                                                arr->type->strct.fields[0].type)
-                                 : arr;
-
-        cstring idxName =
-            makeStringf(ctx->strings, "__idx%u", ctx->tempCounter++);
-        const IrType *i64Type = getIrPrimitiveType(ctx->types, irTypeI64);
-        IrNode *idxVar = makeIrVarDecl(ctx->pool,
-                                       &node->loc,
-                                       flgTemporary,
-                                       idxName,
-                                       idxName,
-                                       i64Type,
-                                       ctx->currentScopeId);
-        emitStmt(ctx, idxVar);
-        emitStmt(ctx,
-                 makeIrAssign(
-                     ctx->pool,
-                     &node->loc,
-                     makeIrVarRef(ctx->pool, &node->loc, idxVar),
-                     makeIrIntConst(ctx->pool, &node->loc, 0, false, u64Type)));
-
-        u32 forId = ctx->nextForId++;
-        IrNode *condBB =
-            createBlock(ctx, makeStringf(ctx->strings, "FOR%u_cond", forId));
-        IrNode *bodyBB =
-            createBlock(ctx, makeStringf(ctx->strings, "FOR%u_body", forId));
-        IrNode *updateBB =
-            createBlock(ctx, makeStringf(ctx->strings, "FOR%u_update", forId));
-        IrNode *exitBB =
-            createBlock(ctx, makeStringf(ctx->strings, "FOR%u_exit", forId));
-
-        emitBranchIfNotTerminated(ctx, condBB);
-        setBlock(ctx, condBB);
-
-        IrNode *cond = makeIrBinary(ctx->pool,
-                                    &node->loc,
-                                    opLt,
-                                    makeIrVarRef(ctx->pool, &node->loc, idxVar),
-                                    lenVal,
-                                    boolType);
-        emitStmt(ctx,
-                 makeIrBranchIf(ctx->pool, &node->loc, cond, bodyBB, exitBB));
-
-        setBlock(ctx, bodyBB);
-        AstNode *elemVarNode = node->forStmt.var;
-        const IrType *elemType = lowerType(ctx, elemVarNode->type);
-        cstring elemDisplayName = getDeclarationName(elemVarNode);
-        cstring elemCName = makeUniqueVarName(ctx, elemDisplayName);
-        IrNode *elemVar = makeIrVarDecl(ctx->pool,
-                                        &elemVarNode->loc,
-                                        elemVarNode->flags,
-                                        elemCName,
-                                        elemDisplayName,
-                                        elemType,
-                                        ctx->currentScopeId);
-        elemVarNode->ir = elemVar;
-        emitStmt(ctx, elemVar);
-
-        IrNode *elemVal =
-            makeIrIndex(ctx->pool,
-                        &elemVarNode->loc,
-                        dataTarget,
-                        makeIrVarRef(ctx->pool, &node->loc, idxVar),
-                        elemType);
-        emitStmt(
-            ctx,
-            makeIrAssign(ctx->pool,
-                         &elemVarNode->loc,
-                         makeIrVarRef(ctx->pool, &elemVarNode->loc, elemVar),
-                         elemVal));
-
-        if (elemVarNode->next) {
-            AstNode *idxUserVar = elemVarNode->next;
-            const IrType *i64Type = getIrPrimitiveType(ctx->types, irTypeI64);
-            cstring iDisplayName = getDeclarationName(idxUserVar);
-            cstring iCName = makeUniqueVarName(ctx, iDisplayName);
-            IrNode *iVar = makeIrVarDecl(ctx->pool,
-                                         &idxUserVar->loc,
-                                         idxUserVar->flags,
-                                         iCName,
-                                         iDisplayName,
-                                         i64Type,
-                                         ctx->currentScopeId);
-            idxUserVar->ir = iVar;
-            emitStmt(ctx, iVar);
-            IrNode *castIdx =
-                makeIrCast(ctx->pool,
-                           &idxUserVar->loc,
-                           makeIrVarRef(ctx->pool, &node->loc, idxVar),
-                           i64Type);
-            emitStmt(
-                ctx,
-                makeIrAssign(ctx->pool,
-                             &idxUserVar->loc,
-                             makeIrVarRef(ctx->pool, &idxUserVar->loc, iVar),
-                             castIdx));
-        }
-
-        LoopCtx loop = {.condBlock = updateBB,
-                        .exitBlock = exitBB,
-                        .scopeId = ctx->currentScopeId,
-                        .prev = ctx->loopCtx};
-        ctx->loopCtx = &loop;
-        astVisit(visitor, node->forStmt.body);
-        ctx->loopCtx = loop.prev;
-        emitBranchIfNotTerminated(ctx, updateBB);
-
-        setBlock(ctx, updateBB);
-        IrNode *nextIdx = makeIrBinary(
-            ctx->pool,
-            &node->loc,
-            opAdd,
-            makeIrVarRef(ctx->pool, &node->loc, idxVar),
-            makeIrIntConst(ctx->pool, &node->loc, 1, false, u64Type),
-            u64Type);
-        emitStmt(ctx,
-                 makeIrAssign(ctx->pool,
-                              &node->loc,
-                              makeIrVarRef(ctx->pool, &node->loc, idxVar),
-                              nextIdx));
         emitBranchIfNotTerminated(ctx, condBB);
 
         setBlock(ctx, exitBB);
@@ -2982,17 +2920,10 @@ static void visitReturnStmt(AstVisitor *visitor, AstNode *node)
         const Type *retAstType = ctx->funcRetAstType;
         const Type *exprAstType = retExpr->type;
 
-        if (retAstType &&
-            (hasFlag(retAstType, Slice) || isSliceType(retAstType)) &&
-            (!exprAstType ||
-             (!hasFlag(exprAstType, Slice) && !isSliceType(exprAstType)))) {
+        if (isSliceType(retAstType) && (exprAstType == NULL ||!isSliceType(exprAstType))) {
             lowerSliceIntoTarget(ctx, visitor, retExpr, retVarRef);
         }
-        else if (retAstType &&
-                 (hasFlag(retAstType, Optional) ||
-                  typeIs(retAstType, Optional)) &&
-                 (!exprAstType || (!hasFlag(exprAstType, Optional) &&
-                                   !typeIs(exprAstType, Optional)))) {
+        else if (isOptionalType(retAstType) && !isOptionalType(exprAstType)) {
             lowerOptionalIntoTarget(ctx, visitor, retExpr, retVarRef);
         }
         else if (retAstType && typeIs(retAstType, Union) &&
@@ -3452,6 +3383,7 @@ IrModule *lowerToIr(CompilerDriver *driver, AstNode *node)
         [astPath] = visitPath,
         [astMemberExpr] = visitMemberExpr,
         [astIndexExpr] = visitIndexExpr,
+        [astSliceExpr] = visitSliceExpr,
         [astBinaryExpr] = visitBinaryExpr,
         [astUnaryExpr] = visitUnaryExpr,
         [astPointerOf] = visitPointerOf,

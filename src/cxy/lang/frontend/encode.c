@@ -263,6 +263,14 @@ static void visitCastExpr(ConstAstVisitor *visitor, const AstNode *node)
     nodeToBinary(visitor, node->castExpr.expr);
 }
 
+static void visitSliceExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    nodePackHeader(visitor, node);
+
+    nodeToBinary(visitor, node->sliceExpr.target);
+    nodeToBinary(visitor, node->sliceExpr.range);
+}
+
 static void visitIndexExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     nodePackHeader(visitor, node);
@@ -620,6 +628,7 @@ bool binaryEncodeAstNode(struct msgpack_sbuffer *sbuf,
         [astNewExpr] = visitNewExpr,
         [astCastExpr] = visitCastExpr,
         [astIndexExpr] = visitIndexExpr,
+        [astSliceExpr] = visitSliceExpr,
         [astGenericParam] = visitGenericParam,
         [astGenericDecl] = visitGenericDecl,
         [astPathElem] = visitPathElement,

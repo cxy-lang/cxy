@@ -43,6 +43,103 @@ static void checkIndexOperator(AstVisitor *visitor, AstNode *node)
     checkType(visitor, node);
 }
 
+static void checkSliceOperator(AstVisitor *visitor, AstNode *node)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    const Type *target = stripAll(node->sliceExpr.target->type);
+
+    const Type *func = findStructMemberType(target, S_SliceOverload);
+    if (func == NULL) {
+        logError(ctx->L,
+                 &node->sliceExpr.target->loc,
+                 "slice expression target type '{t}' does not overload the "
+                 "slice operator `[..]`",
+                 (FormatArg[]){{.t = target}});
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
+
+    AstNode *range = node->sliceExpr.range;
+    AstNode *startArg = range->rangeExpr.start;
+    AstNode *endArg = range->rangeExpr.end;
+
+    if (startArg == NULL) {
+        startArg = makeIntegerLiteral(ctx->pool, &node->loc, 0, NULL, getPrimitiveType(ctx->types, prtU64));
+    }
+    if (endArg == NULL) {
+        endArg = makeNullLiteral(ctx->pool, &node->loc, NULL, makeNullType(ctx->types));
+    }
+
+    startArg->next = endArg;
+    endArg->next = NULL;
+
+    transformToMemberCallExpr(visitor,
+                              node,
+                              node->sliceExpr.target,
+                              S_SliceOverload,
+                              startArg);
+    checkType(visitor, node);
+}
+
+void checkSliceExpr(AstVisitor *visitor, AstNode *node)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    const Type *target = checkType(visitor, node->sliceExpr.target);
+    if (typeIs(target, Error)) {
+        node->type = target;
+        return;
+    }
+
+    AstNode *range = node->sliceExpr.range;
+    if (range->rangeExpr.start) {
+        const Type *startType = checkType(visitor, range->rangeExpr.start);
+        if (typeIs(startType, Error)) {
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        if (!isIntegerType(startType)) {
+            logError(ctx->L, &range->rangeExpr.start->loc,
+                     "slice start index must be an integer, got '{t}'",
+                     (FormatArg[]){{.t = startType}});
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+    }
+
+    if (range->rangeExpr.end) {
+        const Type *endType = checkType(visitor, range->rangeExpr.end);
+        if (typeIs(endType, Error)) {
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        if (!isIntegerType(endType)) {
+            logError(ctx->L, &range->rangeExpr.end->loc,
+                     "slice end index must be an integer, got '{t}'",
+                     (FormatArg[]){{.t = endType}});
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+    }
+
+    node->flags |= node->sliceExpr.target->flags;
+    const Type *unwrapped = stripReference(resolveUnThisUnwrapType(target)),
+               *stripped = stripAll(target);
+
+    if (typeIs(stripped, Array)) {
+        node->type = makeSliceType(ctx->types, stripped->array.elementType);
+    }
+    else if (typeIs(unwrapped, Struct) || typeIs(unwrapped, Class)) {
+        checkSliceOperator(visitor, node);
+    }
+    else {
+        logError(ctx->L,
+                 &node->loc,
+                 "slice operator (.[..]) not supported on type '{t}'",
+                 (FormatArg[]){{.t = target}});
+        node->type = ERROR_TYPE(ctx);
+    }
+}
+
 void checkIndexExpr(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);

@@ -95,6 +95,7 @@ _L_FOR1_update:
   goto _L_FOR1_cond
 _L_FOR1_exit:
   drop outer
+  __drop_flags.outer = 0
   scope.exit 1
   goto _L_FOR0_update
 _L_AND0_rhs:
@@ -109,6 +110,7 @@ _L_IF0_then:
   scope.enter 3
   scope.exit 3
   drop inner
+  __drop_flags.inner = 0
   scope.exit 2
   goto _L_FOR1_exit
 _L_IF0_end:
@@ -136,6 +138,7 @@ _L_IF1_then:
   goto _L_UNWIND4_return
 _L_IF1_end:
   drop inner
+  __drop_flags.inner = 0
   scope.exit 2
   goto _L_FOR1_update
 _L_UNWIND4_return:
@@ -146,10 +149,12 @@ _L_UNWIND3_return:
   goto _L_UNWIND2_return
 _L_UNWIND2_return:
   drop inner
+  __drop_flags.inner = 0
   scope.exit 2
   goto _L_UNWIND1_return
 _L_UNWIND1_return:
   drop outer
+  __drop_flags.outer = 0
   scope.exit 1
   goto _L_exit
 _L_exit:

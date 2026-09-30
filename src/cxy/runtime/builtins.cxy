@@ -434,6 +434,12 @@ pub struct strview {
                 return null
         }
     }
+
+    const func `[..]`(st: i32, e: i32? = null) {
+        var end = e ?? _size as i32 - 1;
+        assert!(st <= end && end < _size)
+        return slice!(ptrof s.[st], end)
+    }
 }
 
 #const CXY_STRING_BUILDER_DEFAULT_CAPACITY = 32`u64

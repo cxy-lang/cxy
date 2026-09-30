@@ -655,6 +655,23 @@ static void dumpMemberExpr(ConstAstVisitor *visitor, const AstNode *node)
     astConstVisit(visitor, node->memberExpr.member);
 }
 
+static void dumpSliceExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    DumpContext *ctx = getConstAstVisitorContext(visitor);
+
+    astConstVisit(visitor, node->sliceExpr.target);
+    format(ctx->state, ".[", NULL);
+    const AstNode *rng = node->sliceExpr.range;
+    if (rng && nodeIs(rng, RangeExpr)) {
+        if (rng->rangeExpr.start)
+            astConstVisit(visitor, rng->rangeExpr.start);
+        format(ctx->state, "..", NULL);
+        if (rng->rangeExpr.end)
+            astConstVisit(visitor, rng->rangeExpr.end);
+    }
+    format(ctx->state, "]", NULL);
+}
+
 static void dumpIndexExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     DumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -1404,6 +1421,7 @@ AstNode *dumpCxySource(CompilerDriver *driver, AstNode *node, FILE *file)
         [astRangeExpr] = dumpRangeExpr,
         [astMemberExpr] = dumpMemberExpr,
         [astIndexExpr] = dumpIndexExpr,
+        [astSliceExpr] = dumpSliceExpr,
         [astCallExpr] = dumpCallExpr,
         [astTupleExpr] = dumpTupleExpr,
         [astArrayExpr] = dumpArrayExpr,

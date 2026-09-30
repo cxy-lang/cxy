@@ -1,0 +1,44 @@
+// Tests for memory management in match expressions on tagged union types
+
+class ResourceA {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+class ResourceB {
+    tag: string
+    func `init`(tag: string) { this.tag = tag }
+    func `deinit`() { }
+}
+
+type ItemUnion = ResourceA | ResourceB | i32
+
+func testMatchUnion(u: ItemUnion): void {
+    match u {
+        ResourceA as a => {
+            var local = ResourceA(a.id + 10)
+        }
+        ResourceB as b => {
+            var local = ResourceB(b.tag)
+        }
+        i32 as n => {
+            var local = ResourceA(n)
+        }
+        ... => { }
+    }
+}
+
+func testUnionReassignment(): void {
+    var u: ItemUnion = ResourceA(1)
+    u = ResourceB("hello")
+    u = 42.i32
+    u = ResourceA(100)
+}
+
+func main(): void {
+    testMatchUnion(ResourceA(10))
+    testMatchUnion(ResourceB("world"))
+    testMatchUnion(5.i32)
+    testUnionReassignment()
+}
