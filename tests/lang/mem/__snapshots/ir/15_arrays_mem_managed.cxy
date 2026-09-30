@@ -1,0 +1,177 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/15_arrays_mem_managed.cxy
+func main.Resource.op__init(this: ^Resource, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__deinit(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__destructor(<^Resource>(ptr))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__initCover(id: i32): ^Resource {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Resource
+  var __obj0: ^Resource
+  var __t0: ^Resource
+  __t0 = alloc(^Resource)
+  __obj0 = <^Resource>(__t0)
+  zeromem __obj0
+  Resource_op__init(__obj0, &&id)
+  __ret = __obj0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func testArrayRAII(): void {
+_L_entry:
+  scope.enter 0
+  var arr: [^Resource, 3]
+  arr = [Resource_op__initCover(<i32>(1)), Resource_op__initCover(<i32>(2)), Resource_op__initCover(<i32>(3))]
+  goto _L_exit
+_L_exit:
+  drop arr
+  scope.exit 0
+  return
+}
+
+func testArrayIndexOverwrite(): void {
+_L_entry:
+  scope.enter 0
+  var arr: [^Resource, 2]
+  arr = [Resource_op__initCover(<i32>(10)), Resource_op__initCover(<i32>(20))]
+  drop arr[0]
+  arr[0] = Resource_op__initCover(<i32>(30))
+  goto _L_exit
+_L_exit:
+  drop arr
+  scope.exit 0
+  return
+}
+
+func testArrayMoveElement(): void {
+_L_entry:
+  scope.enter 0
+  var arr: [^Resource, 2]
+  arr = [Resource_op__initCover(<i32>(100)), Resource_op__initCover(<i32>(200))]
+  var r: ^Resource
+  r = arr[1]
+  arr[1] = null
+  goto _L_exit
+_L_exit:
+  drop r
+  drop arr
+  scope.exit 0
+  return
+}
+
+func testArraySliceBorrow(): void {
+_L_entry:
+  scope.enter 0
+  var a: [^Resource, 2]
+  a = [Resource_op__initCover(<i32>(1)), Resource_op__initCover(<i32>(2))]
+  var b: [^Resource]
+  b.ptr = a
+  b.len = 2
+  var c: [^Resource]
+  copy a -> c.ptr
+  c.len = 2
+  goto _L_exit
+_L_exit:
+  drop c
+  drop a
+  scope.exit 0
+  return
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  testArrayRAII()
+  testArrayIndexOverwrite()
+  testArrayMoveElement()
+  testArraySliceBorrow()
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func __array_dctor_32(arr: [^Resource]): void {
+_L_entry:
+  scope.enter 0
+  var __i: u64
+  __i = 0
+  goto _L_FOR0_cond
+_L_FOR0_cond:
+  if __i < arr.len goto _L_FOR0_body else goto _L_FOR0_exit
+_L_FOR0_body:
+  scope.enter 1
+  drop arr.ptr[__i]
+  scope.exit 1
+  goto _L_FOR0_update
+_L_FOR0_update:
+  __i = __i + 1
+  goto _L_FOR0_cond
+_L_FOR0_exit:
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func __array_dctor_32(arr: [^Resource]): void {
+_L_entry:
+  scope.enter 0
+  var __i: u64
+  __i = 0
+  goto _L_FOR0_cond
+_L_FOR0_cond:
+  if __i < arr.len goto _L_FOR0_body else goto _L_FOR0_exit
+_L_FOR0_body:
+  scope.enter 1
+  drop arr.ptr[__i]
+  scope.exit 1
+  goto _L_FOR0_update
+_L_FOR0_update:
+  __i = __i + 1
+  goto _L_FOR0_cond
+_L_FOR0_exit:
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}

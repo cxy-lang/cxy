@@ -1,18 +1,45 @@
-func apply(x: i32, op: func(i32) -> i32): i32 {
-    return op(x)
+// Tests for fixed-size array and slice memory management, RAII, element overwrite, and moves
+
+class Resource {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
 }
 
-func invokeTwice(cb: func() -> void): void {
-    cb()
-    cb()
+func testArrayRAII(): void {
+    var arr = [Resource(1), Resource(2), Resource(3)]
+}
+
+func testArrayIndexOverwrite(): void {
+    var arr = [Resource(10), Resource(20)]
+    arr.[0] = Resource(30)
+}
+
+func testArrayMoveElement(): void {
+    var arr = [Resource(100), Resource(200)]
+    var r = &&arr.[1]
+}
+
+func testArraySliceBorrow(): void {
+    var a = [Resource(1), Resource(2)]
+    var b = a // b is inferred as [Resource] slice
+    var c: [Resource] = a // c is explicit [Resource] slice
+}
+
+struct Guard {
+    names = [("Hello".S, 1), ("World".S, 2)]
+    func add(name: String) {
+        names.[0] = (&&name, 10)
+    }
+    func `init`() { }
 }
 
 func main(): void {
-    var factor = 3
-    var res = apply(10, |factor|(x: i32) => x * factor)
-
-    var count = 0
-    invokeTwice(|&count|() => {
-        count = count + 1
-    })
+    testArrayRAII()
+    testArrayIndexOverwrite()
+    testArrayMoveElement()
+    testArraySliceBorrow()
+    var g = Guard()
+    g.add("Alice")
+    var x = g
 }

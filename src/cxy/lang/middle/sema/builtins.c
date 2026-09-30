@@ -8,11 +8,14 @@
 
 #include "lang/frontend/flag.h"
 #include "lang/frontend/strings.h"
+#include "lang/frontend/types.h"
 
 static inline bool hasMember(AstNode *node, cstring name)
 {
     return findInAstNode(node, name) != NULL;
 }
+
+
 
 static AstNode *implementCallTupleCopy(TypingContext *ctx,
                                        AstNode *member,
@@ -141,6 +144,35 @@ static AstNode *implementCallClassDestructor(TypingContext *ctx,
             flgNone,
             NULL,
             dctor->type->func.retType),
+        NULL,
+        makeVoidType(ctx->types));
+}
+
+static AstNode *implementCallArrayDestructor(TypingContext *ctx,
+                                             AstNode *member,
+                                             const FileLoc *loc)
+{
+    const Type *type = member->type;
+    const Type *destructor = type->array.destructorFunc;
+    csAssert0(destructor || hasFlag(type, FuncTypeParam));
+
+    return makeExprStmt(
+        ctx->pool,
+        loc,
+        flgNone,
+        makeBackendCallExpr(
+            ctx->pool,
+            loc,
+            flgNone,
+            bfiDrop,
+            makeResolvedPath(ctx->pool,
+                             &member->loc,
+                             member->structField.name,
+                             member->flags | flgMember | flgAddThis,
+                             member,
+                             NULL,
+                             type),
+            member->type),
         NULL,
         makeVoidType(ctx->types));
 }
@@ -274,6 +306,7 @@ static void implementStructCopyFunction(AstVisitor *visitor,
 
     AstNode *member = node->structDecl.members;
     AstNodeList stmts = {NULL};
+    AstNodeList arrayCopyLoops = {NULL};
     bool refMembers = false;
     for (; member; member = member->next) {
         if (!nodeIs(member, FieldDecl) || hasFlag(member, Static))
@@ -326,6 +359,10 @@ static void implementStructCopyFunction(AstVisitor *visitor,
                               NULL);
             refMembers = true;
         }
+        else if (typeIs(type, Array) && hasFlag(type, ReferenceMembers)) {
+            refMembers = true;
+            continue;
+        }
         else {
             expr = makeFieldExpr(
                 ctx->pool,
@@ -353,14 +390,144 @@ static void implementStructCopyFunction(AstVisitor *visitor,
 
     if (refMembers)
         node->flags |= flgReferenceMembers;
-    copy->funcDecl.body = makeExprStmt(
-        ctx->pool,
-        &copy->loc,
-        flgNone,
-        makeStructExprFromType(
-            ctx->pool, &copy->loc, flgNone, stmts.first, NULL, node->type),
-        NULL,
-        node->type);
+
+    // Check if any array field needs a copy loop
+    bool hasArrayLoop = false;
+    for (member = node->structDecl.members; member; member = member->next) {
+        if (!nodeIs(member, FieldDecl) || hasFlag(member, Static))
+            continue;
+        const Type *type = resolveAndUnThisType(member->type);
+        if (typeIs(type, Array) && hasFlag(type, ReferenceMembers)) {
+            hasArrayLoop = true;
+            break;
+        }
+    }
+
+    if (!hasArrayLoop) {
+        copy->funcDecl.body = makeExprStmt(
+            ctx->pool,
+            &copy->loc,
+            flgNone,
+            makeStructExprFromType(
+                ctx->pool, &copy->loc, flgNone, stmts.first, NULL, node->type),
+            NULL,
+            node->type);
+    }
+    else {
+        cstring resName = makeAnonymousVariable(ctx->strings, "__res");
+        AstNode *resDecl = makeVarDecl(
+            ctx->pool,
+            &copy->loc,
+            flgNone,
+            resName,
+            makeTypeReferenceNode(ctx->pool, node->type, &copy->loc),
+            makeStructExprFromType(
+                ctx->pool, &copy->loc, flgNone, stmts.first, NULL, node->type),
+            NULL,
+            node->type);
+        insertAstNode(&arrayCopyLoops, resDecl);
+
+        const Type *u64Type = getPrimitiveType(ctx->types, prtU64);
+        for (member = node->structDecl.members; member; member = member->next) {
+            if (!nodeIs(member, FieldDecl) || hasFlag(member, Static))
+                continue;
+            const Type *type = resolveAndUnThisType(member->type);
+            if (!typeIs(type, Array) || !hasFlag(type, ReferenceMembers))
+                continue;
+
+            const Type *elemType = type->array.elementType;
+            cstring iName = makeString(ctx->strings, "__i");
+
+            // var __i: u64 = 0
+            AstNode *iDecl = makeVarDecl(
+                ctx->pool, &copy->loc, flgNone, iName,
+                makeTypeReferenceNode(ctx->pool, u64Type, &copy->loc),
+                makeIntegerLiteral(ctx->pool, &copy->loc, 0, NULL, u64Type),
+                NULL, u64Type);
+
+            // __i < len
+            AstNode *cond = makeBinaryExpr(
+                ctx->pool, &copy->loc, flgNone,
+                makeResolvedIdentifier(ctx->pool, &copy->loc, iName, flgNone, iDecl, NULL, u64Type),
+                opLt,
+                makeIntegerLiteral(ctx->pool, &copy->loc, type->array.len, NULL, u64Type),
+                NULL, getPrimitiveType(ctx->types, prtBool));
+
+            // res.member[__i] = copy(this.member[__i])
+            AstNode *srcElem = makeIndexExpr(
+                ctx->pool, &copy->loc, flgNone,
+                makeResolvedPath(ctx->pool, &copy->loc, member->structField.name, member->flags | flgMember | flgAddThis, member, NULL, type),
+                makeResolvedIdentifier(ctx->pool, &copy->loc, iName, flgNone, iDecl, NULL, u64Type),
+                NULL, elemType);
+
+            AstNode *dstElem = makeIndexExpr(
+                ctx->pool, &copy->loc, flgNone,
+                makeMemberExpr(ctx->pool, &copy->loc, flgNone,
+                               makeResolvedIdentifier(ctx->pool, &copy->loc, resName, flgNone, resDecl, NULL, node->type),
+                               makeResolvedIdentifier(ctx->pool, &copy->loc, member->structField.name, member->flags, member, NULL, type),
+                               NULL, type),
+                makeResolvedIdentifier(ctx->pool, &copy->loc, iName, flgNone, iDecl, NULL, u64Type),
+                NULL, elemType);
+
+            AstNode *copyElem = makeExprStmt(
+                ctx->pool, &copy->loc, flgNone,
+                makeAssignExpr(
+                    ctx->pool, &copy->loc, flgNone,
+                    dstElem,
+                    opAssign,
+                    makeBackendCallExpr(ctx->pool, &copy->loc, flgNone, bfiCopy, srcElem, elemType),
+                    NULL, elemType),
+                NULL, makeVoidType(ctx->types));
+
+            // __i = __i + 1
+            AstNode *step = makeExprStmt(
+                ctx->pool, &copy->loc, flgNone,
+                makeAssignExpr(
+                    ctx->pool, &copy->loc, flgNone,
+                    makeResolvedIdentifier(ctx->pool, &copy->loc, iName, flgNone, iDecl, NULL, u64Type),
+                    opAssign,
+                    makeBinaryExpr(
+                        ctx->pool, &copy->loc, flgNone,
+                        makeResolvedIdentifier(ctx->pool, &copy->loc, iName, flgNone, iDecl, NULL, u64Type),
+                        opAdd,
+                        makeIntegerLiteral(ctx->pool, &copy->loc, 1, NULL, u64Type),
+                        NULL, u64Type),
+                    NULL, u64Type),
+                NULL, makeVoidType(ctx->types));
+
+            copyElem->next = step;
+            AstNode *whileBody = makeBlockStmt(ctx->pool, &copy->loc, copyElem, NULL, makeVoidType(ctx->types));
+            AstNode *whileStmt = makeWhileStmt(ctx->pool, &copy->loc, flgNone, cond, whileBody, NULL, NULL);
+
+            iDecl->next = whileStmt;
+            insertAstNode(&arrayCopyLoops, iDecl);
+        }
+
+        AstNode *retStmt = makeReturnAstNode(
+            ctx->pool,
+            &copy->loc,
+            flgNone,
+            makeUnaryExpr(
+                ctx->pool,
+                &copy->loc,
+                flgNone,
+                true,
+                opMove,
+                makeResolvedIdentifier(ctx->pool, &copy->loc, resName, flgNone, resDecl, NULL, node->type),
+                NULL,
+                node->type),
+            NULL,
+            node->type);
+        retStmt->returnStmt.func = copy;
+        insertAstNode(&arrayCopyLoops, retStmt);
+
+        copy->funcDecl.signature->ret =
+            makeTypeReferenceNode(ctx->pool, node->type, &copy->loc);
+        copy->type = changeFunctionRetType(ctx->types, copy->type, node->type);
+
+        copy->funcDecl.body = makeBlockStmt(
+            ctx->pool, &copy->loc, arrayCopyLoops.first, NULL, node->type);
+    }
     copy->attrs = makeAttribute(ctx->pool, &copy->loc, S_inline, NULL, NULL);
 }
 
@@ -407,6 +574,9 @@ static void implementDestructorFunction(AstVisitor *visitor,
         else if (isTupleType(type) && isDestructible(type)) {
             call = implementCallTupleDestructor(ctx, member, &destructor->loc);
         }
+        else if (typeIs(type, Array) && isDestructible(type)) {
+            call = implementCallArrayDestructor(ctx, member, &destructor->loc);
+        }
         else if (isUnionType(type) && isDestructible(type)) {
             call = implementCallUnionDestructor(ctx, member, &destructor->loc);
         }
@@ -426,8 +596,11 @@ static void implementDestructorFunction(AstVisitor *visitor,
             return;
         }
         insertAstNode(&stmts, call);
-        insertAstNode(&stmts,
-                      implementZeroMemory(ctx, member, &destructor->loc));
+        const Type *memberType = member->type;
+        if (!isArrayType(memberType)) {
+            insertAstNode(&stmts,
+                          implementZeroMemory(ctx, member, &destructor->loc));
+        }
     }
 
     if (stmts.first) {
@@ -667,8 +840,10 @@ void implementClassOrStructBuiltins(AstVisitor *visitor, AstNode *node)
                 implementDestructorFunction(visitor, node, member);
             break;
         case opCopyOverload:
-            if (member->funcDecl.body == NULL && nodeIs(node, StructDecl))
+            if (member->funcDecl.body == NULL && nodeIs(node, StructDecl)) {
                 implementStructCopyFunction(visitor, node, member);
+                checkType(visitor, member);
+            }
             break;
         case opHashOverload:
             if (member->funcDecl.body == NULL)

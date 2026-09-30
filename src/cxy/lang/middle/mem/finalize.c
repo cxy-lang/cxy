@@ -133,6 +133,8 @@ static void visitBackendCallExpr(AstVisitor *visitor, AstNode *node)
             func = type->tUnion.destructorFunc->func.decl;
         else if (isTupleType(type) && type->tuple.destructorFunc)
             func = type->tuple.destructorFunc->func.decl;
+        else if (typeIs(type, Array) && type->array.destructorFunc)
+            func = type->array.destructorFunc->func.decl;
         break;
     case bfiAlloca:
         if (isClassType(type))

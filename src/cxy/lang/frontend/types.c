@@ -277,6 +277,8 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
             const Type *fromElem = from->array.elementType;
             return unwrapType(toElem, NULL) == unwrapType(fromElem, NULL);
         }
+        if (from->array.len == UINT64_MAX || hasFlag(from, Slice))
+            return false;
         if (unwrapType(to->array.elementType, NULL) !=
             unwrapType(from->array.elementType, NULL))
             return false;
@@ -1437,6 +1439,9 @@ bool isDestructible(const Type *type)
         return decl && (hasFlag(decl, ReferenceMembers) ||
                         hasFlag(decl, ImplementsDeinit));
     }
+
+    if (typeIs(type, Array) && !isSliceType(type) && isDestructible(type->array.elementType))
+        return true;
 
     return (isTupleType(type) || isUnionType(type)) &&
            hasFlag(type, ReferenceMembers);

@@ -207,6 +207,7 @@ typedef struct Type {
         struct {
             u64 len;
             const Type *elementType;
+            const Type *destructorFunc;
         } array;
 
         struct {

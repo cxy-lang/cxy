@@ -601,12 +601,14 @@ static void processPayloadItem(MemMgmtContext *ctx,
         else if (src && (src->tag == irMember || src->tag == irIndex)) {
             if (src->type && src->type->tag == irTypePointer) {
                 IrNode *nullify = makeIrAssign(ctx->pool, &stmt->loc, src, makeIrNullConst(ctx->pool, &stmt->loc, src->type));
+                nullify->flags |= flgUnmanaged;
                 nullify->next = *afterStmtRef;
                 stmt->next = nullify;
                 *afterStmtRef = nullify;
             }
             else if (isIrTypeDestructible(src->type)) {
                 IrNode *nullify = makeIrZeromem(ctx->pool, &stmt->loc, src);
+                nullify->flags |= flgUnmanaged;
                 nullify->next = *afterStmtRef;
                 stmt->next = nullify;
                 *afterStmtRef = nullify;
@@ -708,7 +710,17 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
         for (IrNode *stmt = bb->basicBlock.first; stmt; ) {
             IrNode *next = stmt->next;
 
-            if (stmt->tag == irAssign) {
+            if (stmt->tag == irAssign && !hasFlag(stmt, Unmanaged)) {
+                if (stmt->assign.lhs->tag == irIndex && isIrTypeDestructible(stmt->assign.lhs->type)) {
+                    IrNode *dropStmt = makeIrDrop(ctx->pool, &stmt->loc, stmt->assign.lhs);
+                    dropStmt->next = stmt;
+                    if (prev)
+                        prev->next = dropStmt;
+                    else
+                        bb->basicBlock.first = dropStmt;
+                    prev = dropStmt;
+                }
+
                 IrNode *lhsDecl = findVarDeclInNode(stmt->assign.lhs);
                 TrackedVar *lhsVar = getTrackedVar(ctx, lhsDecl);
                 IrNode *rhs = stmt->assign.rhs;
@@ -796,12 +808,14 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         else if (src && (src->tag == irMember || src->tag == irIndex)) {
                             if (src->type && src->type->tag == irTypePointer) {
                                 IrNode *nullify = makeIrAssign(ctx->pool, &stmt->loc, src, makeIrNullConst(ctx->pool, &stmt->loc, src->type));
+                                nullify->flags |= flgUnmanaged;
                                 nullify->next = next;
                                 stmt->next = nullify;
                                 next = nullify;
                             }
                             else if (isIrTypeDestructible(src->type)) {
                                 IrNode *nullify = makeIrZeromem(ctx->pool, &stmt->loc, src);
+                                nullify->flags |= flgUnmanaged;
                                 nullify->next = next;
                                 stmt->next = nullify;
                                 next = nullify;

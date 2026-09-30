@@ -86,20 +86,21 @@ static AstNode *createStructInitialize(TypingContext *ctx,
     AstNodeList init = {};
     for (AstNode *member = decl->structDecl.members; member;
          member = member->next) {
-        if (!hasFlag(member, Static) && nodeIs(member, FieldDecl) &&
-            member->structField.value) {
-            AstNode *expr = insertAstNode(
-                &init,
-                makeFieldExpr(
-                    ctx->pool,
-                    &member->loc,
-                    member->structField.name,
-                    member->flags,
-                    deepCloneAstNode(ctx->pool, member->structField.value),
-                    member,
-                    NULL));
-            expr->type = member->type;
-        }
+        if (hasFlag(member, Static) || !nodeIs(member, FieldDecl) ||
+            member->structField.value == NULL)
+            continue;
+
+        AstNode *expr = insertAstNode(
+            &init,
+            makeFieldExpr(
+                ctx->pool,
+                &member->loc,
+                member->structField.name,
+                member->flags,
+                deepCloneAstNode(ctx->pool, member->structField.value),
+                member,
+                NULL));
+        expr->type = member->type;
     }
 
     return makeVarDecl(

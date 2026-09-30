@@ -57,6 +57,7 @@ typedef enum IrTypeCategory {
     irTypeCatUnion,
     irTypeCatOptional,
     irTypeCatSlice,
+    irTypeCatArray,
     irTypeCatResult,
     irTypeCatClosure
 } IrTypeCategory;
@@ -87,6 +88,10 @@ struct IrType {
         struct {
             const IrType *elem;
             u64 len;
+            union {
+                const struct AstNode *dctorAst;
+                struct IrNode *dctor;
+            };
         } array;
         struct {
             IrField *fields;

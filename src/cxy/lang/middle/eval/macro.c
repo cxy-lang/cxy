@@ -1269,7 +1269,7 @@ static AstNode *makeLenNode(AstVisitor *visitor,
         return makeBackendCallExpr(ctx->pool,
                                    &node->loc,
                                    node->flags,
-                                   bfiStrLen,
+                                   bfiLen,
                                    args,
                                    getPrimitiveType(ctx->types, prtU64));
     }

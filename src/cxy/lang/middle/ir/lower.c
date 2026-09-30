@@ -398,7 +398,7 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
     case typPointer: {
         const Type *pointed = type->pointer.pointed;
         const IrType *pointedIr = lowerType(ctx, pointed);
-        const IrType *pointee = (pointedIr && pointedIr->tag == irTypePointer)
+        const IrType *pointee = (pointedIr && pointedIr->tag == irTypePointer && isClassType(pointed))
                                     ? pointedIr->pointer.pointee
                                     : pointedIr;
         result = makeIrPointerType(ctx->types, flgNone, pointee);
@@ -407,7 +407,7 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
     case typReference: {
         const Type *referred = stripReference(type);
         const IrType *referredIr = lowerType(ctx, referred);
-        const IrType *pointee = (referredIr && referredIr->tag == irTypePointer)
+        const IrType *pointee = (referredIr && referredIr->tag == irTypePointer && isClassType(referred))
                                     ? referredIr->pointer.pointee
                                     : referredIr;
         result = makeIrPointerType(ctx->types, flgNone, pointee);
@@ -445,6 +445,11 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
                                      flags,
                                      lowerType(ctx, type->array.elementType),
                                      type->array.len);
+            ((IrType *)result)->category = irTypeCatArray;
+            ((IrType *)result)->index = type->index;
+            if (type->array.destructorFunc && type->array.destructorFunc->func.decl)
+                ((IrType *)result)->array.dctorAst =
+                    type->array.destructorFunc->func.decl;
         }
         break;
     case typTuple: {
@@ -893,6 +898,7 @@ static void lowerSliceIntoTarget(LowerContext *ctx,
                                   ctx->pool, &expr->loc, len, false, u64Type)));
     }
 }
+
 
 static void lowerOptionalIntoTarget(LowerContext *ctx,
                                     AstVisitor *visitor,
@@ -2098,7 +2104,8 @@ static void visitArrayExpr(AstVisitor *visitor, AstNode *node)
     u64 count = 0;
     for (AstNode *elem = node->arrayExpr.elements; elem;
          elem = elem->next, count++) {
-        IrNode *elemVal = lowerFlattenedOperand(visitor, elem);
+        astVisit(visitor, elem);
+        IrNode *elemVal = (IrNode *)elem->codegen;
         if (elemsLast) {
             elemsLast->next = elemVal;
             elemsLast = elemVal;
@@ -2119,7 +2126,8 @@ static void visitTupleExpr(AstVisitor *visitor, AstNode *node)
     u64 count = 0;
     for (AstNode *elem = node->tupleExpr.elements; elem;
          elem = elem->next, count++) {
-        IrNode *elemVal = lowerFlattenedOperand(visitor, elem);
+        astVisit(visitor, elem);
+        IrNode *elemVal = (IrNode *)elem->codegen;
         if (elemsLast) {
             elemsLast->next = elemVal;
             elemsLast = elemVal;
@@ -2139,7 +2147,8 @@ static void visitStructExpr(AstVisitor *visitor, AstNode *node)
     IrNode *fieldsFirst = NULL, *fieldsLast = NULL;
     u64 count = 0;
     for (AstNode *f = node->structExpr.fields; f; f = f->next, count++) {
-        IrNode *fVal = lowerFlattenedOperand(visitor, f->fieldExpr.value);
+        astVisit(visitor, f->fieldExpr.value);
+        IrNode *fVal = (IrNode *)f->fieldExpr.value->codegen;
         if (fieldsLast) {
             fieldsLast->next = fVal;
             fieldsLast = fVal;
@@ -2268,15 +2277,22 @@ static void visitBackendCall(AstVisitor *visitor, AstNode *node)
                                      getIrPrimitiveType(ctx->types, irTypeU64));
         break;
     }
-    case bfiStrLen: {
+    case bfiLen: {
         IrNode *target = lowerFlattenedOperand(visitor, args);
         const IrType *u64Type = getIrPrimitiveType(ctx->types, irTypeU64);
-        const IrType *charPtrType = makeIrPointerType(
-            ctx->types, flgConst, getIrPrimitiveType(ctx->types, irTypeChar));
-        const IrType *fnType = makeIrFuncType(
-            ctx->types, flgNone, (const IrType *[]){charPtrType}, 1, u64Type, false);
-        IrNode *fn = makeIrGlobalRef(ctx->pool, &node->loc, "strlen", NULL, fnType);
-        node->codegen = makeIrCall(ctx->pool, &node->loc, fn, target, 1, u64Type);
+        const Type *argAstType = args->type;
+        if (argAstType && (isSliceType(argAstType) || hasFlag(argAstType, Slice))) {
+            node->codegen = makeIrMember(
+                ctx->pool, &node->loc, target, 1, S_len, u64Type);
+        }
+        else {
+            const IrType *charPtrType = makeIrPointerType(
+                ctx->types, flgConst, getIrPrimitiveType(ctx->types, irTypeChar));
+            const IrType *fnType = makeIrFuncType(
+                ctx->types, flgNone, (const IrType *[]){charPtrType}, 1, u64Type, false);
+            IrNode *fn = makeIrGlobalRef(ctx->pool, &node->loc, "strlen", NULL, fnType);
+            node->codegen = makeIrCall(ctx->pool, &node->loc, fn, target, 1, u64Type);
+        }
         break;
     }
     case bfiAlloca: {
@@ -3388,10 +3404,14 @@ static void finalizeLifecycleTypes(LowerContext *ctx)
     HashtableIt it = newHashTableIt(&ctx->types->types, sizeof(IrType *));
     while (hashTableItHasNext(&it)) {
         IrType *type = *(IrType **)hashTableItNext(&it);
-        if (type && (type->category == irTypeCatStruct ||
-                     type->category == irTypeCatTuple ||
-                     type->category == irTypeCatUnion ||
-                     type->category == irTypeCatClass)) {
+        if (type && type->category == irTypeCatArray) {
+            const AstNode *dAst = type->array.dctorAst;
+            type->array.dctor = dAst ? dAst->ir : NULL;
+        }
+        else if (type && (type->category == irTypeCatStruct ||
+                          type->category == irTypeCatTuple ||
+                          type->category == irTypeCatUnion ||
+                          type->category == irTypeCatClass)) {
             const AstNode *dAst = type->strct.dctorAst;
             const AstNode *fAst = type->strct.dctorFwdAst;
             const AstNode *cAst = type->strct.copyAst;

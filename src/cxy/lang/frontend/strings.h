@@ -118,6 +118,7 @@ extern "C" {
     f(fn)                       \
     f(dtor)                     \
     f(escaping)                 \
+    f(zero)                     \
     f(__init)                   \
     f(__defaults_init)          \
     f(__startup)                \

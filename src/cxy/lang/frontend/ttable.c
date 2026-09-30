@@ -806,12 +806,27 @@ const Type *getPrimitiveType(TypeTable *table, PrtId id)
 
 const Type *getAnySliceType(TypeTable *table) { return table->anySliceType; }
 
+const Type *makeSliceType(TypeTable *table, const Type *elementType)
+{
+    Type type = make(Type,
+                     .tag = typArray,
+                     .flags = flgSlice,
+                     .array = {.elementType = elementType, .len = UINT64_MAX});
+
+    return getOrInsertType(table, &type).s;
+}
+
 const Type *makeArrayType(TypeTable *table,
                           const Type *elementType,
                           const u64 size)
 {
+    Flags flags = flgNone;
+    if (isDestructible(elementType))
+        flags |= flgReferenceMembers;
+
     Type type = make(Type,
                      .tag = typArray,
+                     .flags = flags,
                      .array = {.elementType = elementType, .len = size});
 
     return getOrInsertType(table, &type).s;

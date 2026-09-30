@@ -91,6 +91,8 @@ const Type *makeTypeInfo(TypeTable *table, const Type *target);
 
 const Type *makeArrayType(TypeTable *table, const Type *elementType, u64 size);
 
+const Type *makeSliceType(TypeTable *table, const Type *elementType);
+
 const Type *makeContainerType(TypeTable *table,
                               cstring name,
                               const Type *base,

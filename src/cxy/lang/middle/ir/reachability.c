@@ -136,6 +136,11 @@ static void markTypeLifecycleFunctions(ReachabilityContext *ctx, const IrType *t
         if (type->strct.count > 1 && type->strct.fields[1].type)
             markTypeLifecycleFunctions(ctx, type->strct.fields[1].type, isCopy);
     }
+    else if (type->category == irTypeCatArray) {
+        IrNode *func = isCopy ? NULL : type->array.dctor;
+        if (func)
+            markAndEnqueue(ctx, func);
+    }
     else if (type->category == irTypeCatStruct || type->category == irTypeCatTuple || type->category == irTypeCatUnion) {
         IrNode *func = isCopy ? type->strct.copy : type->strct.dctor;
         if (func)

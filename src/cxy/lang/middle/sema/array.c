@@ -4,7 +4,12 @@
 
 #include "check.h"
 
+#include "lang/frontend/ast.h"
 #include "lang/frontend/flag.h"
+#include "lang/frontend/operator.h"
+#include "lang/frontend/ttable.h"
+#include "lang/frontend/types.h"
+#include <string.h>
 
 static AstNode *getArrayDimension(AstNode *node)
 {
@@ -19,6 +24,80 @@ static AstNode *getArrayDimension(AstNode *node)
     default:
         return node;
     }
+}
+
+static const Type *synthesizeArrayDestructor(TypingContext *ctx,
+                                              AstVisitor *visitor,
+                                              const Type *arrayType)
+{
+    const FileLoc *loc = builtinLoc();
+    const Type *sliceType = makeSliceType(ctx->types, arrayType->array.elementType);
+    cstring funcName = makeStringf(ctx->strings, "__array_dctor_%u", (unsigned)sliceType->index);
+    cstring paramName = makeString(ctx->strings, "arr");
+    cstring elemVarName = makeString(ctx->strings, "__i");
+
+    AstNode *paramType = makeTypeReferenceNode(ctx->pool, sliceType, loc);
+    AstNode *param = makeFunctionParam(ctx->pool, loc, paramName, paramType, NULL, flgNone, NULL);
+    param->type = sliceType;
+
+    const Type *elemType = arrayType->array.elementType;
+
+    // elem in slice
+    AstNode *loopVar =
+        makeVarDecl(ctx->pool, loc, flgNone, elemVarName,
+                    makeTypeReferenceNode(ctx->pool, getPrimitiveType(ctx->types, prtU64), loc),
+                    NULL, NULL, getPrimitiveType(ctx->types, prtU64));
+    AstNode *rangeExpr = makeAstNode(ctx->pool, loc, &(AstNode){
+        .tag = astRangeExpr,
+        .rangeExpr = {
+            .start = makeIntegerLiteral(ctx->pool, loc, 0, NULL, getPrimitiveType(ctx->types, prtU64)),
+            .end = makeBackendCallExpr(
+                ctx->pool,
+                loc, flgNone,
+                bfiLen,
+                makeResolvedPath(ctx->pool, loc, paramName, flgNone, param, NULL, sliceType),
+                getPrimitiveType(ctx->types, prtU64)),
+            .step = NULL,
+        }
+    });
+
+    AstNode *dropCall = makeExprStmt(
+        ctx->pool, loc, flgNone,
+        makeBackendCallExpr(ctx->pool, loc, flgNone, bfiDrop,
+            makeIndexExpr(ctx->pool, loc, flgNone, makeResolvedPath(ctx->pool, loc, paramName, flgNone, param, NULL, sliceType),
+                makeResolvedPath(ctx->pool, loc, elemVarName, 0, loopVar, NULL, NULL),
+                NULL, sliceType->array.elementType),
+            makeVoidType(ctx->types)),
+        NULL, makeVoidType(ctx->types));
+
+    AstNode *forBody = makeBlockStmt(ctx->pool, loc, dropCall, NULL, makeVoidType(ctx->types));
+    AstNode *forStmt = makeForStmt(ctx->pool, loc, flgNone, loopVar, rangeExpr, NULL, forBody, NULL);
+
+    AstNode *body = makeBlockStmt(ctx->pool, loc, forStmt, NULL, makeVoidType(ctx->types));
+    AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, makeVoidAstNode(ctx->pool, loc, flgNone, NULL, NULL), body, flgGenerated | flgPure | flgBuiltin, NULL, NULL);
+
+    const Type *funcType = checkType(visitor, funcDecl);
+    if (!typeIs(funcType, Error) && ctx->root.parent) {
+        astModifierAddAsLast(&ctx->root, funcDecl);
+    }
+    return funcType;
+}
+
+void implementArrayTypeCopyAndDestructor(AstVisitor *visitor, AstNode *node)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    if (node->type == NULL || !typeIs(node->type, Array) || hasFlag(node->type, Slice) || node->type->array.len == UINT64_MAX)
+        return;
+
+    if (node->type->array.destructorFunc != NULL || !isDestructible(node->type))
+        return;
+
+    const Type *func = synthesizeArrayDestructor(ctx, visitor, node->type);
+    if (typeIs(func, Error)) {
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
+    ((Type *)node->type)->array.destructorFunc = func;
 }
 
 void checkArrayType(AstVisitor *visitor, AstNode *node)
@@ -69,6 +148,7 @@ void checkArrayType(AstVisitor *visitor, AstNode *node)
     }
     size = integerLiteralValue(dim);
     node->type = makeArrayType(ctx->types, element, size);
+    implementArrayTypeCopyAndDestructor(visitor, node);
 }
 
 void checkArrayExpr(AstVisitor *visitor, AstNode *node)
@@ -106,4 +186,6 @@ void checkArrayExpr(AstVisitor *visitor, AstNode *node)
     else {
         node->type = makeArrayType(ctx->types, elementType, count);
     }
+
+    implementArrayTypeCopyAndDestructor(visitor, node);
 }

@@ -462,6 +462,13 @@ static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
             format(&ctx->state, "));\n", NULL);
         }
         break;
+    case irTypeCatArray:
+        if (type->array.dctor) {
+            format(&ctx->state, "{s}(({s}){{ .ptr = ", (FormatArg[]){{.s = type->array.dctor->function.name}, {.s = type->array.dctor->function.params->type->name}});
+            irConstVisit(visitor, target);
+            format(&ctx->state, ", .len = {u64} });\n", (FormatArg[]){{.u64 = type->array.len}});
+        }
+        break;
     case irTypeCatClosure: {
         format(&ctx->state, "if (", NULL);
         irConstVisit(visitor, target);
@@ -712,6 +719,75 @@ static void emitAssign(ConstIrVisitor *visitor, const IrNode *node)
             irConstVisit(visitor, rhs->unionValue.value);
             format(&ctx->state, ";\n", NULL);
         }
+        return;
+    }
+
+    if (rhs && rhs->tag == irStructConst) {
+        bool hasArrayField = false;
+        for (const IrNode *fld = rhs->structConst.fields; fld; fld = fld->next) {
+            if (fld->tag == irArrayConst) {
+                hasArrayField = true;
+                break;
+            }
+        }
+
+        if (hasArrayField) {
+            format(&ctx->state, "  ", NULL);
+            irConstVisit(visitor, lhs);
+            format(&ctx->state, " = (", NULL);
+            emitCTypeName(&ctx->state, rhs->type);
+            format(&ctx->state, "){{", NULL);
+            u64 fi = 0;
+            for (const IrNode *fld = rhs->structConst.fields; fld; fld = fld->next, fi++) {
+                if (fld->tag == irArrayConst)
+                    continue;
+                if (fi > 0)
+                    format(&ctx->state, ", ", NULL);
+                irConstVisit(visitor, fld);
+            }
+            format(&ctx->state, "};\n", NULL);
+
+            fi = 0;
+            for (const IrNode *fld = rhs->structConst.fields; fld; fld = fld->next, fi++) {
+                if (fld->tag == irArrayConst) {
+                    cstring fldName = (rhs->type && fi < rhs->type->strct.count) ? rhs->type->strct.fields[fi].name : NULL;
+                    u64 idx = 0;
+                    for (const IrNode *elem = fld->arrayConst.elements; elem; elem = elem->next, idx++) {
+                        format(&ctx->state, "  ", NULL);
+                        irConstVisit(visitor, lhs);
+                        if (fldName)
+                            format(&ctx->state, ".{s}[{u64}] = ", (FormatArg[]){{.s = fldName}, {.u64 = idx}});
+                        else
+                            format(&ctx->state, "._{u64}[{u64}] = ", (FormatArg[]){{.u64 = fi}, {.u64 = idx}});
+                        irConstVisit(visitor, elem);
+                        format(&ctx->state, ";\n", NULL);
+                    }
+                }
+            }
+            return;
+        }
+    }
+
+    if (rhs && rhs->tag == irArrayConst) {
+        u64 idx = 0;
+        for (const IrNode *elem = rhs->arrayConst.elements; elem; elem = elem->next, idx++) {
+            format(&ctx->state, "  ", NULL);
+            irConstVisit(visitor, lhs);
+            format(&ctx->state, "[{u64}] = ", (FormatArg[]){{.u64 = idx}});
+            irConstVisit(visitor, elem);
+            format(&ctx->state, ";\n", NULL);
+        }
+        return;
+    }
+
+    if (lhs && lhs->type && lhs->type->tag == irTypeArray && rhs && rhs->type && rhs->type->tag == irTypeArray) {
+        format(&ctx->state, "  memcpy(", NULL);
+        irConstVisit(visitor, lhs);
+        format(&ctx->state, ", ", NULL);
+        irConstVisit(visitor, rhs);
+        format(&ctx->state, ", sizeof(", NULL);
+        irConstVisit(visitor, lhs);
+        format(&ctx->state, "));\n", NULL);
         return;
     }
 
