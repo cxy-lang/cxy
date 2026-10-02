@@ -4,7 +4,9 @@
 
 #include "check.h"
 
+#include "lang/frontend/ast.h"
 #include "lang/frontend/flag.h"
+#include "lang/frontend/operator.h"
 #include "lang/frontend/strings.h"
 
 static inline bool isParentAssignExpr(const AstNode *node)
@@ -64,20 +66,22 @@ static void checkSliceOperator(AstVisitor *visitor, AstNode *node)
     AstNode *endArg = range->rangeExpr.end;
 
     if (startArg == NULL) {
-        startArg = makeIntegerLiteral(ctx->pool, &node->loc, 0, NULL, getPrimitiveType(ctx->types, prtU64));
+        startArg = makeIntegerLiteral(ctx->pool,
+                                      &node->loc,
+                                      0,
+                                      NULL,
+                                      getPrimitiveType(ctx->types, prtU64));
     }
     if (endArg == NULL) {
-        endArg = makeNullLiteral(ctx->pool, &node->loc, NULL, makeNullType(ctx->types));
+        endArg = makeNullLiteral(
+            ctx->pool, &node->loc, NULL, makeNullType(ctx->types));
     }
 
     startArg->next = endArg;
     endArg->next = NULL;
 
-    transformToMemberCallExpr(visitor,
-                              node,
-                              node->sliceExpr.target,
-                              S_SliceOverload,
-                              startArg);
+    transformToMemberCallExpr(
+        visitor, node, node->sliceExpr.target, S_SliceOverload, startArg);
     checkType(visitor, node);
 }
 
@@ -98,7 +102,8 @@ void checkSliceExpr(AstVisitor *visitor, AstNode *node)
             return;
         }
         if (!isIntegerType(startType)) {
-            logError(ctx->L, &range->rangeExpr.start->loc,
+            logError(ctx->L,
+                     &range->rangeExpr.start->loc,
                      "slice start index must be an integer, got '{t}'",
                      (FormatArg[]){{.t = startType}});
             node->type = ERROR_TYPE(ctx);
@@ -113,7 +118,8 @@ void checkSliceExpr(AstVisitor *visitor, AstNode *node)
             return;
         }
         if (!isIntegerType(endType)) {
-            logError(ctx->L, &range->rangeExpr.end->loc,
+            logError(ctx->L,
+                     &range->rangeExpr.end->loc,
                      "slice end index must be an integer, got '{t}'",
                      (FormatArg[]){{.t = endType}});
             node->type = ERROR_TYPE(ctx);
@@ -138,6 +144,88 @@ void checkSliceExpr(AstVisitor *visitor, AstNode *node)
                  (FormatArg[]){{.t = target}});
         node->type = ERROR_TYPE(ctx);
     }
+}
+
+void checkIteratorExpr(AstVisitor *visitor, AstNode *node)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    const Type *yieldType = checkType(visitor, node->iteratorExpr.type);
+    if (typeIs(yieldType, Error)) {
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
+
+    AstNodeList initArgs = {};
+    for (AstNode *arg = node->iteratorExpr.args; arg; arg = arg->next) {
+        csAssert0(nodeIs(arg, FieldDecl));
+        AstNode *actualArg = arg->structField.value;
+
+        const Type *argType = checkType(visitor, actualArg);
+        if (typeIs(argType, Error)) {
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+
+        arg->type = argType;
+        arg->structField.type =
+            makeTypeReferenceNode(ctx->pool, argType, &arg->loc);
+        insertAstNode(&initArgs,
+                      makeFieldExpr(ctx->pool,
+                                    &actualArg->loc,
+                                    arg->structField.name,
+                                    flgNone,
+                                    actualArg,
+                                    arg,
+                                    NULL));
+        arg->structField.value = NULL;
+    }
+
+    AstNode *nextFunc = node->iteratorExpr.next;
+    AstNode *truthyFunc = node->iteratorExpr.truthy;
+
+    AstNode *members = node->iteratorExpr.args;
+    if (members) {
+        AstNode *last = getLastAstNode(members);
+        last->next = nextFunc;
+        nextFunc->next = truthyFunc;
+    }
+    else {
+        members = nextFunc;
+        nextFunc->next = truthyFunc;
+    }
+
+    cstring structName = makeAnonymousVariable(ctx->strings, "__Iterator");
+    AstNode *anonStruct = makeStructDecl(ctx->pool,
+                                         &node->loc,
+                                         flgIterator | flgAnonymous,
+                                         structName,
+                                         members,
+                                         NULL,
+                                         NULL);
+
+    astModifierAdd(&ctx->root, anonStruct);
+    const Type *structType = checkType(visitor, anonStruct);
+    if (typeIs(structType, Error)) {
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
+
+    AstNode *structPath = makeResolvedPath(ctx->pool,
+                                           &node->loc,
+                                           structName,
+                                           flgNone,
+                                           anonStruct,
+                                           NULL,
+                                           structType);
+
+    clearAstBody(node);
+    node->tag = astStructExpr;
+    node->structExpr.left = structPath;
+    node->structExpr.fields = initArgs.first;
+    node->structExpr.isLiteral = false;
+    node->type = structType;
+
+    checkType(visitor, node);
 }
 
 void checkIndexExpr(AstVisitor *visitor, AstNode *node)

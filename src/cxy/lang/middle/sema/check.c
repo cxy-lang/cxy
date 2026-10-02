@@ -940,6 +940,7 @@ AstNode *checkAst(CompilerDriver *driver, AstNode *node)
         [astAssignExpr] = checkAssignExpr,
         [astIndexExpr] = checkIndexExpr,
         [astSliceExpr] = checkSliceExpr,
+        [astIteratorExpr] = checkIteratorExpr,
         [astStructExpr] = checkStructExpr,
         [astRangeExpr] = checkRangeExpr,
         [astNewExpr] = checkNewExpr,

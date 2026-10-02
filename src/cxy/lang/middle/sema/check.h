@@ -216,6 +216,7 @@ void checkReferenceOfExpr(AstVisitor *visitor, AstNode *node);
 void checkAssignExpr(AstVisitor *visitor, AstNode *node);
 void checkIndexExpr(AstVisitor *visitor, AstNode *node);
 void checkSliceExpr(AstVisitor *visitor, AstNode *node);
+void checkIteratorExpr(AstVisitor *visitor, AstNode *node);
 void checkStructExpr(AstVisitor *visitor, AstNode *node);
 void checkNewExpr(AstVisitor *visitor, AstNode *node);
 void checkClosureExpr(AstVisitor *visitor, AstNode *node);

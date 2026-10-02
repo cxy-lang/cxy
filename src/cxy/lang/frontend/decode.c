@@ -188,6 +188,12 @@ static void unpackNodeBody(AstNodeUnpackContext *ctx, AstNode *node)
         node->sliceExpr.target = unpackNode(ctx);
         node->sliceExpr.range = unpackNode(ctx);
         break;
+    case astIteratorExpr:
+        node->iteratorExpr.type = unpackNode(ctx);
+        node->iteratorExpr.args = unpackNode(ctx);
+        node->iteratorExpr.next = unpackNode(ctx);
+        node->iteratorExpr.truthy = unpackNode(ctx);
+        break;
     case astGenericParam:
         node->genericParam.name = unpackString(ctx);
         node->genericParam.constraints = unpackManyNodes(ctx, NULL);

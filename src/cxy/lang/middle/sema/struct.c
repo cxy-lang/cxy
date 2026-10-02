@@ -496,6 +496,41 @@ void checkStructDecl(AstVisitor *visitor, AstNode *node)
                              (flgTypeApplicable | flgReferenceMembers));
     }
 
+    if (hasFlag(node, Iterator)) {
+        const Type *callOverload = findStructMemberType(node->type, S_CallOverload);
+        const Type *truthyOverload = findStructMemberType(node->type, S_Truthy);
+        if (callOverload == NULL || !typeIs(callOverload, Func)) {
+            logError(ctx->L,
+                     &node->loc,
+                     "iterator type '{t}' must implement the '()' call operator",
+                     (FormatArg[]){{.t = node->type}});
+            node->type = ERROR_TYPE(ctx);
+        }
+        else {
+            if (callOverload->func.paramsCount != 0) {
+                logError(ctx->L,
+                         &callOverload->func.decl->loc,
+                         "iterator '()' call operator must take 0 parameters, got {u64}",
+                         (FormatArg[]){{.u64 = callOverload->func.paramsCount}});
+                node->type = ERROR_TYPE(ctx);
+            }
+            if (!isOptionalType(callOverload->func.retType)) {
+                logError(ctx->L,
+                         &callOverload->func.decl->loc,
+                         "iterator '()' call operator return type must be an optional type, got '{t}'",
+                         (FormatArg[]){{.t = callOverload->func.retType}});
+                node->type = ERROR_TYPE(ctx);
+            }
+        }
+        if (truthyOverload == NULL) {
+            logError(ctx->L,
+                     &node->loc,
+                     "iterator type '{t}' must implement the '!!' truthy operator",
+                     (FormatArg[]){{.t = node->type}});
+            node->type = ERROR_TYPE(ctx);
+        }
+    }
+
     ctx->currentStruct = NULL;
 
 checkStructMembersError:

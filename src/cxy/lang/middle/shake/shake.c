@@ -728,6 +728,64 @@ static void shakeMatchStmt(AstVisitor *visitor, AstNode *node)
     astVisitManyNodes(visitor, node->matchStmt.cases);
 }
 
+static void shakeIteratorExpr(AstVisitor *visitor, AstNode *node)
+{
+    ShakeAstContext *ctx = getAstVisitorContext(visitor);
+    astVisitManyNodes(visitor, node->iteratorExpr.args);
+    astVisit(visitor, node->iteratorExpr.type);
+
+    if (node->iteratorExpr.next && !nodeIs(node->iteratorExpr.next, FuncDecl)) {
+        AstNode *body = node->iteratorExpr.next;
+        AstNode *bodyStmt = nodeIs(body, BlockStmt)
+                                ? body
+                                : makeBlockStmt(ctx->pool,
+                                                &body->loc,
+                                                makeReturnAstNode(ctx->pool, &body->loc, flgNone, body, NULL, NULL),
+                                                NULL,
+                                                NULL);
+        AstNode *retType = makeOptionalTypeAst(ctx->pool, &node->iteratorExpr.type->loc, flgNone, deepCloneAstNode(ctx->pool, node->iteratorExpr.type), NULL, NULL);
+        AstNode *func = makeOperatorOverload(ctx->pool,
+                                             &body->loc,
+                                             opCallOverload,
+                                             NULL,
+                                             retType,
+                                             bodyStmt,
+                                             flgNone,
+                                             NULL,
+                                             NULL);
+        node->iteratorExpr.next = func;
+    }
+    astVisit(visitor, node->iteratorExpr.next);
+
+    if (node->iteratorExpr.truthy && !nodeIs(node->iteratorExpr.truthy, FuncDecl)) {
+        AstNode *body = node->iteratorExpr.truthy;
+        AstNode *bodyStmt = nodeIs(body, BlockStmt)
+                                ? body
+                                : makeBlockStmt(ctx->pool,
+                                                &body->loc,
+                                                makeReturnAstNode(ctx->pool, &body->loc, flgNone, body, NULL, NULL),
+                                                NULL,
+                                                NULL);
+        AstNode *boolType = makePrimitiveTypeAst(ctx->pool, &body->loc, flgNone, prtBool, NULL, NULL);
+        AstNode *func = makeOperatorOverload(ctx->pool,
+                                             &body->loc,
+                                             opTruthy,
+                                             NULL,
+                                             boolType,
+                                             bodyStmt,
+                                             flgNone,
+                                             NULL,
+                                             NULL);
+        node->iteratorExpr.truthy = func;
+    }
+    astVisit(visitor, node->iteratorExpr.truthy);
+}
+
+void shakeClosureExpr(AstVisitor *visitor, AstNode *node)
+{
+    astVisitFallbackVisitAll(visitor, node);
+}
+
 static void shakeReturnStmt(AstVisitor *visitor, AstNode *node)
 {
     astVisitFallbackVisitAll(visitor, node);
@@ -1211,6 +1269,7 @@ AstNode *shakeAstNode(CompilerDriver *driver, AstNode *node)
         [astBlockStmt] = shakeBlockStmt,
         [astStringExpr] = shakeStringExpr,
         [astClosureExpr] = shakeClosureExpr,
+        [astIteratorExpr] = shakeIteratorExpr,
         [astCallExpr] = shakeCallExpr,
         [astGroupExpr] = shakeGroupExpr,
         [astBinaryExpr] = shakeBinaryExpr,

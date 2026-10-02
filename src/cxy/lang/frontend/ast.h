@@ -47,6 +47,7 @@ struct Plugin;
     f(AliasExpr)                            \
     f(UnionValueExpr)                       \
     f(ClosureValue)                         \
+    f(IteratorExpr)                         \
     f(XformExpr)
 
 #define CXY_LANG_AST_STMT_TAGS(f)           \
@@ -742,6 +743,13 @@ struct AstNode {
         } closureValue;
 
         struct {
+            AstNode *type;
+            AstNode *args;
+            AstNode *next;
+            AstNode *truthy;
+        } iteratorExpr;
+
+        struct {
             const char *name;
             u64 index;
             AstNode *value;
@@ -765,6 +773,7 @@ struct AstNode {
             AstNode *target;
             AstNode *member;
             bool isOptional;
+            bool isRedirect;
         } memberExpr;
 
         struct {
@@ -1411,6 +1420,15 @@ AstNode *makeSliceExpr(MemPool *pool,
                        AstNode *range,
                        AstNode *next,
                        const Type *type);
+AstNode *makeIteratorExpr(MemPool *pool,
+                          const FileLoc *loc,
+                          u64 flags,
+                          AstNode *typeNode,
+                          AstNode *args,
+                          AstNode *nextMethod,
+                          AstNode *truthyMethod,
+                          AstNode *next,
+                          const Type *type);
 
 AstNode *makeAttribute(MemPool *pool,
                        const FileLoc *loc,

@@ -17,13 +17,10 @@ static inline bool isInlineFunction(const AstNode *node)
 
 static inline bool isIteratorFunction(const Type *type)
 {
-    if (!isClosureType(type))
+    type = stripReference(type);
+    if (type == NULL)
         return false;
-
-    const Type *iter = type->closure.fn;
-
-    const Type *ret = iter->func.retType;
-    return isOptionalType(ret);
+    return hasFlag(type, Iterator);
 }
 
 static bool validateMainFunction(TypingContext *ctx,
@@ -226,15 +223,13 @@ bool checkMemberFunctions(AstVisitor *visitor,
                 }
             }
 
-            if (member->funcDecl.operatorOverload == opRange &&
-                !isIteratorFunction(type->func.retType)) //
+            if (member->funcDecl.operatorOverload == opRange && !isIteratorFunction(type->func.retType))
             {
                 logError(ctx->L,
                          &member->loc,
-                         "expecting an iterator function overload to return an "
-                         "iterator, got '{t}', got '{t}'",
-                         (FormatArg[]){{.t = type->func.retType},
-                                       {.t = type->func.retType}});
+                         "expecting a range operator '..' overload to return an "
+                         "iterator type, got '{t}'",
+                         (FormatArg[]){{.t = type->func.retType}});
                 node->type = ERROR_TYPE(ctx);
                 return false;
             }

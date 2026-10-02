@@ -425,15 +425,7 @@ pub struct strview {
         return null
     }
 
-    const func `..`() {
-        var i = 0`i32;
-        return () : (char, i32)? => {
-            if (i < _size)
-                return (s.[i], i++)
-            else
-                return null
-        }
-    }
+    const func `..`() => StringIterator(s, _size)
 
     const func `[..]`(st: i32, e: i32? = null) {
         var end = e ?? _size as i32 - 1;
@@ -647,6 +639,26 @@ pub class OutputStream {
         }
         return &this
     }
+}
+
+iterator StringIterator {
+    s: string
+    size: u64
+    i = 0.i32
+
+    func `init`(s: string, size: u64) {
+        this.s = s
+        this.size = size
+    }
+
+    func `()`(): (char, i32)? {
+        if (i >= size) {
+            return null
+        }
+        return (s.[i], i++)
+    }
+
+    func `!!`() => i < size
 }
 
 // @builtin
@@ -920,15 +932,7 @@ pub class String : OutputStream {
         return this._data.[idx]
     }
 
-    const func `..`() {
-        var i = 0`i32;
-        return () : (char, i32)? => {
-            if (i < _size)
-                return (_data.[i], i++)
-            else
-                return null
-        }
-    }
+    const func `..`() => StringIterator(_data !: string, _size)
 
     @inline const func size() => _size
     @inline const func capacity() => _capacity

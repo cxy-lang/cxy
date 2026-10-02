@@ -622,6 +622,30 @@ void bindIfStmt(AstVisitor *visitor, AstNode *node)
     popScope(ctx->env);
 }
 
+static void bindIteratorExpr(AstVisitor *visitor, AstNode *node)
+{
+    BindContext *ctx = getAstVisitorContext(visitor);
+    astVisit(visitor, node->iteratorExpr.type);
+    astVisitManyNodes(visitor, node->iteratorExpr.args);
+
+    pushScope(ctx->env, node);
+    for (AstNode *arg = node->iteratorExpr.args; arg; arg = arg->next) {
+        if (nodeIs(arg, FieldDecl) && arg->structField.name) {
+            defineDeclaration(ctx, arg->structField.name, arg);
+        }
+    }
+
+    if (node->iteratorExpr.next) {
+        astVisit(visitor, node->iteratorExpr.next);
+    }
+
+    if (node->iteratorExpr.truthy) {
+        astVisit(visitor, node->iteratorExpr.truthy);
+    }
+
+    popScope(ctx->env);
+}
+
 void bindClosureExpr(AstVisitor *visitor, AstNode *node)
 {
     BindContext *ctx = getAstVisitorContext(visitor);
@@ -916,6 +940,7 @@ void bindAstPhase2(CompilerDriver *driver, Env *env, AstNode *node)
         [astException] = bindExceptionDecl,
         [astIfStmt] = bindIfStmt,
         [astClosureExpr] = bindClosureExpr,
+        [astIteratorExpr] = bindIteratorExpr,
         [astDeferStmt] = bindDeferStmt,
         [astBreakStmt] = bindBreakOrContinueStmt,
         [astContinueStmt] = bindBreakOrContinueStmt,

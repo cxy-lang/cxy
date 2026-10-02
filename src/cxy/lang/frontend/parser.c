@@ -592,10 +592,12 @@ static inline AstNode *parseInteger(Parser *P, bool isNegative)
     const Token prev = *previous(P);
     const Token tok = *consume0(P, tokIntLiteral);
     AstNode *type = NULL;
-    AstNode *node = newAstNode(
-        P,
-        (isNegative ? &prev : &tok),
-        &(AstNode){.tag = astIntegerLit, .intLiteral = {.uValue = tok.iVal, .isNegative = isNegative}});
+    AstNode *node =
+        newAstNode(P,
+                   (isNegative ? &prev : &tok),
+                   &(AstNode){.tag = astIntegerLit,
+                              .intLiteral = {.uValue = tok.iVal,
+                                             .isNegative = isNegative}});
 
     // Handle suffix first (e.g., 10.ns or 10.i64)
     node = wrapLiteralWithSuffix(P, node, &tok.fileLoc, false);
@@ -761,7 +763,10 @@ static inline AstNode *expressionWithStructs(Parser *P)
     return expression(P, true);
 }
 
-static AstNode *member(Parser *P, const Token *begin, AstNode *operand, bool isOptional)
+static AstNode *member(Parser *P,
+                       const Token *begin,
+                       AstNode *operand,
+                       bool isOptional)
 {
     AstNode *member;
     u64 flags = flgNone;
@@ -780,23 +785,25 @@ static AstNode *member(Parser *P, const Token *begin, AstNode *operand, bool isO
         // a?.b.c => (a?.b).c
         while (!isEoF(P) && match(P, tokDot, tokOptionalDot)) {
             bool currentOptional = previous(P)->tag == tokOptionalDot;
-            operand = newAstNode(P,
-                                 begin,
-                                 &(AstNode){.tag = astMemberExpr,
-                                            .flags = flags,
-                                            .memberExpr = {.target = operand,
-                                                           .member = member,
-                                                           .isOptional = isOptional}});
+            operand = newAstNode(
+                P,
+                begin,
+                &(AstNode){.tag = astMemberExpr,
+                           .flags = flags,
+                           .memberExpr = {.target = operand,
+                                          .member = member,
+                                          .isOptional = isOptional}});
             isOptional = currentOptional;
             member = parsePath(P, true);
         }
     }
-    return newAstNode(
-        P,
-        begin,
-        &(AstNode){.tag = astMemberExpr,
-                   .flags = flags,
-                   .memberExpr = {.target = operand, .member = member, .isOptional = isOptional}});
+    return newAstNode(P,
+                      begin,
+                      &(AstNode){.tag = astMemberExpr,
+                                 .flags = flags,
+                                 .memberExpr = {.target = operand,
+                                                .member = member,
+                                                .isOptional = isOptional}});
 }
 
 static AstNode *indexExpr(Parser *P, AstNode *operand)
@@ -934,27 +941,9 @@ static AstNode *postfix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
         }
         case tokBAndDot: {
             const Token tok = *advance(P);
-            operand = newAstNode(
-                P,
-                &first,
-                &(AstNode){
-                    .tag = astCallExpr,
-                    .callExpr = {
-                        .callee = newAstNode(
-                            P,
-                            &first,
-                            &(AstNode){
-                                .tag = astMemberExpr,
-                                .memberExpr = {
-                                    .target = operand,
-                                    .member = newAstNode(
-                                        P,
-                                        &tok,
-                                        &(AstNode){.tag = astIdentifier,
-                                                   .ident.value =
-                                                       S_Redirect})}})}});
             bool isBuiltin = match(P, tokHash) != NULL;
             operand = member(P, &tok, operand, false);
+            operand->memberExpr.isRedirect = true;
             operand->flags |= (isBuiltin ? flgBuiltin : flgNone);
             continue;
         }
@@ -1145,7 +1134,8 @@ static AstNode *binary(Parser *P,
             rhs = NULL;
         }
         else {
-            int rightPrec = (op == opCoalesce) ? nextPrecedence + 1 : nextPrecedence;
+            int rightPrec =
+                (op == opCoalesce) ? nextPrecedence + 1 : nextPrecedence;
             rhs = binary(P, NULL, rightPrec, parsePrimary);
         }
         lhs = newAstNode_(
@@ -1226,13 +1216,10 @@ static inline bool maybeClosure(Parser *P)
            || (checkPeek(P, 1, tokElipsis) && checkPeek(P, 2, tokIdent) &&
                checkPeek(P, 2, tokColon)) // (...a: Type)
            ||
-           (checkPeek(P, 1, tokIdent) &&
-            checkPeek(P, 2, tokColon)) // (a: Type)
-            ||
-            (checkPeek(P, 1, tokRParen) &&
-            (checkPeek(P, 2, tokColon)         // () : Type
-            ||
-            checkPeek(P, 2, tokFatArrow))) // () =>
+           (checkPeek(P, 1, tokIdent) && checkPeek(P, 2, tokColon)) // (a: Type)
+           || (checkPeek(P, 1, tokRParen) &&
+               (checkPeek(P, 2, tokColon)         // () : Type
+                || checkPeek(P, 2, tokFatArrow))) // () =>
         ;
 }
 
@@ -1295,7 +1282,8 @@ static AstNode *parseFuncTypeParam(Parser *P)
         name = getTokenString(P, consume0(P, tokIdent), false);
         if (name == S_underscore) {
             name = makeAnonymousVariable(P->strPool, name);
-            attrs = makeAttribute(P->memPool, &tok.fileLoc, S_unused, NULL, attrs);
+            attrs =
+                makeAttribute(P->memPool, &tok.fileLoc, S_unused, NULL, attrs);
         }
         consume0(P, tokColon);
         bool isConst = match(P, tokConst);
@@ -1402,23 +1390,33 @@ static AstNode *closureWithCaptures(Parser *P)
     AstNodeList list = {};
 
     while (!check(P, tokBOr) && !isEoF(P)) {
-        if (check(P, tokLAnd) && (checkPeek(P, 1, tokBOr) || checkPeek(P, 1, tokComma))) {
+        if (check(P, tokLAnd) &&
+            (checkPeek(P, 1, tokBOr) || checkPeek(P, 1, tokComma))) {
             defaultMode = capMove;
             consume0(P, tokLAnd);
             if (check(P, tokComma)) {
                 consume0(P, tokComma);
                 if (!check(P, tokBOr)) {
-                    parserError(P, &previous(P)->fileLoc, "default capture mode '&&' must appear at the end of the capture list", NULL);
+                    parserError(P,
+                                &previous(P)->fileLoc,
+                                "default capture mode '&&' must appear at the "
+                                "end of the capture list",
+                                NULL);
                 }
             }
         }
-        else if (check(P, tokBAnd) && (checkPeek(P, 1, tokBOr) || checkPeek(P, 1, tokComma))) {
+        else if (check(P, tokBAnd) &&
+                 (checkPeek(P, 1, tokBOr) || checkPeek(P, 1, tokComma))) {
             defaultMode = capReference;
             consume0(P, tokBAnd);
             if (check(P, tokComma)) {
                 consume0(P, tokComma);
                 if (!check(P, tokBOr)) {
-                    parserError(P, &previous(P)->fileLoc, "default capture mode '&' must appear at the end of the capture list", NULL);
+                    parserError(P,
+                                &previous(P)->fileLoc,
+                                "default capture mode '&' must appear at the "
+                                "end of the capture list",
+                                NULL);
                 }
             }
         }
@@ -1433,7 +1431,8 @@ static AstNode *closureWithCaptures(Parser *P)
             }
 
             const char *name = getTokenString(P, consume0(P, tokIdent), false);
-            AstNode *cap = makeAstClosureCapture(P->memPool, &tok.fileLoc, name, mode, NULL);
+            AstNode *cap = makeAstClosureCapture(
+                P->memPool, &tok.fileLoc, name, mode, NULL);
             insertAstNode(&list, cap);
             if (check(P, tokComma)) {
                 consume0(P, tokComma);
@@ -1443,7 +1442,10 @@ static AstNode *closureWithCaptures(Parser *P)
 
     consume0(P, tokBOr);
     if (list.first == NULL && defaultMode == capValue) {
-        parserError(P, &start.fileLoc, "expecting at least 1 capture in capture list", NULL);
+        parserError(P,
+                    &start.fileLoc,
+                    "expecting at least 1 capture in capture list",
+                    NULL);
     }
 
     return closure(P, list.first, defaultMode);
@@ -1465,17 +1467,15 @@ static AstNode *closure(Parser *P, AstNode *captures, CaptureMode defaultMode)
         body = block(P);
     else
         body = expression(P, true);
-    return newAstNode(
-        P,
-        &tok,
-        &(AstNode){
-            .tag = astClosureExpr,
-            .flags = flags,
-            .closureExpr = {.captures = captures,
-                            .params = params,
-                            .ret = ret,
-                            .body = body,
-                            .defaultMode = defaultMode}});
+    return newAstNode(P,
+                      &tok,
+                      &(AstNode){.tag = astClosureExpr,
+                                 .flags = flags,
+                                 .closureExpr = {.captures = captures,
+                                                 .params = params,
+                                                 .ret = ret,
+                                                 .body = body,
+                                                 .defaultMode = defaultMode}});
 }
 
 static AstNode *async(Parser *P)
@@ -2156,9 +2156,81 @@ static AstNode *xformExpr(Parser *P, bool allowStructs)
                                  .isArray = (modeTag == tokLBracket)}});
 }
 
+static AstNode *parseIteratorArgument(Parser *P)
+{
+    AstNode *expr = expressionWithStructs(P);
+    if (match(P, tokColon)) {
+        Token ident = *consume0(P, tokIdent);
+        cstring aliasName = getTokenString(P, &ident, false);
+        return makeStructField(P->memPool, &expr->loc, aliasName, flgNone, NULL, expr, NULL);
+    }
+    if (nodeIs(expr, Path) && expr->path.elements->next == NULL) {
+        cstring name = expr->path.elements->pathElement.name;
+        return makeStructField(P->memPool, &expr->loc, name, flgNone, NULL, expr, NULL);
+    }
+    if (nodeIs(expr, Identifier)) {
+        cstring name = expr->ident.value;
+        return makeStructField(P->memPool, &expr->loc, name, flgNone, NULL, expr, NULL);
+    }
+    parserError(P,
+                &expr->loc,
+                "iterator argument must either be a simple identifier/path or specify a field name using 'expr as name'",
+                NULL);
+    return expr;
+}
+
+static AstNode *iteratorExpression(Parser *P)
+{
+    Token start = *consume0(P, tokIterator);
+    consume0(P, tokLBracket);
+    AstNode *typeNode = parseType(P);
+    consume0(P, tokRBracket);
+
+    AstNode *args = NULL;
+    if (match(P, tokLParen)) {
+        args = parseMany(P, tokRParen, tokComma, parseIteratorArgument);
+        consume0(P, tokRParen);
+    }
+
+    consume0(P, tokLBrace);
+    AstNode *nextMethod = NULL;
+    AstNode *truthyMethod = NULL;
+
+    while (!check(P, tokRBrace, tokEoF)) {
+        consume0(P, tokQuote);
+        if (match(P, tokLParen)) {
+            consume0(P, tokRParen);
+            consume0(P, tokQuote);
+            consume0(P, tokFatArrow);
+            nextMethod = check(P, tokLBrace) ? block(P) : expression(P, true);
+        }
+        else if (match(P, tokLNot)) {
+            consume0(P, tokLNot);
+            consume0(P, tokQuote);
+            consume0(P, tokFatArrow);
+            truthyMethod = check(P, tokLBrace) ? block(P) : expression(P, true);
+        }
+        else {
+            reportUnexpectedToken(P, "either '`()`' or '`!!`' operator overload in iterator body");
+        }
+        match(P, tokComma);
+    }
+    consume0(P, tokRBrace);
+
+    return newAstNode(P,
+                      &start,
+                      &(AstNode){.tag = astIteratorExpr,
+                                 .iteratorExpr = {.type = typeNode,
+                                                  .args = args,
+                                                  .next = nextMethod,
+                                                  .truthy = truthyMethod}});
+}
+
 static AstNode *primary_(Parser *P, bool allowStructs)
 {
     switch (current(P)->tag) {
+    case tokIterator:
+        return iteratorExpression(P);
     case tokNull:
         return parseNull(P);
     case tokTrue:
@@ -2753,7 +2825,8 @@ static OperatorOverload operatorOverload(Parser *P)
                                         .s = S_IndexAssignOverload};
             }
             else {
-                op = (OperatorOverload){.f = opIndexOverload, .s = S_IndexOverload};
+                op = (OperatorOverload){.f = opIndexOverload,
+                                        .s = S_IndexOverload};
             }
         }
     }
@@ -3785,7 +3858,7 @@ static AstNode *classOrStructDecl(Parser *P, bool isPublic, bool isExtern)
 {
     AstNode *base = NULL, *gParams = NULL, *implements = NULL, *annots = NULL;
     AstNodeList members = {NULL};
-    Token tok = *match(P, tokClass, tokStruct);
+    Token tok = *match(P, tokClass, tokStruct, tokIterator);
     cstring name = getTokenString(P, consume0(P, tokIdent), false);
 
     if (!isExtern) {
@@ -3796,7 +3869,8 @@ static AstNode *classOrStructDecl(Parser *P, bool isPublic, bool isExtern)
 
         if (match(P, tokColon)) {
             // Only classes support inheritance
-            if (tok.tag == tokStruct || !check(P, tokColon))
+            if (tok.tag == tokStruct || tok.tag == tokIterator ||
+                !check(P, tokColon))
                 base = parseType(P);
             if (tok.tag == tokClass && match(P, tokColon))
                 implements = parseAtLeastOne(P,
@@ -3825,7 +3899,8 @@ static AstNode *classOrStructDecl(Parser *P, bool isPublic, bool isExtern)
         &tok,
         &(AstNode){.tag = tok.tag == tokClass ? astClassDecl : astStructDecl,
                    .flags = ((isPublic ? flgPublic : flgNone) |
-                             (isExtern ? flgExtern : flgNone)),
+                             (isExtern ? flgExtern : flgNone) |
+                             (tok.tag == tokIterator ? flgIterator : flgNone)),
                    .classDecl = {.name = name,
                                  .members = members.first,
                                  .implements = implements,
@@ -4033,6 +4108,7 @@ static AstNode *declaration(Parser *P)
     switch (current(P)->tag) {
     case tokStruct:
     case tokClass:
+    case tokIterator:
         decl = classOrStructDecl(P, isPublic, isExtern);
         break;
     case tokInterface:

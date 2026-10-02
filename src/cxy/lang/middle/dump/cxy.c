@@ -672,6 +672,32 @@ static void dumpSliceExpr(ConstAstVisitor *visitor, const AstNode *node)
     format(ctx->state, "]", NULL);
 }
 
+static void dumpIteratorExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    DumpContext *ctx = getConstAstVisitorContext(visitor);
+
+    format(ctx->state, "iterator[", NULL);
+    astConstVisit(visitor, node->iteratorExpr.type);
+    format(ctx->state, "](", NULL);
+    for (const AstNode *arg = node->iteratorExpr.args; arg; arg = arg->next) {
+        astConstVisit(visitor, arg);
+        if (arg->next)
+            format(ctx->state, ", ", NULL);
+    }
+    format(ctx->state, ") {\n", NULL);
+    if (node->iteratorExpr.next) {
+        format(ctx->state, "  `()`: ", NULL);
+        astConstVisit(visitor, node->iteratorExpr.next);
+        format(ctx->state, "\n", NULL);
+    }
+    if (node->iteratorExpr.truthy) {
+        format(ctx->state, "  `!!`: ", NULL);
+        astConstVisit(visitor, node->iteratorExpr.truthy);
+        format(ctx->state, "\n", NULL);
+    }
+    format(ctx->state, "}", NULL);
+}
+
 static void dumpIndexExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     DumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -1422,6 +1448,7 @@ AstNode *dumpCxySource(CompilerDriver *driver, AstNode *node, FILE *file)
         [astMemberExpr] = dumpMemberExpr,
         [astIndexExpr] = dumpIndexExpr,
         [astSliceExpr] = dumpSliceExpr,
+        [astIteratorExpr] = dumpIteratorExpr,
         [astCallExpr] = dumpCallExpr,
         [astTupleExpr] = dumpTupleExpr,
         [astArrayExpr] = dumpArrayExpr,

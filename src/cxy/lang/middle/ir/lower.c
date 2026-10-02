@@ -1237,6 +1237,10 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
 
     IrNode *target = lowerFlattenedOperand(visitor, node->memberExpr.target);
     const Type *targetAstType = node->memberExpr.target->type;
+    if (node->memberExpr.isRedirect && isOptionalType(targetAstType)) {
+        const IrType *valType = target->type->strct.fields[1].type;
+        target = makeIrMember(ctx->pool, &node->loc, target, 1, S_val, valType);
+    }
     u32 index = 0;
     cstring name = NULL;
     if (nodeIs(mem, IntegerLit)) {

@@ -1,46 +1,59 @@
-// Tests for memory management and refcounting when casting classes to base types
+// Tests for custom iterators, iterator syntax, and redirect operator in for loops
 
-class BaseResource {
-    id: i32
-    func `init`(id: i32) { this.id = id }
-    virtual func `deinit`() { }
-    virtual func getId(): i32 => this.id
-}
+iterator RangeIterator {
+    limit: i32
+    cur: i32 = 0
 
-class DerivedResource: BaseResource {
-    extra: i32
-    func `init`(id: i32, extra: i32) {
-        super(id)
-        this.extra = extra
+    func `()`(): i32? {
+        if (cur < limit) {
+            return cur++
+        }
+        return null
     }
-    @override
-    func `deinit`() { }
 
-    @override
-    func getId(): i32 => this.id + this.extra
+    func `!!`(): bool {
+        return cur < limit
+    }
 }
 
-func takeBaseByValue(b: BaseResource): i32 {
-    return b.getId()
+struct CustomRange {
+    limit: i32
+    func `..`(): RangeIterator {
+        return RangeIterator{limit: limit}
+    }
 }
 
-func takeBaseByRef(b: &BaseResource): i32 {
-    return b.getId()
+struct InlineCollection {
+    s: string
+
+    func `..`() {
+        return iterator[(char, i32)](s, 0.i32: i) {
+            `()` => {
+                if (i < len!(s)) {
+                    return (s.[i], i++)
+                }
+                return null
+            }
+            `!!` => i < len!(s)
+        }
+    }
 }
 
-func testClassUpcast(): void {
-    var d = DerivedResource(10, 5)
-    var b: BaseResource = d // ref count incremented on shared instance
-    var val1 = takeBaseByValue(d) // passed as BaseResource
-    var val2 = takeBaseByRef(&d)
+func testCustomNamedIterator(): void {
+    var r = CustomRange{limit: 5}
+    for val in r {
+        // iterate single value
+    }
 }
 
-func testClassMoveUpcast(): void {
-    var d = DerivedResource(100, 20)
-    var b: BaseResource = &&d // ownership moved to base variable
+func testInlineIteratorWithDestructuring(): void {
+    var c = InlineCollection{s: "hello"}
+    for ch, idx in c {
+        // destructure tuple members using redirect operator
+    }
 }
 
 func main(): void {
-    testClassUpcast()
-    testClassMoveUpcast()
+    testCustomNamedIterator()
+    testInlineIteratorWithDestructuring()
 }

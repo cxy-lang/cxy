@@ -162,7 +162,7 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
     from = resolveType(from);
     if (to == from)
         return true;
-    if (hasFlag(to, Optional) && !hasFlag(from, Optional)) {
+    if (isOptionalType(to) && !isOptionalType(from)) {
         if (typeIs(from, Pointer) && typeIs(from->pointer.pointed, Null))
             return true;
 
@@ -392,7 +392,7 @@ bool isTypeCastAssignable(const Type *to, const Type *from)
     const Type *unwrappedTo = unwrapType(to, &toFlags);
     const Type *unwrappedFrom = unwrapType(from, &fromFlags);
 
-    if (hasFlag(unwrappedTo, Optional) && !hasFlag(unwrappedFrom, Optional)) {
+    if (isOptionalType(unwrappedTo) && !isOptionalType(unwrappedFrom)) {
         if (typeIs(unwrappedFrom, Pointer) &&
             typeIs(unwrappedFrom->pointer.pointed, Null))
             return true;
@@ -1439,6 +1439,9 @@ bool isDestructible(const Type *type)
         return decl && (hasFlag(decl, ReferenceMembers) ||
                         hasFlag(decl, ImplementsDeinit));
     }
+
+    if (isOptionalType(type) && isDestructible(type->optional.target))
+        return true;
 
     if (typeIs(type, Array) && !isSliceType(type) && isDestructible(type->array.elementType))
         return true;

@@ -527,6 +527,29 @@ static void visitSliceExpr(ConstAstVisitor *visitor, const AstNode *node)
     }
 }
 
+static void visitIteratorExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
+    emitMetadata(visitor, node);
+
+    if (node->iteratorExpr.type) {
+        emitNewline(ctx);
+        astConstVisit(visitor, node->iteratorExpr.type);
+    }
+    for (const AstNode *arg = node->iteratorExpr.args; arg; arg = arg->next) {
+        emitNewline(ctx);
+        astConstVisit(visitor, arg);
+    }
+    if (node->iteratorExpr.next) {
+        emitNewline(ctx);
+        astConstVisit(visitor, node->iteratorExpr.next);
+    }
+    if (node->iteratorExpr.truthy) {
+        emitNewline(ctx);
+        astConstVisit(visitor, node->iteratorExpr.truthy);
+    }
+}
+
 static void visitIndexExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -844,6 +867,7 @@ AstNode *dumpAstToSexpState(CompilerDriver *driver,
         [astMemberExpr] = visitMemberExpr,
         [astIndexExpr] = visitIndexExpr,
         [astSliceExpr] = visitSliceExpr,
+        [astIteratorExpr] = visitIteratorExpr,
         [astCallExpr] = visitCallExpr,
         [astBinaryExpr] = visitBinaryExpr,
         [astAssignExpr] = visitAssignExpr,

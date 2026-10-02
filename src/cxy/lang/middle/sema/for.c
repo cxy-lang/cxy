@@ -41,13 +41,26 @@ static const Type *findIteratorType(TypingContext *ctx, AstNode *range)
         return NULL;
     }
 
-    csAssert0(typeIs(rangeOp, Func) && isClosureType(rangeOp->func.retType));
+    const Type *retType = rangeOp->func.retType;
+    const Type *callOp = findStructMemberType(retType, S_CallOverload);
+    if (callOp == NULL || !typeIs(callOp, Func)) {
+        logError(ctx->L,
+                 &range->loc,
+                 "iterator type `{t}` must implement the `()` call operator",
+                 (FormatArg[]){{.t = retType}});
+        return NULL;
+    }
 
-    const Type *iterator =
-        findStructMemberType(rangeOp->func.retType, S_CallOverload);
-    csAssert0(typeIs(iterator, Func));
+    const Type *truthyOp = findStructMemberType(retType, S_Truthy);
+    if (truthyOp == NULL) {
+        logError(ctx->L,
+                 &range->loc,
+                 "iterator type `{t}` must implement the `!!` truthy operator",
+                 (FormatArg[]){{.t = retType}});
+        return NULL;
+    }
 
-    return iterator;
+    return callOp;
 }
 
 static bool checkForStmtCustomRange(TypingContext *ctx,
@@ -198,181 +211,205 @@ static void transformForCustomRange(AstVisitor *visitor,
                                     u64 variablesCount)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
-    const Type *type = NULL;
     AstNode *range = node->forStmt.range, *vars = node->forStmt.var,
             *body = node->forStmt.body;
-    // create the iterator
+
     const Type *rangeOperator =
                    findCustomRange(ctx, range->type, &range->loc, range->flags),
-               *iterator = findStructMemberType(rangeOperator->func.retType,
-                                                S_CallOverload);
+               *callOp = findStructMemberType(rangeOperator->func.retType,
+                                              S_CallOverload);
     AstNode *rangeOperatorDecl = rangeOperator->func.decl;
 
-    AstNode *rangeOperatorVar = makeVarDecl(
+    cstring itVarName = makeAnonymousVariable(ctx->strings, "__it");
+    AstNode *rangeCall = makeCallExpr(
         ctx->pool,
         &range->loc,
-        range->flags & ~(flgConst | flgTopLevelDecl),
-        makeAnonymousVariable(ctx->strings, "_rg"),
+        makeMemberExpr(ctx->pool,
+                       &range->loc,
+                       range->flags,
+                       range,
+                       makeResolvedPath(ctx->pool,
+                                        &range->loc,
+                                        S_Range,
+                                        rangeOperatorDecl->flags,
+                                        rangeOperatorDecl,
+                                        NULL,
+                                        rangeOperatorDecl->type),
+                       NULL,
+                       rangeOperatorDecl->type),
         NULL,
-        makeCallExpr(ctx->pool,
-                     &range->loc,
-                     makeMemberExpr(ctx->pool,
-                                    &range->loc,
-                                    range->flags,
-                                    range,
-                                    makeResolvedPath(ctx->pool,
-                                                     &range->loc,
-                                                     S_Range,
-                                                     rangeOperatorDecl->flags,
-                                                     rangeOperatorDecl,
-                                                     NULL,
-                                                     rangeOperatorDecl->type),
-                                    NULL,
-                                    rangeOperatorDecl->type),
-                     NULL,
-                     flgNone,
-                     NULL,
-                     rangeOperator->func.retType),
+        flgNone,
         NULL,
         rangeOperator->func.retType);
-    astModifierAdd(&ctx->blockModifier, rangeOperatorVar);
 
-    AstNode *callIterator =
-        makeCallExpr(ctx->pool,
-                     &range->loc,
-                     makeResolvedPath(ctx->pool,
-                                      &range->loc,
-                                      rangeOperatorVar->varDecl.name,
-                                      flgClosureStyle,
-                                      rangeOperatorVar,
-                                      NULL,
-                                      NULL),
-                     NULL,
-                     flgNone,
-                     NULL,
-                     NULL);
+    AstNode *itVar = makeVarDecl(ctx->pool,
+                                 &range->loc,
+                                 flgNone,
+                                 itVarName,
+                                 NULL,
+                                 rangeCall,
+                                 NULL,
+                                 rangeOperator->func.retType);
+    astModifierAdd(&ctx->blockModifier, itVar);
 
-    AstNode *loopVar = makeVarDecl(
+    const Type *truthyOp = findStructMemberType(rangeOperator->func.retType, S_Truthy);
+    AstNode *truthyDecl = truthyOp->func.decl;
+    AstNode *callOpDecl = callOp->func.decl;
+
+    AstNode *condition = makeCallExpr(
         ctx->pool,
         &range->loc,
-        flgNone,
-        makeAnonymousVariable(ctx->strings, "_it"),
-        makeTypeReferenceNode(ctx->pool, iterator->func.retType, &range->loc),
-        deepCloneAstNode(ctx->pool, callIterator),
+        makeMemberExpr(ctx->pool,
+                       &range->loc,
+                       flgNone,
+                       makeResolvedPath(ctx->pool,
+                                        &range->loc,
+                                        itVarName,
+                                        flgNone,
+                                        itVar,
+                                        NULL,
+                                        itVar->type),
+                       makeResolvedPath(ctx->pool,
+                                        &range->loc,
+                                        S_Truthy,
+                                        truthyDecl->flags,
+                                        truthyDecl,
+                                        NULL,
+                                        truthyDecl->type),
+                       NULL,
+                       truthyDecl->type),
         NULL,
-        NULL);
-    astModifierAdd(&ctx->blockModifier, loopVar);
+        flgNone,
+        NULL,
+        getPrimitiveType(ctx->types, prtBool));
 
-    // loopVar = iter()
-    AstNode *update = makeAssignExpr(ctx->pool,
-                                     &range->loc,
-                                     flgNone,
-                                     makeResolvedPath(ctx->pool,
-                                                      &range->loc,
-                                                      loopVar->varDecl.name,
-                                                      flgNone,
-                                                      loopVar,
-                                                      NULL,
-                                                      loopVar->type),
-                                     opAssign,
-                                     callIterator,
-                                     NULL,
-                                     NULL);
-    AstNode *condition =
-        makeUnaryExpr(ctx->pool,
-                      &range->loc,
-                      flgNone,
-                      true,
-                      opNot,
-                      makeUnaryExpr(ctx->pool,
-                                    &range->loc,
-                                    flgNone,
-                                    true,
-                                    opNot,
-                                    makeResolvedPath(ctx->pool,
-                                                     &range->loc,
-                                                     loopVar->varDecl.name,
-                                                     flgNone,
-                                                     loopVar,
-                                                     NULL,
-                                                     loopVar->type),
-                                    NULL,
-                                    NULL),
-                      NULL,
-                      NULL);
+    AstNode *callStep = makeCallExpr(
+        ctx->pool,
+        &range->loc,
+        makeMemberExpr(ctx->pool,
+                       &range->loc,
+                       flgNone,
+                       makeResolvedPath(ctx->pool,
+                                        &range->loc,
+                                        itVarName,
+                                        flgNone,
+                                        itVar,
+                                        NULL,
+                                        itVar->type),
+                       makeResolvedPath(ctx->pool,
+                                        &range->loc,
+                                        S_CallOverload,
+                                        callOpDecl->flags,
+                                        callOpDecl,
+                                        NULL,
+                                        callOpDecl->type),
+                       NULL,
+                       callOpDecl->type),
+        NULL,
+        flgNone,
+        NULL,
+        callOp->func.retType);
+
+    cstring itemVarName = makeAnonymousVariable(ctx->strings, "__item");
+    AstNode *itemVar = makeVarDecl(ctx->pool,
+                                   &range->loc,
+                                   flgNone,
+                                   itemVarName,
+                                   NULL,
+                                   callStep,
+                                   NULL,
+                                   callOp->func.retType);
+
+    AstNodeList bodyStmts = {};
+    insertAstNode(&bodyStmts, itemVar);
+
+    const Type *yieldType = callOp->func.retType;
+    bool isOpt = isOptionalType(yieldType);
+    const Type *itemPayloadType = isOpt ? getOptionalTargetType(yieldType) : yieldType;
 
     if (vars->next == NULL) {
-        vars->varDecl.init =
-            makeUnaryExpr(ctx->pool,
-                          &range->loc,
-                          flgNone,
-                          true,
-                          opDeref,
-                          makeResolvedPath(ctx->pool,
-                                           &range->loc,
-                                           loopVar->varDecl.name,
-                                           flgNone,
-                                           loopVar,
-                                           NULL,
-                                           loopVar->type),
-                          NULL,
-                          NULL);
-        vars->type = NULL;
-        vars->next = body->blockStmt.stmts;
-        body->blockStmt.stmts = vars;
-    }
-    else {
-        AstNode *var = vars;
-        const Type *target = getOptionalTargetType(iterator->func.retType);
-        AstNode *val = findMemberDeclInType(iterator->func.retType, S_val);
-
-        for (i64 i = 0; var; i++) {
-            if (isIgnoreVar(var->varDecl.names->ident.value)) {
-                var = var->next;
-                continue;
-            }
-            var->tag = astAliasExpr;
-            AstNode *expr = makeMemberExpr(
+        AstNode *valExpr = NULL;
+        if (isOpt) {
+            valExpr = makeUnaryExpr(
                 ctx->pool,
                 &range->loc,
                 flgNone,
-                makeMemberExpr(ctx->pool,
-                               &range->loc,
-                               flgNone,
-                               makeResolvedIdentifier(ctx->pool,
-                                                      &range->loc,
-                                                      loopVar->varDecl.name,
-                                                      flgNone,
-                                                      loopVar,
-                                                      NULL,
-                                                      loopVar->type),
-                               makeResolvedIdentifier(ctx->pool,
-                                                      &range->loc,
-                                                      S_val,
-                                                      flgNone,
-                                                      val,
-                                                      NULL,
-                                                      target),
-                               NULL,
-                               target),
-                makeIntegerLiteral(ctx->pool,
-                                   &range->loc,
-                                   i,
-                                   NULL,
-                                   getPrimitiveType(ctx->types, prtU64)),
+                true,
+                opDeref,
+                makeResolvedPath(ctx->pool,
+                                 &range->loc,
+                                 itemVarName,
+                                 flgNone,
+                                 itemVar,
+                                 NULL,
+                                 itemVar->type),
                 NULL,
-                var->type);
-            var->aliasExpr.expr = expr;
-            var = var->next;
+                itemPayloadType);
+        }
+        else {
+            valExpr = makeResolvedPath(ctx->pool,
+                                       &range->loc,
+                                       itemVarName,
+                                       flgNone,
+                                       itemVar,
+                                       NULL,
+                                       itemVar->type);
+        }
+        vars->varDecl.init = valExpr;
+        vars->type = itemPayloadType;
+        insertAstNode(&bodyStmts, vars);
+    }
+    else {
+        AstNode *var = vars;
+        for (u64 i = 0; var; i++) {
+            AstNode *nextVar = var->next;
+            var->next = NULL;
+            if (isIgnoreVar(var->varDecl.names->ident.value)) {
+                var = nextVar;
+                continue;
+            }
+
+            clearAstBody(var);
+            var->tag = astAliasExpr;
+            AstNode *itemRef = makeResolvedPath(ctx->pool,
+                                                &range->loc,
+                                                itemVarName,
+                                                flgNone,
+                                                itemVar,
+                                                NULL,
+                                                itemVar->type);
+            AstNode *idxLiteral = makeIntegerLiteral(ctx->pool,
+                                                     &range->loc,
+                                                     i,
+                                                     NULL,
+                                                     getPrimitiveType(ctx->types, prtU64));
+            AstNode *memberAccess = makeMemberExpr(
+                ctx->pool,
+                &range->loc,
+                flgNone,
+                itemRef,
+                idxLiteral,
+                NULL,
+                NULL);
+            memberAccess->memberExpr.isRedirect = isOpt;
+            checkType(visitor, memberAccess);
+            var->aliasExpr.expr = memberAccess;
+            var->type = memberAccess->type;
+            insertAstNode(&bodyStmts, var);
+            var = nextVar;
         }
     }
+
+    if (body->blockStmt.stmts) {
+        insertAstNode(&bodyStmts, body->blockStmt.stmts);
+    }
+    body->blockStmt.stmts = bodyStmts.first;
 
     clearAstBody(node);
     node->tag = astWhileStmt;
     node->whileStmt.cond = condition;
     node->whileStmt.body = body;
-    node->whileStmt.update = update;
-    update->parentScope = node;
+    node->whileStmt.update = NULL;
     body->parentScope = node;
     checkType(visitor, node);
 }

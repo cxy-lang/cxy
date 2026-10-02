@@ -55,7 +55,7 @@ extern "C" {
     f(Inherited,            38)                 \
     f(BlockReturns,         39)                 \
     f(BuiltinsModule,       40)                 \
-    f(Optional,             41)                 \
+    f(Iterator,             41)                 \
     f(ImportedModule,       42)                 \
     f(ReferenceMembers,     43)                 \
     f(Pure,                 44)                 \
@@ -85,7 +85,7 @@ static const u64 flgNone = 0;
 CXY_LANG_FLAGS(f)
 #undef f
 static const u64 flgTypeApplicable =
-    (flgExtern | flgConst | flgOptional | flgClosure | flgSlice |
+    (flgExtern | flgConst | flgClosure | flgSlice | flgIterator |
      flgFuncTypeParam | flgReferenceMembers | flgAnonymous);
 
 typedef u64 Flags;

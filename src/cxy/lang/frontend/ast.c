@@ -1286,6 +1286,29 @@ AstNode *makeSliceExpr(MemPool *pool,
                    .sliceExpr = {.target = target, .range = range}});
 }
 
+AstNode *makeIteratorExpr(MemPool *pool,
+                          const FileLoc *loc,
+                          u64 flags,
+                          AstNode *typeNode,
+                          AstNode *args,
+                          AstNode *nextMethod,
+                          AstNode *truthyMethod,
+                          AstNode *next,
+                          const Type *type)
+{
+    return makeAstNode(
+        pool,
+        loc,
+        &(AstNode){.tag = astIteratorExpr,
+                   .flags = flags,
+                   .next = next,
+                   .type = type,
+                   .iteratorExpr = {.type = typeNode,
+                                    .args = args,
+                                    .next = nextMethod,
+                                    .truthy = truthyMethod}});
+}
+
 AstNode *makeIndexExpr(MemPool *pool,
                        const FileLoc *loc,
                        u64 flags,
@@ -2441,6 +2464,12 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
     case astSliceExpr:
         CLONE_ONE(sliceExpr, target);
         CLONE_ONE(sliceExpr, range);
+        break;
+    case astIteratorExpr:
+        CLONE_ONE(iteratorExpr, type);
+        CLONE_MANY(iteratorExpr, args);
+        CLONE_ONE(iteratorExpr, next);
+        CLONE_ONE(iteratorExpr, truthy);
         break;
     case astTupleExpr:
         CLONE_MANY(tupleExpr, elements);

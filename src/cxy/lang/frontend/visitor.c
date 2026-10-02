@@ -134,6 +134,12 @@
         MODE##Visit(visitor, node->sliceExpr.target);                          \
         MODE##Visit(visitor, node->sliceExpr.range);                           \
         break;                                                                 \
+    case astIteratorExpr:                                                      \
+        MODE##Visit(visitor, node->iteratorExpr.type);                         \
+        MODE##VisitManyNodes(visitor, node->iteratorExpr.args);                \
+        MODE##Visit(visitor, node->iteratorExpr.next);                         \
+        MODE##Visit(visitor, node->iteratorExpr.truthy);                       \
+        break;                                                                 \
     case astXformExpr:                                                         \
         MODE##Visit(visitor, node->xFormExpr.target);                          \
         MODE##Visit(visitor, node->xFormExpr.arg);                             \
