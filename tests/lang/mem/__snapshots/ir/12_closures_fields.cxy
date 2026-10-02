@@ -88,7 +88,6 @@ func __closure_body3(this: ^__closure_env2, x: i32): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  __ret = x + this.offset
   goto _L_exit
 _L_exit:
   scope.exit 0

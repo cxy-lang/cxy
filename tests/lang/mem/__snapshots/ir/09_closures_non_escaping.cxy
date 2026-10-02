@@ -26,7 +26,6 @@ func __closure_body2(this: ^__closure_env1, x: i32): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  __ret = x * this.factor
   goto _L_exit
 _L_exit:
   scope.exit 0

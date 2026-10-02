@@ -29,7 +29,8 @@ typedef struct CodegenContext {
 
     struct {
         bool enabled;
-        FilePos pos;
+        cstring fileName;
+        u32 line;
     } debug;
 } CodegenContext;
 

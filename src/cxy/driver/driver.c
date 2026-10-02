@@ -1,7 +1,7 @@
 #include "driver.h"
 #include "options.h"
-#include "stages.h"
 #include "profiling.h"
+#include "stages.h"
 
 #include "core/log.h"
 #include "core/mempool.h"
@@ -202,7 +202,8 @@ void makeDirectoryForPath(CompilerDriver *driver, cstring path)
 static inline bool hasDumpEnable(const Options *opts, const AstNode *node)
 {
     if (opts->cmd == cmdDev) {
-        return !hasFlag(node, BuiltinsModule) && (opts->dev.dumpMode != dmpNONE);
+        return !hasFlag(node, BuiltinsModule) &&
+               (opts->dev.dumpMode != dmpNONE);
     }
     return false;
 }
@@ -324,9 +325,9 @@ bool initCompilerDriver(CompilerDriver *compiler,
         compiler->finalizedModules = newDynArray(sizeof(IrNode *));
         compiler->moduleCache =
             newHashTable(sizeof(CachedModule), compiler->pool);
+        initCompilerPreprocessor(compiler);
         compiler->backend = initCompilerBackend(compiler, argc, argv);
         csAssert0(compiler->backend);
-        initCompilerPreprocessor(compiler);
         initCImporter(compiler);
         initializeBuiltins(compiler->L, compiler->pool);
         pluginInit(compiler);
@@ -620,7 +621,8 @@ const Type *compileModule(CompilerDriver *driver,
             // Save parent file context, then start the import's own context.
             // profileEndFile sets activeFile = NULL, so we must restore the
             // parent explicitly before resuming its parse timer.
-            FileProfileData *parentFile = profileGetActiveFile(&driver->profiling);
+            FileProfileData *parentFile =
+                profileGetActiveFile(&driver->profiling);
             profileParsePause(&driver->profiling);
             profileStartFile(&driver->profiling, path);
 
@@ -667,7 +669,8 @@ const Type *compileModule(CompilerDriver *driver,
         // Pause the parent file's parse timer — C import time is tracked
         // separately and must not be counted as parse time
         profileParsePause(&driver->profiling);
-        PROFILE_CIMPORT(&driver->profiling) {
+        PROFILE_CIMPORT(&driver->profiling)
+        {
             program = importCHeader(driver, source);
         }
         profileParseResume(&driver->profiling);
@@ -725,8 +728,10 @@ bool compileFile(const char *fileName, CompilerDriver *driver)
     bool status = false;
 
     // Profile the entire file compilation (parse + stages)
-    PROFILE_FILE(&driver->profiling, fileName) {
-        AstNode *program = parseFile(driver, fileName, driver->options.cmd == cmdTest);
+    PROFILE_FILE(&driver->profiling, fileName)
+    {
+        AstNode *program =
+            parseFile(driver, fileName, driver->options.cmd == cmdTest);
         if (program) {
             program->flags |= flgMain;
             status = compileProgram(driver, program, fileName, true);
@@ -737,15 +742,19 @@ bool compileFile(const char *fileName, CompilerDriver *driver)
     if (status) {
         if (driver->options.dev.profile == prfSTDOUT) {
             profilePrint(&driver->profiling);
-        } else if (driver->options.dev.profile == prfJSON) {
+        }
+        else if (driver->options.dev.profile == prfJSON) {
             if (profilePrintToJSON(&driver->profiling, "profiling.json")) {
+                printStatusAlways(
+                    driver->L,
+                    cBGRN "\xE2\x9C\x93" cBWHT
+                          " Profiling data written to profiling.json\n" cDEF);
+            }
+            else {
                 printStatusAlways(driver->L,
-                                  cBGRN "\xE2\x9C\x93" cBWHT
-                                        " Profiling data written to profiling.json\n" cDEF);
-            } else {
-                printStatusAlways(driver->L,
-                                  cBRED "\xE2\x9C\x92" cBWHT
-                                        " Failed to write profiling.json\n" cDEF);
+                                  cBRED
+                                  "\xE2\x9C\x92" cBWHT
+                                  " Failed to write profiling.json\n" cDEF);
             }
         }
     }

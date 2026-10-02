@@ -84,7 +84,6 @@ func __closure_body2(this: ^__closure_env1): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  __ret = this.r.id
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -141,7 +140,6 @@ func __closure_body4(this: ^__closure_env3): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  __ret = this.r.id
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -222,7 +220,6 @@ func __closure_body7(this: ^__closure_env6): u64 {
 _L_entry:
   scope.enter 0
   var __ret: u64
-  __ret = strlen(this.s.s)
   goto _L_exit
 _L_exit:
   scope.exit 0

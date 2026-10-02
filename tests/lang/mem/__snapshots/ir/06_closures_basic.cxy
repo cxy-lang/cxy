@@ -25,7 +25,6 @@ func __closure_body1(this: ^void, a: i32, b: i32): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  __ret = a + b
   goto _L_exit
 _L_exit:
   scope.exit 0

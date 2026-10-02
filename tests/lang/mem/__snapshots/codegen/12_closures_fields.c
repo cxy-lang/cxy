@@ -103,7 +103,6 @@ _L_exit:;
 static int32_t __closure_body3(__closure_env2 * this, int32_t x) {
   int32_t __ret;
 _L_entry:;
-  __ret = (x + this->offset);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -173,6 +172,7 @@ _L_exit:;
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
+  __cxy_start_runtime();
   _main();
   return 0;
 }

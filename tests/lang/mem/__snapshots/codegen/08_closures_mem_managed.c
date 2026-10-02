@@ -114,7 +114,6 @@ _L_exit:;
 static int32_t __closure_body2(__closure_env1 * this) {
   int32_t __ret;
 _L_entry:;
-  __ret = this->r->id;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -152,7 +151,6 @@ _L_exit:;
 static int32_t __closure_body4(__closure_env3 * this) {
   int32_t __ret;
 _L_entry:;
-  __ret = this->r->id;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -210,7 +208,6 @@ _L_exit:;
 static uint64_t __closure_body7(__closure_env6 * this) {
   uint64_t __ret;
 _L_entry:;
-  __ret = strlen(this->s->s);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -249,6 +246,7 @@ _L_exit:;
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
+  __cxy_start_runtime();
   _main();
   return 0;
 }

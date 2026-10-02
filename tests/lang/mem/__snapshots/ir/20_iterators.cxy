@@ -1,0 +1,154 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/20_iterators.cxy
+func main.RangeIterator.op__call(this: ^RangeIterator): i32? {
+_L_entry:
+  scope.enter 0
+  var __ret: i32?
+  if this.cur < this.limit goto _L_IF0_then else goto _L_IF0_end
+_L_IF0_then:
+  scope.enter 1
+  __ret = Some(++this.cur)
+  goto _L_UNWIND1_return
+_L_IF0_end:
+  __ret = None
+  goto _L_exit
+_L_UNWIND1_return:
+  scope.exit 1
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.RangeIterator.op__truthy(this: ^RangeIterator): bool {
+_L_entry:
+  scope.enter 0
+  var __ret: bool
+  __ret = this.cur < this.limit
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.CustomRange.op__range(this: ^CustomRange): RangeIterator {
+_L_entry:
+  scope.enter 0
+  var __ret: RangeIterator
+  __ret = RangeIterator {this.limit, <i32>(0)}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.__Iterator0.op__call(this: ^__Iterator0): (char, i32)? {
+_L_entry:
+  scope.enter 0
+  var __ret: (char, i32)?
+  var __t0: u64
+  __t0 = strlen(this.s)
+  if this.i < __t0 goto _L_IF0_then else goto _L_IF0_end
+_L_IF0_then:
+  scope.enter 1
+  var __t1: (char, i32)
+  __t1 = Tuple_char_i32 {this.s[this.i], ++this.i}
+  __ret = Some(__t1)
+  goto _L_UNWIND1_return
+_L_IF0_end:
+  __ret = None
+  goto _L_exit
+_L_UNWIND1_return:
+  scope.exit 1
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.__Iterator0.op__truthy(this: ^__Iterator0): bool {
+_L_entry:
+  scope.enter 0
+  var __ret: bool
+  var __t2: u64
+  __t2 = strlen(this.s)
+  __ret = this.i < __t2
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.InlineCollection.op__range(this: ^InlineCollection): __Iterator0 {
+_L_entry:
+  scope.enter 0
+  var __ret: __Iterator0
+  __ret = __Iterator0 {this.s, 0}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func testCustomNamedIterator(): void {
+_L_entry:
+  scope.enter 0
+  var r: CustomRange
+  r = CustomRange {5}
+  var __it1: RangeIterator
+  __it1 = CustomRange_op__range(&r)
+  goto _L_WHILE0_cond
+_L_WHILE0_cond:
+  var __t3: bool
+  __t3 = RangeIterator_op__truthy(&__it1)
+  if __t3 goto _L_WHILE0_body else goto _L_WHILE0_exit
+_L_WHILE0_body:
+  scope.enter 1
+  var __item2: i32?
+  __item2 = RangeIterator_op__call(&__it1)
+  var val: i32
+  val = __item2.val
+  scope.exit 1
+  goto _L_WHILE0_cond
+_L_WHILE0_exit:
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func testInlineIteratorWithDestructuring(): void {
+_L_entry:
+  scope.enter 0
+  var c: InlineCollection
+  c = InlineCollection {"hello"}
+  var __it3: __Iterator0
+  __it3 = InlineCollection_op__range(&c)
+  goto _L_WHILE0_cond
+_L_WHILE0_cond:
+  var __t4: bool
+  __t4 = __Iterator0_op__truthy(&__it3)
+  if __t4 goto _L_WHILE0_body else goto _L_WHILE0_exit
+_L_WHILE0_body:
+  scope.enter 1
+  var __item4: (char, i32)?
+  __item4 = __Iterator0_op__call(&__it3)
+  scope.exit 1
+  goto _L_WHILE0_cond
+_L_WHILE0_exit:
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  testCustomNamedIterator()
+  testInlineIteratorWithDestructuring()
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}

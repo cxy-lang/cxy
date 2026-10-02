@@ -4,7 +4,6 @@ func __closure_body1(this: ^__closure_env0): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  __ret = this.a
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -15,7 +14,6 @@ func __closure_body3(this: ^__closure_env2): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  __ret = this.b
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -62,7 +60,6 @@ func __closure_body5(this: ^__closure_env4): i8 {
 _L_entry:
   scope.enter 0
   var __ret: i8
-  __ret = this.i
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -108,7 +105,6 @@ func __closure_body7(this: ^__closure_env6): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  __ret = this.x
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -119,7 +115,6 @@ func __closure_body9(this: ^__closure_env8): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  __ret = this.y
   goto _L_exit
 _L_exit:
   scope.exit 0

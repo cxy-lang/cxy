@@ -271,21 +271,7 @@ __read_cfg() {
     echo "$default"
 }
 
-__exec_with_leaks() {
-  local bin="$1"
-  local exec_args="$2"
-  local out
-  out=$(leaks --atExit --quiet -- "${bin}" ${exec_args} 2>&1)
-  local rc=$?
-
-  echo "${out}"
-  if [ $rc -ne 0 ] || echo "${out}" | grep -Eq "[1-9][0-9]* leaks for [1-9][0-9]* total leaked bytes|panic: invalid smart pointer|assertion failed:"; then
-    return 1
-  fi
-  return 0
-}
-
-__exec_with_asan() {
+__exec_binary() {
   local bin="$1"
   local exec_args="$2"
   local out
@@ -293,7 +279,7 @@ __exec_with_asan() {
   local rc=$?
 
   echo "${out}"
-  if [ $rc -ne 0 ] || echo "${out}" | grep -Eq "ERROR: (AddressSanitizer|LeakSanitizer)|panic: invalid smart pointer|assertion failed:"; then
+  if [ $rc -ne 0 ] || echo "${out}" | grep -Eq "ERROR: (AddressSanitizer|LeakSanitizer)|=== CXY Memory Leak Summary ===|\[LEAK\]|[1-9][0-9]* leaks for [1-9][0-9]* total leaked bytes|panic:|assertion failed:"; then
     return 1
   fi
   return 0
@@ -338,24 +324,11 @@ run_test () {
 
   if [ "${execute}" == "true" ]; then
     local bin_tmp=$(mktemp /tmp/cxy_exec_XXXXXX)
-    local compile_args="${run_args}"
-    local is_darwin=0
-    [[ "${OSTYPE}" =~ "darwin" ]] && is_darwin=1
-
-    if [ $is_darwin -eq 1 ] && hash leaks 2>/dev/null; then
-      compile_args=$(echo "${run_args}" | sed -E 's/--cflags(=[[:blank:]]*)?-fsanitize=address//g; s/-fsanitize=address//g')
-    fi
-
-    output=$(${run_cmd} ${compile_args} -o "${bin_tmp}" "${test_path}" 2>&1)
+    output=$(${run_cmd} ${run_args} -o "${bin_tmp}" "${test_path}" 2>&1)
     status=$?
     if [ $status -eq 0 ] && [ -f "${bin_tmp}" ]; then
-      if [ $is_darwin -eq 1 ] && hash leaks 2>/dev/null; then
-        output=$(__exec_with_leaks "${bin_tmp}" "${exec_args}")
-        status=$?
-      else
-        output=$(__exec_with_asan "${bin_tmp}" "${exec_args}")
-        status=$?
-      fi
+      output=$(__exec_binary "${bin_tmp}" "${exec_args}")
+      status=$?
     fi
     rm -f "${bin_tmp}"
   else

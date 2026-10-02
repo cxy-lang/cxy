@@ -85,6 +85,7 @@ _L_exit:;
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
+  __cxy_start_runtime();
   _main();
   return 0;
 }

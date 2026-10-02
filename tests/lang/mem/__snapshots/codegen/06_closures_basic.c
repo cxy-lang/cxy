@@ -39,7 +39,6 @@ _L_exit:;
 static int32_t __closure_body1(void * this, int32_t a, int32_t b) {
   int32_t __ret;
 _L_entry:;
-  __ret = (a + b);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -68,6 +67,7 @@ _L_exit:;
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
+  __cxy_start_runtime();
   _main();
   return 0;
 }

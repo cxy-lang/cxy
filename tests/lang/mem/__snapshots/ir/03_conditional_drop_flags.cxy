@@ -73,6 +73,7 @@ _L_IF0_end:
   goto _L_exit
 _L_exit:
   drop-if x, __drop_flags.x
+  __drop_flags.x = 0
   scope.exit 0
   return
 }

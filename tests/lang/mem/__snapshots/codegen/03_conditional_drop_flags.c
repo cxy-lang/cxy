@@ -75,6 +75,7 @@ _L_IF0_then:;
   goto _L_exit;
 _L_exit:;
   if (__drop_flags.x) __smart_ptr_drop(x);
+  __drop_flags.x = 0;
   return;
 }
 
@@ -90,6 +91,7 @@ _L_exit:;
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
+  __cxy_start_runtime();
   _main();
   return 0;
 }

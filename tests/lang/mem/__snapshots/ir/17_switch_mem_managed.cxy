@@ -1,0 +1,185 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/17_switch_mem_managed.cxy
+func main.Resource.op__init(this: ^Resource, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__deinit(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__destructor(<^Resource>(ptr))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__initCover(id: i32): ^Resource {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Resource
+  var __obj0: ^Resource
+  var __t0: ^Resource
+  __t0 = alloc(^Resource)
+  __obj0 = <^Resource>(__t0)
+  zeromem __obj0
+  Resource_op__init(__obj0, &&id)
+  __ret = __obj0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func testSwitchCaseScopes(val: i32): void {
+_L_entry:
+  var __drop_flags: __drop_flags_testSwitchCaseScopes_t
+  zeromem __drop_flags
+  scope.enter 0
+  var outer: ^Resource
+  outer = Resource_op__initCover(<i32>(1))
+  switch val {
+    0 -> _L_SWITCH0_case_0
+    1 -> _L_SWITCH0_case_1
+    2 -> _L_SWITCH0_case_2
+    3 -> _L_SWITCH0_case_3
+    else -> _L_SWITCH0_case_4
+  }
+_L_SWITCH0_exit:
+  goto _L_exit
+_L_SWITCH0_case_0:
+  scope.enter 1
+  var case0: ^Resource
+  case0 = Resource_op__initCover(<i32>(10))
+  __drop_flags.case0 = 1
+  drop case0
+  __drop_flags.case0 = 0
+  scope.exit 1
+  goto _L_SWITCH0_exit
+_L_SWITCH0_case_1:
+  scope.enter 2
+  var case1: ^Resource
+  case1 = Resource_op__initCover(<i32>(20))
+  __drop_flags.case1 = 1
+  if val == 1 goto _L_IF0_then else goto _L_IF0_end
+_L_IF0_then:
+  scope.enter 3
+  goto _L_UNWIND3_return
+_L_IF0_end:
+  drop case1
+  __drop_flags.case1 = 0
+  scope.exit 2
+  goto _L_SWITCH0_exit
+_L_UNWIND3_return:
+  scope.exit 3
+  goto _L_UNWIND2_return
+_L_UNWIND2_return:
+  drop case1
+  __drop_flags.case1 = 0
+  scope.exit 2
+  goto _L_UNWIND1_return
+_L_UNWIND1_return:
+  scope.exit 1
+  goto _L_exit
+_L_SWITCH0_case_2:
+  goto _L_SWITCH0_exit
+_L_SWITCH0_case_3:
+  scope.enter 4
+  var case23: ^Resource
+  case23 = Resource_op__initCover(<i32>(30))
+  __drop_flags.case23 = 1
+  drop case23
+  __drop_flags.case23 = 0
+  scope.exit 4
+  goto _L_SWITCH0_exit
+_L_SWITCH0_case_4:
+  scope.enter 5
+  var caseDef: ^Resource
+  caseDef = Resource_op__initCover(<i32>(40))
+  __drop_flags.caseDef = 1
+  drop caseDef
+  __drop_flags.caseDef = 0
+  scope.exit 5
+  goto _L_SWITCH0_exit
+_L_exit:
+  drop outer
+  scope.exit 0
+  return
+}
+
+func testSwitchReassignmentInCases(val: i32): void {
+_L_entry:
+  scope.enter 0
+  var res: ^Resource
+  res = Resource_op__initCover(<i32>(100))
+  switch val {
+    0 -> _L_SWITCH0_case_0
+    1 -> _L_SWITCH0_case_1
+    else -> _L_SWITCH0_case_2
+  }
+_L_SWITCH0_exit:
+  goto _L_exit
+_L_SWITCH0_case_0:
+  scope.enter 1
+  drop res
+  res = Resource_op__initCover(<i32>(200))
+  scope.exit 1
+  goto _L_SWITCH0_exit
+_L_SWITCH0_case_1:
+  scope.enter 2
+  var tmp: ^Resource
+  tmp = Resource_op__initCover(<i32>(300))
+  drop res
+  res = tmp
+  scope.exit 2
+  goto _L_SWITCH0_exit
+_L_SWITCH0_case_2:
+  scope.enter 3
+  scope.exit 3
+  goto _L_SWITCH0_exit
+_L_exit:
+  drop res
+  scope.exit 0
+  return
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  testSwitchCaseScopes(<i32>(0))
+  testSwitchCaseScopes(<i32>(1))
+  testSwitchCaseScopes(<i32>(2))
+  testSwitchCaseScopes(<i32>(99))
+  testSwitchReassignmentInCases(<i32>(0))
+  testSwitchReassignmentInCases(<i32>(1))
+  testSwitchReassignmentInCases(<i32>(2))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}

@@ -1,59 +1,6 @@
 // Tests for custom iterators, iterator syntax, and redirect operator in for loops
 
-iterator RangeIterator {
-    limit: i32
-    cur: i32 = 0
-
-    func `()`(): i32? {
-        if (cur < limit) {
-            return cur++
-        }
-        return null
-    }
-
-    func `!!`(): bool {
-        return cur < limit
-    }
-}
-
-struct CustomRange {
-    limit: i32
-    func `..`(): RangeIterator {
-        return RangeIterator{limit: limit}
-    }
-}
-
-struct InlineCollection {
-    s: string
-
-    func `..`() {
-        return iterator[(char, i32)](s, 0.i32: i) {
-            `()` => {
-                if (i < len!(s)) {
-                    return (s.[i], i++)
-                }
-                return null
-            }
-            `!!` => i < len!(s)
-        }
-    }
-}
-
-func testCustomNamedIterator(): void {
-    var r = CustomRange{limit: 5}
-    for val in r {
-        // iterate single value
-    }
-}
-
-func testInlineIteratorWithDestructuring(): void {
-    var c = InlineCollection{s: "hello"}
-    for ch, idx in c {
-        // destructure tuple members using redirect operator
-    }
-}
-
 func main(): void {
-    testCustomNamedIterator()
-    testInlineIteratorWithDestructuring()
+    var s = "hello".S
+    var ss = s
 }

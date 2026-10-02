@@ -156,6 +156,23 @@ static void emitCTypeName(FormatState *state, const IrType *type)
     }
 }
 
+static inline void emitLineDirective(CodegenContext *ctx, const FileLoc *loc)
+{
+    if (!ctx->debug.enabled || loc == NULL || loc->fileName == NULL || loc->begin.row == 0)
+        return;
+    if (strcmp(loc->fileName, "<builtin>") == 0)
+        return;
+    if (loc->fileName == ctx->debug.fileName && loc->begin.row == ctx->debug.line)
+        return;
+
+    ctx->debug.fileName = loc->fileName;
+    ctx->debug.line = loc->begin.row;
+    format(&ctx->state, "#line {u32} \"{s}\"\n", (FormatArg[]){
+        {.u32 = loc->begin.row},
+        {.s = loc->fileName}
+    });
+}
+
 static void emitNullConst(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
@@ -403,11 +420,18 @@ static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
     }
 
     switch (type->category) {
-    case irTypeCatClass:
-        format(&ctx->state, "__smart_ptr_drop(", NULL);
+    case irTypeCatClass: {
+        cstring dropFunc = ctx->memTraceEnabled ? "__smart_ptr_drop_trace" : "__smart_ptr_drop";
+        format(&ctx->state, "{s}(", (FormatArg[]){{.s = dropFunc}});
         irConstVisit(visitor, target);
-        format(&ctx->state, ");\n", NULL);
+        if (ctx->memTraceEnabled) {
+            format(&ctx->state, ", \"{s}\", {u64});\n", (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
+        }
+        else {
+            format(&ctx->state, ");\n", NULL);
+        }
         break;
+    }
     case irTypeCatOptional: {
         const IrType *elemType = type->strct.count > 1 ? type->strct.fields[1].type : NULL;
         if (elemType && isIrTypeDestructible(elemType)) {
@@ -419,12 +443,19 @@ static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
                 format(&ctx->state, ".ok) ", NULL);
 
             if (elemType->category == irTypeCatClass) {
-                format(&ctx->state, "__smart_ptr_drop(", NULL);
+                cstring dropFunc = ctx->memTraceEnabled ? "__smart_ptr_drop_trace" : "__smart_ptr_drop";
+                format(&ctx->state, "{s}(", (FormatArg[]){{.s = dropFunc}});
                 irConstVisit(visitor, target);
                 if (isIrPointerType(target->type))
-                    format(&ctx->state, "->val);\n", NULL);
+                    format(&ctx->state, "->val", NULL);
                 else
-                    format(&ctx->state, ".val);\n", NULL);
+                    format(&ctx->state, ".val", NULL);
+                if (ctx->memTraceEnabled) {
+                    format(&ctx->state, ", \"{s}\", {u64});\n", (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
+                }
+                else {
+                    format(&ctx->state, ");\n", NULL);
+                }
             }
             else if (elemType->category == irTypeCatStruct && elemType->name) {
                 format(&ctx->state, "{s}_op__destructor(&(", (FormatArg[]){{.s = elemType->name}});
@@ -490,9 +521,15 @@ static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
     }
     default:
         if (type->tag == irTypePointer) {
-            format(&ctx->state, "__smart_ptr_drop(", NULL);
+            cstring dropFunc = ctx->memTraceEnabled ? "__smart_ptr_drop_trace" : "__smart_ptr_drop";
+            format(&ctx->state, "{s}(", (FormatArg[]){{.s = dropFunc}});
             irConstVisit(visitor, target);
-            format(&ctx->state, ");\n", NULL);
+            if (ctx->memTraceEnabled) {
+                format(&ctx->state, ", \"{s}\", {u64});\n", (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
+            }
+            else {
+                format(&ctx->state, ");\n", NULL);
+            }
         }
         break;
     }
@@ -508,13 +545,20 @@ static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
 
     const IrType *type = src->type;
     switch (type->category) {
-    case irTypeCatClass:
+    case irTypeCatClass: {
+        cstring getFunc = ctx->memTraceEnabled ? "__smart_ptr_get_trace" : "__smart_ptr_get";
         format(&ctx->state, "  ", NULL);
         irConstVisit(visitor, dst);
-        format(&ctx->state, " = __smart_ptr_get(", NULL);
+        format(&ctx->state, " = {s}(", (FormatArg[]){{.s = getFunc}});
         irConstVisit(visitor, src);
-        format(&ctx->state, ");\n", NULL);
+        if (ctx->memTraceEnabled) {
+            format(&ctx->state, ", \"{s}\", {u64});\n", (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
+        }
+        else {
+            format(&ctx->state, ");\n", NULL);
+        }
         break;
+    }
     case irTypeCatOptional: {
         const IrType *elemType = type->strct.count > 1 ? type->strct.fields[1].type : NULL;
         if (elemType && isIrTypeDestructible(elemType)) {
@@ -528,10 +572,16 @@ static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
             format(&ctx->state, ".ok) ", NULL);
 
             if (elemType->category == irTypeCatClass) {
+                cstring getFunc = ctx->memTraceEnabled ? "__smart_ptr_get_trace" : "__smart_ptr_get";
                 irConstVisit(visitor, dst);
-                format(&ctx->state, ".val = __smart_ptr_get(", NULL);
+                format(&ctx->state, ".val = {s}(", (FormatArg[]){{.s = getFunc}});
                 irConstVisit(visitor, src);
-                format(&ctx->state, ".val);\n", NULL);
+                if (ctx->memTraceEnabled) {
+                    format(&ctx->state, ".val, \"{s}\", {u64});\n", (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
+                }
+                else {
+                    format(&ctx->state, ".val);\n", NULL);
+                }
             }
             else if (elemType->category == irTypeCatStruct && elemType->name) {
                 irConstVisit(visitor, dst);
@@ -587,11 +637,17 @@ static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
     }
     default:
         if (type->tag == irTypePointer) {
+            cstring getFunc = ctx->memTraceEnabled ? "__smart_ptr_get_trace" : "__smart_ptr_get";
             format(&ctx->state, "  ", NULL);
             irConstVisit(visitor, dst);
-            format(&ctx->state, " = __smart_ptr_get(", NULL);
+            format(&ctx->state, " = {s}(", (FormatArg[]){{.s = getFunc}});
             irConstVisit(visitor, src);
-            format(&ctx->state, ");\n", NULL);
+            if (ctx->memTraceEnabled) {
+                format(&ctx->state, ", \"{s}\", {u64});\n", (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
+            }
+            else {
+                format(&ctx->state, ");\n", NULL);
+            }
         }
         else {
             format(&ctx->state, "  ", NULL);
@@ -869,6 +925,7 @@ static void emitBasicBlock(ConstIrVisitor *visitor, const IrNode *node)
     for (const IrNode *stmt = node->basicBlock.first; stmt; stmt = stmt->next) {
         if (stmt->tag == irVarDecl)
             continue;
+        emitLineDirective(ctx, &stmt->loc);
         if (stmt->tag == irCall || stmt->tag == irUnary || stmt->tag == irBinary) {
             format(&ctx->state, "  ", NULL);
             irConstVisit(visitor, stmt);
@@ -910,6 +967,7 @@ static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
     if (hasFlag(node, Extern))
         return;
 
+    emitLineDirective(ctx, &node->loc);
     if (hasFlag(node, ModuleInit) || (node->function.name && strstr(node->function.name, "___init"))) {
         format(&ctx->state, "__attribute__((constructor)) static ", NULL);
     }
@@ -1122,7 +1180,8 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         .memTraceEnabled = driver->options.withMemoryTrace,
         .moduleName = rootModule ? rootModule->module.name : NULL,
         .state = newFormatState("  ", true),
-        .types = newFormatState("  ", true)};
+        .types = newFormatState("  ", true),
+        .debug = {.enabled = driver->options.debug}};
 
     runReachabilityAnalysis(driver);
 
@@ -1212,6 +1271,7 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
     if (!driver->options.buildPlugin && mainFunc) {
         format(&ctx.state, "int main(int argc, char **argv) {{\n", NULL);
         format(&ctx.state, "  (void)argc;\n  (void)argv;\n", NULL);
+        format(&ctx.state, "  __cxy_start_runtime();\n", NULL);
         if (mainFunc->type && mainFunc->type->func.ret && mainFunc->type->func.ret->tag != irTypeVoid) {
             format(&ctx.state, "  return {s}();\n", (FormatArg[]){{.s = mainFunc->function.name}});
         }
@@ -1275,6 +1335,8 @@ bool compilerBackendMakeExecutable(CompilerDriver *driver)
     appendString(&cmd, "clang");
     if (opts->debug)
         appendString(&cmd, " -g");
+    else
+        appendString(&cmd, " -DNDEBUG");
     if (opts->optimizationLevel != O0)
         format(&cmd, " -O{c}", (FormatArg[]){{.c = opts->optimizationLevel}});
 
@@ -1335,6 +1397,17 @@ bool compilerBackendMakeExecutable(CompilerDriver *driver)
     while (hashTableItHasNext(&it)) {
         cstring *lib = hashTableItNext(&it);
         format(&cmd, " -l{s}", (FormatArg[]){{.s = *lib}});
+    }
+
+    if (opts->withMemoryTrace) {
+        if (opts->buildDir) {
+            format(&cmd,
+                   " -L{s}/install/lib -L{s}/lib -lcxy-trace",
+                   (FormatArg[]){{.s = opts->buildDir}, {.s = opts->buildDir}});
+        }
+        else {
+            format(&cmd, " -lcxy-trace", NULL);
+        }
     }
 
     appendString(&cmd, " -o ");

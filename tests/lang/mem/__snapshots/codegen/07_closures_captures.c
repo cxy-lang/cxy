@@ -75,7 +75,6 @@ static void _main();
 static int8_t __closure_body1(__closure_env0 * this) {
   int8_t __ret;
 _L_entry:;
-  __ret = (this->a + 5);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -101,7 +100,6 @@ _L_exit:;
 static int8_t __closure_body3(__closure_env2 * this) {
   int8_t __ret;
 _L_entry:;
-  __ret = ((*(this->a)) + 20);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -127,7 +125,6 @@ _L_exit:;
 static int8_t __closure_body5(__closure_env4 * this) {
   int8_t __ret;
 _L_entry:;
-  __ret = (this->a + 30);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -153,7 +150,6 @@ _L_exit:;
 static int8_t __closure_body7(__closure_env6 * this) {
   int8_t __ret;
 _L_entry:;
-  __ret = ((*(this->a)) + (*(this->b)));
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -181,7 +177,6 @@ _L_exit:;
 static int8_t __closure_body9(__closure_env8 * this) {
   int8_t __ret;
 _L_entry:;
-  __ret = (this->a + this->b);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -209,7 +204,6 @@ _L_exit:;
 static int8_t __closure_body11(__closure_env10 * this) {
   int8_t __ret;
 _L_entry:;
-  __ret = ((this->a + (*(this->b))) + this->c);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -239,7 +233,6 @@ _L_exit:;
 static int8_t __closure_body13(__closure_env12 * this) {
   int8_t __ret;
 _L_entry:;
-  __ret = ((this->a + (*(this->b))) + (*(this->c)));
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -269,7 +262,6 @@ _L_exit:;
 static int8_t __closure_body15(__closure_env14 * this) {
   int8_t __ret;
 _L_entry:;
-  __ret = (((*(this->a)) + this->b) + this->c);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -314,6 +306,7 @@ _L_exit:;
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
+  __cxy_start_runtime();
   _main();
   return 0;
 }
