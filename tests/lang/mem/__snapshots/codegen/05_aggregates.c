@@ -1,8 +1,21 @@
+typedef struct builtins_Exception builtins_Exception;
+typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct Resource Resource;
 typedef struct Container Container;
-typedef struct Tuple_ptr_i8 Tuple_ptr_i8;
-typedef union UnionPayload40 UnionPayload40;
-typedef struct Union_ptr_i32 Union_ptr_i32;
+typedef struct Tuple_Resource_i8 Tuple_Resource_i8;
+typedef union UnionPayload141 UnionPayload141;
+typedef struct Union_Resource_i32 Union_Resource_i32;
+
+struct builtins_Exception {
+  builtins_Exception_VTable * vtable;
+  char * name;
+  void * stackTrace;
+};
+
+struct builtins_Exception_VTable {
+  uint64_t __tid;
+  char * (*what)(builtins_Exception *);
+};
 
 struct Resource {
   int32_t id;
@@ -13,20 +26,22 @@ struct Container {
   int32_t tag;
 };
 
-struct Tuple_ptr_i8 {
+struct Tuple_Resource_i8 {
   Resource * _0;
   int8_t _1;
 };
 
-union UnionPayload40 {
+union UnionPayload141 {
   Resource * _0;
   int32_t _1;
 };
 
-struct Union_ptr_i32 {
+struct Union_Resource_i32 {
   uint32_t tag;
-  UnionPayload40 val;
+  UnionPayload141 val;
 };
+
+static void builtins_panicOnUnhandledException(builtins_Exception * ex);
 
 static void Resource_op__init(Resource * this, int32_t id);
 static void Resource_op__deinit(Resource * this);
@@ -35,11 +50,24 @@ static void Resource_op__destructor_fwd(void * ptr);
 static void Container_op__destructor(Container * this);
 static Resource * Resource_op__initCover(int32_t id);
 static void testTuple();
-static void testUnion(Union_ptr_i32 u);
+static void testUnion(Union_Resource_i32 u);
 static void _main();
-static void __tuple_dctor_36(Tuple_ptr_i8 * tup);
-static Union_ptr_i32 __union_copy_40(Union_ptr_i32 * u);
-static void __union_dctor_40(Union_ptr_i32 * u);
+static void __tuple_dctor_137(Tuple_Resource_i8 * tup);
+static Union_Resource_i32 __union_copy_141(Union_Resource_i32 * u);
+static void __union_dctor_141(Union_Resource_i32 * u);
+
+
+static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
+  char * __t1;
+_L_entry:;
+  if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
+_L_IF0_then:;
+  __t1 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  goto _L_exit;
+_L_exit:;
+  return;
+}
 
 static void Resource_op__init(Resource * this, int32_t id) {
 _L_entry:;
@@ -83,44 +111,44 @@ _L_exit:;
 
 static Resource * Resource_op__initCover(int32_t id) {
   Resource * __ret;
-  Resource * __obj0;
+  Resource * __obj3;
   Resource * __t1;
 _L_entry:;
   __t1 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
-  __obj0 = ((Resource *)(__t1));
-  memset(__obj0, 0, sizeof(Resource));
-  Resource_op__init(__obj0, id);
-  __ret = __obj0;
+  __obj3 = ((Resource *)(__t1));
+  memset(__obj3, 0, sizeof(Resource));
+  Resource_op__init(__obj3, id);
+  __ret = __obj3;
   goto _L_exit;
 _L_exit:;
   return __ret;
 }
 
 static void testTuple() {
-  Tuple_ptr_i8 tup;
+  Tuple_Resource_i8 tup;
 _L_entry:;
-  tup = (Tuple_ptr_i8){Resource_op__initCover(((int32_t)(1))), 42};
+  tup = (Tuple_Resource_i8){Resource_op__initCover(((int32_t)(1))), 42};
   goto _L_exit;
 _L_exit:;
-  __tuple_dctor_36(&(tup));
+  __tuple_dctor_137(&(tup));
   return;
 }
 
-static void testUnion(Union_ptr_i32 u) {
-  Union_ptr_i32 local;
+static void testUnion(Union_Resource_i32 u) {
+  Union_Resource_i32 local;
 _L_entry:;
-  local = __union_copy_40(&(u));
+  local = __union_copy_141(&(u));
   goto _L_exit;
 _L_exit:;
-  __union_dctor_40(&(local));
-  __union_dctor_40(&(u));
+  __union_dctor_141(&(local));
+  __union_dctor_141(&(u));
   return;
 }
 
 static void _main() {
   Resource * __t2;
-  Union_ptr_i32 __t3;
-  Union_ptr_i32 __t4;
+  Union_Resource_i32 __t3;
+  Union_Resource_i32 __t4;
   Container c;
 _L_entry:;
   testTuple();
@@ -138,7 +166,7 @@ _L_exit:;
   return;
 }
 
-static void __tuple_dctor_36(Tuple_ptr_i8 * tup) {
+static void __tuple_dctor_137(Tuple_Resource_i8 * tup) {
 _L_entry:;
   __smart_ptr_drop(tup->_0);
   goto _L_exit;
@@ -146,8 +174,8 @@ _L_exit:;
   return;
 }
 
-static Union_ptr_i32 __union_copy_40(Union_ptr_i32 * u) {
-  Union_ptr_i32 __ret;
+static Union_Resource_i32 __union_copy_141(Union_Resource_i32 * u) {
+  Union_Resource_i32 __ret;
   Resource * __t6;
 _L_entry:;
   switch (u->tag) {
@@ -168,7 +196,7 @@ _L_exit:;
   return __ret;
 }
 
-static void __union_dctor_40(Union_ptr_i32 * u) {
+static void __union_dctor_141(Union_Resource_i32 * u) {
 _L_entry:;
   switch (u->tag) {
     case 0: goto _L_MATCH0_case_0;

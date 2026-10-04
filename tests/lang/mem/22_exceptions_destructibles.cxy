@@ -1,0 +1,69 @@
+class String {
+    s: string
+    func `init`(s: string) {
+        this.s = s
+    }
+    func str() => s
+}
+
+class Container {
+    name: String
+    tag: i32
+    func `init`(tag: i32, name: String) {
+        this.tag = tag
+        this.name = name
+    }
+    func `deinit`() { }
+}
+
+exception CustomError(reason: String) => reason.str()
+
+func produceString(x: i32): !String {
+    var c = Container(x, String("local_temp"))
+    if (x < 0) {
+        raise CustomError(String("negative input error"))
+    }
+    return String("success_string")
+}
+
+func testDirectSuccess(): void {
+    var s = produceString(10) catch String("fallback")
+}
+
+func testDirectFailure(): void {
+    var s = produceString(-1) catch String("fallback")
+}
+
+func testYieldDestructible(): void {
+    var s = produceString(-5) catch as err {
+        yield String("yielded_fallback")
+    }
+}
+
+func testBubbleUpDestructible(x: i32): !String {
+    var c = Container(x, String("enclosing_container"))
+    var s = produceString(x)
+    return s
+}
+
+func testHandleBubbleUp(): void {
+    var res1 = testBubbleUpDestructible(20) catch String("error_caught")
+    var res2 = testBubbleUpDestructible(-20) catch String("error_caught")
+}
+
+func testReraiseDestructible(x: i32): !String {
+    var local = String("before_catch")
+    var res = produceString(x) catch as err {
+        raise
+    }
+    return res
+}
+
+func main(): void {
+    testDirectSuccess()
+    testDirectFailure()
+    testYieldDestructible()
+    testHandleBubbleUp()
+    var r1 = testReraiseDestructible(10) catch String("reraised_caught")
+    var r2 = testReraiseDestructible(-10) catch String("reraised_caught")
+}

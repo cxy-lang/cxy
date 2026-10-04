@@ -1,5 +1,9 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/05_aggregates.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
 func main.Resource.op__init(this: ^Resource, id: i32): void {
 _L_entry:
   scope.enter 0
@@ -67,13 +71,13 @@ func main.Resource.op__initCover(id: i32): ^Resource {
 _L_entry:
   scope.enter 0
   var __ret: ^Resource
-  var __obj0: ^Resource
+  var __obj3: ^Resource
   var __t1: ^Resource
   __t1 = alloc(^Resource)
-  __obj0 = <^Resource>(__t1)
-  zeromem __obj0
-  Resource_op__init(__obj0, &&id)
-  __ret = __obj0
+  __obj3 = <^Resource>(__t1)
+  zeromem __obj3
+  Resource_op__init(__obj3, &&id)
+  __ret = __obj3
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -84,7 +88,7 @@ func testTuple(): void {
 _L_entry:
   scope.enter 0
   var tup: (^Resource, i8)
-  tup = Tuple_ptr_i8 {Resource_op__initCover(<i32>(1)), 42}
+  tup = Tuple_Resource_i8 {Resource_op__initCover(<i32>(1)), 42}
   goto _L_exit
 _L_exit:
   drop tup
@@ -126,20 +130,20 @@ _L_exit:
   return
 }
 
-func __tuple_copy_36(tup: ^(^Resource, i8)): (^Resource, i8) {
+func __tuple_copy_137(tup: ^(^Resource, i8)): (^Resource, i8) {
 _L_entry:
   scope.enter 0
   var __ret: (^Resource, i8)
   var __t5: ^Resource
   copy tup.0 -> __t5
-  __ret = Tuple_ptr_i8 {__t5, tup.1}
+  __ret = Tuple_Resource_i8 {__t5, tup.1}
   goto _L_exit
 _L_exit:
   scope.exit 0
   return __ret
 }
 
-func __tuple_dctor_36(tup: ^(^Resource, i8)): void {
+func __tuple_dctor_137(tup: ^(^Resource, i8)): void {
 _L_entry:
   scope.enter 0
   drop tup.0
@@ -149,7 +153,7 @@ _L_exit:
   return
 }
 
-func __union_copy_40(u: ^^Resource | i32): ^Resource | i32 {
+func __union_copy_141(u: ^^Resource | i32): ^Resource | i32 {
 _L_entry:
   scope.enter 0
   var __ret: ^Resource | i32
@@ -173,7 +177,7 @@ _L_exit:
   return __ret
 }
 
-func __union_dctor_40(u: ^^Resource | i32): void {
+func __union_dctor_141(u: ^^Resource | i32): void {
 _L_entry:
   scope.enter 0
   switch u.tag {

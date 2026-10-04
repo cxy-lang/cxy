@@ -223,7 +223,11 @@ static void collectRoots(ReachabilityContext *ctx)
         for (IrNode *func = mod->module.functions; func; func = func->next) {
             bool isRoot = false;
             if (hasFlag(func, Main) || func->function.display == S_main || func->function.name == S_main ||
-                func->function.name == S_CXY__main || func->function.name == S__main) {
+                func->function.name == S_CXY__main || func->function.name == S__main ||
+                func->function.name == S_panicOnUnhandledException) {
+                isRoot = true;
+            }
+            else if (func->ast && findAttribute(func->ast, S_used)) {
                 isRoot = true;
             }
             else if (ctx->driver->options.buildPlugin && hasFlag(func, Public)) {

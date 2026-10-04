@@ -1,6 +1,10 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/06_closures_basic.cxy
-func __closure_body0(this: ^void): void {
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func __closure_body3(this: ^void): void {
 _L_entry:
   scope.enter 0
   goto _L_exit
@@ -12,8 +16,8 @@ _L_exit:
 func testSimple(): void {
 _L_entry:
   scope.enter 0
-  var c: Closure_26
-  c = ClosureValue(null, __closure_body0)
+  var c: Closure_127
+  c = ClosureValue(null, __closure_body3)
   c.fn(c.env)
   goto _L_exit
 _L_exit:
@@ -21,7 +25,7 @@ _L_exit:
   return
 }
 
-func __closure_body1(this: ^void, a: i32, b: i32): i32 {
+func __closure_body4(this: ^void, a: i32, b: i32): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -35,8 +39,8 @@ func testParamsAndRet(): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  var add: Closure_30
-  add = ClosureValue(null, __closure_body1)
+  var add: Closure_131
+  add = ClosureValue(null, __closure_body4)
   __ret = add.fn(add.env, 10, 20)
   goto _L_exit
 _L_exit:

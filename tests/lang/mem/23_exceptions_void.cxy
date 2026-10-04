@@ -1,0 +1,53 @@
+class String {
+    s: string
+    func `init`(s: string) {
+        this.s = s
+    }
+    func str() => s
+}
+
+class HeavyResource {
+    data: String
+    func `init`(data: String) {
+        this.data = data
+    }
+    func `deinit`() { }
+}
+
+exception VoidError(code: i32) => "some error"
+
+func performVoidWork(fail: bool): !void {
+    var r1 = HeavyResource(String("res_1"))
+    var r2 = HeavyResource(String("res_2"))
+    if (fail) {
+        raise VoidError(404)
+    }
+}
+
+func testVoidCatch(): void {
+    performVoidWork(false) catch discard
+    performVoidWork(true) catch discard
+
+    performVoidWork(true) catch {
+        // swallowed
+    }
+
+    performVoidWork(true) catch as err {
+        var dummy = HeavyResource(String("handled_in_catch"))
+    }
+}
+
+func level2Void(fail: bool): !void {
+    var local = HeavyResource(String("level2_res"))
+    performVoidWork(fail)
+}
+
+func testVoidBubbleUp(): void {
+    level2Void(false) catch discard
+    level2Void(true) catch discard
+}
+
+func main(): void {
+    testVoidCatch()
+    testVoidBubbleUp()
+}

@@ -892,6 +892,37 @@ void bindProgram(AstVisitor *visitor, AstNode *node)
     }
 }
 
+static void bindAliasExpr(AstVisitor *visitor, AstNode *node)
+{
+    BindContext *ctx = getAstVisitorContext(visitor);
+    defineSymbol(ctx->env, ctx->L, node->aliasExpr.name, node);
+    if (node->aliasExpr.expr)
+        astVisit(visitor, node->aliasExpr.expr);
+}
+
+static void bindCatchExpr(AstVisitor *visitor, AstNode *node)
+{
+    BindContext *ctx = getAstVisitorContext(visitor);
+    astVisit(visitor, node->catchExpr.expr);
+
+    if (node->catchExpr.body) {
+        if (nodeIs(node->catchExpr.body, BlockStmt)) {
+            pushScope(ctx->env, node->catchExpr.body);
+            if (node->catchExpr.var) {
+                defineSymbol(ctx->env,
+                             ctx->L,
+                             node->catchExpr.var->aliasExpr.name,
+                             node->catchExpr.var);
+            }
+            astVisitManyNodes(visitor, node->catchExpr.body->blockStmt.stmts);
+            popScope(ctx->env);
+        }
+        else {
+            astVisit(visitor, node->catchExpr.body);
+        }
+    }
+}
+
 void withParentScope(Visitor func, AstVisitor *visitor, AstNode *node)
 {
     BindContext *ctx = getAstVisitorContext(visitor);
@@ -941,6 +972,8 @@ void bindAstPhase2(CompilerDriver *driver, Env *env, AstNode *node)
         [astIfStmt] = bindIfStmt,
         [astClosureExpr] = bindClosureExpr,
         [astIteratorExpr] = bindIteratorExpr,
+        [astAliasExpr] = bindAliasExpr,
+        [astCatchExpr] = bindCatchExpr,
         [astDeferStmt] = bindDeferStmt,
         [astBreakStmt] = bindBreakOrContinueStmt,
         [astContinueStmt] = bindBreakOrContinueStmt,

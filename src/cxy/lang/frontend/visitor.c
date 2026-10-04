@@ -140,6 +140,11 @@
         MODE##Visit(visitor, node->iteratorExpr.next);                         \
         MODE##Visit(visitor, node->iteratorExpr.truthy);                       \
         break;                                                                 \
+    case astCatchExpr:                                                         \
+        MODE##Visit(visitor, node->catchExpr.expr);                            \
+        MODE##Visit(visitor, node->catchExpr.var);                             \
+        MODE##Visit(visitor, node->catchExpr.body);                            \
+        break;                                                                 \
     case astXformExpr:                                                         \
         MODE##Visit(visitor, node->xFormExpr.target);                          \
         MODE##Visit(visitor, node->xFormExpr.arg);                             \

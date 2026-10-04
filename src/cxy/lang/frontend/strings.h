@@ -67,6 +67,7 @@ extern "C" {
     f(Some)                     \
     f(unchecked)                \
     f(unused)                   \
+    f(used)                     \
     f(_Variadic)                \
     f(consistent)               \
     f(final)                    \
@@ -175,6 +176,7 @@ extern "C" {
     ff(sptr_alloc_trace,    "__smart_ptr_alloc_trace") \
     ff(sptr_drop_trace,     "__smart_ptr_drop_trace")  \
     ff(sptr_get_trace,      "__smart_ptr_get_trace")   \
+    ff(panicOnUnhandledException, "builtins_panicOnUnhandledException") \
     ff(copy,                "__copy")            \
     ff(AsmInputPrefix,      "\"r\"")             \
     ff(AsmOutputPrefix,     "\"=r\"")            \

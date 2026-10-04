@@ -74,6 +74,10 @@ pub func __calloc(size: u64) => memset(malloc(size), 0, size)
 @hint pub extern func __smart_ptr_get_trace(ptr: sptr, path: string, line: u64): sptr
 @hint pub extern func __smart_ptr_drop_trace(ptr: sptr, path: string, line: u64): bool
 
+@hint extern func __cxy_stack_trace_alloc(): ^void
+@hint extern func __cxy_stack_trace_push(st: ^void, mod: string, cls: string, fun: string, path: string, line: u64): void
+@hint extern func __cxy_stack_trace_destroy(st: ^void): void
+
 /* Builtin Optional Type */
 pub struct Optional[T] {
     /* @note: Do not change the order of these members */
@@ -132,6 +136,43 @@ pub func Some[T](value: T) => Optional[T]{ ok: true, val: &&value }
 /* Creates an invalid optional value */
 @inline
 pub func None[T]() => Optional[T]()
+
+// @builtin
+pub class Exception {
+    name: string
+    stackTrace: ^void = null
+
+    func `init`(name: string) {
+        this.name = name
+        this.stackTrace = null
+    }
+
+    virtual func what(): string => name
+
+    @inline
+    func push(mod: string, cls: string, fun: string, path: string, line: u64) {
+        if (this.stackTrace == null) {
+            this.stackTrace = __cxy_stack_trace_alloc()
+        }
+        __cxy_stack_trace_push(this.stackTrace, mod, cls, fun, path, line)
+    }
+
+    @inline func `deinit`() {
+        if (this.stackTrace != null) {
+            __cxy_stack_trace_destroy(this.stackTrace)
+            this.stackTrace = null
+        }
+    }
+}
+
+@hint extern func __cxy_dump_unhandled_exception(name: string, msg: string, st: ^void): void
+
+@[used, inline]
+pub func panicOnUnhandledException(ex: &Exception): void {
+    if (ex != null) {
+        __cxy_dump_unhandled_exception(ex.name, ex.what(), ex.stackTrace)
+    }
+}
 
 pub type HashCode = u32
 #const FNV_32_PRIME = 0x01000193`u32
@@ -210,6 +251,28 @@ pub func hash[T](val: &const T, @unused init: HashCode = #{FNV_32_INIT}) : HashC
 
 @hint extern func sputu128(value: u128, buf: ^char, size: u64): u64
 @hint extern func sputi128(value: i128, buf: ^char, size: u64): u64
+
+iterator StringIterator {
+    s: string
+    size: u64
+    i = 0.i32
+
+    func `init`(s: string, size: u64) {
+        this.s = s
+        this.size = size
+    }
+
+    func `()`(): (char, i32)? {
+        if (i >= size) {
+            return null
+        }
+        return (s.[i], i++)
+    }
+
+    func `!!`() => i < size
+}
+
+#if (!defined WITHOUT_BUILTINS) {
 
 @alias("__string")
 pub struct strview {
@@ -639,26 +702,6 @@ pub class OutputStream {
         }
         return &this
     }
-}
-
-iterator StringIterator {
-    s: string
-    size: u64
-    i = 0.i32
-
-    func `init`(s: string, size: u64) {
-        this.s = s
-        this.size = size
-    }
-
-    func `()`(): (char, i32)? {
-        if (i >= size) {
-            return null
-        }
-        return (s.[i], i++)
-    }
-
-    func `!!`() => i < size
 }
 
 // @builtin
@@ -1279,45 +1322,6 @@ struct StackTrace {
     }
 }
 
-// @builtin
-pub class Exception {
-    name: string
-    stackTrace: StackTrace
-
-    func `init`(name: string) {
-        this.name = name
-        stackTrace = StackTrace();
-    }
-
-    virtual func what(): string
-
-    @inline
-    func push(mod: string, cls: string, fun: string, path: string, line: u64) {
-        stackTrace.push(mod, cls, fun, path, line)
-    }
-
-    const func header(os: &OutputStream) {
-        os << name << "(\"" << what() << "\")"
-    }
-
-    @inline
-    const func dumpStackTrace(os: &OutputStream, s: i64 = 0, tabs: u64 = 0) {
-        stackTrace.dump(os, s, tabs)
-    }
-
-    const func `str`(os: &OutputStream) {
-        os << name << "(\"" << what() << "\") at:" << stackTrace << "\n"
-    }
-
-    @inline func `deinit`() {
-        stackTrace.op__destructor()
-    }
-
-    @inline func `destructor`() {
-        op__deinit()
-    }
-}
-
 pub class OutOfRangeException: Exception {
     msg: String = null;
 
@@ -1383,13 +1387,6 @@ struct _Fmt[T] {
 
 @inline
 pub func Fmt[T](fmt: string, value: T) => _Fmt[T](value, fmt)
-
-@[pure, inline]
-pub func panicUnhandledException(ex: Exception) {
-    stderr << ex << "\n"
-    __smart_ptr_drop(ex)
-    abort()
-}
 
 pub class MemoryOutputStream : OutputStream {
     - _buffer: ^void
@@ -1584,6 +1581,8 @@ macro ok(cond, ...msg) {
         }
         return 0
     }
+}
+
 }
 
 }

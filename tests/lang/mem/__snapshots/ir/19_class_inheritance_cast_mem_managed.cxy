@@ -1,7 +1,11 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/19_class_inheritance_cast_mem_managed.cxy
-global BaseResource_vTable: BaseResource_VTable = BaseResource_VTable {22, <func(^BaseResource): void>(BaseResource_op__deinit), <func(^BaseResource): i32>(BaseResource_getId)}
-global DerivedResource_vTable: BaseResource_VTable = BaseResource_VTable {<u64>(35), <func(^BaseResource): void>(DerivedResource_op__deinit), <func(^BaseResource): i32>(DerivedResource_getId)}
+global BaseResource_vTable: BaseResource_VTable = BaseResource_VTable {124, <func(^BaseResource): void>(BaseResource_op__deinit), <func(^BaseResource): i32>(BaseResource_getId)}
+global DerivedResource_vTable: BaseResource_VTable = BaseResource_VTable {<u64>(136), <func(^BaseResource): void>(DerivedResource_op__deinit), <func(^BaseResource): i32>(DerivedResource_getId)}
+
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
 
 func main.BaseResource.op__init(this: ^BaseResource, id: i32): void {
 _L_entry:
@@ -153,14 +157,14 @@ func main.DerivedResource.op__initCover(id: i32, extra: i32): ^DerivedResource {
 _L_entry:
   scope.enter 0
   var __ret: ^DerivedResource
-  var __obj0: ^DerivedResource
+  var __obj3: ^DerivedResource
   var __t0: ^DerivedResource
   __t0 = alloc(^DerivedResource)
-  __obj0 = <^DerivedResource>(__t0)
-  zeromem __obj0
-  DerivedResource___defaults_init(__obj0)
-  DerivedResource_op__init(__obj0, id, &&extra)
-  __ret = __obj0
+  __obj3 = <^DerivedResource>(__t0)
+  zeromem __obj3
+  DerivedResource___defaults_init(__obj3)
+  DerivedResource_op__init(__obj3, id, &&extra)
+  __ret = __obj3
   goto _L_exit
 _L_exit:
   scope.exit 0

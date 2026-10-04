@@ -63,16 +63,24 @@ static bool validateExceptionContract(Log *L, const AstNode *decl, const Type *t
     return true;
 }
 
-static const BuiltinContract builtinContracts[] = {
-    {.name = "OutputStream", .kind = bckClass, .requiredBase = NULL, .validate = validateOutputStreamContract},
-    {.name = "String", .kind = bckClass, .requiredBase = "OutputStream", .validate = validateStringContract},
-    {.name = "Exception", .kind = bckClass, .requiredBase = NULL, .validate = validateExceptionContract},
-};
+static BuiltinContract builtinContracts[3];
+static bool builtinContractsInitialized = false;
+
+static void initBuiltinContracts(void)
+{
+    if (builtinContractsInitialized)
+        return;
+    builtinContracts[0] = (BuiltinContract){.name = S_OutputStream, .kind = bckClass, .requiredBase = NULL, .validate = validateOutputStreamContract};
+    builtinContracts[1] = (BuiltinContract){.name = S_String, .kind = bckClass, .requiredBase = S_OutputStream, .validate = validateStringContract};
+    builtinContracts[2] = (BuiltinContract){.name = S_Exception, .kind = bckClass, .requiredBase = NULL, .validate = validateExceptionContract};
+    builtinContractsInitialized = true;
+}
 
 static const BuiltinContract *findBuiltinContract(cstring name)
 {
+    initBuiltinContracts();
     for (size_t i = 0; i < sizeof(builtinContracts) / sizeof(builtinContracts[0]); ++i) {
-        if (builtinContracts[i].name == name || strcmp(builtinContracts[i].name, name) == 0)
+        if (builtinContracts[i].name == name)
             return &builtinContracts[i];
     }
     return NULL;
@@ -112,8 +120,7 @@ bool checkBuiltinAttribute(Log *L, const AstNode *decl, bool isBuiltinModule)
 
     if (contract->requiredBase != NULL) {
         if (decl->classDecl.base == NULL ||
-            decl->classDecl.base->path.elements->pathElement.name != contract->requiredBase &&
-            strcmp(decl->classDecl.base->path.elements->pathElement.name, contract->requiredBase) != 0) {
+            decl->classDecl.base->path.elements->pathElement.name != contract->requiredBase) {
             logError(L, &decl->loc, "builtin class '{s}' must inherit from '{s}'",
                      (FormatArg[]){{.s = name}, {.s = contract->requiredBase}});
             return false;
@@ -132,10 +139,13 @@ bool validateBuiltinContracts(Log *L, const Type *module)
 {
     if (module == NULL)
         return false;
+    initBuiltinContracts();
     for (size_t i = 0; i < sizeof(builtinContracts) / sizeof(builtinContracts[0]); ++i) {
         const BuiltinContract *contract = &builtinContracts[i];
         const NamedTypeMember *member = findModuleMember(module, contract->name);
         if (member == NULL) {
+            if (contract->name != S_Exception)
+                continue;
             logError(L, builtinLoc(), "missing required builtin contract '{s}'",
                      (FormatArg[]){{.s = contract->name}});
             return false;

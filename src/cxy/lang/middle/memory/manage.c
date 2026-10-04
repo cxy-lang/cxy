@@ -719,6 +719,9 @@ static bool shouldPromoteAssignToCopy(const IrNode *lhsDecl, const IrNode *lhs, 
 {
     if (!isIrVarDestructible(lhsDecl) && !isIrTypeDestructible(lhs->type))
         return false;
+    IrNode *rhsDecl = findVarDeclInNode(rhs);
+    if (rhsDecl && hasFlag(rhsDecl, Temporary))
+        return false;
     if (rhs->tag == irVarRef) {
         return rhs->varRef.target && !hasFlag(rhs->varRef.target, Temporary);
     }

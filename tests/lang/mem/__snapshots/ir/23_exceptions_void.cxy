@@ -1,0 +1,345 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/23_exceptions_void.cxy
+global VoidError_vTable: Exception_VTable = builtins_Exception_VTable {<u64>(137), <func(^Exception): ^char>(VoidError_what)}
+
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func main.String.op__init(this: ^String, s: ^char): void {
+_L_entry:
+  scope.enter 0
+  this.s = s
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.String.str(this: ^String): ^char {
+_L_entry:
+  scope.enter 0
+  var __ret: ^char
+  __ret = this.s
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.HeavyResource.op__init(this: ^HeavyResource, data: ^String): void {
+_L_entry:
+  scope.enter 0
+  copy data -> this.data
+  goto _L_exit
+_L_exit:
+  drop data
+  scope.exit 0
+  return
+}
+
+func main.HeavyResource.op__deinit(this: ^HeavyResource): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.HeavyResource.op__destructor(this: ^HeavyResource): void {
+_L_entry:
+  scope.enter 0
+  HeavyResource_op__deinit(this)
+  drop this.data
+  zeromem this.data
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.HeavyResource.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  HeavyResource_op__destructor(<^HeavyResource>(ptr))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.VoidError.op__init(this: ^VoidError, code: i32): void {
+_L_entry:
+  scope.enter 0
+  builtins_Exception_op__init(this, "VoidError")
+  this.code = code
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.VoidError.what(this: ^VoidError): ^char {
+_L_entry:
+  scope.enter 0
+  var __ret: ^char
+  __ret = "some error"
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.VoidError.op__destructor(this: ^VoidError): void {
+_L_entry:
+  scope.enter 0
+  builtins_Exception_op__destructor(<^Exception>(this))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.VoidError.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  VoidError_op__destructor(<^VoidError>(ptr))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.VoidError.__defaults_init(this: ^VoidError): void {
+_L_entry:
+  scope.enter 0
+  builtins_Exception___defaults_init(this)
+  this.vtable = &VoidError_vTable
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.String.op__initCover(s: ^char): ^String {
+_L_entry:
+  scope.enter 0
+  var __ret: ^String
+  var __obj3: ^String
+  var __t0: ^String
+  __t0 = alloc(^String)
+  __obj3 = <^String>(__t0)
+  zeromem __obj3
+  String_op__init(__obj3, &&s)
+  __ret = __obj3
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.HeavyResource.op__initCover(data: ^String): ^HeavyResource {
+_L_entry:
+  scope.enter 0
+  var __ret: ^HeavyResource
+  var __obj4: ^HeavyResource
+  var __t1: ^HeavyResource
+  __t1 = alloc(^HeavyResource)
+  __obj4 = <^HeavyResource>(__t1)
+  zeromem __obj4
+  HeavyResource_op__init(__obj4, &&data)
+  __ret = __obj4
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.VoidError.op__initCover(code: i32): ^VoidError {
+_L_entry:
+  scope.enter 0
+  var __ret: ^VoidError
+  var __obj5: ^VoidError
+  var __t2: ^VoidError
+  __t2 = alloc(^VoidError)
+  __obj5 = <^VoidError>(__t2)
+  zeromem __obj5
+  VoidError___defaults_init(__obj5)
+  VoidError_op__init(__obj5, &&code)
+  __ret = __obj5
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func performVoidWork(fail: bool): !void {
+_L_entry:
+  scope.enter 0
+  var __ret: !void
+  var r1: ^HeavyResource
+  var __t3: ^String
+  __t3 = String_op__initCover("res_1")
+  r1 = HeavyResource_op__initCover(__t3)
+  var r2: ^HeavyResource
+  var __t4: ^String
+  __t4 = String_op__initCover("res_2")
+  r2 = HeavyResource_op__initCover(__t4)
+  if fail goto _L_IF0_then else goto _L_IF0_end
+_L_IF0_then:
+  scope.enter 1
+  var __t5: ^VoidError
+  __t5 = VoidError_op__initCover(<i32>(404))
+  builtins_Exception_push(__t5, "main", "", "performVoidWork", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/23_exceptions_void.cxy", 23)
+  __ret.tag = 1
+  __ret.val = __t5
+  goto _L_UNWIND1_return
+_L_IF0_end:
+  __ret.tag = 0
+  goto _L_exit
+_L_UNWIND1_return:
+  scope.exit 1
+  goto _L_exit
+_L_exit:
+  drop r2
+  drop r1
+  scope.exit 0
+  return __ret
+}
+
+func testVoidCatch(): void {
+_L_entry:
+  var __drop_flags: __drop_flags_testVoidCatch_t
+  zeromem __drop_flags
+  scope.enter 0
+  var __t6: !void
+  __t6 = performVoidWork(false)
+  if __t6.tag == 1 goto _L_catch_0 else goto _L_cont_1
+_L_catch_0:
+  scope.enter 1
+  scope.exit 1
+  drop __t6.val
+  __t6.tag = 0
+  goto _L_merge_1
+_L_cont_1:
+  goto _L_merge_1
+_L_merge_1:
+  var __t7: !void
+  __t7 = performVoidWork(true)
+  if __t7.tag == 1 goto _L_catch_1 else goto _L_cont_2
+_L_catch_1:
+  scope.enter 2
+  scope.exit 2
+  drop __t7.val
+  __t7.tag = 0
+  goto _L_merge_2
+_L_cont_2:
+  goto _L_merge_2
+_L_merge_2:
+  var __t8: !void
+  __t8 = performVoidWork(true)
+  if __t8.tag == 1 goto _L_catch_2 else goto _L_cont_3
+_L_catch_2:
+  scope.enter 3
+  scope.exit 3
+  drop __t8.val
+  __t8.tag = 0
+  goto _L_merge_3
+_L_cont_3:
+  goto _L_merge_3
+_L_merge_3:
+  var __t9: !void
+  __t9 = performVoidWork(true)
+  if __t9.tag == 1 goto _L_catch_3 else goto _L_cont_4
+_L_catch_3:
+  scope.enter 4
+  var dummy: ^HeavyResource
+  var __t10: ^String
+  __t10 = String_op__initCover("handled_in_catch")
+  dummy = HeavyResource_op__initCover(__t10)
+  __drop_flags.dummy = 1
+  drop dummy
+  __drop_flags.dummy = 0
+  scope.exit 4
+  drop __t9.val
+  __t9.tag = 0
+  goto _L_merge_4
+_L_cont_4:
+  goto _L_merge_4
+_L_merge_4:
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func level2Void(fail: bool): !void {
+_L_entry:
+  scope.enter 0
+  var __ret: !void
+  var local: ^HeavyResource
+  var __t11: ^String
+  __t11 = String_op__initCover("level2_res")
+  local = HeavyResource_op__initCover(__t11)
+  var __call_res_12: !void
+  __call_res_12 = performVoidWork(fail)
+  if __call_res_12.tag == 1 goto _L_call_err_0 else goto _L_call_cont_1
+_L_call_err_0:
+  __ret.tag = 1
+  builtins_Exception_push(__call_res_12.val, "main", "", "level2Void", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/23_exceptions_void.cxy", 42)
+  __ret.val = __call_res_12.val
+  __call_res_12.tag = 0
+  goto _L_exit
+_L_call_cont_1:
+  __ret.tag = 0
+  goto _L_exit
+_L_exit:
+  drop local
+  scope.exit 0
+  return __ret
+}
+
+func testVoidBubbleUp(): void {
+_L_entry:
+  scope.enter 0
+  var __t13: !void
+  __t13 = level2Void(false)
+  if __t13.tag == 1 goto _L_catch_0 else goto _L_cont_1
+_L_catch_0:
+  scope.enter 1
+  scope.exit 1
+  drop __t13.val
+  __t13.tag = 0
+  goto _L_merge_1
+_L_cont_1:
+  goto _L_merge_1
+_L_merge_1:
+  var __t14: !void
+  __t14 = level2Void(true)
+  if __t14.tag == 1 goto _L_catch_1 else goto _L_cont_2
+_L_catch_1:
+  scope.enter 2
+  scope.exit 2
+  drop __t14.val
+  __t14.tag = 0
+  goto _L_merge_2
+_L_cont_2:
+  goto _L_merge_2
+_L_merge_2:
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  testVoidCatch()
+  testVoidBubbleUp()
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}

@@ -6,6 +6,7 @@
 
 #include <lang/frontend/flag.h>
 #include <lang/frontend/strings.h>
+#include <lang/middle/builtins.h>
 
 bool exceptionVerifyRaiseExpr(TypingContext *ctx,
                               const AstNode *ret,
@@ -23,10 +24,25 @@ bool exceptionVerifyRaiseExpr(TypingContext *ctx,
             return false;
         }
 
+        if (expr == NULL) {
+            if (ctx->catcher.block == NULL) {
+                logError(ctx->L,
+                         &node->loc,
+                         "re-raise statement only allowed inside a catch block",
+                         NULL);
+                node->type = ERROR_TYPE(ctx);
+                return false;
+            }
+            ctx->catcher.block->type =
+                getResultTargetType(ctx->catcher.expr->type);
+            return true;
+        }
+
         const Type *type =
             nodeIs(expr, CastExpr) ? expr->castExpr.expr->type : expr->type;
-        bool isException = nodeIs(expr, CastExpr) ? isExceptionType(type)
-                                                  : isBaseExceptionType(type);
+        const Type *baseException = findBuiltinType(S_Exception);
+        bool isException =
+            baseException && isTypeAssignableFrom(baseException, type);
         if (!isException) {
             logError(ctx->L,
                      &expr->loc,
@@ -44,10 +60,10 @@ bool exceptionVerifyRaiseExpr(TypingContext *ctx,
     return true;
 }
 
-static bool isDiscardableException(AstNode *node)
+static bool isDiscardableCatch(AstNode *node)
 {
-    const Type *lhs = node->binaryExpr.lhs->type;
-    if (isVoidResultType(lhs))
+    const Type *exprType = node->catchExpr.expr->type;
+    if (isVoidResultType(exprType))
         return true;
     AstNode *parent = node->parentScope;
     switch (parent->tag) {
@@ -66,47 +82,90 @@ static bool isDiscardExpr(const AstNode *node)
     return nodeIs(node, BlockStmt) && node->blockStmt.stmts == NULL;
 }
 
-void checkCatchBinaryOperator(AstVisitor *visitor,
-                              AstNode *node,
-                              struct ExceptionCather *catcher)
+void checkCatchExpr(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
-    AstNode *lhs = node->binaryExpr.lhs, *rhs = node->binaryExpr.rhs;
-    const Type *lhsType = resolveUnThisUnwrapType(lhs->type),
-               *rhsType = resolveUnThisUnwrapType(rhs->type);
+    AstNode *expr = node->catchExpr.expr;
+    AstNode *var = node->catchExpr.var;
+    AstNode *body = node->catchExpr.body;
 
-    if (!isResultType(lhsType)) {
+    bool prevExplicitCatch = ctx->explicitCatch;
+    ctx->explicitCatch = true;
+    const Type *exprType = checkType(visitor, expr);
+    ctx->explicitCatch = prevExplicitCatch;
+
+    if (typeIs(exprType, Error)) {
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
+
+    exprType = resolveUnThisUnwrapType(exprType);
+    if (!isResultType(exprType)) {
         logError(ctx->L,
-                 &lhs->loc,
-                 "catch used with a statement that does not throw",
+                 &expr->loc,
+                 "catch used with an expression that does not raise an exception",
                  NULL);
         node->type = ERROR_TYPE(ctx);
         return;
     }
 
-    const Type *targetType =
-        isVoidResultType(lhsType)
-            ? makeVoidType(ctx->types)
-            : (isDiscardExpr(rhs) ? makeVoidType(ctx->types)
-                                  : getResultTargetType(lhsType));
+    if (var) {
+        var->type = findBuiltinType(S_Exception) ?: makeVoidType(ctx->types);
+    }
 
-    if (!ctx->returnState && !catcher->hasBreakOrContinue && !isDiscardExpr(rhs)) {
-        if (isVoidType(rhsType) && !isDiscardableException(node)) {
+    const Type *targetType = isVoidResultType(exprType)
+                                 ? makeVoidType(ctx->types)
+                                 : getResultTargetType(exprType);
+
+    bool prevReturnState = ctx->returnState;
+    ctx->returnState = false;
+    struct ExceptionCather prevCatcher = ctx->catcher;
+    ctx->catcher = (struct ExceptionCather){
+        .block = body,
+        .expr = expr,
+        .variable = var,
+        .hasBreakOrContinue = false};
+
+    const Type *bodyType = checkType(visitor, body);
+    bool bodyReturns = ctx->returnState;
+    ctx->returnState = prevReturnState;
+    ctx->catcher = prevCatcher;
+
+    if (typeIs(bodyType, Error)) {
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
+
+    if (isDiscardExpr(body)) {
+        if (!isDiscardableCatch(node)) {
             logError(ctx->L,
-                     &rhs->loc,
+                     &body->loc,
+                     "cannot discard exception when a value is expected in this context",
+                     NULL);
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        node->type = makeVoidType(ctx->types);
+        return;
+    }
+
+    if (!bodyReturns && !isDiscardableCatch(node)) {
+        if (isVoidType(bodyType)) {
+            logError(ctx->L,
+                     &body->loc,
                      "catch block must yield a default value",
                      NULL);
             node->type = ERROR_TYPE(ctx);
             return;
         }
 
-        if (!isTypeAssignableFrom(targetType, rhsType)) {
+        if (!isTypeAssignableFrom(targetType, bodyType)) {
             logError(
                 ctx->L,
-                &rhs->loc,
+                &body->loc,
                 "catch default value type `{t}` not assignable to expression "
                 "value type `{t}`",
-                (FormatArg[]){{.t = rhsType}, {.t = targetType}});
+                (FormatArg[]){{.t = bodyType}, {.t = targetType}});
             node->type = ERROR_TYPE(ctx);
             return;
         }
@@ -139,12 +198,5 @@ void checkCallExceptionBubbleUp(AstVisitor *visitor, AstNode *node)
                  NULL);
         node->type = ERROR_TYPE(ctx);
         return;
-    }
-
-    if (!isVoidResultType(type)) {
-        node->type = getResultTargetType(type);
-    }
-    else {
-        node->type = makeVoidType(ctx->types);
     }
 }

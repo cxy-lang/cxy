@@ -1,10 +1,23 @@
+typedef struct builtins_Exception builtins_Exception;
+typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct Optional_i32 Optional_i32;
 typedef struct RangeIterator RangeIterator;
 typedef struct CustomRange CustomRange;
 typedef struct Tuple_char_i32 Tuple_char_i32;
 typedef struct Optional_Tuple_char_i32 Optional_Tuple_char_i32;
-typedef struct __Iterator0 __Iterator0;
+typedef struct __Iterator3 __Iterator3;
 typedef struct InlineCollection InlineCollection;
+
+struct builtins_Exception {
+  builtins_Exception_VTable * vtable;
+  char * name;
+  void * stackTrace;
+};
+
+struct builtins_Exception_VTable {
+  uint64_t __tid;
+  char * (*what)(builtins_Exception *);
+};
 
 struct Optional_i32 {
   bool ok;
@@ -30,7 +43,7 @@ struct Optional_Tuple_char_i32 {
   Tuple_char_i32 val;
 };
 
-struct __Iterator0 {
+struct __Iterator3 {
   char * s;
   int32_t i;
 };
@@ -39,15 +52,30 @@ struct InlineCollection {
   char * s;
 };
 
+static void builtins_panicOnUnhandledException(builtins_Exception * ex);
+
 static Optional_i32 RangeIterator_op__call(RangeIterator * this);
 static bool RangeIterator_op__truthy(RangeIterator * this);
 static RangeIterator CustomRange_op__range(CustomRange * this);
-static Optional_Tuple_char_i32 __Iterator0_op__call(__Iterator0 * this);
-static bool __Iterator0_op__truthy(__Iterator0 * this);
-static __Iterator0 InlineCollection_op__range(InlineCollection * this);
+static Optional_Tuple_char_i32 __Iterator3_op__call(__Iterator3 * this);
+static bool __Iterator3_op__truthy(__Iterator3 * this);
+static __Iterator3 InlineCollection_op__range(InlineCollection * this);
 static void testCustomNamedIterator();
 static void testInlineIteratorWithDestructuring();
 static void _main();
+
+
+static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
+  char * __t1;
+_L_entry:;
+  if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
+_L_IF0_then:;
+  __t1 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  goto _L_exit;
+_L_exit:;
+  return;
+}
 
 static Optional_i32 RangeIterator_op__call(RangeIterator * this) {
   Optional_i32 __ret;
@@ -82,7 +110,7 @@ _L_exit:;
   return __ret;
 }
 
-static Optional_Tuple_char_i32 __Iterator0_op__call(__Iterator0 * this) {
+static Optional_Tuple_char_i32 __Iterator3_op__call(__Iterator3 * this) {
   Optional_Tuple_char_i32 __ret;
   uint64_t __t0;
   Tuple_char_i32 __t1;
@@ -101,7 +129,7 @@ _L_exit:;
   return __ret;
 }
 
-static bool __Iterator0_op__truthy(__Iterator0 * this) {
+static bool __Iterator3_op__truthy(__Iterator3 * this) {
   bool __ret;
   uint64_t __t2;
 _L_entry:;
@@ -112,10 +140,10 @@ _L_exit:;
   return __ret;
 }
 
-static __Iterator0 InlineCollection_op__range(InlineCollection * this) {
-  __Iterator0 __ret;
+static __Iterator3 InlineCollection_op__range(InlineCollection * this) {
+  __Iterator3 __ret;
 _L_entry:;
-  __ret = (__Iterator0){this->s, 0};
+  __ret = (__Iterator3){this->s, 0};
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -123,20 +151,20 @@ _L_exit:;
 
 static void testCustomNamedIterator() {
   CustomRange r;
-  RangeIterator __it1;
+  RangeIterator __it4;
   bool __t3;
-  Optional_i32 __item2;
+  Optional_i32 __item5;
   int32_t val;
 _L_entry:;
   r = (CustomRange){5};
-  __it1 = CustomRange_op__range(&r);
+  __it4 = CustomRange_op__range(&r);
   goto _L_WHILE0_cond;
 _L_WHILE0_cond:;
-  __t3 = RangeIterator_op__truthy(&__it1);
+  __t3 = RangeIterator_op__truthy(&__it4);
   if (__t3) goto _L_WHILE0_body; else goto _L_exit;
 _L_WHILE0_body:;
-  __item2 = RangeIterator_op__call(&__it1);
-  val = __item2.val;
+  __item5 = RangeIterator_op__call(&__it4);
+  val = __item5.val;
   goto _L_WHILE0_cond;
 _L_exit:;
   return;
@@ -144,18 +172,18 @@ _L_exit:;
 
 static void testInlineIteratorWithDestructuring() {
   InlineCollection c;
-  __Iterator0 __it3;
+  __Iterator3 __it6;
   bool __t4;
-  Optional_Tuple_char_i32 __item4;
+  Optional_Tuple_char_i32 __item7;
 _L_entry:;
   c = (InlineCollection){"hello"};
-  __it3 = InlineCollection_op__range(&c);
+  __it6 = InlineCollection_op__range(&c);
   goto _L_WHILE0_cond;
 _L_WHILE0_cond:;
-  __t4 = __Iterator0_op__truthy(&__it3);
+  __t4 = __Iterator3_op__truthy(&__it6);
   if (__t4) goto _L_WHILE0_body; else goto _L_exit;
 _L_WHILE0_body:;
-  __item4 = __Iterator0_op__call(&__it3);
+  __item7 = __Iterator3_op__call(&__it6);
   goto _L_WHILE0_cond;
 _L_exit:;
   return;

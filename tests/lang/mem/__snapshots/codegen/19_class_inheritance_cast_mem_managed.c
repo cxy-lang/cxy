@@ -1,6 +1,19 @@
+typedef struct builtins_Exception builtins_Exception;
+typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct BaseResource_VTable BaseResource_VTable;
 typedef struct BaseResource BaseResource;
 typedef struct DerivedResource DerivedResource;
+
+struct builtins_Exception {
+  builtins_Exception_VTable * vtable;
+  char * name;
+  void * stackTrace;
+};
+
+struct builtins_Exception_VTable {
+  uint64_t __tid;
+  char * (*what)(builtins_Exception *);
+};
 
 struct BaseResource_VTable {
   uint64_t __tid;
@@ -18,6 +31,8 @@ struct DerivedResource {
   int32_t id;
   int32_t extra;
 };
+
+static void builtins_panicOnUnhandledException(builtins_Exception * ex);
 
 static void BaseResource_op__init(BaseResource * this, int32_t id);
 static void BaseResource_op__deinit(BaseResource * this);
@@ -38,8 +53,21 @@ static void testClassUpcast();
 static void testClassMoveUpcast();
 static void _main();
 
-BaseResource_VTable BaseResource_vTable = (BaseResource_VTable){22, ((void (*)(BaseResource *))(BaseResource_op__deinit)), ((int32_t (*)(BaseResource *))(BaseResource_getId))};
-BaseResource_VTable DerivedResource_vTable = (BaseResource_VTable){((uint64_t)(35)), ((void (*)(BaseResource *))(DerivedResource_op__deinit)), ((int32_t (*)(BaseResource *))(DerivedResource_getId))};
+
+static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
+  char * __t1;
+_L_entry:;
+  if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
+_L_IF0_then:;
+  __t1 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  goto _L_exit;
+_L_exit:;
+  return;
+}
+
+BaseResource_VTable BaseResource_vTable = (BaseResource_VTable){124, ((void (*)(BaseResource *))(BaseResource_op__deinit)), ((int32_t (*)(BaseResource *))(BaseResource_getId))};
+BaseResource_VTable DerivedResource_vTable = (BaseResource_VTable){((uint64_t)(136)), ((void (*)(BaseResource *))(DerivedResource_op__deinit)), ((int32_t (*)(BaseResource *))(DerivedResource_getId))};
 
 static void BaseResource_op__init(BaseResource * this, int32_t id) {
 _L_entry:;
@@ -161,15 +189,15 @@ _L_exit:;
 
 static DerivedResource * DerivedResource_op__initCover(int32_t id, int32_t extra) {
   DerivedResource * __ret;
-  DerivedResource * __obj0;
+  DerivedResource * __obj3;
   DerivedResource * __t0;
 _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(DerivedResource), DerivedResource_op__destructor_fwd);
-  __obj0 = ((DerivedResource *)(__t0));
-  memset(__obj0, 0, sizeof(DerivedResource));
-  DerivedResource___defaults_init(__obj0);
-  DerivedResource_op__init(__obj0, id, extra);
-  __ret = __obj0;
+  __obj3 = ((DerivedResource *)(__t0));
+  memset(__obj3, 0, sizeof(DerivedResource));
+  DerivedResource___defaults_init(__obj3);
+  DerivedResource_op__init(__obj3, id, extra);
+  __ret = __obj3;
   goto _L_exit;
 _L_exit:;
   return __ret;

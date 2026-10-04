@@ -172,7 +172,6 @@ void checkBinaryExpr(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
     AstNode *lhs = node->binaryExpr.lhs, *rhs = node->binaryExpr.rhs;
-    ctx->explicitCatch = node->binaryExpr.op == opCatch;
     bool currentReturnState = ctx->returnState;
     const Type *left = checkType(visitor, lhs), *left_ = stripAll(left);
     if (typeIs(left, Error)) {
@@ -182,15 +181,6 @@ void checkBinaryExpr(AstVisitor *visitor, AstNode *node)
 
     Operator op = node->binaryExpr.op;
     BinaryOperatorKind opKind = getBinaryOperatorKind(op);
-    if (opKind == optCatch && !isResultType(left)) {
-        logError(ctx->L,
-                 &node->binaryExpr.lhs->loc,
-                 "expression does not raise an exception",
-                 NULL);
-        node->type = ERROR_TYPE(ctx);
-        return;
-    }
-
     if (opKind == optCoalesce) {
         if (!isNullableType(left)) {
             logError(ctx->L,
@@ -318,14 +308,6 @@ void checkBinaryExpr(AstVisitor *visitor, AstNode *node)
             node->tag = astBoolLit;
             node->boolLiteral.value = compareTypes(left, right);
         }
-        return;
-    }
-
-    if (opKind == optCatch) {
-        ctx->catcher = newCatcher;
-        checkCatchBinaryOperator(visitor, node, &newCatcher);
-        ctx->catcher = catcher;
-        ctx->returnState = currentReturnState;
         return;
     }
 

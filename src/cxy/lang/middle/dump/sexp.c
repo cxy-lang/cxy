@@ -550,6 +550,25 @@ static void visitIteratorExpr(ConstAstVisitor *visitor, const AstNode *node)
     }
 }
 
+static void visitCatchExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
+    emitMetadata(visitor, node);
+
+    if (node->catchExpr.expr) {
+        emitNewline(ctx);
+        astConstVisit(visitor, node->catchExpr.expr);
+    }
+    if (node->catchExpr.var) {
+        emitNewline(ctx);
+        astConstVisit(visitor, node->catchExpr.var);
+    }
+    if (node->catchExpr.body) {
+        emitNewline(ctx);
+        astConstVisit(visitor, node->catchExpr.body);
+    }
+}
+
 static void visitIndexExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -868,6 +887,7 @@ AstNode *dumpAstToSexpState(CompilerDriver *driver,
         [astIndexExpr] = visitIndexExpr,
         [astSliceExpr] = visitSliceExpr,
         [astIteratorExpr] = visitIteratorExpr,
+        [astCatchExpr] = visitCatchExpr,
         [astCallExpr] = visitCallExpr,
         [astBinaryExpr] = visitBinaryExpr,
         [astAssignExpr] = visitAssignExpr,

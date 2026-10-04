@@ -120,9 +120,7 @@ void checkImplements(AstVisitor *visitor,
                      AstNode *node,
                      const Type **implements,
                      u64 count);
-void checkCatchBinaryOperator(AstVisitor *visitor,
-                              AstNode *node,
-                              struct ExceptionCather *catcher);
+void checkCatchExpr(AstVisitor *visitor, AstNode *node);
 
 void checkCallExceptionBubbleUp(AstVisitor *visitor, AstNode *node);
 

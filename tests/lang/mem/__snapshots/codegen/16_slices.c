@@ -1,8 +1,21 @@
+typedef struct builtins_Exception builtins_Exception;
+typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct Resource Resource;
 typedef struct Slice_i32 Slice_i32;
 typedef struct Buffer Buffer;
 typedef struct Optional_i32 Optional_i32;
-typedef struct Slice_ptr Slice_ptr;
+typedef struct Slice_Resource Slice_Resource;
+
+struct builtins_Exception {
+  builtins_Exception_VTable * vtable;
+  char * name;
+  void * stackTrace;
+};
+
+struct builtins_Exception_VTable {
+  uint64_t __tid;
+  char * (*what)(builtins_Exception *);
+};
 
 struct Resource {
   int32_t id;
@@ -23,10 +36,12 @@ struct Optional_i32 {
   int32_t val;
 };
 
-struct Slice_ptr {
+struct Slice_Resource {
   Resource * * ptr;
   uint64_t len;
 };
+
+static void builtins_panicOnUnhandledException(builtins_Exception * ex);
 
 static void Resource_op__init(Resource * this, int32_t id);
 static void Resource_op__deinit(Resource * this);
@@ -41,7 +56,20 @@ static void testCustomSliceOverload();
 static Resource * Resource_op__initCover(int32_t id);
 static void testManagedArraySlice();
 static void _main();
-static void __array_dctor_48(Slice_ptr arr);
+static void __array_dctor_148(Slice_Resource arr);
+
+
+static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
+  char * __t1;
+_L_entry:;
+  if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
+_L_IF0_then:;
+  __t1 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  goto _L_exit;
+_L_exit:;
+  return;
+}
 
 static void Resource_op__init(Resource * this, int32_t id) {
 _L_entry:;
@@ -144,11 +172,11 @@ _L_exit:;
 
 static Buffer Buffer_op__initCover(int32_t * data, uint64_t len) {
   Buffer __ret;
-  Buffer __obj0;
+  Buffer __obj3;
 _L_entry:;
-  __obj0 = (Buffer){};
-  Buffer_op__init(&__obj0, data, len);
-  __ret = __obj0;
+  __obj3 = (Buffer){};
+  Buffer_op__init(&__obj3, data, len);
+  __ret = __obj3;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -180,14 +208,14 @@ _L_exit:;
 
 static Resource * Resource_op__initCover(int32_t id) {
   Resource * __ret;
-  Resource * __obj1;
+  Resource * __obj4;
   Resource * __t3;
 _L_entry:;
   __t3 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
-  __obj1 = ((Resource *)(__t3));
-  memset(__obj1, 0, sizeof(Resource));
-  Resource_op__init(__obj1, id);
-  __ret = __obj1;
+  __obj4 = ((Resource *)(__t3));
+  memset(__obj4, 0, sizeof(Resource));
+  Resource_op__init(__obj4, id);
+  __ret = __obj4;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -195,16 +223,16 @@ _L_exit:;
 
 static void testManagedArraySlice() {
   Resource * arr[4];
-  Slice_ptr s;
+  Slice_Resource s;
 _L_entry:;
   arr[0] = Resource_op__initCover(((int32_t)(1)));
   arr[1] = Resource_op__initCover(((int32_t)(2)));
   arr[2] = Resource_op__initCover(((int32_t)(3)));
   arr[3] = Resource_op__initCover(((int32_t)(4)));
-  s = (Slice_ptr){&arr[1], 2};
+  s = (Slice_Resource){&arr[1], 2};
   goto _L_exit;
 _L_exit:;
-    __array_dctor_48((Slice_ptr){ .ptr = arr, .len = 4 });
+    __array_dctor_148((Slice_Resource){ .ptr = arr, .len = 4 });
   return;
 }
 
@@ -219,7 +247,7 @@ _L_exit:;
   return;
 }
 
-static void __array_dctor_48(Slice_ptr arr) {
+static void __array_dctor_148(Slice_Resource arr) {
   uint64_t __i;
 _L_entry:;
   __i = 0;

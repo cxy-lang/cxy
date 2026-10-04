@@ -36,21 +36,6 @@ static AstNode *makeSpreadVariable(TypingContext *ctx, AstNode *expr)
                        expr->type);
 }
 
-static AstNode *makeVoidReturnValue(TypingContext *ctx, const Type *type)
-{
-    const Type *voidType = getResultTargetType(type);
-    AstNode *value =
-        makeStructExpr(ctx->pool,
-                       builtinLoc(),
-                       flgNone,
-                       makeTypeReferenceNode(ctx->pool, voidType, builtinLoc()),
-                       NULL,
-                       NULL,
-                       voidType);
-    return makeUnionValueExpr(
-        ctx->pool, builtinLoc(), flgNone, value, 0, NULL, type);
-}
-
 static void reportUnreachable(TypingContext *ctx, AstNode *node)
 {
     AstNode *tmp = node->next;
@@ -178,7 +163,7 @@ static void checkBlockStmt(AstVisitor *visitor, AstNode *node)
         AstNode *ret = makeReturnAstNode(ctx->pool,
                                          builtinLoc(),
                                          flgNone,
-                                         makeVoidReturnValue(ctx, type),
+                                         NULL,
                                          NULL,
                                          type);
         if (node->blockStmt.stmts) {
@@ -187,7 +172,7 @@ static void checkBlockStmt(AstVisitor *visitor, AstNode *node)
         else {
             node->blockStmt.stmts = ret;
         }
-        ret->returnStmt.isRaise = true;
+        ret->returnStmt.isRaise = false;
         ctx->returnState = false;
     }
 restoreBlock:
@@ -209,7 +194,7 @@ static void checkReturnStmt(AstVisitor *visitor, AstNode *node)
 
     const Type *expr_ =
         expr ? checkType(visitor, expr) : makeVoidType(ctx->types);
-    ctx->returnState = ctx->returnState || !node->returnStmt.isRaise;
+    ctx->returnState = true;
     if (typeIs(expr_, Error)) {
         node->type = expr_;
         return;
@@ -218,22 +203,17 @@ static void checkReturnStmt(AstVisitor *visitor, AstNode *node)
     if (!exceptionVerifyRaiseExpr(ctx, ret, node))
         return;
 
+    if (node->returnStmt.isRaise) {
+        node->type = ret ? resolveType(ret->type) : makeVoidType(ctx->types);
+        return;
+    }
+
     if (ret) {
         const Type *retType = resolveType(ret->type);
-        if (expr == NULL && isVoidResultType(retType)) {
-            expr_ = getResultTargetType(retType);
-            expr = makeStructExpr(
-                ctx->pool,
-                &node->loc,
-                flgNone,
-                makeTypeReferenceNode(ctx->pool, expr_, &node->loc),
-                NULL,
-                NULL,
-                expr_);
-            node->returnStmt.expr = expr;
-        }
+        const Type *expectedType =
+            isResultType(retType) ? getResultTargetType(retType) : retType;
 
-        if (!promoteClosureToEscaping(ctx, expr, ret->type, "return")) {
+        if (!promoteClosureToEscaping(ctx, expr, expectedType, "return")) {
             node->type = ERROR_TYPE(ctx);
             return;
         }
@@ -241,13 +221,13 @@ static void checkReturnStmt(AstVisitor *visitor, AstNode *node)
             expr_ = expr->closureValue.canonicalType;
         }
 
-        if (!isTypeCastAssignable(ret->type, expr_) &&
-            !isTypeAssignableFrom(ret->type, expr_)) {
+        if (!isTypeCastAssignable(expectedType, expr_) &&
+            !isTypeAssignableFrom(expectedType, expr_)) {
             logError(ctx->L,
                      &node->loc,
                      "inconsistent return type, "
                      "expecting '{t}', got '{t}'",
-                     (FormatArg[]){{.t = ret->type}, {.t = expr_}});
+                     (FormatArg[]){{.t = expectedType}, {.t = expr_}});
             logNote(ctx->L,
                     &ret->loc,
                     "return type first declared or "
@@ -259,13 +239,6 @@ static void checkReturnStmt(AstVisitor *visitor, AstNode *node)
         }
 
         node->type = retType;
-
-        if (expr && isUnionType(retType) && retType != expr_) {
-            u32 idx = findUnionTypeIndex(retType, expr_);
-            csAssert0(idx != UINT32_MAX);
-            node->returnStmt.expr = makeUnionValueExpr(
-                ctx->pool, &expr->loc, expr->flags, expr, idx, NULL, retType);
-        }
     }
     else {
         node->type = expr_;
@@ -288,7 +261,14 @@ static void checkYieldStmt(AstVisitor *visitor, AstNode *node)
     TypingContext *ctx = getAstVisitorContext(visitor);
     AstNode *block = ctx->catcher.block, *lhs = ctx->catcher.expr,
             *expr = node->yieldStmt.expr;
-    csAssert0(block);
+    if (block == NULL || lhs == NULL) {
+        logError(ctx->L,
+                 &node->loc,
+                 "yield statement only allowed in catch blocks",
+                 NULL);
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
     if (isVoidResultType(lhs->type)) {
         logError(ctx->L,
                  &node->loc,
@@ -307,62 +287,19 @@ static void checkYieldStmt(AstVisitor *visitor, AstNode *node)
     node->type = type;
 
     const Type *target = getResultTargetType(lhs->type);
-    if (block->type == NULL) {
-        if (!isTypeAssignableFrom(lhs->type, target)) {
-            logError(ctx->L,
-                     &node->loc,
-                     "catch yield value '{t}' not assignable to expression "
-                     "type '{t}'",
-                     (FormatArg[]){{.t = type}, {.t = target}});
-            node->type = ERROR_TYPE(ctx);
-            return;
-        }
-        block->type = type;
-        node->type = type;
-    }
-    else if (typeIs(block->type, Error)) {
-        return;
-    }
-
-    if (!isTypeCastAssignable(block->type, type)) {
+    if (!isTypeAssignableFrom(target, type)) {
         logError(ctx->L,
                  &node->loc,
-                 "inconsistent yield type, expecting `{t}` (deduced from first "
-                 "yield expression) got `t`",
-                 (FormatArg[]){{.t = block->type}, {.t = type}});
+                 "catch yield value '{t}' not assignable to expression "
+                 "type '{t}'",
+                 (FormatArg[]){{.t = type}, {.t = target}});
         node->type = ERROR_TYPE(ctx);
         return;
     }
 
-    if (ctx->catcher.variable == NULL) {
-        ctx->catcher.variable =
-            makeVarDecl(ctx->pool,
-                        &node->loc,
-                        flgTemporary,
-                        makeAnonymousVariable(ctx->strings, "_Tres"),
-                        makeTypeReferenceNode(ctx->pool, target, &node->loc),
-                        NULL,
-                        NULL,
-                        target);
+    if (block->type == NULL) {
+        block->type = target;
     }
-    node->tag = astExprStmt;
-    clearAstBody(node);
-    node->exprStmt.expr =
-        makeAssignExpr(ctx->pool,
-                       &node->loc,
-                       flgNone,
-                       makeResolvedPath(ctx->pool,
-                                        &node->loc,
-                                        ctx->catcher.variable->_name,
-                                        flgNone,
-                                        ctx->catcher.variable,
-                                        NULL,
-                                        target),
-                       opAssign,
-                       expr,
-                       NULL,
-                       target);
-    node->type = target;
 }
 
 static void checkDeferStmt(AstVisitor *visitor, AstNode *node)
@@ -941,6 +878,7 @@ AstNode *checkAst(CompilerDriver *driver, AstNode *node)
         [astIndexExpr] = checkIndexExpr,
         [astSliceExpr] = checkSliceExpr,
         [astIteratorExpr] = checkIteratorExpr,
+        [astCatchExpr] = checkCatchExpr,
         [astStructExpr] = checkStructExpr,
         [astRangeExpr] = checkRangeExpr,
         [astNewExpr] = checkNewExpr,

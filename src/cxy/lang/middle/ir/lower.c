@@ -11,6 +11,7 @@
 #include "lang/frontend/visitor.h"
 #include "lang/middle/mangle.h"
 #include "lang/middle/memory/memory.h"
+#include "lang/middle/builtins.h"
 
 #include <string.h>
 
@@ -40,6 +41,10 @@ typedef struct VarNameEntry {
     cstring name;
     u32 count;
 } VarNameEntry;
+
+static IrNode *getOrCreateScopeReturnBlock(LowerContext *ctx,
+                                           u32 scopeId,
+                                           const FileLoc *loc);
 
 static cstring makeUniqueVarName(LowerContext *ctx, cstring displayName)
 {
@@ -96,6 +101,84 @@ static inline void emitBranchIfNotTerminated(LowerContext *ctx, IrNode *target)
 }
 
 
+static IrNode *getExceptionPushCallee(LowerContext *ctx)
+{
+    if (ctx->exceptionPushCallee)
+        return ctx->exceptionPushCallee;
+
+    const Type *baseExType = findBuiltinType(S_Exception);
+    if (baseExType == NULL)
+        return NULL;
+
+    const AstNode *pushDecl = NULL;
+    const AstNode *decl = getTypeDecl(baseExType);
+    if (decl && nodeIs(decl, ClassDecl)) {
+        for (const AstNode *mem = decl->classDecl.members; mem; mem = mem->next) {
+            if (nodeIs(mem, FuncDecl) && mem->funcDecl.name == S_push) {
+                pushDecl = mem;
+                break;
+            }
+        }
+    }
+
+    const IrType *pushType = pushDecl ? lowerType(ctx, pushDecl->type) : NULL;
+    ctx->exceptionPushCallee = makeIrGlobalRef(
+        ctx->pool,
+        builtinLoc(),
+        "builtins_Exception_push",
+        pushDecl ? pushDecl->ir : NULL,
+        pushType);
+
+    return ctx->exceptionPushCallee;
+}
+
+static void emitExceptionTracePush(LowerContext *ctx,
+                                   const FileLoc *loc,
+                                   IrNode *errVal)
+{
+    if (errVal == NULL)
+        return;
+
+    IrNode *pushCallee = getExceptionPushCallee(ctx);
+    if (pushCallee == NULL)
+        return;
+
+    const IrType *strType = makeIrPointerType(
+        ctx->types, flgConst, getIrPrimitiveType(ctx->types, irTypeChar));
+    const IrType *u64Type = getIrPrimitiveType(ctx->types, irTypeU64);
+    const IrType *voidType = getIrPrimitiveType(ctx->types, irTypeVoid);
+
+    cstring modName = ctx->module ? ctx->module->module.name : "";
+    cstring clsName = ctx->currentFunc && ctx->currentFunc->ast &&
+                              ctx->currentFunc->ast->parentScope &&
+                              isClassOrStructAstNode(ctx->currentFunc->ast->parentScope)
+                          ? getDeclarationName(ctx->currentFunc->ast->parentScope)
+                          : "";
+    cstring funName = ctx->currentFunc
+                          ? (ctx->currentFunc->function.display
+                                 ?: ctx->currentFunc->function.name)
+                          : "";
+    cstring fileName = loc && loc->fileName ? loc->fileName : "";
+    u64 row = loc ? loc->begin.row : 0;
+
+    IrNode *arg0 = cloneIrNode(ctx->pool, errVal);
+    IrNode *arg1 = makeIrStringConst(ctx->pool, loc, modName, strType);
+    IrNode *arg2 = makeIrStringConst(ctx->pool, loc, clsName, strType);
+    IrNode *arg3 = makeIrStringConst(ctx->pool, loc, funName, strType);
+    IrNode *arg4 = makeIrStringConst(ctx->pool, loc, fileName, strType);
+    IrNode *arg5 = makeIrIntConst(ctx->pool, loc, row, false, u64Type);
+
+    arg0->next = arg1;
+    arg1->next = arg2;
+    arg2->next = arg3;
+    arg3->next = arg4;
+    arg4->next = arg5;
+
+    IrNode *pushCall =
+        makeIrCall(ctx->pool, loc, pushCallee, arg0, 6, voidType);
+    emitStmt(ctx, pushCall);
+}
+
 static inline bool isBackendCopyExpr(const AstNode *node)
 {
     return node && nodeIs(node, BackendCall) &&
@@ -135,6 +218,12 @@ static cstring getIrTypeName(const IrType *type)
         return S_void;
     if (type->name)
         return type->name;
+    if (type->tag == irTypePointer && type->pointer.pointee) {
+        if (type->pointer.pointee->name)
+            return type->pointer.pointee->name;
+        if (type->pointer.pointee->display)
+            return type->pointer.pointee->display;
+    }
     switch (type->tag) {
     case irTypeVoid:
         return S_void;
@@ -223,6 +312,14 @@ static cstring makeDescriptiveResultName(LowerContext *ctx,
                                          const Type *type,
                                          const IrType *targetType)
 {
+    if (type && type->result.target) {
+        const Type *targetAst = resolveType(type->result.target);
+        if (targetAst && targetAst->name) {
+            char buf[128];
+            snprintf(buf, sizeof(buf), "Result_%s", targetAst->name);
+            return makeString(ctx->strings, buf);
+        }
+    }
     cstring targetName = getIrTypeName(targetType);
     char buf[128];
     if (strlen(targetName) < 50) {
@@ -711,15 +808,48 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
     }
     case typResult: {
         const IrType *targetType = lowerType(ctx, type->result.target);
+        const Type *baseExceptionType = findBuiltinType(S_Exception);
+        const IrType *exceptionType =
+            baseExceptionType
+                ? lowerType(ctx, baseExceptionType)
+                : makeIrPointerType(ctx->types,
+                                    flgNone,
+                                    getIrPrimitiveType(ctx->types, irTypeVoid));
+
+        IrField *valFields = NULL;
+        const IrType *valUnionType = NULL;
+
+        if (isVoidType(type->result.target)) {
+            valUnionType = exceptionType;
+        }
+        else {
+            valFields = allocFromMemPool(ctx->pool, sizeof(IrField) * 2);
+            valFields[0] =
+                (IrField){.name = makeString(ctx->strings, "_0"),
+                          .type = targetType,
+                          .index = 0};
+            valFields[1] =
+                (IrField){.name = makeString(ctx->strings, "_1"),
+                          .type = exceptionType,
+                          .index = 1};
+            cstring unionName =
+                makeStringConcat(ctx->strings,
+                                 makeDescriptiveResultName(ctx, type, targetType),
+                                 "_val");
+            valUnionType = makeIrUntaggedUnionType(
+                ctx->types, flgNone, unionName, unionName, valFields, 2);
+        }
+
         IrField *fields = allocFromMemPool(ctx->pool, sizeof(IrField) * 2);
         fields[0] = (IrField){.name = S_tag,
                               .type = getIrPrimitiveType(ctx->types, irTypeU32),
-                              .bits = 0};
-        fields[1] = (IrField){.name = S_val, .type = targetType, .bits = 0};
+                              .index = 0};
+        fields[1] = (IrField){.name = S_val, .type = valUnionType, .index = 1};
         cstring name = makeDescriptiveResultName(ctx, type, targetType);
         cstring display = makeDescriptiveResultDisplay(ctx, targetType);
-        Flags flags = isDestructible(type) ? flgReferenceMembers : flgNone;
-        result = makeIrStructType(ctx->types, flags, name, display, fields, 2);
+        result = makeIrStructType(
+            ctx->types, flgReferenceMembers, name, display, fields, 2);
+        ((IrType *)result)->category = irTypeCatResult;
         break;
     }
     default:
@@ -2104,12 +2234,150 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
         callee = fnCallee;
     }
 
-    node->codegen = makeIrCall(ctx->pool,
-                               &node->loc,
-                               callee,
-                               argsFirst,
-                               argsCount,
-                               lowerType(ctx, node->type));
+    IrNode *callNode = makeIrCall(ctx->pool,
+                                  &node->loc,
+                                  callee,
+                                  argsFirst,
+                                  argsCount,
+                                  lowerType(ctx, node->type));
+
+    if (!ctx->explicitCatch && node->type && isResultType(node->type)) {
+        const IrType *resIrType = lowerType(ctx, node->type);
+        cstring tempName =
+            makeStringf(ctx->strings, "__call_res_%u", ctx->tempCounter++);
+        Flags flags = flgTemporary;
+        if (isIrTypeDestructible(resIrType))
+            flags |= flgReferenceMembers;
+        IrNode *resVar = makeIrVarDecl(ctx->pool,
+                                       &node->loc,
+                                       flags,
+                                       tempName,
+                                       tempName,
+                                       resIrType,
+                                       ctx->currentScopeId);
+        emitStmt(ctx, resVar);
+        emitStmt(ctx,
+                 makeIrAssign(ctx->pool,
+                              &node->loc,
+                              makeIrVarRef(ctx->pool, &node->loc, resVar),
+                              callNode));
+
+        cstring errName =
+            makeStringf(ctx->strings, "call_err_%u", ctx->nextIfId++);
+        IrNode *errBB = createBlock(ctx, errName);
+        cstring contName =
+            makeStringf(ctx->strings, "call_cont_%u", ctx->nextIfId);
+        IrNode *contBB = createBlock(ctx, contName);
+
+        const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
+        IrNode *tagVal = makeIrMember(ctx->pool,
+                                      &node->loc,
+                                      makeIrVarRef(ctx->pool, &node->loc, resVar),
+                                      0,
+                                      S_tag,
+                                      u32Type);
+        IrNode *cond = makeIrBinary(
+            ctx->pool,
+            &node->loc,
+            opEq,
+            tagVal,
+            makeIrIntConst(ctx->pool, &node->loc, 1, false, u32Type),
+            getIrPrimitiveType(ctx->types, irTypeBool));
+        emitStmt(ctx, makeIrBranchIf(ctx->pool, &node->loc, cond, errBB, contBB));
+
+        setBlock(ctx, errBB);
+        if (ctx->funcRetVar && isResultType(ctx->funcRetAstType)) {
+            IrNode *retVarRef =
+                makeIrVarRef(ctx->pool, &node->loc, ctx->funcRetVar);
+            const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
+            IrNode *tagSlot = makeIrMember(
+                ctx->pool, &node->loc, retVarRef, 0, S_tag, u32Type);
+            emitStmt(ctx,
+                     makeIrAssign(ctx->pool,
+                                  &node->loc,
+                                  tagSlot,
+                                  makeIrIntConst(
+                                      ctx->pool, &node->loc, 1, false, u32Type)));
+
+            // Extract exception pointer from callee result
+            IrNode *resVarRef = makeIrVarRef(ctx->pool, &node->loc, resVar);
+            const IrType *resValFieldType = resIrType->strct.fields[1].type;
+            IrNode *resValMember = makeIrMember(
+                ctx->pool, &node->loc, resVarRef, 1, S_val, resValFieldType);
+            IrNode *errVal = resValMember;
+            if (resValFieldType->tag == irTypeUntaggedUnion) {
+                const Type *baseExType = findBuiltinType(S_Exception);
+                const IrType *exIrType =
+                    baseExType ? lowerType(ctx, baseExType)
+                               : getIrPrimitiveType(ctx->types, irTypeOpaque);
+                errVal = makeIrMember(
+                    ctx->pool, &node->loc, resValMember, 1, NULL, exIrType);
+            }
+
+            emitExceptionTracePush(ctx, &node->loc, errVal);
+
+            // Assign exception pointer into caller return slot (moved)
+            const IrType *retIrType = ctx->funcRetVar->type;
+            const IrType *retValFieldType = retIrType->strct.fields[1].type;
+            IrNode *retValMember = makeIrMember(
+                ctx->pool, &node->loc, retVarRef, 1, S_val, retValFieldType);
+            IrNode *assignStmt = NULL;
+            if (retValFieldType->tag == irTypeUntaggedUnion) {
+                const Type *baseExType = findBuiltinType(S_Exception);
+                const IrType *exIrType =
+                    baseExType ? lowerType(ctx, baseExType)
+                               : getIrPrimitiveType(ctx->types, irTypeOpaque);
+                IrNode *errSlot = makeIrMember(
+                    ctx->pool, &node->loc, retValMember, 1, NULL, exIrType);
+                assignStmt = makeIrAssign(ctx->pool, &node->loc, errSlot, errVal);
+            }
+            else {
+                assignStmt = makeIrAssign(ctx->pool, &node->loc, retValMember, errVal);
+            }
+            assignStmt->flags |= flgUnmanaged;
+            emitStmt(ctx, assignStmt);
+
+            // Defuse resVar container
+            IrNode *resTagSlot = makeIrMember(
+                ctx->pool, &node->loc, makeIrVarRef(ctx->pool, &node->loc, resVar), 0, S_tag, u32Type);
+            IrNode *defuseStmt = makeIrAssign(
+                ctx->pool, &node->loc, resTagSlot, makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type));
+            defuseStmt->flags |= flgUnmanaged;
+            emitStmt(ctx, defuseStmt);
+
+            IrNode *targetBB = getOrCreateScopeReturnBlock(
+                ctx, ctx->currentScopeId, &node->loc);
+            emitStmt(ctx, makeIrBranch(ctx->pool, &node->loc, targetBB));
+        }
+        else {
+            emitStmt(ctx, makeIrUnreachable(ctx->pool, &node->loc));
+        }
+
+        setBlock(ctx, contBB);
+        if (isVoidResultType(node->type)) {
+            node->codegen = NULL;
+        }
+        else {
+            const Type *targetType = getResultTargetType(node->type);
+            const IrType *irTargetType = lowerType(ctx, targetType);
+            IrNode *valMember = makeIrMember(
+                ctx->pool,
+                &node->loc,
+                makeIrVarRef(ctx->pool, &node->loc, resVar),
+                1,
+                S_val,
+                resIrType->strct.fields[1].type);
+            IrNode *unwrapped = valMember;
+            if (valMember->type && valMember->type->tag == irTypeUntaggedUnion) {
+                unwrapped = makeIrMember(
+                    ctx->pool, &node->loc, valMember, 0, NULL, irTargetType);
+            }
+            node->codegen = unwrapped;
+        }
+    }
+    else {
+        node->codegen = callNode;
+    }
 }
 
 static void visitTernaryExpr(AstVisitor *visitor, AstNode *node)
@@ -2639,6 +2907,10 @@ static void visitExprStmt(AstVisitor *visitor, AstNode *node)
             node->exprStmt.expr->type
                 ? resolveUnThisUnwrapType(node->exprStmt.expr->type)
                 : NULL;
+        if (expr->tag == irVarRef || isIrConst(expr) ||
+            (isIrPureValueExpr(expr) && expr->tag != irCall)) {
+            return;
+        }
         if (expr->tag == irCall && astType && !isReferenceType(astType) &&
             !isPointerType(astType) && isDestructible(astType)) {
             cstring tempName =
@@ -2914,6 +3186,210 @@ static IrNode *getOrCreateScopeReturnBlock(LowerContext *ctx,
     return unwindBB;
 }
 
+static void visitYieldStmt(AstVisitor *visitor, AstNode *node)
+{
+    LowerContext *ctx = getAstVisitorContext(visitor);
+    if (node->yieldStmt.expr && ctx->catchTargetVar) {
+        IrNode *val = lowerFlattenedOperand(visitor, node->yieldStmt.expr);
+        emitStmt(ctx,
+                 makeIrAssign(ctx->pool,
+                              &node->loc,
+                              makeIrVarRef(ctx->pool, &node->loc, ctx->catchTargetVar),
+                              val));
+    }
+    if (ctx->currentCatchErr) {
+        emitStmt(ctx,
+                 makeIrDrop(ctx->pool,
+                            &node->loc,
+                            cloneIrNode(ctx->pool, ctx->currentCatchErr)));
+    }
+    if (ctx->currentCatchRes) {
+        const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
+        IrNode *resTagSlot = makeIrMember(
+            ctx->pool,
+            &node->loc,
+            cloneIrNode(ctx->pool, ctx->currentCatchRes),
+            0,
+            S_tag,
+            u32Type);
+        IrNode *defuseStmt = makeIrAssign(
+            ctx->pool,
+            &node->loc,
+            resTagSlot,
+            makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type));
+        defuseStmt->flags |= flgUnmanaged;
+        emitStmt(ctx, defuseStmt);
+    }
+    if (ctx->catchMergeBB) {
+        emitStmt(ctx, makeIrBranch(ctx->pool, &node->loc, ctx->catchMergeBB));
+    }
+}
+
+static void visitCatchExpr(AstVisitor *visitor, AstNode *node)
+{
+    LowerContext *ctx = getAstVisitorContext(visitor);
+    bool prevExplicitCatch = ctx->explicitCatch;
+    ctx->explicitCatch = true;
+
+    IrNode *res = lowerFlattenedOperand(visitor, node->catchExpr.expr);
+    ctx->explicitCatch = prevExplicitCatch;
+
+    const Type *exprType = node->catchExpr.expr->type;
+    const Type *targetType = node->type;
+    const IrType *resIrType = lowerType(ctx, exprType);
+
+    cstring catchName = makeStringf(ctx->strings, "catch_%u", ctx->nextIfId++);
+    IrNode *catchBB = createBlock(ctx, catchName);
+    IrNode *continueBB = createBlock(ctx, makeStringf(ctx->strings, "cont_%u", ctx->nextIfId));
+    IrNode *mergeBB = createBlock(ctx, makeStringf(ctx->strings, "merge_%u", ctx->nextIfId));
+
+    IrNode *targetVar = NULL;
+    bool hasResultValue = targetType && !isVoidType(targetType);
+    if (hasResultValue) {
+        cstring varName =
+            makeStringf(ctx->strings, "__catch_res%u", ctx->tempCounter++);
+        const IrType *irTargetType = lowerType(ctx, targetType);
+        Flags flags = flgTemporary;
+        if (isIrTypeDestructible(irTargetType))
+            flags |= flgReferenceMembers;
+        targetVar = makeIrVarDecl(ctx->pool,
+                                  &node->loc,
+                                  flags,
+                                  varName,
+                                  varName,
+                                  irTargetType,
+                                  ctx->currentScopeId);
+        emitStmt(ctx, targetVar);
+    }
+
+    const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
+    IrNode *tagVal = makeIrMember(
+        ctx->pool, &node->loc, cloneIrNode(ctx->pool, res), 0, S_tag, u32Type);
+    IrNode *cond = makeIrBinary(
+        ctx->pool,
+        &node->loc,
+        opEq,
+        tagVal,
+        makeIrIntConst(ctx->pool, &node->loc, 1, false, u32Type),
+        getIrPrimitiveType(ctx->types, irTypeBool));
+    emitStmt(ctx, makeIrBranchIf(ctx->pool, &node->loc, cond, catchBB, continueBB));
+
+    // Continue BB (success: tag == 0)
+    setBlock(ctx, continueBB);
+    if (hasResultValue) {
+        IrNode *valMember = makeIrMember(ctx->pool, &node->loc, cloneIrNode(ctx->pool, res), 1, S_val, resIrType->strct.fields[1].type);
+        IrNode *unwrapped = valMember;
+        if (valMember->type && valMember->type->tag == irTypeUntaggedUnion) {
+            unwrapped = makeIrMember(ctx->pool, &node->loc, valMember, 0, NULL, lowerType(ctx, targetType));
+        }
+        IrNode *assignStmt = makeIrAssign(ctx->pool, &node->loc, makeIrVarRef(ctx->pool, &node->loc, targetVar), unwrapped);
+        assignStmt->flags |= flgUnmanaged;
+        emitStmt(ctx, assignStmt);
+
+        IrNode *resTagSlot = makeIrMember(ctx->pool, &node->loc, cloneIrNode(ctx->pool, res), 0, S_tag, u32Type);
+        IrNode *defuseStmt = makeIrAssign(ctx->pool, &node->loc, resTagSlot, makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type));
+        defuseStmt->flags |= flgUnmanaged;
+        emitStmt(ctx, defuseStmt);
+    }
+    emitBranchIfNotTerminated(ctx, mergeBB);
+
+    // Catch BB (error: tag == 1)
+    setBlock(ctx, catchBB);
+    IrNode *valMember = makeIrMember(ctx->pool, &node->loc, cloneIrNode(ctx->pool, res), 1, S_val, resIrType->strct.fields[1].type);
+    IrNode *errVal = valMember;
+    if (valMember->type && valMember->type->tag == irTypeUntaggedUnion) {
+        const Type *baseExType = findBuiltinType(S_Exception);
+        const IrType *exIrType = baseExType ? lowerType(ctx, baseExType) : getIrPrimitiveType(ctx->types, irTypeOpaque);
+        errVal = makeIrMember(ctx->pool, &node->loc, valMember, 1, NULL, exIrType);
+    }
+
+    if (node->catchExpr.var) {
+        node->catchExpr.var->codegen = errVal;
+        node->catchExpr.var->ir = makeIrAlias(
+            ctx->pool,
+            &node->loc,
+            node->catchExpr.var ? node->catchExpr.var->_name : S_ex,
+            errVal);
+    }
+
+    AstNode *body = node->catchExpr.body;
+    if (body) {
+        IrNode *prevCatchErr = ctx->currentCatchErr;
+        IrNode *prevCatchRes = ctx->currentCatchRes;
+        ctx->currentCatchErr = errVal;
+        ctx->currentCatchRes = res;
+
+        if (nodeIs(body, BlockStmt)) {
+            IrNode *prevCatchTarget = ctx->catchTargetVar;
+            IrNode *prevCatchMerge = ctx->catchMergeBB;
+            ctx->catchTargetVar = targetVar;
+            ctx->catchMergeBB = mergeBB;
+
+            astVisit(visitor, body);
+
+            ctx->catchTargetVar = prevCatchTarget;
+            ctx->catchMergeBB = prevCatchMerge;
+
+            if (ctx->currentBlock && !isBlockTerminated(ctx->currentBlock)) {
+                emitStmt(ctx,
+                         makeIrDrop(ctx->pool,
+                                    &node->loc,
+                                    cloneIrNode(ctx->pool, errVal)));
+                IrNode *resTagSlot = makeIrMember(
+                    ctx->pool,
+                    &node->loc,
+                    cloneIrNode(ctx->pool, res),
+                    0,
+                    S_tag,
+                    u32Type);
+                IrNode *defuseStmt = makeIrAssign(
+                    ctx->pool,
+                    &node->loc,
+                    resTagSlot,
+                    makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type));
+                defuseStmt->flags |= flgUnmanaged;
+                emitStmt(ctx, defuseStmt);
+            }
+            emitBranchIfNotTerminated(ctx, mergeBB);
+        }
+        else {
+            IrNode *defVal = lowerFlattenedOperand(visitor, body);
+            if (hasResultValue && defVal) {
+                emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, makeIrVarRef(ctx->pool, &node->loc, targetVar), defVal));
+            }
+            if (ctx->currentBlock && !isBlockTerminated(ctx->currentBlock)) {
+                emitStmt(ctx,
+                         makeIrDrop(ctx->pool,
+                                    &node->loc,
+                                    cloneIrNode(ctx->pool, errVal)));
+                IrNode *resTagSlot = makeIrMember(
+                    ctx->pool,
+                    &node->loc,
+                    cloneIrNode(ctx->pool, res),
+                    0,
+                    S_tag,
+                    u32Type);
+                IrNode *defuseStmt = makeIrAssign(
+                    ctx->pool,
+                    &node->loc,
+                    resTagSlot,
+                    makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type));
+                defuseStmt->flags |= flgUnmanaged;
+                emitStmt(ctx, defuseStmt);
+            }
+            emitBranchIfNotTerminated(ctx, mergeBB);
+        }
+
+        ctx->currentCatchErr = prevCatchErr;
+        ctx->currentCatchRes = prevCatchRes;
+    }
+
+    setBlock(ctx, mergeBB);
+    if (hasResultValue) {
+        node->codegen = makeIrVarRef(ctx->pool, &node->loc, targetVar);
+    }
+}
+
 static void visitReturnStmt(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
@@ -2924,7 +3400,48 @@ static void visitReturnStmt(AstVisitor *visitor, AstNode *node)
         const Type *retAstType = ctx->funcRetAstType;
         const Type *exprAstType = retExpr->type;
 
-        if (isSliceType(retAstType) && (exprAstType == NULL ||!isSliceType(exprAstType))) {
+        if (isResultType(retAstType)) {
+            const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
+            IrNode *tagSlot = makeIrMember(ctx->pool, &node->loc, retVarRef, 0, S_tag, u32Type);
+            const IrType *retIrType = ctx->funcRetVar->type;
+            const IrType *valFieldType = retIrType->strct.fields[1].type;
+            IrNode *valMember = makeIrMember(ctx->pool, &node->loc, retVarRef, 1, S_val, valFieldType);
+
+            if (node->returnStmt.isRaise) {
+                IrNode *errVal = lowerFlattenedOperand(visitor, retExpr);
+                emitExceptionTracePush(ctx, &node->loc, errVal);
+                emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, tagSlot, makeIrIntConst(ctx->pool, &node->loc, 1, false, u32Type)));
+                if (valFieldType->tag == irTypeUntaggedUnion) {
+                    const Type *baseExType = findBuiltinType(S_Exception);
+                    const IrType *exIrType = baseExType ? lowerType(ctx, baseExType) : getIrPrimitiveType(ctx->types, irTypeOpaque);
+                    IrNode *errSlot = makeIrMember(ctx->pool, &node->loc, valMember, 1, NULL, exIrType);
+                    emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, errSlot, errVal));
+                }
+                else {
+                    emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, valMember, errVal));
+                }
+            }
+            else {
+                emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, tagSlot, makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type)));
+                if (retExpr && valFieldType->tag == irTypeUntaggedUnion) {
+                    const IrType *elemType = valFieldType->strct.fields[0].type;
+                    IrNode *valSlot = makeIrMember(ctx->pool, &node->loc, valMember, 0, NULL, elemType);
+                    const Type *resTargetType = getResultTargetType(retAstType);
+                    if (isSliceType(resTargetType) && (exprAstType == NULL || !isSliceType(exprAstType))) {
+                        lowerSliceIntoTarget(ctx, visitor, retExpr, valSlot);
+                    }
+                    else if (isOptionalType(resTargetType) && !isOptionalType(exprAstType)) {
+                        lowerOptionalIntoTarget(ctx, visitor, retExpr, valSlot);
+                    }
+                    else {
+                        IrNode *val = lowerFlattenedOperand(visitor, retExpr);
+                        if (val)
+                            emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, valSlot, val));
+                    }
+                }
+            }
+        }
+        else if (isSliceType(retAstType) && (exprAstType == NULL ||!isSliceType(exprAstType))) {
             lowerSliceIntoTarget(ctx, visitor, retExpr, retVarRef);
         }
         else if (isOptionalType(retAstType) && !isOptionalType(exprAstType)) {
@@ -2947,6 +3464,41 @@ static void visitReturnStmt(AstVisitor *visitor, AstNode *node)
             if (val)
                 emitStmt(ctx,
                          makeIrAssign(ctx->pool, &node->loc, retVarRef, val));
+        }
+    }
+    else if (ctx->funcRetVar && isResultType(ctx->funcRetAstType)) {
+        IrNode *retVarRef = makeIrVarRef(ctx->pool, &node->loc, ctx->funcRetVar);
+        const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
+        IrNode *tagSlot = makeIrMember(ctx->pool, &node->loc, retVarRef, 0, S_tag, u32Type);
+        if (node->returnStmt.isRaise) {
+            emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, tagSlot, makeIrIntConst(ctx->pool, &node->loc, 1, false, u32Type)));
+            if (ctx->currentCatchErr) {
+                emitExceptionTracePush(ctx, &node->loc, ctx->currentCatchErr);
+                const IrType *retIrType = ctx->funcRetVar->type;
+                const IrType *valFieldType = retIrType->strct.fields[1].type;
+                IrNode *valMember = makeIrMember(ctx->pool, &node->loc, retVarRef, 1, S_val, valFieldType);
+                IrNode *assignStmt = NULL;
+                if (valFieldType->tag == irTypeUntaggedUnion) {
+                    const Type *baseExType = findBuiltinType(S_Exception);
+                    const IrType *exIrType = baseExType ? lowerType(ctx, baseExType) : getIrPrimitiveType(ctx->types, irTypeOpaque);
+                    IrNode *errSlot = makeIrMember(ctx->pool, &node->loc, valMember, 1, NULL, exIrType);
+                    assignStmt = makeIrAssign(ctx->pool, &node->loc, errSlot, cloneIrNode(ctx->pool, ctx->currentCatchErr));
+                }
+                else {
+                    assignStmt = makeIrAssign(ctx->pool, &node->loc, valMember, cloneIrNode(ctx->pool, ctx->currentCatchErr));
+                }
+                assignStmt->flags |= flgUnmanaged;
+                emitStmt(ctx, assignStmt);
+                if (ctx->currentCatchRes) {
+                    IrNode *srcTagSlot = makeIrMember(ctx->pool, &node->loc, cloneIrNode(ctx->pool, ctx->currentCatchRes), 0, S_tag, u32Type);
+                    IrNode *defuseStmt = makeIrAssign(ctx->pool, &node->loc, srcTagSlot, makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type));
+                    defuseStmt->flags |= flgUnmanaged;
+                    emitStmt(ctx, defuseStmt);
+                }
+            }
+        }
+        else {
+            emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, tagSlot, makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type)));
         }
     }
     IrNode *targetBB =
@@ -3388,6 +3940,8 @@ IrModule *lowerToIr(CompilerDriver *driver, AstNode *node)
         [astMemberExpr] = visitMemberExpr,
         [astIndexExpr] = visitIndexExpr,
         [astSliceExpr] = visitSliceExpr,
+        [astCatchExpr] = visitCatchExpr,
+        [astYieldStmt] = visitYieldStmt,
         [astBinaryExpr] = visitBinaryExpr,
         [astUnaryExpr] = visitUnaryExpr,
         [astPointerOf] = visitPointerOf,

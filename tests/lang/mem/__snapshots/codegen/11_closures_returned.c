@@ -1,35 +1,63 @@
-typedef struct __closure_env1 __closure_env1;
-typedef struct Closure_23 Closure_23;
-typedef struct __closure_env3 __closure_env3;
-typedef struct Closure_34 Closure_34;
+typedef struct builtins_Exception builtins_Exception;
+typedef struct builtins_Exception_VTable builtins_Exception_VTable;
+typedef struct __closure_env4 __closure_env4;
+typedef struct Closure_125 Closure_125;
+typedef struct __closure_env6 __closure_env6;
+typedef struct Closure_136 Closure_136;
 
-struct __closure_env1 {
+struct builtins_Exception {
+  builtins_Exception_VTable * vtable;
+  char * name;
+  void * stackTrace;
+};
+
+struct builtins_Exception_VTable {
+  uint64_t __tid;
+  char * (*what)(builtins_Exception *);
+};
+
+struct __closure_env4 {
   int32_t factor;
 };
 
-struct Closure_23 {
+struct Closure_125 {
   void * env;
   int32_t (*fn)(void *, int32_t);
   void (*dtor)(void *);
 };
 
-struct __closure_env3 {
+struct __closure_env6 {
   int8_t count;
 };
 
-struct Closure_34 {
+struct Closure_136 {
   void * env;
   int32_t (*fn)(void *);
   void (*dtor)(void *);
 };
 
-static int32_t __closure_body2(__closure_env1 * this, int32_t x);
-static Closure_23 makeMultiplier(int32_t factor);
-static int8_t __closure_body4(__closure_env3 * this);
-static Closure_34 makeCounter();
+static void builtins_panicOnUnhandledException(builtins_Exception * ex);
+
+static int32_t __closure_body5(__closure_env4 * this, int32_t x);
+static Closure_125 makeMultiplier(int32_t factor);
+static int8_t __closure_body7(__closure_env6 * this);
+static Closure_136 makeCounter();
 static void _main();
 
-static int32_t __closure_body2(__closure_env1 * this, int32_t x) {
+
+static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
+  char * __t1;
+_L_entry:;
+  if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
+_L_IF0_then:;
+  __t1 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  goto _L_exit;
+_L_exit:;
+  return;
+}
+
+static int32_t __closure_body5(__closure_env4 * this, int32_t x) {
   int32_t __ret;
 _L_entry:;
   goto _L_exit;
@@ -37,21 +65,21 @@ _L_exit:;
   return __ret;
 }
 
-static Closure_23 makeMultiplier(int32_t factor) {
-  Closure_23 __ret;
-  __closure_env1 __t0;
-  __closure_env1 * __env1;
+static Closure_125 makeMultiplier(int32_t factor) {
+  Closure_125 __ret;
+  __closure_env4 __t0;
+  __closure_env4 * __env1;
 _L_entry:;
-  __t0 = (__closure_env1){factor};
-  __env1 = __smart_ptr_alloc(sizeof(__closure_env1), nullptr);
+  __t0 = (__closure_env4){factor};
+  __env1 = __smart_ptr_alloc(sizeof(__closure_env4), nullptr);
   (*(__env1)) = __t0;
-  __ret = (Closure_23){ .env = __env1, .fn = __closure_body2, .dtor = __smart_ptr_drop };
+  __ret = (Closure_125){ .env = __env1, .fn = __closure_body5, .dtor = __smart_ptr_drop };
   goto _L_exit;
 _L_exit:;
   return __ret;
 }
 
-static int8_t __closure_body4(__closure_env3 * this) {
+static int8_t __closure_body7(__closure_env6 * this) {
   int8_t __ret;
 _L_entry:;
   __ret = (this->count + 1);
@@ -60,26 +88,26 @@ _L_exit:;
   return __ret;
 }
 
-static Closure_34 makeCounter() {
-  Closure_34 __ret;
+static Closure_136 makeCounter() {
+  Closure_136 __ret;
   int8_t count;
-  __closure_env3 __t2;
-  __closure_env3 * __env3;
+  __closure_env6 __t2;
+  __closure_env6 * __env3;
 _L_entry:;
   count = 0;
-  __t2 = (__closure_env3){count};
-  __env3 = __smart_ptr_alloc(sizeof(__closure_env3), nullptr);
+  __t2 = (__closure_env6){count};
+  __env3 = __smart_ptr_alloc(sizeof(__closure_env6), nullptr);
   (*(__env3)) = __t2;
-  __ret = (Closure_34){ .env = __env3, .fn = __closure_body4, .dtor = __smart_ptr_drop };
+  __ret = (Closure_136){ .env = __env3, .fn = __closure_body7, .dtor = __smart_ptr_drop };
   goto _L_exit;
 _L_exit:;
   return __ret;
 }
 
 static void _main() {
-  Closure_23 mul;
+  Closure_125 mul;
   int32_t r1;
-  Closure_34 cnt;
+  Closure_136 cnt;
   int32_t r2;
 _L_entry:;
   mul = makeMultiplier(((int32_t)(5)));

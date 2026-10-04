@@ -590,6 +590,12 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
     if (this == NULL || !nodeIs(callee, MemberExpr))
         return;
 
+    if (nodeIs(callee->memberExpr.target, MemberExpr)) {
+        AstNode *innerMem = callee->memberExpr.target->memberExpr.member;
+        if (nodeIs(innerMem, Identifier) && innerMem->ident.value == S_vtable)
+            return;
+    }
+
     csAssert0(nodeIs(callee, MemberExpr));
     bool isOptional = callee->memberExpr.isOptional || node->callExpr.isOptional;
     AstNode *target = callee->memberExpr.target,

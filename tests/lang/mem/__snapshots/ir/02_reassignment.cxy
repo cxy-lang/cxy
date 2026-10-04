@@ -1,5 +1,9 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/02_reassignment.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
 func main.Item.op__init(this: ^Item, id: i32): void {
 _L_entry:
   scope.enter 0
@@ -43,13 +47,13 @@ func main.Item.op__initCover(id: i32): ^Item {
 _L_entry:
   scope.enter 0
   var __ret: ^Item
-  var __obj0: ^Item
+  var __obj3: ^Item
   var __t0: ^Item
   __t0 = alloc(^Item)
-  __obj0 = <^Item>(__t0)
-  zeromem __obj0
-  Item_op__init(__obj0, &&id)
-  __ret = __obj0
+  __obj3 = <^Item>(__t0)
+  zeromem __obj3
+  Item_op__init(__obj3, &&id)
+  __ret = __obj3
   goto _L_exit
 _L_exit:
   scope.exit 0

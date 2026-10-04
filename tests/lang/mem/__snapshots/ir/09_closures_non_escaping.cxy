@@ -1,6 +1,10 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/09_closures_non_escaping.cxy
-func apply(x: i32, op: Closure_23): i32 {
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func apply(x: i32, op: Closure_125): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -11,7 +15,7 @@ _L_exit:
   return __ret
 }
 
-func invokeTwice(cb: Closure_26): void {
+func invokeTwice(cb: Closure_128): void {
 _L_entry:
   scope.enter 0
   cb.fn(cb.env)
@@ -22,7 +26,7 @@ _L_exit:
   return
 }
 
-func __closure_body2(this: ^__closure_env1, x: i32): i32 {
+func __closure_body5(this: ^__closure_env4, x: i32): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -32,7 +36,7 @@ _L_exit:
   return __ret
 }
 
-func __closure_body4(this: ^__closure_env3): void {
+func __closure_body7(this: ^__closure_env6): void {
 _L_entry:
   scope.enter 0
   *this.count = *this.count + 1
@@ -48,21 +52,21 @@ _L_entry:
   var factor: i8
   factor = 3
   var res: i32
-  var __t0: __closure_env1
-  __t0 = __closure_env1 {factor}
-  var __env1: __closure_env1
+  var __t0: __closure_env4
+  __t0 = __closure_env4 {factor}
+  var __env1: __closure_env4
   __env1 = __t0
-  var __t2: Closure_23
-  __t2 = ClosureValue(&__env1, __closure_body2)
+  var __t2: Closure_125
+  __t2 = ClosureValue(&__env1, __closure_body5)
   res = apply(<i32>(10), __t2)
   var count: i8
   count = 0
-  var __t3: __closure_env3
-  __t3 = __closure_env3 {&count}
-  var __env4: __closure_env3
+  var __t3: __closure_env6
+  __t3 = __closure_env6 {&count}
+  var __env4: __closure_env6
   __env4 = __t3
-  var __t5: Closure_26
-  __t5 = ClosureValue(&__env4, __closure_body4)
+  var __t5: Closure_128
+  __t5 = ClosureValue(&__env4, __closure_body7)
   invokeTwice(__t5)
   goto _L_exit
 _L_exit:

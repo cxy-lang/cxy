@@ -1,5 +1,9 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/16_slices.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
 func main.Resource.op__init(this: ^Resource, id: i32): void {
 _L_entry:
   scope.enter 0
@@ -110,10 +114,10 @@ func main.Buffer.op__initCover(data: ^i32, len: u64): Buffer {
 _L_entry:
   scope.enter 0
   var __ret: Buffer
-  var __obj0: Buffer
-  __obj0 = Buffer {}
-  Buffer_op__init(&__obj0, &&data, &&len)
-  __ret = &&__obj0
+  var __obj3: Buffer
+  __obj3 = Buffer {}
+  Buffer_op__init(&__obj3, &&data, &&len)
+  __ret = &&__obj3
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -145,13 +149,13 @@ func main.Resource.op__initCover(id: i32): ^Resource {
 _L_entry:
   scope.enter 0
   var __ret: ^Resource
-  var __obj1: ^Resource
+  var __obj4: ^Resource
   var __t3: ^Resource
   __t3 = alloc(^Resource)
-  __obj1 = <^Resource>(__t3)
-  zeromem __obj1
-  Resource_op__init(__obj1, &&id)
-  __ret = __obj1
+  __obj4 = <^Resource>(__t3)
+  zeromem __obj4
+  Resource_op__init(__obj4, &&id)
+  __ret = __obj4
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -164,7 +168,7 @@ _L_entry:
   var arr: [^Resource, 4]
   arr = [Resource_op__initCover(<i32>(1)), Resource_op__initCover(<i32>(2)), Resource_op__initCover(<i32>(3)), Resource_op__initCover(<i32>(4))]
   var s: [^Resource]
-  s = Slice_ptr {&arr[1], 2}
+  s = Slice_Resource {&arr[1], 2}
   goto _L_exit
 _L_exit:
   drop s
@@ -186,7 +190,7 @@ _L_exit:
   return
 }
 
-func __array_dctor_48(arr: [^Resource]): void {
+func __array_dctor_148(arr: [^Resource]): void {
 _L_entry:
   scope.enter 0
   var __i: u64

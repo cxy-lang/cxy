@@ -1,25 +1,53 @@
-typedef struct Closure_26 Closure_26;
-typedef struct Closure_30 Closure_30;
+typedef struct builtins_Exception builtins_Exception;
+typedef struct builtins_Exception_VTable builtins_Exception_VTable;
+typedef struct Closure_127 Closure_127;
+typedef struct Closure_131 Closure_131;
 
-struct Closure_26 {
+struct builtins_Exception {
+  builtins_Exception_VTable * vtable;
+  char * name;
+  void * stackTrace;
+};
+
+struct builtins_Exception_VTable {
+  uint64_t __tid;
+  char * (*what)(builtins_Exception *);
+};
+
+struct Closure_127 {
   void * env;
   void (*fn)(void *);
   void (*dtor)(void *);
 };
 
-struct Closure_30 {
+struct Closure_131 {
   void * env;
   int32_t (*fn)(void *, int32_t, int32_t);
   void (*dtor)(void *);
 };
 
-static void __closure_body0(void * this);
+static void builtins_panicOnUnhandledException(builtins_Exception * ex);
+
+static void __closure_body3(void * this);
 static void testSimple();
-static int32_t __closure_body1(void * this, int32_t a, int32_t b);
+static int32_t __closure_body4(void * this, int32_t a, int32_t b);
 static int32_t testParamsAndRet();
 static void _main();
 
-static void __closure_body0(void * this) {
+
+static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
+  char * __t1;
+_L_entry:;
+  if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
+_L_IF0_then:;
+  __t1 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  goto _L_exit;
+_L_exit:;
+  return;
+}
+
+static void __closure_body3(void * this) {
 _L_entry:;
   goto _L_exit;
 _L_exit:;
@@ -27,16 +55,16 @@ _L_exit:;
 }
 
 static void testSimple() {
-  Closure_26 c;
+  Closure_127 c;
 _L_entry:;
-  c = (Closure_26){ .env = nullptr, .fn = __closure_body0, .dtor = nullptr };
+  c = (Closure_127){ .env = nullptr, .fn = __closure_body3, .dtor = nullptr };
   c.fn(c.env);
   goto _L_exit;
 _L_exit:;
   return;
 }
 
-static int32_t __closure_body1(void * this, int32_t a, int32_t b) {
+static int32_t __closure_body4(void * this, int32_t a, int32_t b) {
   int32_t __ret;
 _L_entry:;
   goto _L_exit;
@@ -46,9 +74,9 @@ _L_exit:;
 
 static int32_t testParamsAndRet() {
   int32_t __ret;
-  Closure_30 add;
+  Closure_131 add;
 _L_entry:;
-  add = (Closure_30){ .env = nullptr, .fn = __closure_body1, .dtor = nullptr };
+  add = (Closure_131){ .env = nullptr, .fn = __closure_body4, .dtor = nullptr };
   __ret = add.fn(add.env, 10, 20);
   goto _L_exit;
 _L_exit:;

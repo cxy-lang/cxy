@@ -74,6 +74,12 @@ void initCompilerPreprocessor(struct CompilerDriver *driver)
     Options *options = &driver->options;
     driver->preprocessor.symbols = newTempHashTable(sizeof(PreprocessorMacro));
     driver->preprocessor.pool = driver->pool;
+    if (options->withoutBuiltins) {
+        preprocessorDefineMacro(&driver->preprocessor,
+                                makeString(driver->strings, "WITHOUT_BUILTINS"),
+                                NULL);
+    }
+
     if (options->optimizationLevel > O0) {
         preprocessorDefineMacro(&driver->preprocessor,
                                 makeString(driver->strings, "DISABLE_ASSERT"),

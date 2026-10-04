@@ -1,6 +1,10 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/13_closures_control_flow.cxy
-func __closure_body1(this: ^__closure_env0): i32 {
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func __closure_body4(this: ^__closure_env3): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -10,7 +14,7 @@ _L_exit:
   return __ret
 }
 
-func __closure_body3(this: ^__closure_env2): i32 {
+func __closure_body6(this: ^__closure_env5): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -24,28 +28,28 @@ func testIfElse(cond: bool): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  var fn: Closure_24
+  var fn: Closure_126
   if cond goto _L_IF0_then else goto _L_IF0_else
 _L_IF0_then:
   scope.enter 1
   var a: i32
   a = 10
-  var __t0: __closure_env0
-  __t0 = __closure_env0 {a}
-  var __env1: __closure_env0
+  var __t0: __closure_env3
+  __t0 = __closure_env3 {a}
+  var __env1: __closure_env3
   __env1 = __t0
-  fn = ClosureValue(&__env1, __closure_body1)
+  fn = ClosureValue(&__env1, __closure_body4)
   scope.exit 1
   goto _L_IF0_end
 _L_IF0_else:
   scope.enter 2
   var b: i32
   b = 20
-  var __t2: __closure_env2
-  __t2 = __closure_env2 {b}
-  var __env3: __closure_env2
+  var __t2: __closure_env5
+  __t2 = __closure_env5 {b}
+  var __env3: __closure_env5
   __env3 = __t2
-  fn = ClosureValue(&__env3, __closure_body3)
+  fn = ClosureValue(&__env3, __closure_body6)
   scope.exit 2
   goto _L_IF0_end
 _L_IF0_end:
@@ -56,7 +60,7 @@ _L_exit:
   return __ret
 }
 
-func __closure_body5(this: ^__closure_env4): i8 {
+func __closure_body8(this: ^__closure_env7): i8 {
 _L_entry:
   scope.enter 0
   var __ret: i8
@@ -76,12 +80,12 @@ _L_FOR0_cond:
   if i < 5 goto _L_FOR0_body else goto _L_FOR0_exit
 _L_FOR0_body:
   scope.enter 1
-  var c: Closure_45
-  var __t4: __closure_env4
-  __t4 = __closure_env4 {i}
-  var __env5: __closure_env4
+  var c: Closure_147
+  var __t4: __closure_env7
+  __t4 = __closure_env7 {i}
+  var __env5: __closure_env7
   __env5 = __t4
-  c = ClosureValue(&__env5, __closure_body5)
+  c = ClosureValue(&__env5, __closure_body8)
   if i == 3 goto _L_IF0_then else goto _L_IF0_end
 _L_FOR0_update:
   i = i + 1
@@ -101,7 +105,7 @@ _L_exit:
   return
 }
 
-func __closure_body7(this: ^__closure_env6): i32 {
+func __closure_body10(this: ^__closure_env9): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -111,7 +115,7 @@ _L_exit:
   return __ret
 }
 
-func __closure_body9(this: ^__closure_env8): i32 {
+func __closure_body12(this: ^__closure_env11): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -125,7 +129,7 @@ func testSwitch(mode: i32): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  var fn: Closure_24
+  var fn: Closure_126
   switch mode {
     0 -> _L_SWITCH0_case_0
     else -> _L_SWITCH0_case_1
@@ -137,22 +141,22 @@ _L_SWITCH0_case_0:
   scope.enter 1
   var x: i32
   x = 100
-  var __t6: __closure_env6
-  __t6 = __closure_env6 {x}
-  var __env7: __closure_env6
+  var __t6: __closure_env9
+  __t6 = __closure_env9 {x}
+  var __env7: __closure_env9
   __env7 = __t6
-  fn = ClosureValue(&__env7, __closure_body7)
+  fn = ClosureValue(&__env7, __closure_body10)
   scope.exit 1
   goto _L_SWITCH0_exit
 _L_SWITCH0_case_1:
   scope.enter 2
   var y: i32
   y = 200
-  var __t8: __closure_env8
-  __t8 = __closure_env8 {y}
-  var __env9: __closure_env8
+  var __t8: __closure_env11
+  __t8 = __closure_env11 {y}
+  var __env9: __closure_env11
   __env9 = __t8
-  fn = ClosureValue(&__env9, __closure_body9)
+  fn = ClosureValue(&__env9, __closure_body12)
   scope.exit 2
   goto _L_SWITCH0_exit
 _L_exit:

@@ -127,6 +127,7 @@ typedef struct Options {
     bool noPIE;
     bool withMemoryManager;
     bool withMemoryTrace;
+    bool withExceptionTrace;
     bool debug;
     OptimizationLevel optimizationLevel;
     bool debugPassManager;

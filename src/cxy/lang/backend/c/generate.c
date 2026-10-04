@@ -432,6 +432,55 @@ static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
         }
         break;
     }
+    case irTypeCatResult: {
+        cstring dropFunc = ctx->memTraceEnabled ? "__smart_ptr_drop_trace" : "__smart_ptr_drop";
+        const IrType *valType = type->strct.count > 1 ? type->strct.fields[1].type : NULL;
+        format(&ctx->state, "  if (", NULL);
+        irConstVisit(visitor, target);
+        format(&ctx->state, isIrPointerType(target->type) ? "->tag == 1) {\n    " : ".tag == 1) {\n    ", NULL);
+        format(&ctx->state, "{s}(", (FormatArg[]){{.s = dropFunc}});
+        irConstVisit(visitor, target);
+        if (valType && valType->tag == irTypeUntaggedUnion) {
+            format(&ctx->state, isIrPointerType(target->type) ? "->val._1" : ".val._1", NULL);
+        } else {
+            format(&ctx->state, isIrPointerType(target->type) ? "->val" : ".val", NULL);
+        }
+        if (ctx->memTraceEnabled) {
+            format(&ctx->state, ", \"{s}\", {u64});\n  }\n", (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
+        }
+        else {
+            format(&ctx->state, ");\n  }\n", NULL);
+        }
+
+        if (valType && valType->tag == irTypeUntaggedUnion && valType->strct.count > 0) {
+            const IrType *elemType = valType->strct.fields[0].type;
+            if (elemType && isIrTypeDestructible(elemType)) {
+                format(&ctx->state, "  else if (", NULL);
+                irConstVisit(visitor, target);
+                format(&ctx->state, isIrPointerType(target->type) ? "->tag == 0) {\n    " : ".tag == 0) {\n    ", NULL);
+                if (elemType->category == irTypeCatClass) {
+                    format(&ctx->state, "{s}(", (FormatArg[]){{.s = dropFunc}});
+                    irConstVisit(visitor, target);
+                    format(&ctx->state, isIrPointerType(target->type) ? "->val._0" : ".val._0", NULL);
+                    if (ctx->memTraceEnabled) {
+                        format(&ctx->state, ", \"{s}\", {u64});\n  }\n", (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
+                    }
+                    else {
+                        format(&ctx->state, ");\n  }\n", NULL);
+                    }
+                }
+                else if (elemType->name) {
+                    format(&ctx->state, "{s}_op__destructor(&(", (FormatArg[]){{.s = elemType->name}});
+                    irConstVisit(visitor, target);
+                    format(&ctx->state, isIrPointerType(target->type) ? "->val._0));\n  }\n" : ".val._0));\n  }\n", NULL);
+                }
+                else {
+                    format(&ctx->state, "}\n", NULL);
+                }
+            }
+        }
+        break;
+    }
     case irTypeCatOptional: {
         const IrType *elemType = type->strct.count > 1 ? type->strct.fields[1].type : NULL;
         if (elemType && isIrTypeDestructible(elemType)) {
@@ -556,6 +605,67 @@ static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
         }
         else {
             format(&ctx->state, ");\n", NULL);
+        }
+        break;
+    }
+    case irTypeCatResult: {
+        cstring getFunc = ctx->memTraceEnabled ? "__smart_ptr_get_trace" : "__smart_ptr_get";
+        const IrType *valType = type->strct.count > 1 ? type->strct.fields[1].type : NULL;
+        format(&ctx->state, "  ", NULL);
+        irConstVisit(visitor, dst);
+        format(&ctx->state, ".tag = ", NULL);
+        irConstVisit(visitor, src);
+        format(&ctx->state, ".tag;\n  if (", NULL);
+        irConstVisit(visitor, src);
+        format(&ctx->state, ".tag == 1) {\n    ", NULL);
+        irConstVisit(visitor, dst);
+        if (valType && valType->tag == irTypeUntaggedUnion) {
+            format(&ctx->state, ".val._1 = {s}(", (FormatArg[]){{.s = getFunc}});
+            irConstVisit(visitor, src);
+            format(&ctx->state, ".val._1", NULL);
+        } else {
+            format(&ctx->state, ".val = {s}(", (FormatArg[]){{.s = getFunc}});
+            irConstVisit(visitor, src);
+            format(&ctx->state, ".val", NULL);
+        }
+        if (ctx->memTraceEnabled) {
+            format(&ctx->state, ", \"{s}\", {u64});\n  }\n", (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
+        } else {
+            format(&ctx->state, ");\n  }\n", NULL);
+        }
+
+        if (valType && valType->tag == irTypeUntaggedUnion && valType->strct.count > 0) {
+            const IrType *elemType = valType->strct.fields[0].type;
+            if (elemType && isIrTypeDestructible(elemType)) {
+                format(&ctx->state, "  else if (", NULL);
+                irConstVisit(visitor, src);
+                format(&ctx->state, ".tag == 0) {\n    ", NULL);
+                if (elemType->category == irTypeCatClass) {
+                    irConstVisit(visitor, dst);
+                    format(&ctx->state, ".val._0 = {s}(", (FormatArg[]){{.s = getFunc}});
+                    irConstVisit(visitor, src);
+                    format(&ctx->state, ".val._0", NULL);
+                    if (ctx->memTraceEnabled) {
+                        format(&ctx->state, ", \"{s}\", {u64});\n  }\n", (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
+                    } else {
+                        format(&ctx->state, ");\n  }\n", NULL);
+                    }
+                } else if (elemType->name) {
+                    format(&ctx->state, "{s}_op__copy(&(", (FormatArg[]){{.s = elemType->name}});
+                    irConstVisit(visitor, dst);
+                    format(&ctx->state, ".val._0), &(", NULL);
+                    irConstVisit(visitor, src);
+                    format(&ctx->state, ".val._0));\n  }\n", NULL);
+                } else {
+                    format(&ctx->state, "}\n", NULL);
+                }
+            } else {
+                format(&ctx->state, "  else {\n    ", NULL);
+                irConstVisit(visitor, dst);
+                format(&ctx->state, ".val._0 = ", NULL);
+                irConstVisit(visitor, src);
+                format(&ctx->state, ".val._0;\n  }\n", NULL);
+            }
         }
         break;
     }
@@ -923,7 +1033,7 @@ static void emitBasicBlock(ConstIrVisitor *visitor, const IrNode *node)
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
     format(&ctx->state, "{s}:;\n", (FormatArg[]){{.s = node->basicBlock.name}});
     for (const IrNode *stmt = node->basicBlock.first; stmt; stmt = stmt->next) {
-        if (stmt->tag == irVarDecl)
+        if (stmt->tag == irVarDecl || stmt->tag == irVarRef || isIrConst(stmt))
             continue;
         emitLineDirective(ctx, &stmt->loc);
         if (stmt->tag == irCall || stmt->tag == irUnary || stmt->tag == irBinary) {
@@ -1269,14 +1379,78 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
     }
 
     if (!driver->options.buildPlugin && mainFunc) {
+        bool hasArgs = mainFunc->function.paramsCount > 0;
+        cstring argsPass = hasArgs ? "_args" : "";
         format(&ctx.state, "int main(int argc, char **argv) {{\n", NULL);
-        format(&ctx.state, "  (void)argc;\n  (void)argv;\n", NULL);
-        format(&ctx.state, "  __cxy_start_runtime();\n", NULL);
-        if (mainFunc->type && mainFunc->type->func.ret && mainFunc->type->func.ret->tag != irTypeVoid) {
-            format(&ctx.state, "  return {s}();\n", (FormatArg[]){{.s = mainFunc->function.name}});
+        if (hasArgs) {
+            const IrType *sliceType = mainFunc->function.params->type;
+            cstring sliceName = sliceType ? sliceType->name : "Slice_string";
+            format(&ctx.state, "  __cxy_start_runtime();\n", NULL);
+            format(&ctx.state,
+                   "  {s} _args = {{ (const char **)argv, (uint64_t)argc };\n",
+                   (FormatArg[]){{.s = sliceName}});
         }
         else {
-            format(&ctx.state, "  {s}();\n  return 0;\n", (FormatArg[]){{.s = mainFunc->function.name}});
+            format(&ctx.state, "  (void)argc;\n  (void)argv;\n", NULL);
+            format(&ctx.state, "  __cxy_start_runtime();\n", NULL);
+        }
+        if (mainFunc->type && mainFunc->type->func.ret &&
+            mainFunc->type->func.ret->category == irTypeCatResult) {
+            const IrType *retType = mainFunc->type->func.ret;
+            format(&ctx.state,
+                   "  {s} res = {s}({s});\n",
+                   (FormatArg[]){{.s = retType->name},
+                                 {.s = mainFunc->function.name},
+                                 {.s = argsPass}});
+            format(&ctx.state, "  if (res.tag == 1) {{\n", NULL);
+            if (retType->strct.count > 1 && retType->strct.fields[1].type &&
+                retType->strct.fields[1].type->tag == irTypeUntaggedUnion) {
+                format(&ctx.state,
+                       "    builtins_Exception *ex = (builtins_Exception *)res.val._1;\n",
+                       NULL);
+            }
+            else {
+                format(&ctx.state,
+                       "    builtins_Exception *ex = (builtins_Exception *)res.val;\n",
+                       NULL);
+            }
+            format(&ctx.state,
+                   "    if (ex) {{\n"
+                   "      builtins_panicOnUnhandledException(ex);\n"
+                   "      __smart_ptr_drop(ex);\n"
+                   "    }\n"
+                   "    return 1;\n"
+                   "  }\n",
+                   NULL);
+            if (retType->strct.count > 1 && retType->strct.fields[1].type &&
+                retType->strct.fields[1].type->tag == irTypeUntaggedUnion) {
+                const IrType *elemType =
+                    retType->strct.fields[1].type->strct.fields[0].type;
+                if (elemType &&
+                    (elemType->tag == irTypeI32 || elemType->tag == irTypeU32 ||
+                     elemType->tag == irTypeI8 || elemType->tag == irTypeU8)) {
+                    format(&ctx.state, "  return (int)res.val._0;\n", NULL);
+                }
+                else {
+                    format(&ctx.state, "  return 0;\n", NULL);
+                }
+            }
+            else {
+                format(&ctx.state, "  return 0;\n", NULL);
+            }
+        }
+        else if (mainFunc->type && mainFunc->type->func.ret &&
+                 mainFunc->type->func.ret->tag != irTypeVoid) {
+            format(&ctx.state,
+                   "  return {s}({s});\n",
+                   (FormatArg[]){{.s = mainFunc->function.name},
+                                 {.s = argsPass}});
+        }
+        else {
+            format(&ctx.state,
+                   "  {s}({s});\n  return 0;\n",
+                   (FormatArg[]){{.s = mainFunc->function.name},
+                                 {.s = argsPass}});
         }
         format(&ctx.state, "}\n", NULL);
     }

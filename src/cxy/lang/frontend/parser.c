@@ -1126,11 +1126,54 @@ static AstNode *binary(Parser *P,
             break;
 
         advance(P);
-        AstNode *rhs;
-        if (op == opCatch && match(P, tokDiscard)) {
-            rhs = newAstNode(P, previous(P), &(AstNode){.tag = astBlockStmt});
+        if (op == opCatch) {
+            AstNode *var = NULL;
+            if (match(P, tokAs)) {
+                Token asTok = *previous(P);
+                if (check(P, tokIdent)) {
+                    Token identTok = *advance(P);
+                    cstring aliasName = getTokenString(P, &identTok, false);
+                    var = newAstNode(
+                        P,
+                        &identTok,
+                        &(AstNode){.tag = astAliasExpr,
+                                   .aliasExpr = {.name = aliasName, .expr = NULL}});
+                }
+                else {
+                    parserError(P,
+                                &asTok.fileLoc,
+                                "expecting identifier after 'as' in catch expression",
+                                NULL);
+                }
+                if (!check(P, tokLBrace)) {
+                    parserError(P,
+                                &current(P)->fileLoc,
+                                "catch block '{' required when 'as' is specified",
+                                NULL);
+                }
+            }
+
+            AstNode *rhs = NULL;
+            if (match(P, tokDiscard)) {
+                rhs = newAstNode(P, previous(P), &(AstNode){.tag = astBlockStmt});
+            }
+            else if (check(P, tokLBrace)) {
+                rhs = block(P);
+            }
+            else {
+                rhs = binary(P, NULL, nextPrecedence, parsePrimary);
+            }
+
+            lhs = newAstNode_(
+                P,
+                &lhs->loc,
+                &(AstNode){.tag = astCatchExpr,
+                           .catchExpr = {.expr = lhs, .var = var, .body = rhs}});
+            continue;
         }
-        else if (op == opRange && check(P, tokRBracket)) {
+
+        AstNode *rhs;
+        if (op == opRange && check(P, tokRBracket)) {
             rhs = NULL;
         }
         else {
@@ -1359,24 +1402,15 @@ static AstNode *range(Parser *P)
 static AstNode *funcReturnType(Parser *P)
 {
     Token start = *current(P);
-    match(P, tokLNot);
+    bool isResult = match(P, tokLNot) != NULL;
     AstNode *ret = parseType(P);
-    if (start.tag == tokLNot) {
-        ret->next = newAstNode(
-            P,
-            &start,
-            &(AstNode){
-                .tag = astPath,
-                .path = {.elements = newAstNode(
-                             P,
-                             &start,
-                             &(AstNode){.tag = astPathElem,
-                                        .pathElement.name = S_Exception})}});
+    if (isResult) {
         ret = newAstNode(
             P,
             &start,
-            &(AstNode){.tag = astUnionDecl,
-                       .unionDecl = {.members = ret, .isResult = true}});
+            &(AstNode){.tag = astResultType,
+                       .flags = flgTypeAst,
+                       .resultType = {.target = ret}});
     }
     return ret;
 }
@@ -3508,6 +3542,16 @@ static AstNode *parseTypeImpl(Parser *P)
         case tokBAnd:
             type = parseReferenceType(P);
             break;
+        case tokLNot: {
+            Token notTok = *advance(P);
+            AstNode *target = parseTypeImpl(P);
+            return makeAstNode(
+                P->memPool,
+                &notTok.fileLoc,
+                &(AstNode){.tag = astResultType,
+                           .flags = flgTypeAst | (isConst ? flgConst : flgNone),
+                           .resultType = {.target = target}});
+        }
         case tokVoid:
             advance(P);
             type =

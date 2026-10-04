@@ -1,6 +1,10 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/12_closures_fields.cxy
-func main.Handler.op__init(this: ^Handler, fn: Closure_24): void {
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func main.Handler.op__init(this: ^Handler, fn: Closure_126): void {
 _L_entry:
   scope.enter 0
   this.fn = fn
@@ -43,7 +47,7 @@ _L_exit:
   return
 }
 
-func main.Dispatcher.op__init(this: ^Dispatcher, fn: Closure_33): void {
+func main.Dispatcher.op__init(this: ^Dispatcher, fn: Closure_135): void {
 _L_entry:
   scope.enter 0
   this.fn = fn
@@ -84,7 +88,7 @@ _L_exit:
   return
 }
 
-func __closure_body3(this: ^__closure_env2, x: i32): i32 {
+func __closure_body6(this: ^__closure_env5, x: i32): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -94,21 +98,21 @@ _L_exit:
   return __ret
 }
 
-func main.Handler.op__initCover(fn: Closure_24): Handler {
+func main.Handler.op__initCover(fn: Closure_126): Handler {
 _L_entry:
   scope.enter 0
   var __ret: Handler
-  var __obj4: Handler
-  __obj4 = Handler {}
-  Handler_op__init(&__obj4, &&fn)
-  __ret = __obj4
+  var __obj7: Handler
+  __obj7 = Handler {}
+  Handler_op__init(&__obj7, &&fn)
+  __ret = __obj7
   goto _L_exit
 _L_exit:
   scope.exit 0
   return __ret
 }
 
-func __closure_body5(this: ^void): void {
+func __closure_body8(this: ^void): void {
 _L_entry:
   scope.enter 0
   goto _L_exit
@@ -117,17 +121,17 @@ _L_exit:
   return
 }
 
-func main.Dispatcher.op__initCover(fn: Closure_33): ^Dispatcher {
+func main.Dispatcher.op__initCover(fn: Closure_135): ^Dispatcher {
 _L_entry:
   scope.enter 0
   var __ret: ^Dispatcher
-  var __obj6: ^Dispatcher
+  var __obj9: ^Dispatcher
   var __t0: ^Dispatcher
   __t0 = alloc(^Dispatcher)
-  __obj6 = <^Dispatcher>(__t0)
-  zeromem __obj6
-  Dispatcher_op__init(__obj6, &&fn)
-  __ret = __obj6
+  __obj9 = <^Dispatcher>(__t0)
+  zeromem __obj9
+  Dispatcher_op__init(__obj9, &&fn)
+  __ret = __obj9
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -140,19 +144,19 @@ _L_entry:
   var offset: i8
   offset = 1
   var h: Handler
-  var __t1: __closure_env2
-  __t1 = __closure_env2 {offset}
-  var __env2: ^__closure_env2
-  __env2 = alloc(__closure_env2)
+  var __t1: __closure_env5
+  __t1 = __closure_env5 {offset}
+  var __env2: ^__closure_env5
+  __env2 = alloc(__closure_env5)
   *__env2 = __t1
-  var __t3: Closure_24
-  __t3 = ClosureValue(__env2, __closure_body3)
+  var __t3: Closure_126
+  __t3 = ClosureValue(__env2, __closure_body6)
   h = Handler_op__initCover(__t3)
   var v: i32
   v = Handler_call(&h, <i32>(41))
   var d: ^Dispatcher
-  var __t4: Closure_33
-  __t4 = ClosureValue(null, __closure_body5)
+  var __t4: Closure_135
+  __t4 = ClosureValue(null, __closure_body8)
   d = Dispatcher_op__initCover(__t4)
   Dispatcher_dispatch(d)
   goto _L_exit

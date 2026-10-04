@@ -272,6 +272,89 @@ static inline void __cxy_panic(const char *file, uint64_t line, uint64_t column,
 typedef void *sptr;
 typedef void (*sptr_dctor)(sptr);
 
+typedef struct __cxy_call_trace {
+    const char *mod;
+    const char *cls;
+    const char *fun;
+    const char *path;
+    uint64_t line;
+} __cxy_call_trace;
+
+typedef struct __cxy_stack_trace {
+    __cxy_call_trace *calls;
+    uint64_t size;
+    uint64_t capacity;
+} __cxy_stack_trace;
+
+static inline __cxy_stack_trace *__cxy_stack_trace_alloc(void)
+{
+    __cxy_stack_trace *st = (__cxy_stack_trace *)malloc(sizeof(__cxy_stack_trace));
+    if (st) {
+        st->calls = nullptr;
+        st->size = 0;
+        st->capacity = 0;
+    }
+    return st;
+}
+
+static inline void __cxy_stack_trace_push(__cxy_stack_trace *st,
+                                          const char *mod,
+                                          const char *cls,
+                                          const char *fun,
+                                          const char *path,
+                                          uint64_t line)
+{
+    if (!st)
+        return;
+    if (st->size >= st->capacity) {
+        st->capacity = st->capacity == 0 ? 8 : st->capacity * 2;
+        st->calls = (__cxy_call_trace *)realloc(st->calls, sizeof(__cxy_call_trace) * st->capacity);
+    }
+    if (st->calls)
+        st->calls[st->size++] = (__cxy_call_trace){mod, cls, fun, path, line};
+}
+
+static inline void __cxy_stack_trace_destroy(__cxy_stack_trace *st)
+{
+    if (!st)
+        return;
+    if (st->calls)
+        free(st->calls);
+    free(st);
+}
+
+static inline void __cxy_dump_unhandled_exception(const char *name,
+                                                  const char *msg,
+                                                  void *st_ptr)
+{
+    __cxy_stack_trace *st = (__cxy_stack_trace *)st_ptr;
+    write(2, "fatal: unhandled exception '", 28);
+    if (name) {
+        write(2, name, strlen(name));
+    }
+    write(2, "'", 1);
+    if (msg && strlen(msg) > 0 && (!name || strcmp(name, msg) != 0)) {
+        write(2, ": ", 2);
+        write(2, msg, strlen(msg));
+    }
+    write(2, "\n", 1);
+    if (st && st->calls && st->size > 0) {
+        write(2, "Stack trace:\n", 13);
+        char buf[256];
+        for (uint64_t i = 0; i < st->size; i++) {
+            __cxy_call_trace *c = &st->calls[i];
+            int len = snprintf(buf, sizeof(buf), "  [%llu] %s%s%s @ %s:%llu\n",
+                               (unsigned long long)i,
+                               c->cls ? c->cls : "",
+                               (c->cls && c->fun) ? "." : "",
+                               c->fun ? c->fun : (c->mod ? c->mod : "<unknown>"),
+                               c->path ? c->path : "<unknown>",
+                               (unsigned long long)c->line);
+            write(2, buf, len);
+        }
+    }
+}
+
 #define MEMORY_MAGIC 0xAEAEAE00U
 
 #if defined(ENABLE_MEMORY_TRACE)
@@ -524,6 +607,26 @@ static inline void __cxy_memory_leak_report(void)
                    (unsigned)curr->refs,
                    curr->alloc_path ? curr->alloc_path : "<unknown>",
                    (unsigned long long)curr->alloc_line);
+
+            __cxy_mem_trace_event *alloc_ev = nullptr;
+            uint32_t current_idx = __cxy_mem_ring_idx;
+            for (uint32_t i = 0; i < __CXY_MEM_TRACE_RING_SIZE; i++) {
+                uint32_t idx = (current_idx + __CXY_MEM_TRACE_RING_SIZE - 1 - i) % __CXY_MEM_TRACE_RING_SIZE;
+                __cxy_mem_trace_event *ev = &__cxy_mem_ring[idx];
+                if (ev->ptr == payload && ev->op != nullptr && strcmp(ev->op, "alloc") == 0) {
+                    alloc_ev = ev;
+                    break;
+                }
+            }
+            if (alloc_ev != nullptr && alloc_ev->stackSize > 2) {
+                printf("  Allocation callstack:\n");
+                if (__cxy_symbolize_stack != nullptr) {
+                    __cxy_symbolize_stack(alloc_ev->stack + 2, alloc_ev->stackSize - 2);
+                }
+                else {
+                    backtrace_symbols_fd(alloc_ev->stack + 2, alloc_ev->stackSize - 2, 1);
+                }
+            }
             curr = curr->next;
         }
         printf("Total: %llu active allocations (%llu bytes leaked)\n",

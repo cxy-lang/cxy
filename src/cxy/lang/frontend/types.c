@@ -162,6 +162,11 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
     from = resolveType(from);
     if (to == from)
         return true;
+    if (isResultType(from) && !isResultType(to)) {
+        from = getResultTargetType(from);
+        if (to == from)
+            return true;
+    }
     if (isOptionalType(to) && !isOptionalType(from)) {
         if (typeIs(from, Pointer) && typeIs(from->pointer.pointed, Null))
             return true;
@@ -388,6 +393,11 @@ bool isTypeCastAssignable(const Type *to, const Type *from)
 {
     to = resolveType(to);
     from = resolveType(from);
+    if (isResultType(from) && !isResultType(to)) {
+        from = getResultTargetType(from);
+        if (to == from)
+            return true;
+    }
     u64 toFlags = flgNone, fromFlags = flgNone;
     const Type *unwrappedTo = unwrapType(to, &toFlags);
     const Type *unwrappedFrom = unwrapType(from, &fromFlags);
@@ -892,18 +902,13 @@ bool isExceptionType(const Type *type)
 bool isResultType(const Type *type)
 {
     type = resolveUnThisUnwrapType(type);
-    if (!typeIs(type, Union) || type->tUnion.count != 2)
-        return false;
-    return isBaseExceptionType(type->tUnion.members[1].type);
+    return type && typeIs(type, Result);
 }
 
 bool isVoidResultType(const Type *type)
 {
     type = resolveUnThisUnwrapType(type);
-    if (!isResultType(type))
-        return false;
-    type = type->tUnion.members[0].type;
-    return typeIs(type, Struct) && type->name == S_Void && type->ns == NULL;
+    return isResultType(type) && isVoidType(type->result.target);
 }
 
 bool hasPrimitiveType(const Type *type, PrtId id)
@@ -1126,8 +1131,8 @@ void printType_(FormatState *state, const Type *type, bool keyword)
         format(state, " {s}", (FormatArg[]){{.s = type->name}});
         break;
     case typResult:
-        printType_(state, type->result.target, keyword);
         format(state, "!", NULL);
+        printType_(state, type->result.target, keyword);
         break;
     case typLiteral:
         printLiteralType(state, type->literal.value, type->index);
@@ -1391,7 +1396,7 @@ const Type *getResultTargetType(const Type *type)
     if (type == NULL || !isResultType(type))
         return NULL;
     type = resolveUnThisUnwrapType(type);
-    return type->tUnion.members[0].type;
+    return type->result.target;
 }
 
 u32 findUnionTypeIndex(const Type *tagged, const Type *type)

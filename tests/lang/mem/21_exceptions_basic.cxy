@@ -1,0 +1,93 @@
+class Resource {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+exception TestError(msg: string) => msg
+
+func mayFail(x: i32): !i32 {
+    if (x < 0) {
+        raise TestError("negative value")
+    }
+    return x * 2
+}
+
+func testCatchDefault(): i32 {
+    var a = mayFail(10) catch 0
+    var b = mayFail(-5) catch -1
+    return a + b
+}
+
+func testCatchDiscard(): void {
+    mayFail(10) catch discard
+    mayFail(-1) catch discard
+}
+
+func testCatchAnonymous(): i32 {
+    var res = 0
+    mayFail(-10) catch {
+        res = 42
+    }
+    return res
+}
+
+func testCatchNamed(): i32 {
+    var res = 0
+    mayFail(-20) catch as err {
+        res = 100
+    }
+    return res
+}
+
+func testCatchYield(): i32 {
+    var val = mayFail(-30) catch as err {
+        yield 99
+    }
+    return val
+}
+
+func level3(x: i32): !i32 {
+    var res = Resource(x)
+    if (x < 0) {
+        raise TestError("level3 failed")
+    }
+    return x + 10
+}
+
+func level2(x: i32): !i32 {
+    var res = Resource(x + 1)
+    var v = level3(x)
+    return v + 20
+}
+
+func level1(x: i32): !i32 {
+    var res = Resource(x + 2)
+    var v = level2(x)
+    return v + 30
+}
+
+func testBubbleUpUnwind(): i32 {
+    var result = level1(-1) catch as err {
+        yield -999
+    }
+    return result
+}
+
+func testReraise(x: i32): !i32 {
+    var v = mayFail(x) catch {
+        raise
+    }
+    return v
+}
+
+func main(): void {
+    var r1 = testCatchDefault()
+    testCatchDiscard()
+    var r2 = testCatchAnonymous()
+    var r3 = testCatchNamed()
+    var r4 = testCatchYield()
+    var r5 = testBubbleUpUnwind()
+    var r6 = testReraise(5) catch -1
+    var r7 = testReraise(-5) catch -2
+}

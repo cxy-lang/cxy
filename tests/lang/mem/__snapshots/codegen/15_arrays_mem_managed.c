@@ -1,14 +1,29 @@
+typedef struct builtins_Exception builtins_Exception;
+typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct Resource Resource;
-typedef struct Slice_ptr Slice_ptr;
+typedef struct Slice_Resource Slice_Resource;
+
+struct builtins_Exception {
+  builtins_Exception_VTable * vtable;
+  char * name;
+  void * stackTrace;
+};
+
+struct builtins_Exception_VTable {
+  uint64_t __tid;
+  char * (*what)(builtins_Exception *);
+};
 
 struct Resource {
   int32_t id;
 };
 
-struct Slice_ptr {
+struct Slice_Resource {
   Resource * * ptr;
   uint64_t len;
 };
+
+static void builtins_panicOnUnhandledException(builtins_Exception * ex);
 
 static void Resource_op__init(Resource * this, int32_t id);
 static void Resource_op__deinit(Resource * this);
@@ -20,7 +35,20 @@ static void testArrayIndexOverwrite();
 static void testArrayMoveElement();
 static void testArraySliceBorrow();
 static void _main();
-static void __array_dctor_32(Slice_ptr arr);
+static void __array_dctor_133(Slice_Resource arr);
+
+
+static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
+  char * __t1;
+_L_entry:;
+  if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
+_L_IF0_then:;
+  __t1 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  goto _L_exit;
+_L_exit:;
+  return;
+}
 
 static void Resource_op__init(Resource * this, int32_t id) {
 _L_entry:;
@@ -55,14 +83,14 @@ _L_exit:;
 
 static Resource * Resource_op__initCover(int32_t id) {
   Resource * __ret;
-  Resource * __obj0;
+  Resource * __obj3;
   Resource * __t0;
 _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
-  __obj0 = ((Resource *)(__t0));
-  memset(__obj0, 0, sizeof(Resource));
-  Resource_op__init(__obj0, id);
-  __ret = __obj0;
+  __obj3 = ((Resource *)(__t0));
+  memset(__obj3, 0, sizeof(Resource));
+  Resource_op__init(__obj3, id);
+  __ret = __obj3;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -76,7 +104,7 @@ _L_entry:;
   arr[2] = Resource_op__initCover(((int32_t)(3)));
   goto _L_exit;
 _L_exit:;
-  __array_dctor_32((Slice_ptr){ .ptr = arr, .len = 3 });
+  __array_dctor_133((Slice_Resource){ .ptr = arr, .len = 3 });
   return;
 }
 
@@ -89,7 +117,7 @@ _L_entry:;
   arr[0] = Resource_op__initCover(((int32_t)(30)));
   goto _L_exit;
 _L_exit:;
-  __array_dctor_32((Slice_ptr){ .ptr = arr, .len = 2 });
+  __array_dctor_133((Slice_Resource){ .ptr = arr, .len = 2 });
   return;
 }
 
@@ -104,14 +132,14 @@ _L_entry:;
   goto _L_exit;
 _L_exit:;
   __smart_ptr_drop(r);
-  __array_dctor_32((Slice_ptr){ .ptr = arr, .len = 2 });
+  __array_dctor_133((Slice_Resource){ .ptr = arr, .len = 2 });
   return;
 }
 
 static void testArraySliceBorrow() {
   Resource * a[2];
-  Slice_ptr b;
-  Slice_ptr c;
+  Slice_Resource b;
+  Slice_Resource c;
 _L_entry:;
   a[0] = Resource_op__initCover(((int32_t)(1)));
   a[1] = Resource_op__initCover(((int32_t)(2)));
@@ -121,7 +149,7 @@ _L_entry:;
   c.len = 2;
   goto _L_exit;
 _L_exit:;
-    __array_dctor_32((Slice_ptr){ .ptr = a, .len = 2 });
+    __array_dctor_133((Slice_Resource){ .ptr = a, .len = 2 });
   return;
 }
 
@@ -136,7 +164,7 @@ _L_exit:;
   return;
 }
 
-static void __array_dctor_32(Slice_ptr arr) {
+static void __array_dctor_133(Slice_Resource arr) {
   uint64_t __i;
 _L_entry:;
   __i = 0;

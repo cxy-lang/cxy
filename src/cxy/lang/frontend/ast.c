@@ -1309,6 +1309,25 @@ AstNode *makeIteratorExpr(MemPool *pool,
                                     .truthy = truthyMethod}});
 }
 
+AstNode *makeCatchExpr(MemPool *pool,
+                       const FileLoc *loc,
+                       u64 flags,
+                       AstNode *expr,
+                       AstNode *var,
+                       AstNode *body,
+                       AstNode *next,
+                       const Type *type)
+{
+    return makeAstNode(
+        pool,
+        loc,
+        &(AstNode){.tag = astCatchExpr,
+                   .flags = flags,
+                   .next = next,
+                   .type = type,
+                   .catchExpr = {.expr = expr, .var = var, .body = body}});
+}
+
 AstNode *makeIndexExpr(MemPool *pool,
                        const FileLoc *loc,
                        u64 flags,

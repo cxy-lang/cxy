@@ -1,6 +1,24 @@
 // Tests for custom iterators, iterator syntax, and redirect operator in for loops
 
-func main(): void {
-    var s = "hello".S
-    var ss = s
+func check(x: i32): !String {
+    if x < 0 {
+        raise Exception("Exeception")
+    }
+    return f"x = {x}"
+}
+
+func main(): !i32 {
+    var s = "Hello".S
+    var x = check(10) catch s
+    var y = check(20) catch as e {
+        var j  = e
+        yield s
+    }
+    var z = check(30)
+    check(-2.i32) catch discard
+    check(-1) catch as ex{
+        println(ex.what())
+    }
+    var q = check(-2.i32) catch s
+    return 0
 }

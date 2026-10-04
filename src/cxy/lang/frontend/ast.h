@@ -48,6 +48,7 @@ struct Plugin;
     f(UnionValueExpr)                       \
     f(ClosureValue)                         \
     f(IteratorExpr)                         \
+    f(CatchExpr)                            \
     f(XformExpr)
 
 #define CXY_LANG_AST_STMT_TAGS(f)           \
@@ -664,6 +665,12 @@ struct AstNode {
             AstNode *rhs;
             VariableState lhsVariableState;
         } binaryExpr, assignExpr;
+
+        struct {
+            AstNode *expr;
+            AstNode *var;
+            AstNode *body;
+        } catchExpr;
 
         struct {
             Operator op;
@@ -1429,6 +1436,15 @@ AstNode *makeIteratorExpr(MemPool *pool,
                           AstNode *truthyMethod,
                           AstNode *next,
                           const Type *type);
+
+AstNode *makeCatchExpr(MemPool *pool,
+                       const FileLoc *loc,
+                       u64 flags,
+                       AstNode *expr,
+                       AstNode *var,
+                       AstNode *body,
+                       AstNode *next,
+                       const Type *type);
 
 AstNode *makeAttribute(MemPool *pool,
                        const FileLoc *loc,

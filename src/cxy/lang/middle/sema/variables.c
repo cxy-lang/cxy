@@ -77,6 +77,8 @@ void checkVarDecl(AstVisitor *visitor, AstNode *node)
     }
 
     const Type *inferredType = init_;
+    if (isResultType(inferredType))
+        inferredType = getResultTargetType(inferredType);
     if (init && nodeIs(init, ClosureValue) && init->closureValue.canonicalType)
         inferredType = init->closureValue.canonicalType;
     else if (init_ && typeIs(init_, Array) && !hasFlag(init_, Slice) && init_->array.len != UINT64_MAX && !nodeIs(init, ArrayExpr))

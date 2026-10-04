@@ -1,5 +1,18 @@
+typedef struct builtins_Exception builtins_Exception;
+typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct Resource Resource;
 typedef struct __drop_flags_testSwitchCaseScopes_t __drop_flags_testSwitchCaseScopes_t;
+
+struct builtins_Exception {
+  builtins_Exception_VTable * vtable;
+  char * name;
+  void * stackTrace;
+};
+
+struct builtins_Exception_VTable {
+  uint64_t __tid;
+  char * (*what)(builtins_Exception *);
+};
 
 struct Resource {
   int32_t id;
@@ -12,6 +25,8 @@ struct __drop_flags_testSwitchCaseScopes_t {
   uint64_t caseDef;
 };
 
+static void builtins_panicOnUnhandledException(builtins_Exception * ex);
+
 static void Resource_op__init(Resource * this, int32_t id);
 static void Resource_op__deinit(Resource * this);
 static void Resource_op__destructor(Resource * this);
@@ -20,6 +35,19 @@ static Resource * Resource_op__initCover(int32_t id);
 static void testSwitchCaseScopes(int32_t val);
 static void testSwitchReassignmentInCases(int32_t val);
 static void _main();
+
+
+static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
+  char * __t1;
+_L_entry:;
+  if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
+_L_IF0_then:;
+  __t1 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  goto _L_exit;
+_L_exit:;
+  return;
+}
 
 static void Resource_op__init(Resource * this, int32_t id) {
 _L_entry:;
@@ -54,14 +82,14 @@ _L_exit:;
 
 static Resource * Resource_op__initCover(int32_t id) {
   Resource * __ret;
-  Resource * __obj0;
+  Resource * __obj3;
   Resource * __t0;
 _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
-  __obj0 = ((Resource *)(__t0));
-  memset(__obj0, 0, sizeof(Resource));
-  Resource_op__init(__obj0, id);
-  __ret = __obj0;
+  __obj3 = ((Resource *)(__t0));
+  memset(__obj3, 0, sizeof(Resource));
+  Resource_op__init(__obj3, id);
+  __ret = __obj3;
   goto _L_exit;
 _L_exit:;
   return __ret;

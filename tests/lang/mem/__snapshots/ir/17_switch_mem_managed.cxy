@@ -1,5 +1,9 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/17_switch_mem_managed.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
 func main.Resource.op__init(this: ^Resource, id: i32): void {
 _L_entry:
   scope.enter 0
@@ -43,13 +47,13 @@ func main.Resource.op__initCover(id: i32): ^Resource {
 _L_entry:
   scope.enter 0
   var __ret: ^Resource
-  var __obj0: ^Resource
+  var __obj3: ^Resource
   var __t0: ^Resource
   __t0 = alloc(^Resource)
-  __obj0 = <^Resource>(__t0)
-  zeromem __obj0
-  Resource_op__init(__obj0, &&id)
-  __ret = __obj0
+  __obj3 = <^Resource>(__t0)
+  zeromem __obj3
+  Resource_op__init(__obj3, &&id)
+  __ret = __obj3
   goto _L_exit
 _L_exit:
   scope.exit 0

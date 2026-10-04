@@ -230,6 +230,11 @@ IrNode *makeIrStringConst(MemPool *pool, const FileLoc *loc, cstring value, cons
 IrNode *makeIrArrayConst(MemPool *pool, const FileLoc *loc, IrNode *elements, u64 count, const IrType *type);
 IrNode *makeIrStructConst(MemPool *pool, const FileLoc *loc, IrNode *fields, u64 count, const IrType *type);
 
+static inline bool isIrConst(const IrNode *node)
+{
+    return node && node->tag >= irNullConst && node->tag <= irGlobalRef;
+}
+
 void irAppendBlockStmt(IrNode *block, IrNode *stmt);
 void irAppendFunctionBlock(IrNode *func, IrNode *block);
 

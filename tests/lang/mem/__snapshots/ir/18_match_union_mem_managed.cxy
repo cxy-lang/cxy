@@ -1,5 +1,9 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/18_match_union_mem_managed.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
 func main.ResourceA.op__init(this: ^ResourceA, id: i32): void {
 _L_entry:
   scope.enter 0
@@ -82,13 +86,13 @@ func main.ResourceA.op__initCover(id: i32): ^ResourceA {
 _L_entry:
   scope.enter 0
   var __ret: ^ResourceA
-  var __obj0: ^ResourceA
+  var __obj3: ^ResourceA
   var __t0: ^ResourceA
   __t0 = alloc(^ResourceA)
-  __obj0 = <^ResourceA>(__t0)
-  zeromem __obj0
-  ResourceA_op__init(__obj0, &&id)
-  __ret = __obj0
+  __obj3 = <^ResourceA>(__t0)
+  zeromem __obj3
+  ResourceA_op__init(__obj3, &&id)
+  __ret = __obj3
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -99,13 +103,13 @@ func main.ResourceB.op__initCover(tag: ^char): ^ResourceB {
 _L_entry:
   scope.enter 0
   var __ret: ^ResourceB
-  var __obj1: ^ResourceB
+  var __obj4: ^ResourceB
   var __t1: ^ResourceB
   __t1 = alloc(^ResourceB)
-  __obj1 = <^ResourceB>(__t1)
-  zeromem __obj1
-  ResourceB_op__init(__obj1, &&tag)
-  __ret = __obj1
+  __obj4 = <^ResourceB>(__t1)
+  zeromem __obj4
+  ResourceB_op__init(__obj4, &&tag)
+  __ret = __obj4
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -209,7 +213,7 @@ _L_exit:
   return
 }
 
-func __union_copy_36(u: ^^ResourceA | ^ResourceB | i32): ^ResourceA | ^ResourceB | i32 {
+func __union_copy_137(u: ^^ResourceA | ^ResourceB | i32): ^ResourceA | ^ResourceB | i32 {
 _L_entry:
   scope.enter 0
   var __ret: ^ResourceA | ^ResourceB | i32
@@ -239,7 +243,7 @@ _L_exit:
   return __ret
 }
 
-func __union_dctor_36(u: ^^ResourceA | ^ResourceB | i32): void {
+func __union_dctor_137(u: ^^ResourceA | ^ResourceB | i32): void {
 _L_entry:
   scope.enter 0
   switch u.tag {

@@ -42,6 +42,12 @@ typedef struct LowerContext {
     u32 tempCounter;
     HashTable varNames;
     LoopCtx *loopCtx;
+    IrNode *catchTargetVar;
+    IrNode *catchMergeBB;
+    IrNode *currentCatchErr;
+    IrNode *currentCatchRes;
+    IrNode *exceptionPushCallee;
+    bool explicitCatch;
 } LowerContext;
 
 const IrType *lowerType(LowerContext *ctx, const Type *type);

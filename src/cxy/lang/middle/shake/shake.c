@@ -679,21 +679,6 @@ static void shakeGroupExpr(AstVisitor *visitor, AstNode *node)
 
 static void shakeBinaryExpr(AstVisitor *visitor, AstNode *node)
 {
-    ShakeAstContext *ctx = getAstVisitorContext(visitor);
-    if (node->binaryExpr.op == opCatch) {
-        AstNode *expr = node->binaryExpr.rhs;
-        if (!nodeIs(expr, BlockStmt)) {
-            node->binaryExpr.rhs = makeBlockStmt(
-                ctx->pool,
-                &expr->loc,
-                makeYieldAstNode(
-                    ctx->pool, &expr->loc, flgNone, expr, NULL, NULL),
-                NULL,
-                NULL);
-        }
-        ctx->catchRhs = node->binaryExpr.rhs;
-        ctx->catchLhs = node->binaryExpr.lhs;
-    }
     astVisitFallbackVisitAll(visitor, node);
 }
 

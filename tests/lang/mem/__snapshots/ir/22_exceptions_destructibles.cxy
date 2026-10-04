@@ -1,0 +1,471 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/22_exceptions_destructibles.cxy
+global CustomError_vTable: Exception_VTable = builtins_Exception_VTable {<u64>(137), <func(^Exception): ^char>(CustomError_what)}
+
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func main.String.op__init(this: ^String, s: ^char): void {
+_L_entry:
+  scope.enter 0
+  this.s = s
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.String.str(this: ^String): ^char {
+_L_entry:
+  scope.enter 0
+  var __ret: ^char
+  __ret = this.s
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Container.op__init(this: ^Container, tag: i32, name: ^String): void {
+_L_entry:
+  scope.enter 0
+  this.tag = tag
+  copy name -> this.name
+  goto _L_exit
+_L_exit:
+  drop name
+  scope.exit 0
+  return
+}
+
+func main.Container.op__deinit(this: ^Container): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Container.op__destructor(this: ^Container): void {
+_L_entry:
+  scope.enter 0
+  Container_op__deinit(this)
+  drop this.name
+  zeromem this.name
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Container.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Container_op__destructor(<^Container>(ptr))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.CustomError.op__init(this: ^CustomError, reason: ^String): void {
+_L_entry:
+  scope.enter 0
+  builtins_Exception_op__init(this, "CustomError")
+  copy reason -> this.reason
+  goto _L_exit
+_L_exit:
+  drop reason
+  scope.exit 0
+  return
+}
+
+func main.CustomError.what(this: ^CustomError): ^char {
+_L_entry:
+  scope.enter 0
+  var __ret: ^char
+  __ret = String_str(this.reason)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.CustomError.op__destructor(this: ^CustomError): void {
+_L_entry:
+  scope.enter 0
+  builtins_Exception_op__destructor(<^Exception>(this))
+  drop this.reason
+  zeromem this.reason
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.CustomError.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  CustomError_op__destructor(<^CustomError>(ptr))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.CustomError.__defaults_init(this: ^CustomError): void {
+_L_entry:
+  scope.enter 0
+  builtins_Exception___defaults_init(this)
+  this.vtable = &CustomError_vTable
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.String.op__initCover(s: ^char): ^String {
+_L_entry:
+  scope.enter 0
+  var __ret: ^String
+  var __obj3: ^String
+  var __t0: ^String
+  __t0 = alloc(^String)
+  __obj3 = <^String>(__t0)
+  zeromem __obj3
+  String_op__init(__obj3, &&s)
+  __ret = __obj3
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Container.op__initCover(tag: i32, name: ^String): ^Container {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Container
+  var __obj4: ^Container
+  var __t1: ^Container
+  __t1 = alloc(^Container)
+  __obj4 = <^Container>(__t1)
+  zeromem __obj4
+  Container_op__init(__obj4, tag, &&name)
+  __ret = __obj4
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.CustomError.op__initCover(reason: ^String): ^CustomError {
+_L_entry:
+  scope.enter 0
+  var __ret: ^CustomError
+  var __obj5: ^CustomError
+  var __t2: ^CustomError
+  __t2 = alloc(^CustomError)
+  __obj5 = <^CustomError>(__t2)
+  zeromem __obj5
+  CustomError___defaults_init(__obj5)
+  CustomError_op__init(__obj5, &&reason)
+  __ret = __obj5
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func produceString(x: i32): !^String {
+_L_entry:
+  scope.enter 0
+  var __ret: !^String
+  var c: ^Container
+  var __t3: ^String
+  __t3 = String_op__initCover("local_temp")
+  c = Container_op__initCover(x, __t3)
+  if x < 0 goto _L_IF0_then else goto _L_IF0_end
+_L_IF0_then:
+  scope.enter 1
+  var __t4: ^String
+  __t4 = String_op__initCover("negative input error")
+  var __t5: ^CustomError
+  __t5 = CustomError_op__initCover(__t4)
+  builtins_Exception_push(__t5, "main", "", "produceString", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/22_exceptions_destructibles.cxy", 24)
+  __ret.tag = 1
+  __ret.val.1 = __t5
+  goto _L_UNWIND1_return
+_L_IF0_end:
+  __ret.tag = 0
+  var __t6: ^String
+  __t6 = String_op__initCover("success_string")
+  __ret.val.0 = __t6
+  goto _L_exit
+_L_UNWIND1_return:
+  scope.exit 1
+  goto _L_exit
+_L_exit:
+  drop c
+  scope.exit 0
+  return __ret
+}
+
+func testDirectSuccess(): void {
+_L_entry:
+  scope.enter 0
+  var s: ^String
+  var __t7: !^String
+  __t7 = produceString(<i32>(10))
+  var __catch_res8: ^String
+  if __t7.tag == 1 goto _L_catch_0 else goto _L_cont_1
+_L_catch_0:
+  var __t9: ^String
+  __t9 = String_op__initCover("fallback")
+  __catch_res8 = __t9
+  drop __t7.val.1
+  __t7.tag = 0
+  goto _L_merge_1
+_L_cont_1:
+  __catch_res8 = __t7.val.0
+  __t7.tag = 0
+  goto _L_merge_1
+_L_merge_1:
+  s = __catch_res8
+  goto _L_exit
+_L_exit:
+  drop s
+  scope.exit 0
+  return
+}
+
+func testDirectFailure(): void {
+_L_entry:
+  scope.enter 0
+  var s: ^String
+  var __t10: !^String
+  __t10 = produceString(<i32>(-1))
+  var __catch_res11: ^String
+  if __t10.tag == 1 goto _L_catch_0 else goto _L_cont_1
+_L_catch_0:
+  var __t12: ^String
+  __t12 = String_op__initCover("fallback")
+  __catch_res11 = __t12
+  drop __t10.val.1
+  __t10.tag = 0
+  goto _L_merge_1
+_L_cont_1:
+  __catch_res11 = __t10.val.0
+  __t10.tag = 0
+  goto _L_merge_1
+_L_merge_1:
+  s = __catch_res11
+  goto _L_exit
+_L_exit:
+  drop s
+  scope.exit 0
+  return
+}
+
+func testYieldDestructible(): void {
+_L_entry:
+  scope.enter 0
+  var s: ^String
+  var __t13: !^String
+  __t13 = produceString(<i32>(-5))
+  var __catch_res14: ^String
+  if __t13.tag == 1 goto _L_catch_0 else goto _L_cont_1
+_L_catch_0:
+  scope.enter 1
+  var __t15: ^String
+  __t15 = String_op__initCover("yielded_fallback")
+  __catch_res14 = __t15
+  drop __t13.val.1
+  __t13.tag = 0
+  goto _L_merge_1
+_L_cont_1:
+  __catch_res14 = __t13.val.0
+  __t13.tag = 0
+  goto _L_merge_1
+_L_merge_1:
+  s = __catch_res14
+  goto _L_exit
+_L_exit:
+  drop s
+  scope.exit 0
+  return
+}
+
+func testBubbleUpDestructible(x: i32): !^String {
+_L_entry:
+  var __drop_flags: __drop_flags_testBubbleUpDestructible_t
+  zeromem __drop_flags
+  scope.enter 0
+  var __ret: !^String
+  var c: ^Container
+  var __t16: ^String
+  __t16 = String_op__initCover("enclosing_container")
+  c = Container_op__initCover(x, __t16)
+  var s: ^String
+  var __call_res_17: !^String
+  __call_res_17 = produceString(x)
+  if __call_res_17.tag == 1 goto _L_call_err_0 else goto _L_call_cont_1
+_L_call_err_0:
+  __ret.tag = 1
+  builtins_Exception_push(__call_res_17.val.1, "main", "", "testBubbleUpDestructible", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/22_exceptions_destructibles.cxy", 45)
+  __ret.val.1 = __call_res_17.val.1
+  __call_res_17.tag = 0
+  goto _L_exit
+_L_call_cont_1:
+  s = __call_res_17.val.0
+  __drop_flags.s = 1
+  __ret.tag = 0
+  copy s -> __ret.val.0
+  goto _L_exit
+_L_exit:
+  drop-if s, __drop_flags.s
+  __drop_flags.s = 0
+  drop c
+  scope.exit 0
+  return __ret
+}
+
+func testHandleBubbleUp(): void {
+_L_entry:
+  scope.enter 0
+  var res1: ^String
+  var __t18: !^String
+  __t18 = testBubbleUpDestructible(<i32>(20))
+  var __catch_res19: ^String
+  if __t18.tag == 1 goto _L_catch_0 else goto _L_cont_1
+_L_catch_0:
+  var __t20: ^String
+  __t20 = String_op__initCover("error_caught")
+  __catch_res19 = __t20
+  drop __t18.val.1
+  __t18.tag = 0
+  goto _L_merge_1
+_L_cont_1:
+  __catch_res19 = __t18.val.0
+  __t18.tag = 0
+  goto _L_merge_1
+_L_merge_1:
+  res1 = __catch_res19
+  var res2: ^String
+  var __t21: !^String
+  __t21 = testBubbleUpDestructible(<i32>(-20))
+  var __catch_res22: ^String
+  if __t21.tag == 1 goto _L_catch_1 else goto _L_cont_2
+_L_catch_1:
+  var __t23: ^String
+  __t23 = String_op__initCover("error_caught")
+  __catch_res22 = __t23
+  drop __t21.val.1
+  __t21.tag = 0
+  goto _L_merge_2
+_L_cont_2:
+  __catch_res22 = __t21.val.0
+  __t21.tag = 0
+  goto _L_merge_2
+_L_merge_2:
+  res2 = __catch_res22
+  goto _L_exit
+_L_exit:
+  drop res2
+  drop res1
+  scope.exit 0
+  return
+}
+
+func testReraiseDestructible(x: i32): !^String {
+_L_entry:
+  var __drop_flags: __drop_flags_testReraiseDestructible_t
+  zeromem __drop_flags
+  scope.enter 0
+  var __ret: !^String
+  var local: ^String
+  local = String_op__initCover("before_catch")
+  var res: ^String
+  var __t24: !^String
+  __t24 = produceString(x)
+  var __catch_res25: ^String
+  if __t24.tag == 1 goto _L_catch_0 else goto _L_cont_1
+_L_catch_0:
+  scope.enter 1
+  __ret.tag = 1
+  builtins_Exception_push(__t24.val.1, "main", "", "testReraiseDestructible", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/22_exceptions_destructibles.cxy", 57)
+  __ret.val.1 = __t24.val.1
+  __t24.tag = 0
+  goto _L_UNWIND1_return
+_L_cont_1:
+  __catch_res25 = __t24.val.0
+  __t24.tag = 0
+  goto _L_merge_1
+_L_merge_1:
+  res = __catch_res25
+  __drop_flags.res = 1
+  __ret.tag = 0
+  copy res -> __ret.val.0
+  goto _L_exit
+_L_UNWIND1_return:
+  scope.exit 1
+  goto _L_exit
+_L_exit:
+  drop-if res, __drop_flags.res
+  __drop_flags.res = 0
+  drop local
+  scope.exit 0
+  return __ret
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  testDirectSuccess()
+  testDirectFailure()
+  testYieldDestructible()
+  testHandleBubbleUp()
+  var r1: ^String
+  var __t26: !^String
+  __t26 = testReraiseDestructible(<i32>(10))
+  var __catch_res27: ^String
+  if __t26.tag == 1 goto _L_catch_0 else goto _L_cont_1
+_L_catch_0:
+  var __t28: ^String
+  __t28 = String_op__initCover("reraised_caught")
+  __catch_res27 = __t28
+  drop __t26.val.1
+  __t26.tag = 0
+  goto _L_merge_1
+_L_cont_1:
+  __catch_res27 = __t26.val.0
+  __t26.tag = 0
+  goto _L_merge_1
+_L_merge_1:
+  r1 = __catch_res27
+  var r2: ^String
+  var __t29: !^String
+  __t29 = testReraiseDestructible(<i32>(-10))
+  var __catch_res30: ^String
+  if __t29.tag == 1 goto _L_catch_1 else goto _L_cont_2
+_L_catch_1:
+  var __t31: ^String
+  __t31 = String_op__initCover("reraised_caught")
+  __catch_res30 = __t31
+  drop __t29.val.1
+  __t29.tag = 0
+  goto _L_merge_2
+_L_cont_2:
+  __catch_res30 = __t29.val.0
+  __t29.tag = 0
+  goto _L_merge_2
+_L_merge_2:
+  r2 = __catch_res30
+  goto _L_exit
+_L_exit:
+  drop r2
+  drop r1
+  scope.exit 0
+  return
+}

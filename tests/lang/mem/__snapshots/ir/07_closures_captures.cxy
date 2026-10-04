@@ -1,6 +1,10 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/07_closures_captures.cxy
-func __closure_body1(this: ^__closure_env0): i8 {
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func __closure_body4(this: ^__closure_env3): i8 {
 _L_entry:
   scope.enter 0
   var __ret: i8
@@ -16,12 +20,12 @@ _L_entry:
   var __ret: i32
   var a: i8
   a = 10
-  var c: Closure_30
-  var __t0: __closure_env0
-  __t0 = __closure_env0 {a}
-  var __env1: __closure_env0
+  var c: Closure_132
+  var __t0: __closure_env3
+  __t0 = __closure_env3 {a}
+  var __env1: __closure_env3
   __env1 = __t0
-  c = ClosureValue(&__env1, __closure_body1)
+  c = ClosureValue(&__env1, __closure_body4)
   __ret = c.fn(c.env)
   goto _L_exit
 _L_exit:
@@ -29,7 +33,7 @@ _L_exit:
   return __ret
 }
 
-func __closure_body3(this: ^__closure_env2): i8 {
+func __closure_body6(this: ^__closure_env5): i8 {
 _L_entry:
   scope.enter 0
   var __ret: i8
@@ -45,12 +49,12 @@ _L_entry:
   var __ret: i32
   var a: i8
   a = 10
-  var c: Closure_30
-  var __t2: __closure_env2
-  __t2 = __closure_env2 {&a}
-  var __env3: __closure_env2
+  var c: Closure_132
+  var __t2: __closure_env5
+  __t2 = __closure_env5 {&a}
+  var __env3: __closure_env5
   __env3 = __t2
-  c = ClosureValue(&__env3, __closure_body3)
+  c = ClosureValue(&__env3, __closure_body6)
   __ret = c.fn(c.env)
   goto _L_exit
 _L_exit:
@@ -58,7 +62,7 @@ _L_exit:
   return __ret
 }
 
-func __closure_body5(this: ^__closure_env4): i8 {
+func __closure_body8(this: ^__closure_env7): i8 {
 _L_entry:
   scope.enter 0
   var __ret: i8
@@ -74,12 +78,12 @@ _L_entry:
   var __ret: i32
   var a: i8
   a = 10
-  var c: Closure_30
-  var __t4: __closure_env4
-  __t4 = __closure_env4 {&&a}
-  var __env5: __closure_env4
+  var c: Closure_132
+  var __t4: __closure_env7
+  __t4 = __closure_env7 {&&a}
+  var __env5: __closure_env7
   __env5 = __t4
-  c = ClosureValue(&__env5, __closure_body5)
+  c = ClosureValue(&__env5, __closure_body8)
   __ret = c.fn(c.env)
   goto _L_exit
 _L_exit:
@@ -87,7 +91,7 @@ _L_exit:
   return __ret
 }
 
-func __closure_body7(this: ^__closure_env6): i8 {
+func __closure_body10(this: ^__closure_env9): i8 {
 _L_entry:
   scope.enter 0
   var __ret: i8
@@ -105,12 +109,12 @@ _L_entry:
   a = 10
   var b: i8
   b = 20
-  var c: Closure_30
-  var __t6: __closure_env6
-  __t6 = __closure_env6 {&a, &b}
-  var __env7: __closure_env6
+  var c: Closure_132
+  var __t6: __closure_env9
+  __t6 = __closure_env9 {&a, &b}
+  var __env7: __closure_env9
   __env7 = __t6
-  c = ClosureValue(&__env7, __closure_body7)
+  c = ClosureValue(&__env7, __closure_body10)
   __ret = c.fn(c.env)
   goto _L_exit
 _L_exit:
@@ -118,7 +122,7 @@ _L_exit:
   return __ret
 }
 
-func __closure_body9(this: ^__closure_env8): i8 {
+func __closure_body12(this: ^__closure_env11): i8 {
 _L_entry:
   scope.enter 0
   var __ret: i8
@@ -136,12 +140,12 @@ _L_entry:
   a = 10
   var b: i8
   b = 20
-  var c: Closure_30
-  var __t8: __closure_env8
-  __t8 = __closure_env8 {&&a, &&b}
-  var __env9: __closure_env8
+  var c: Closure_132
+  var __t8: __closure_env11
+  __t8 = __closure_env11 {&&a, &&b}
+  var __env9: __closure_env11
   __env9 = __t8
-  c = ClosureValue(&__env9, __closure_body9)
+  c = ClosureValue(&__env9, __closure_body12)
   __ret = c.fn(c.env)
   goto _L_exit
 _L_exit:
@@ -149,7 +153,7 @@ _L_exit:
   return __ret
 }
 
-func __closure_body11(this: ^__closure_env10): i8 {
+func __closure_body14(this: ^__closure_env13): i8 {
 _L_entry:
   scope.enter 0
   var __ret: i8
@@ -169,12 +173,12 @@ _L_entry:
   b = 20
   var c: i8
   c = 30
-  var fn: Closure_30
-  var __t10: __closure_env10
-  __t10 = __closure_env10 {a, &b, &&c}
-  var __env11: __closure_env10
+  var fn: Closure_132
+  var __t10: __closure_env13
+  __t10 = __closure_env13 {a, &b, &&c}
+  var __env11: __closure_env13
   __env11 = __t10
-  fn = ClosureValue(&__env11, __closure_body11)
+  fn = ClosureValue(&__env11, __closure_body14)
   __ret = fn.fn(fn.env)
   goto _L_exit
 _L_exit:
@@ -182,7 +186,7 @@ _L_exit:
   return __ret
 }
 
-func __closure_body13(this: ^__closure_env12): i8 {
+func __closure_body16(this: ^__closure_env15): i8 {
 _L_entry:
   scope.enter 0
   var __ret: i8
@@ -202,12 +206,12 @@ _L_entry:
   b = 20
   var c: i8
   c = 30
-  var fn: Closure_30
-  var __t12: __closure_env12
-  __t12 = __closure_env12 {&&a, &b, &c}
-  var __env13: __closure_env12
+  var fn: Closure_132
+  var __t12: __closure_env15
+  __t12 = __closure_env15 {&&a, &b, &c}
+  var __env13: __closure_env15
   __env13 = __t12
-  fn = ClosureValue(&__env13, __closure_body13)
+  fn = ClosureValue(&__env13, __closure_body16)
   __ret = fn.fn(fn.env)
   goto _L_exit
 _L_exit:
@@ -215,7 +219,7 @@ _L_exit:
   return __ret
 }
 
-func __closure_body15(this: ^__closure_env14): i8 {
+func __closure_body18(this: ^__closure_env17): i8 {
 _L_entry:
   scope.enter 0
   var __ret: i8
@@ -235,12 +239,12 @@ _L_entry:
   b = 20
   var c: i8
   c = 30
-  var fn: Closure_30
-  var __t14: __closure_env14
-  __t14 = __closure_env14 {&a, &&b, &&c}
-  var __env15: __closure_env14
+  var fn: Closure_132
+  var __t14: __closure_env17
+  __t14 = __closure_env17 {&a, &&b, &&c}
+  var __env15: __closure_env17
   __env15 = __t14
-  fn = ClosureValue(&__env15, __closure_body15)
+  fn = ClosureValue(&__env15, __closure_body18)
   __ret = fn.fn(fn.env)
   goto _L_exit
 _L_exit:

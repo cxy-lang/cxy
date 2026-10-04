@@ -332,12 +332,10 @@ bool initCompilerDriver(CompilerDriver *compiler,
         initializeBuiltins(compiler->L, compiler->pool);
         pluginInit(compiler);
 
-        if (options->cmd == cmdBuild || !options->withoutBuiltins) {
-            return compileBuiltin(compiler,
-                                  CXY_BUILTINS_SOURCE,
-                                  CXY_BUILTINS_SOURCE_SIZE,
-                                  "__builtins.cxy");
-        }
+        return compileBuiltin(compiler,
+                              CXY_BUILTINS_SOURCE,
+                              CXY_BUILTINS_SOURCE_SIZE,
+                              "__builtins.cxy");
     }
     return true;
 }

@@ -491,6 +491,14 @@ static void dumpOptionalType(ConstAstVisitor *visitor, const AstNode *node)
     format(ctx->state, "?", NULL);
 }
 
+static void dumpResultType(ConstAstVisitor *visitor, const AstNode *node)
+{
+    DumpContext *ctx = getConstAstVisitorContext(visitor);
+    format(ctx->state, "!", NULL);
+    AddConst();
+    astConstVisit(visitor, node->resultType.target);
+}
+
 static void dumpPointerType(ConstAstVisitor *visitor, const AstNode *node)
 {
     DumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -522,6 +530,28 @@ static void dumpStringExpr(ConstAstVisitor *visitor, const AstNode *node)
         }
     }
     printWithStyle(ctx->state, "\"", stringStyle);
+}
+
+static void dumpCatchExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    DumpContext *ctx = getConstAstVisitorContext(visitor);
+    astConstVisit(visitor, node->catchExpr.expr);
+    AddSpace();
+    printKeyword(ctx->state, "catch");
+    AddSpace();
+    if (node->catchExpr.var) {
+        printKeyword(ctx->state, "as");
+        AddSpace();
+        astConstVisit(visitor, node->catchExpr.var);
+        AddSpace();
+    }
+    if (node->catchExpr.body && nodeIs(node->catchExpr.body, BlockStmt) &&
+        node->catchExpr.body->blockStmt.stmts == NULL) {
+        printKeyword(ctx->state, "discard");
+    }
+    else {
+        astConstVisit(visitor, node->catchExpr.body);
+    }
 }
 
 static void dumpBinaryExpr(ConstAstVisitor *visitor, const AstNode *node)
@@ -913,7 +943,10 @@ static void dumpContinueStmt(ConstAstVisitor *visitor, const AstNode *node)
 static void dumpReturnStmt(ConstAstVisitor *visitor, const AstNode *node)
 {
     DumpContext *ctx = getConstAstVisitorContext(visitor);
-    printKeyword(ctx->state, "return");
+    if (node->returnStmt.isRaise)
+        printKeyword(ctx->state, "raise");
+    else
+        printKeyword(ctx->state, "return");
     if (node->returnStmt.expr) {
         AddSpace();
         astConstVisit(visitor, node->returnStmt.expr);
@@ -1438,6 +1471,7 @@ AstNode *dumpCxySource(CompilerDriver *driver, AstNode *node, FILE *file)
         [astStringExpr] = dumpStringExpr,
         [astUnaryExpr] = dumpUnaryExpr,
         [astBinaryExpr] = dumpBinaryExpr,
+        [astCatchExpr] = dumpCatchExpr,
         [astAssignExpr] = dumpAssignExpr,
         [astTernaryExpr] = dumpTernaryExpr,
         [astGroupExpr] = dumpGroupExpr,
@@ -1466,6 +1500,7 @@ AstNode *dumpCxySource(CompilerDriver *driver, AstNode *node, FILE *file)
         [astAutoType] = dumpBuiltinType,
         [astFuncType] = dumpFuncType,
         [astOptionalType] = dumpOptionalType,
+        [astResultType] = dumpResultType,
         [astArrayType] = dumpArrayType,
         [astTupleType] = dumpTupleType,
         [astPointerType] = dumpPointerType,

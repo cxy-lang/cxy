@@ -1,6 +1,10 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/10_closures_escaping.cxy
-func main.Storage.op__init(this: ^Storage, cb: Closure_24): void {
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func main.Storage.op__init(this: ^Storage, cb: Closure_126): void {
 _L_entry:
   scope.enter 0
   this.cb = cb
@@ -31,24 +35,24 @@ _L_exit:
   return
 }
 
-func main.Storage.op__initCover(cb: Closure_24): ^Storage {
+func main.Storage.op__initCover(cb: Closure_126): ^Storage {
 _L_entry:
   scope.enter 0
   var __ret: ^Storage
-  var __obj0: ^Storage
+  var __obj3: ^Storage
   var __t0: ^Storage
   __t0 = alloc(^Storage)
-  __obj0 = <^Storage>(__t0)
-  zeromem __obj0
-  Storage_op__init(__obj0, &&cb)
-  __ret = __obj0
+  __obj3 = <^Storage>(__t0)
+  zeromem __obj3
+  Storage_op__init(__obj3, &&cb)
+  __ret = __obj3
   goto _L_exit
 _L_exit:
   scope.exit 0
   return __ret
 }
 
-func storeCallback(cb: Closure_24): ^Storage {
+func storeCallback(cb: Closure_126): ^Storage {
 _L_entry:
   scope.enter 0
   var __ret: ^Storage
@@ -59,7 +63,7 @@ _L_exit:
   return __ret
 }
 
-func __closure_body1(this: ^void): void {
+func __closure_body4(this: ^void): void {
 _L_entry:
   scope.enter 0
   goto _L_exit
@@ -74,8 +78,8 @@ _L_entry:
   var x: i8
   x = 100
   var s: ^Storage
-  var __t1: Closure_24
-  __t1 = ClosureValue(null, __closure_body1)
+  var __t1: Closure_126
+  __t1 = ClosureValue(null, __closure_body4)
   s = storeCallback(__t1)
   goto _L_exit
 _L_exit:

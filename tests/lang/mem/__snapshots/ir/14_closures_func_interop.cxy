@@ -1,5 +1,9 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/14_closures_func_interop.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
 func rawAdd(a: i32, b: i32): i32 {
 _L_entry:
   scope.enter 0
@@ -20,7 +24,7 @@ _L_exit:
   return
 }
 
-func executeOp(a: i32, b: i32, op: Closure_25): i32 {
+func executeOp(a: i32, b: i32, op: Closure_127): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -31,7 +35,7 @@ _L_exit:
   return __ret
 }
 
-func executeVoid(cb: Closure_28): void {
+func executeVoid(cb: Closure_130): void {
 _L_entry:
   scope.enter 0
   cb.fn(cb.env)
@@ -41,7 +45,7 @@ _L_exit:
   return
 }
 
-func __thunk2(this: ^void, _a0: i32, _a1: i32): i32 {
+func __thunk5(this: ^void, _a0: i32, _a1: i32): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -52,7 +56,7 @@ _L_exit:
   return __ret
 }
 
-func __thunk3(this: ^void): void {
+func __thunk6(this: ^void): void {
 _L_entry:
   scope.enter 0
   rawSay()
@@ -66,11 +70,11 @@ func main(): void {
 _L_entry:
   scope.enter 0
   var res: i32
-  var __t0: Closure_25
-  __t0 = ClosureValue(null, __thunk2)
+  var __t0: Closure_127
+  __t0 = ClosureValue(null, __thunk5)
   res = executeOp(<i32>(10), <i32>(20), __t0)
-  var __t1: Closure_28
-  __t1 = ClosureValue(null, __thunk3)
+  var __t1: Closure_130
+  __t1 = ClosureValue(null, __thunk6)
   executeVoid(__t1)
   goto _L_exit
 _L_exit:
