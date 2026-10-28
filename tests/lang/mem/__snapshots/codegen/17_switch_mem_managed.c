@@ -19,10 +19,10 @@ struct Resource {
 };
 
 struct __drop_flags_testSwitchCaseScopes_t {
-  uint64_t case0;
-  uint64_t case1;
-  uint64_t case23;
-  uint64_t caseDef;
+  uint64_t case0: 1;
+  uint64_t case1: 1;
+  uint64_t case23: 1;
+  uint64_t caseDef: 1;
 };
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex);
@@ -38,12 +38,12 @@ static void _main();
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
-  char * __t1;
+  char * __t2;
 _L_entry:;
   if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t1 = ex->vtable->what(ex);
-  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  __t2 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t2, ex->stackTrace);
   goto _L_exit;
 _L_exit:;
   return;
@@ -74,7 +74,7 @@ _L_exit:;
 
 static void Resource_op__destructor_fwd(void * ptr) {
 _L_entry:;
-  Resource_op__destructor(((Resource *)(ptr)));
+  Resource_op__destructor(((Resource *)(((Resource *)(ptr)))));
   goto _L_exit;
 _L_exit:;
   return;
@@ -88,7 +88,7 @@ _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
   __obj3 = ((Resource *)(__t0));
   memset(__obj3, 0, sizeof(Resource));
-  Resource_op__init(__obj3, id);
+  Resource_op__init(((Resource *)(__obj3)), id);
   __ret = __obj3;
   goto _L_exit;
 _L_exit:;
@@ -108,39 +108,39 @@ _L_entry:;
   switch (val) {
     case 0: goto _L_SWITCH0_case_0;
     case 1: goto _L_SWITCH0_case_1;
-    case 2: goto _L_exit;
+    case 2: goto _L_SWITCH0_case_3;
     case 3: goto _L_SWITCH0_case_3;
     default: goto _L_SWITCH0_case_4;
   }
 _L_SWITCH0_case_0:;
   case0 = Resource_op__initCover(((int32_t)(10)));
-  __drop_flags.case0 = 1;
+  __drop_flags.case0 = 1ULL;
   __smart_ptr_drop(case0);
-  __drop_flags.case0 = 0;
+  __drop_flags.case0 = 0ULL;
   goto _L_exit;
 _L_SWITCH0_case_1:;
   case1 = Resource_op__initCover(((int32_t)(20)));
-  __drop_flags.case1 = 1;
+  __drop_flags.case1 = 1ULL;
   if (val == 1) goto _L_UNWIND2_return; else goto _L_IF0_end;
-_L_IF0_end:;
-  __smart_ptr_drop(case1);
-  __drop_flags.case1 = 0;
-  goto _L_exit;
-_L_UNWIND2_return:;
-  __smart_ptr_drop(case1);
-  __drop_flags.case1 = 0;
-  goto _L_exit;
 _L_SWITCH0_case_3:;
   case23 = Resource_op__initCover(((int32_t)(30)));
-  __drop_flags.case23 = 1;
+  __drop_flags.case23 = 1ULL;
   __smart_ptr_drop(case23);
-  __drop_flags.case23 = 0;
+  __drop_flags.case23 = 0ULL;
   goto _L_exit;
 _L_SWITCH0_case_4:;
   caseDef = Resource_op__initCover(((int32_t)(40)));
-  __drop_flags.caseDef = 1;
+  __drop_flags.caseDef = 1ULL;
   __smart_ptr_drop(caseDef);
-  __drop_flags.caseDef = 0;
+  __drop_flags.caseDef = 0ULL;
+  goto _L_exit;
+_L_IF0_end:;
+  __smart_ptr_drop(case1);
+  __drop_flags.case1 = 0ULL;
+  goto _L_exit;
+_L_UNWIND2_return:;
+  __smart_ptr_drop(case1);
+  __drop_flags.case1 = 0ULL;
   goto _L_exit;
 _L_exit:;
   __smart_ptr_drop(outer);

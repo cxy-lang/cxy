@@ -38,12 +38,12 @@ static void _main();
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
-  char * __t1;
+  char * __t2;
 _L_entry:;
   if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t1 = ex->vtable->what(ex);
-  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  __t2 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t2, ex->stackTrace);
   goto _L_exit;
 _L_exit:;
   return;

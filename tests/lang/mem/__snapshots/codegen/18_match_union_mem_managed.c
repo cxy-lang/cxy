@@ -2,7 +2,7 @@ typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct ResourceA ResourceA;
 typedef struct ResourceB ResourceB;
-typedef union UnionPayload137 UnionPayload137;
+typedef union Union_ResourceA_ResourceB_i32_val Union_ResourceA_ResourceB_i32_val;
 typedef struct Union_ResourceA_ResourceB_i32 Union_ResourceA_ResourceB_i32;
 typedef struct __drop_flags_testMatchUnion_t __drop_flags_testMatchUnion_t;
 
@@ -25,7 +25,7 @@ struct ResourceB {
   char * tag;
 };
 
-union UnionPayload137 {
+union Union_ResourceA_ResourceB_i32_val {
   ResourceA * _0;
   ResourceB * _1;
   int32_t _2;
@@ -33,13 +33,13 @@ union UnionPayload137 {
 
 struct Union_ResourceA_ResourceB_i32 {
   uint32_t tag;
-  UnionPayload137 val;
+  Union_ResourceA_ResourceB_i32_val val;
 };
 
 struct __drop_flags_testMatchUnion_t {
-  uint64_t local;
-  uint64_t local_1;
-  uint64_t local_2;
+  uint64_t local: 1;
+  uint64_t local_1: 1;
+  uint64_t local_2: 1;
 };
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex);
@@ -61,12 +61,12 @@ static void __union_dctor_137(Union_ResourceA_ResourceB_i32 * u);
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
-  char * __t1;
+  char * __t2;
 _L_entry:;
   if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t1 = ex->vtable->what(ex);
-  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  __t2 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t2, ex->stackTrace);
   goto _L_exit;
 _L_exit:;
   return;
@@ -97,7 +97,7 @@ _L_exit:;
 
 static void ResourceA_op__destructor_fwd(void * ptr) {
 _L_entry:;
-  ResourceA_op__destructor(((ResourceA *)(ptr)));
+  ResourceA_op__destructor(((ResourceA *)(((ResourceA *)(ptr)))));
   goto _L_exit;
 _L_exit:;
   return;
@@ -128,7 +128,7 @@ _L_exit:;
 
 static void ResourceB_op__destructor_fwd(void * ptr) {
 _L_entry:;
-  ResourceB_op__destructor(((ResourceB *)(ptr)));
+  ResourceB_op__destructor(((ResourceB *)(((ResourceB *)(ptr)))));
   goto _L_exit;
 _L_exit:;
   return;
@@ -142,7 +142,7 @@ _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(ResourceA), ResourceA_op__destructor_fwd);
   __obj3 = ((ResourceA *)(__t0));
   memset(__obj3, 0, sizeof(ResourceA));
-  ResourceA_op__init(__obj3, id);
+  ResourceA_op__init(((ResourceA *)(__obj3)), id);
   __ret = __obj3;
   goto _L_exit;
 _L_exit:;
@@ -157,7 +157,7 @@ _L_entry:;
   __t1 = __smart_ptr_alloc(sizeof(ResourceB), ResourceB_op__destructor_fwd);
   __obj4 = ((ResourceB *)(__t1));
   memset(__obj4, 0, sizeof(ResourceB));
-  ResourceB_op__init(__obj4, tag);
+  ResourceB_op__init(((ResourceB *)(__obj4)), tag);
   __ret = __obj4;
   goto _L_exit;
 _L_exit:;
@@ -172,28 +172,28 @@ static void testMatchUnion(Union_ResourceA_ResourceB_i32 u) {
 _L_entry:;
   memset(&(__drop_flags), 0, sizeof(__drop_flags_testMatchUnion_t));
   switch (u.tag) {
-    case 0: goto _L_MATCH0_case_0;
-    case 1: goto _L_MATCH0_case_1;
-    case 2: goto _L_MATCH0_case_2;
+    case 0U: goto _L_MATCH0_case_0;
+    case 1U: goto _L_MATCH0_case_1;
+    case 2U: goto _L_MATCH0_case_2;
     default: goto _L_exit;
   }
 _L_MATCH0_case_0:;
   local = ResourceA_op__initCover((u.val._0->id + 10));
-  __drop_flags.local = 1;
+  __drop_flags.local = 1ULL;
   __smart_ptr_drop(local);
-  __drop_flags.local = 0;
+  __drop_flags.local = 0ULL;
   goto _L_exit;
 _L_MATCH0_case_1:;
   local_1 = ResourceB_op__initCover(u.val._1->tag);
-  __drop_flags.local_1 = 1;
+  __drop_flags.local_1 = 1ULL;
   __smart_ptr_drop(local_1);
-  __drop_flags.local_1 = 0;
+  __drop_flags.local_1 = 0ULL;
   goto _L_exit;
 _L_MATCH0_case_2:;
   local_2 = ResourceA_op__initCover(u.val._2);
-  __drop_flags.local_2 = 1;
+  __drop_flags.local_2 = 1ULL;
   __smart_ptr_drop(local_2);
-  __drop_flags.local_2 = 0;
+  __drop_flags.local_2 = 0ULL;
   goto _L_exit;
 _L_exit:;
   __union_dctor_137(&(u));
@@ -253,15 +253,17 @@ _L_exit:;
 static void __union_dctor_137(Union_ResourceA_ResourceB_i32 * u) {
 _L_entry:;
   switch (u->tag) {
-    case 0: goto _L_MATCH0_case_0;
-    case 1: goto _L_MATCH0_case_1;
+    case 0U: goto _L_MATCH0_case_0;
+    case 1U: goto _L_MATCH0_case_1;
     default: goto _L_exit;
   }
 _L_MATCH0_case_0:;
   __smart_ptr_drop(u->val._0);
+  u->val._0 = nullptr;
   goto _L_exit;
 _L_MATCH0_case_1:;
   __smart_ptr_drop(u->val._1);
+  u->val._1 = nullptr;
   goto _L_exit;
 _L_exit:;
   return;

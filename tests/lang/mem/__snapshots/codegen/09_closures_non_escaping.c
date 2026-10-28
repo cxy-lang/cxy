@@ -46,12 +46,12 @@ static void _main();
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
-  char * __t1;
+  char * __t2;
 _L_entry:;
   if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t1 = ex->vtable->what(ex);
-  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  __t2 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t2, ex->stackTrace);
   goto _L_exit;
 _L_exit:;
   return;
@@ -78,6 +78,7 @@ _L_exit:;
 static int32_t __closure_body5(__closure_env4 * this, int32_t x) {
   int32_t __ret;
 _L_entry:;
+  __ret = (x * this->factor);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -103,12 +104,12 @@ static void _main() {
   Closure_128 __t5;
 _L_entry:;
   factor = 3;
-  __t0 = (__closure_env4){factor};
+  __t0 = (__closure_env4){.factor = factor};
   __env1 = __t0;
   __t2 = (Closure_125){ .env = &__env1, .fn = __closure_body5, .dtor = nullptr };
   res = apply(((int32_t)(10)), __t2);
   count = 0;
-  __t3 = (__closure_env6){&count};
+  __t3 = (__closure_env6){.count = &count};
   __env4 = __t3;
   __t5 = (Closure_128){ .env = &__env4, .fn = __closure_body7, .dtor = nullptr };
   invokeTwice(__t5);

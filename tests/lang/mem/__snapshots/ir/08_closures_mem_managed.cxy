@@ -36,7 +36,7 @@ _L_exit:
 func main.Resource.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  Resource_op__destructor(<^Resource>(ptr))
+  Resource_op__destructor(<^Resource>(<^Resource>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -52,7 +52,7 @@ _L_entry:
   __t0 = alloc(^Resource)
   __obj3 = <^Resource>(__t0)
   zeromem __obj3
-  Resource_op__init(__obj3, &&id)
+  Resource_op__init(<^Resource>(__obj3), id)
   __ret = __obj3
   goto _L_exit
 _L_exit:
@@ -66,7 +66,7 @@ _L_entry:
   var __ret: __closure_env4
   var __t1: ^Resource
   copy this.r -> __t1
-  __ret = __closure_env4 {__t1}
+  __ret = __closure_env4 {r: __t1}
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -77,7 +77,7 @@ func main.__closure_env4.op__destructor(this: ^__closure_env4): void {
 _L_entry:
   scope.enter 0
   drop this.r
-  zeromem this.r
+  this.r = null
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -88,6 +88,7 @@ func __closure_body5(this: ^__closure_env4): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
+  __ret = this.r.id
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -99,11 +100,11 @@ _L_entry:
   scope.enter 0
   var r: ^Resource
   r = Resource_op__initCover(<i32>(1))
-  var c: Closure_140
+  var c: Closure_139
   var __t2: __closure_env4
   var __copy0: ^Resource
   copy r -> __copy0
-  __t2 = __closure_env4 {__copy0}
+  __t2 = __closure_env4 {r: __copy0}
   var __env3: __closure_env4
   __env3 = __t2
   c = ClosureValue(&__env3, __closure_body5)
@@ -122,7 +123,7 @@ _L_entry:
   var __ret: __closure_env6
   var __t4: ^Resource
   copy this.r -> __t4
-  __ret = __closure_env6 {__t4}
+  __ret = __closure_env6 {r: __t4}
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -133,7 +134,7 @@ func main.__closure_env6.op__destructor(this: ^__closure_env6): void {
 _L_entry:
   scope.enter 0
   drop this.r
-  zeromem this.r
+  this.r = null
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -144,6 +145,7 @@ func __closure_body7(this: ^__closure_env6): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
+  __ret = this.r.id
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -155,9 +157,9 @@ _L_entry:
   scope.enter 0
   var r: ^Resource
   r = Resource_op__initCover(<i32>(2))
-  var c: Closure_140
+  var c: Closure_139
   var __t5: __closure_env6
-  __t5 = __closure_env6 {r}
+  __t5 = __closure_env6 {r: r}
   var __env6: __closure_env6
   __env6 = __t5
   c = ClosureValue(&__env6, __closure_body7)
@@ -188,7 +190,7 @@ _L_entry:
   __t7 = alloc(^X)
   __obj8 = <^X>(__t7)
   zeromem __obj8
-  X_op__init(__obj8, &&s)
+  X_op__init(<^X>(__obj8), s)
   __ret = __obj8
   goto _L_exit
 _L_exit:
@@ -202,7 +204,7 @@ _L_entry:
   var __ret: __closure_env9
   var __t8: ^X
   copy this.s -> __t8
-  __ret = __closure_env9 {__t8}
+  __ret = __closure_env9 {s: __t8}
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -213,7 +215,7 @@ func main.__closure_env9.op__destructor(this: ^__closure_env9): void {
 _L_entry:
   scope.enter 0
   drop this.s
-  zeromem this.s
+  this.s = null
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -224,6 +226,7 @@ func __closure_body10(this: ^__closure_env9): u64 {
 _L_entry:
   scope.enter 0
   var __ret: u64
+  __ret = strlen(this.s.s)
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -235,11 +238,11 @@ _L_entry:
   scope.enter 0
   var s: ^X
   s = X_op__initCover("Hello")
-  var c: Closure_163
+  var c: Closure_161
   var __t9: __closure_env9
   var __copy1: ^X
   copy s -> __copy1
-  __t9 = __closure_env9 {__copy1}
+  __t9 = __closure_env9 {s: __copy1}
   var __env10: __closure_env9
   __env10 = __t9
   c = ClosureValue(&__env10, __closure_body10)

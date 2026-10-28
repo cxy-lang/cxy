@@ -36,7 +36,7 @@ _L_exit:
 func main.Resource.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  Resource_op__destructor(<^Resource>(ptr))
+  Resource_op__destructor(<^Resource>(<^Resource>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -49,7 +49,7 @@ _L_entry:
   var __ret: Container
   var __t0: ^Resource
   copy this.res -> __t0
-  __ret = Container {__t0, this.tag}
+  __ret = Container {res: __t0, tag: this.tag}
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -60,7 +60,7 @@ func main.Container.op__destructor(this: ^Container): void {
 _L_entry:
   scope.enter 0
   drop this.res
-  zeromem this.res
+  this.res = null
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -76,7 +76,7 @@ _L_entry:
   __t1 = alloc(^Resource)
   __obj3 = <^Resource>(__t1)
   zeromem __obj3
-  Resource_op__init(__obj3, &&id)
+  Resource_op__init(<^Resource>(__obj3), id)
   __ret = __obj3
   goto _L_exit
 _L_exit:
@@ -122,7 +122,7 @@ _L_entry:
   __t4 = variant(1, 10)
   testUnion(__t4)
   var c: Container
-  c = Container {Resource_op__initCover(<i32>(3)), 1}
+  c = Container {res: Resource_op__initCover(<i32>(3)), tag: 1}
   goto _L_exit
 _L_exit:
   drop c
@@ -130,7 +130,7 @@ _L_exit:
   return
 }
 
-func __tuple_copy_137(tup: ^(^Resource, i8)): (^Resource, i8) {
+func __tuple_copy_136(tup: ^(^Resource, i8)): (^Resource, i8) {
 _L_entry:
   scope.enter 0
   var __ret: (^Resource, i8)
@@ -143,17 +143,18 @@ _L_exit:
   return __ret
 }
 
-func __tuple_dctor_137(tup: ^(^Resource, i8)): void {
+func __tuple_dctor_136(tup: ^(^Resource, i8)): void {
 _L_entry:
   scope.enter 0
   drop tup.0
+  tup.0 = null
   goto _L_exit
 _L_exit:
   scope.exit 0
   return
 }
 
-func __union_copy_141(u: ^^Resource | i32): ^Resource | i32 {
+func __union_copy_140(u: ^^Resource | i32): ^Resource | i32 {
 _L_entry:
   scope.enter 0
   var __ret: ^Resource | i32
@@ -177,7 +178,7 @@ _L_exit:
   return __ret
 }
 
-func __union_dctor_141(u: ^^Resource | i32): void {
+func __union_dctor_140(u: ^^Resource | i32): void {
 _L_entry:
   scope.enter 0
   switch u.tag {
@@ -188,6 +189,7 @@ _L_MATCH0_exit:
   goto _L_exit
 _L_MATCH0_case_0:
   drop u.val._0
+  u.val._0 = null
   goto _L_MATCH0_exit
 _L_exit:
   scope.exit 0

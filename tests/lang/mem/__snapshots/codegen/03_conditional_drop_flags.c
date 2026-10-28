@@ -19,7 +19,7 @@ struct Item {
 };
 
 struct __drop_flags_testBranch_t {
-  uint64_t x;
+  uint64_t x: 1;
 };
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex);
@@ -34,12 +34,12 @@ static void _main();
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
-  char * __t1;
+  char * __t2;
 _L_entry:;
   if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t1 = ex->vtable->what(ex);
-  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  __t2 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t2, ex->stackTrace);
   goto _L_exit;
 _L_exit:;
   return;
@@ -70,7 +70,7 @@ _L_exit:;
 
 static void Item_op__destructor_fwd(void * ptr) {
 _L_entry:;
-  Item_op__destructor(((Item *)(ptr)));
+  Item_op__destructor(((Item *)(((Item *)(ptr)))));
   goto _L_exit;
 _L_exit:;
   return;
@@ -84,7 +84,7 @@ _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(Item), Item_op__destructor_fwd);
   __obj3 = ((Item *)(__t0));
   memset(__obj3, 0, sizeof(Item));
-  Item_op__init(__obj3, id);
+  Item_op__init(((Item *)(__obj3)), id);
   __ret = __obj3;
   goto _L_exit;
 _L_exit:;
@@ -99,11 +99,11 @@ _L_entry:;
   if (cond) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
   x = Item_op__initCover(((int32_t)(100)));
-  __drop_flags.x = 1;
+  __drop_flags.x = 1ULL;
   goto _L_exit;
 _L_exit:;
   if (__drop_flags.x) __smart_ptr_drop(x);
-  __drop_flags.x = 0;
+  __drop_flags.x = 0ULL;
   return;
 }
 

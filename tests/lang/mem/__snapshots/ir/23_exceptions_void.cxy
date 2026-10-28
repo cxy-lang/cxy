@@ -1,6 +1,6 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/23_exceptions_void.cxy
-global VoidError_vTable: Exception_VTable = builtins_Exception_VTable {<u64>(137), <func(^Exception): ^char>(VoidError_what)}
+global VoidError_vTable: Exception_VTable = builtins_Exception_VTable {__tid: <u64>(136), what: <func(^Exception): ^char>(VoidError_what)}
 
 extern func __smart_ptr_get(ptr: ^void): ^void
 
@@ -30,6 +30,7 @@ _L_exit:
 func main.HeavyResource.op__init(this: ^HeavyResource, data: ^String): void {
 _L_entry:
   scope.enter 0
+  drop this.data
   copy data -> this.data
   goto _L_exit
 _L_exit:
@@ -52,7 +53,7 @@ _L_entry:
   scope.enter 0
   HeavyResource_op__deinit(this)
   drop this.data
-  zeromem this.data
+  this.data = null
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -62,7 +63,7 @@ _L_exit:
 func main.HeavyResource.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  HeavyResource_op__destructor(<^HeavyResource>(ptr))
+  HeavyResource_op__destructor(<^HeavyResource>(<^HeavyResource>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -104,7 +105,7 @@ _L_exit:
 func main.VoidError.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  VoidError_op__destructor(<^VoidError>(ptr))
+  VoidError_op__destructor(<^VoidError>(<^VoidError>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -131,7 +132,7 @@ _L_entry:
   __t0 = alloc(^String)
   __obj3 = <^String>(__t0)
   zeromem __obj3
-  String_op__init(__obj3, &&s)
+  String_op__init(<^String>(__obj3), s)
   __ret = __obj3
   goto _L_exit
 _L_exit:
@@ -148,7 +149,7 @@ _L_entry:
   __t1 = alloc(^HeavyResource)
   __obj4 = <^HeavyResource>(__t1)
   zeromem __obj4
-  HeavyResource_op__init(__obj4, &&data)
+  HeavyResource_op__init(<^HeavyResource>(__obj4), data)
   __ret = __obj4
   goto _L_exit
 _L_exit:
@@ -165,8 +166,8 @@ _L_entry:
   __t2 = alloc(^VoidError)
   __obj5 = <^VoidError>(__t2)
   zeromem __obj5
-  VoidError___defaults_init(__obj5)
-  VoidError_op__init(__obj5, &&code)
+  VoidError___defaults_init(<^VoidError>(__obj5))
+  VoidError_op__init(<^VoidError>(__obj5), code)
   __ret = __obj5
   goto _L_exit
 _L_exit:
@@ -220,6 +221,7 @@ _L_catch_0:
   scope.enter 1
   scope.exit 1
   drop __t6.val
+  __t6.val = null
   __t6.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -232,6 +234,7 @@ _L_catch_1:
   scope.enter 2
   scope.exit 2
   drop __t7.val
+  __t7.val = null
   __t7.tag = 0
   goto _L_merge_2
 _L_cont_2:
@@ -244,6 +247,7 @@ _L_catch_2:
   scope.enter 3
   scope.exit 3
   drop __t8.val
+  __t8.val = null
   __t8.tag = 0
   goto _L_merge_3
 _L_cont_3:
@@ -263,6 +267,7 @@ _L_catch_3:
   __drop_flags.dummy = 0
   scope.exit 4
   drop __t9.val
+  __t9.val = null
   __t9.tag = 0
   goto _L_merge_4
 _L_cont_4:
@@ -310,6 +315,7 @@ _L_catch_0:
   scope.enter 1
   scope.exit 1
   drop __t13.val
+  __t13.val = null
   __t13.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -322,6 +328,7 @@ _L_catch_1:
   scope.enter 2
   scope.exit 2
   drop __t14.val
+  __t14.val = null
   __t14.tag = 0
   goto _L_merge_2
 _L_cont_2:

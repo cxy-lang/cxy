@@ -36,12 +36,12 @@ static void _main();
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
-  char * __t1;
+  char * __t2;
 _L_entry:;
   if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t1 = ex->vtable->what(ex);
-  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  __t2 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t2, ex->stackTrace);
   goto _L_exit;
 _L_exit:;
   return;
@@ -49,6 +49,7 @@ _L_exit:;
 
 static void Storage_op__init(Storage * this, Closure_126 cb) {
 _L_entry:;
+  if (this->cb.dtor) this->cb.dtor(this->cb.env);
   this->cb = cb;
   goto _L_exit;
 _L_exit:;
@@ -58,7 +59,7 @@ _L_exit:;
 static void Storage_op__destructor(Storage * this) {
 _L_entry:;
   if (this->cb.dtor) this->cb.dtor(this->cb.env);
-  memset(&this->cb, 0, sizeof(Closure_126));
+  memset(&(this->cb), 0, sizeof(Closure_126));
   goto _L_exit;
 _L_exit:;
   return;
@@ -66,7 +67,7 @@ _L_exit:;
 
 static void Storage_op__destructor_fwd(void * ptr) {
 _L_entry:;
-  Storage_op__destructor(((Storage *)(ptr)));
+  Storage_op__destructor(((Storage *)(((Storage *)(ptr)))));
   goto _L_exit;
 _L_exit:;
   return;
@@ -80,7 +81,7 @@ _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(Storage), Storage_op__destructor_fwd);
   __obj3 = ((Storage *)(__t0));
   memset(__obj3, 0, sizeof(Storage));
-  Storage_op__init(__obj3, cb);
+  Storage_op__init(((Storage *)(__obj3)), cb);
   __ret = __obj3;
   goto _L_exit;
 _L_exit:;

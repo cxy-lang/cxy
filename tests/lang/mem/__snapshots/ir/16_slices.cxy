@@ -36,7 +36,7 @@ _L_exit:
 func main.Resource.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  Resource_op__destructor(<^Resource>(ptr))
+  Resource_op__destructor(<^Resource>(<^Resource>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -116,8 +116,8 @@ _L_entry:
   var __ret: Buffer
   var __obj3: Buffer
   __obj3 = Buffer {}
-  Buffer_op__init(&__obj3, &&data, &&len)
-  __ret = &&__obj3
+  Buffer_op__init(&__obj3, data, len)
+  __ret = __obj3
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -154,7 +154,7 @@ _L_entry:
   __t3 = alloc(^Resource)
   __obj4 = <^Resource>(__t3)
   zeromem __obj4
-  Resource_op__init(__obj4, &&id)
+  Resource_op__init(<^Resource>(__obj4), id)
   __ret = __obj4
   goto _L_exit
 _L_exit:
@@ -192,6 +192,8 @@ _L_exit:
 
 func __array_dctor_148(arr: [^Resource]): void {
 _L_entry:
+  var __drop_flags: __drop_flags___array_dctor_148_t
+  zeromem __drop_flags
   scope.enter 0
   var __i: u64
   __i = 0
@@ -209,6 +211,8 @@ _L_FOR0_update:
 _L_FOR0_exit:
   goto _L_exit
 _L_exit:
+  drop-if arr, __drop_flags.arr
+  __drop_flags.arr = 0
   scope.exit 0
   return
 }

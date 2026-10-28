@@ -1,6 +1,6 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/22_exceptions_destructibles.cxy
-global CustomError_vTable: Exception_VTable = builtins_Exception_VTable {<u64>(137), <func(^Exception): ^char>(CustomError_what)}
+global CustomError_vTable: Exception_VTable = builtins_Exception_VTable {__tid: <u64>(136), what: <func(^Exception): ^char>(CustomError_what)}
 
 extern func __smart_ptr_get(ptr: ^void): ^void
 
@@ -31,6 +31,7 @@ func main.Container.op__init(this: ^Container, tag: i32, name: ^String): void {
 _L_entry:
   scope.enter 0
   this.tag = tag
+  drop this.name
   copy name -> this.name
   goto _L_exit
 _L_exit:
@@ -53,7 +54,7 @@ _L_entry:
   scope.enter 0
   Container_op__deinit(this)
   drop this.name
-  zeromem this.name
+  this.name = null
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -63,7 +64,7 @@ _L_exit:
 func main.Container.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  Container_op__destructor(<^Container>(ptr))
+  Container_op__destructor(<^Container>(<^Container>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -74,6 +75,7 @@ func main.CustomError.op__init(this: ^CustomError, reason: ^String): void {
 _L_entry:
   scope.enter 0
   builtins_Exception_op__init(this, "CustomError")
+  drop this.reason
   copy reason -> this.reason
   goto _L_exit
 _L_exit:
@@ -86,7 +88,7 @@ func main.CustomError.what(this: ^CustomError): ^char {
 _L_entry:
   scope.enter 0
   var __ret: ^char
-  __ret = String_str(this.reason)
+  __ret = String_str(<^String>(this.reason))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -98,7 +100,7 @@ _L_entry:
   scope.enter 0
   builtins_Exception_op__destructor(<^Exception>(this))
   drop this.reason
-  zeromem this.reason
+  this.reason = null
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -108,7 +110,7 @@ _L_exit:
 func main.CustomError.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  CustomError_op__destructor(<^CustomError>(ptr))
+  CustomError_op__destructor(<^CustomError>(<^CustomError>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -135,7 +137,7 @@ _L_entry:
   __t0 = alloc(^String)
   __obj3 = <^String>(__t0)
   zeromem __obj3
-  String_op__init(__obj3, &&s)
+  String_op__init(<^String>(__obj3), s)
   __ret = __obj3
   goto _L_exit
 _L_exit:
@@ -152,7 +154,7 @@ _L_entry:
   __t1 = alloc(^Container)
   __obj4 = <^Container>(__t1)
   zeromem __obj4
-  Container_op__init(__obj4, tag, &&name)
+  Container_op__init(<^Container>(__obj4), tag, name)
   __ret = __obj4
   goto _L_exit
 _L_exit:
@@ -169,8 +171,8 @@ _L_entry:
   __t2 = alloc(^CustomError)
   __obj5 = <^CustomError>(__t2)
   zeromem __obj5
-  CustomError___defaults_init(__obj5)
-  CustomError_op__init(__obj5, &&reason)
+  CustomError___defaults_init(<^CustomError>(__obj5))
+  CustomError_op__init(<^CustomError>(__obj5), reason)
   __ret = __obj5
   goto _L_exit
 _L_exit:
@@ -225,6 +227,7 @@ _L_catch_0:
   __t9 = String_op__initCover("fallback")
   __catch_res8 = __t9
   drop __t7.val.1
+  __t7.val.1 = null
   __t7.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -253,6 +256,7 @@ _L_catch_0:
   __t12 = String_op__initCover("fallback")
   __catch_res11 = __t12
   drop __t10.val.1
+  __t10.val.1 = null
   __t10.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -282,6 +286,7 @@ _L_catch_0:
   __t15 = String_op__initCover("yielded_fallback")
   __catch_res14 = __t15
   drop __t13.val.1
+  __t13.val.1 = null
   __t13.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -344,6 +349,7 @@ _L_catch_0:
   __t20 = String_op__initCover("error_caught")
   __catch_res19 = __t20
   drop __t18.val.1
+  __t18.val.1 = null
   __t18.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -362,6 +368,7 @@ _L_catch_1:
   __t23 = String_op__initCover("error_caught")
   __catch_res22 = __t23
   drop __t21.val.1
+  __t21.val.1 = null
   __t21.tag = 0
   goto _L_merge_2
 _L_cont_2:
@@ -397,7 +404,7 @@ _L_catch_0:
   builtins_Exception_push(__t24.val.1, "main", "", "testReraiseDestructible", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/22_exceptions_destructibles.cxy", 57)
   __ret.val.1 = __t24.val.1
   __t24.tag = 0
-  goto _L_UNWIND1_return
+  goto _L_exit
 _L_cont_1:
   __catch_res25 = __t24.val.0
   __t24.tag = 0
@@ -407,9 +414,6 @@ _L_merge_1:
   __drop_flags.res = 1
   __ret.tag = 0
   copy res -> __ret.val.0
-  goto _L_exit
-_L_UNWIND1_return:
-  scope.exit 1
   goto _L_exit
 _L_exit:
   drop-if res, __drop_flags.res
@@ -436,6 +440,7 @@ _L_catch_0:
   __t28 = String_op__initCover("reraised_caught")
   __catch_res27 = __t28
   drop __t26.val.1
+  __t26.val.1 = null
   __t26.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -454,6 +459,7 @@ _L_catch_1:
   __t31 = String_op__initCover("reraised_caught")
   __catch_res30 = __t31
   drop __t29.val.1
+  __t29.val.1 = null
   __t29.tag = 0
   goto _L_merge_2
 _L_cont_2:

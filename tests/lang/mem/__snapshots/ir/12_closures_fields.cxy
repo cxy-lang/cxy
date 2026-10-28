@@ -7,6 +7,7 @@ extern func __smart_ptr_drop(ptr: ^void): bool
 func main.Handler.op__init(this: ^Handler, fn: Closure_126): void {
 _L_entry:
   scope.enter 0
+  drop this.fn
   this.fn = fn
   goto _L_exit
 _L_exit:
@@ -29,7 +30,9 @@ func main.Handler.op__copy(this: ^Handler): Handler {
 _L_entry:
   scope.enter 0
   var __ret: Handler
-  __ret = Handler {this.fn}
+  var __copy0: Closure_126
+  copy this.fn -> __copy0
+  __ret = Handler {fn: __copy0}
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -40,16 +43,17 @@ func main.Handler.op__destructor(this: ^Handler): void {
 _L_entry:
   scope.enter 0
   drop this.fn
-  zeromem &this.fn
+  zeromem this.fn
   goto _L_exit
 _L_exit:
   scope.exit 0
   return
 }
 
-func main.Dispatcher.op__init(this: ^Dispatcher, fn: Closure_135): void {
+func main.Dispatcher.op__init(this: ^Dispatcher, fn: Closure_134): void {
 _L_entry:
   scope.enter 0
+  drop this.fn
   this.fn = fn
   goto _L_exit
 _L_exit:
@@ -71,7 +75,7 @@ func main.Dispatcher.op__destructor(this: ^Dispatcher): void {
 _L_entry:
   scope.enter 0
   drop this.fn
-  zeromem &this.fn
+  zeromem this.fn
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -81,7 +85,7 @@ _L_exit:
 func main.Dispatcher.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  Dispatcher_op__destructor(<^Dispatcher>(ptr))
+  Dispatcher_op__destructor(<^Dispatcher>(<^Dispatcher>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -92,6 +96,7 @@ func __closure_body6(this: ^__closure_env5, x: i32): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
+  __ret = x + this.offset
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -104,7 +109,7 @@ _L_entry:
   var __ret: Handler
   var __obj7: Handler
   __obj7 = Handler {}
-  Handler_op__init(&__obj7, &&fn)
+  Handler_op__init(&__obj7, fn)
   __ret = __obj7
   goto _L_exit
 _L_exit:
@@ -121,7 +126,7 @@ _L_exit:
   return
 }
 
-func main.Dispatcher.op__initCover(fn: Closure_135): ^Dispatcher {
+func main.Dispatcher.op__initCover(fn: Closure_134): ^Dispatcher {
 _L_entry:
   scope.enter 0
   var __ret: ^Dispatcher
@@ -130,7 +135,7 @@ _L_entry:
   __t0 = alloc(^Dispatcher)
   __obj9 = <^Dispatcher>(__t0)
   zeromem __obj9
-  Dispatcher_op__init(__obj9, &&fn)
+  Dispatcher_op__init(<^Dispatcher>(__obj9), fn)
   __ret = __obj9
   goto _L_exit
 _L_exit:
@@ -145,7 +150,7 @@ _L_entry:
   offset = 1
   var h: Handler
   var __t1: __closure_env5
-  __t1 = __closure_env5 {offset}
+  __t1 = __closure_env5 {offset: offset}
   var __env2: ^__closure_env5
   __env2 = alloc(__closure_env5)
   *__env2 = __t1
@@ -155,10 +160,10 @@ _L_entry:
   var v: i32
   v = Handler_call(&h, <i32>(41))
   var d: ^Dispatcher
-  var __t4: Closure_135
+  var __t4: Closure_134
   __t4 = ClosureValue(null, __closure_body8)
   d = Dispatcher_op__initCover(__t4)
-  Dispatcher_dispatch(d)
+  Dispatcher_dispatch(<^Dispatcher>(d))
   goto _L_exit
 _L_exit:
   drop d

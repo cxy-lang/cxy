@@ -11,13 +11,12 @@ _L_entry:
   if this.cur < this.limit goto _L_IF0_then else goto _L_IF0_end
 _L_IF0_then:
   scope.enter 1
-  __ret = Some(++this.cur)
-  goto _L_UNWIND1_return
+  var __t0: i32
+  __t0 = ++this.cur
+  __ret = Some(__t0)
+  goto _L_exit
 _L_IF0_end:
   __ret = None
-  goto _L_exit
-_L_UNWIND1_return:
-  scope.exit 1
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -39,7 +38,7 @@ func main.CustomRange.op__range(this: ^CustomRange): RangeIterator {
 _L_entry:
   scope.enter 0
   var __ret: RangeIterator
-  __ret = RangeIterator {this.limit, <i32>(0)}
+  __ret = RangeIterator {limit: this.limit, cur: <i32>(0)}
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -50,20 +49,17 @@ func main.__Iterator3.op__call(this: ^__Iterator3): (char, i32)? {
 _L_entry:
   scope.enter 0
   var __ret: (char, i32)?
-  var __t0: u64
-  __t0 = strlen(this.s)
-  if this.i < __t0 goto _L_IF0_then else goto _L_IF0_end
+  var __t1: u64
+  __t1 = strlen(this.s)
+  if this.i < __t1 goto _L_IF0_then else goto _L_IF0_end
 _L_IF0_then:
   scope.enter 1
-  var __t1: (char, i32)
-  __t1 = Tuple_char_i32 {this.s[this.i], ++this.i}
-  __ret = Some(__t1)
-  goto _L_UNWIND1_return
+  var __t2: (char, i32)
+  __t2 = Tuple_char_i32 {this.s[this.i], ++this.i}
+  __ret = Some(__t2)
+  goto _L_exit
 _L_IF0_end:
   __ret = None
-  goto _L_exit
-_L_UNWIND1_return:
-  scope.exit 1
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -74,9 +70,9 @@ func main.__Iterator3.op__truthy(this: ^__Iterator3): bool {
 _L_entry:
   scope.enter 0
   var __ret: bool
-  var __t2: u64
-  __t2 = strlen(this.s)
-  __ret = this.i < __t2
+  var __t3: u64
+  __t3 = strlen(this.s)
+  __ret = this.i < __t3
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -87,7 +83,7 @@ func main.InlineCollection.op__range(this: ^InlineCollection): __Iterator3 {
 _L_entry:
   scope.enter 0
   var __ret: __Iterator3
-  __ret = __Iterator3 {this.s, 0}
+  __ret = __Iterator3 {s: this.s, i: 0}
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -98,14 +94,14 @@ func testCustomNamedIterator(): void {
 _L_entry:
   scope.enter 0
   var r: CustomRange
-  r = CustomRange {5}
+  r = CustomRange {limit: 5}
   var __it4: RangeIterator
   __it4 = CustomRange_op__range(&r)
   goto _L_WHILE0_cond
 _L_WHILE0_cond:
-  var __t3: bool
-  __t3 = RangeIterator_op__truthy(&__it4)
-  if __t3 goto _L_WHILE0_body else goto _L_WHILE0_exit
+  var __t4: bool
+  __t4 = RangeIterator_op__truthy(&__it4)
+  if __t4 goto _L_WHILE0_body else goto _L_WHILE0_exit
 _L_WHILE0_body:
   scope.enter 1
   var __item5: i32?
@@ -125,14 +121,14 @@ func testInlineIteratorWithDestructuring(): void {
 _L_entry:
   scope.enter 0
   var c: InlineCollection
-  c = InlineCollection {"hello"}
+  c = InlineCollection {s: "hello"}
   var __it6: __Iterator3
   __it6 = InlineCollection_op__range(&c)
   goto _L_WHILE0_cond
 _L_WHILE0_cond:
-  var __t4: bool
-  __t4 = __Iterator3_op__truthy(&__it6)
-  if __t4 goto _L_WHILE0_body else goto _L_WHILE0_exit
+  var __t5: bool
+  __t5 = __Iterator3_op__truthy(&__it6)
+  if __t5 goto _L_WHILE0_body else goto _L_WHILE0_exit
 _L_WHILE0_body:
   scope.enter 1
   var __item7: (char, i32)?

@@ -2,11 +2,11 @@ typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct Resource Resource;
 typedef struct __closure_env4 __closure_env4;
-typedef struct Closure_140 Closure_140;
+typedef struct Closure_139 Closure_139;
 typedef struct __closure_env6 __closure_env6;
 typedef struct X X;
 typedef struct __closure_env9 __closure_env9;
-typedef struct Closure_163 Closure_163;
+typedef struct Closure_161 Closure_161;
 
 struct builtins_Exception {
   builtins_Exception_VTable * vtable;
@@ -27,7 +27,7 @@ struct __closure_env4 {
   Resource * r;
 };
 
-struct Closure_140 {
+struct Closure_139 {
   void * env;
   int32_t (*fn)(void *);
   void (*dtor)(void *);
@@ -45,7 +45,7 @@ struct __closure_env9 {
   X * s;
 };
 
-struct Closure_163 {
+struct Closure_161 {
   void * env;
   uint64_t (*fn)(void *);
   void (*dtor)(void *);
@@ -73,12 +73,12 @@ static void _main();
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
-  char * __t1;
+  char * __t2;
 _L_entry:;
   if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t1 = ex->vtable->what(ex);
-  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  __t2 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t2, ex->stackTrace);
   goto _L_exit;
 _L_exit:;
   return;
@@ -109,7 +109,7 @@ _L_exit:;
 
 static void Resource_op__destructor_fwd(void * ptr) {
 _L_entry:;
-  Resource_op__destructor(((Resource *)(ptr)));
+  Resource_op__destructor(((Resource *)(((Resource *)(ptr)))));
   goto _L_exit;
 _L_exit:;
   return;
@@ -123,7 +123,7 @@ _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
   __obj3 = ((Resource *)(__t0));
   memset(__obj3, 0, sizeof(Resource));
-  Resource_op__init(__obj3, id);
+  Resource_op__init(((Resource *)(__obj3)), id);
   __ret = __obj3;
   goto _L_exit;
 _L_exit:;
@@ -133,7 +133,7 @@ _L_exit:;
 static void __closure_env4_op__destructor(__closure_env4 * this) {
 _L_entry:;
   __smart_ptr_drop(this->r);
-  memset(this->r, 0, sizeof(Resource));
+  this->r = nullptr;
   goto _L_exit;
 _L_exit:;
   return;
@@ -142,6 +142,7 @@ _L_exit:;
 static int32_t __closure_body5(__closure_env4 * this) {
   int32_t __ret;
 _L_entry:;
+  __ret = this->r->id;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -149,16 +150,16 @@ _L_exit:;
 
 static void testCaptureClassByValue() {
   Resource * r;
-  Closure_140 c;
+  Closure_139 c;
   __closure_env4 __t2;
   Resource * __copy0;
   __closure_env4 __env3;
 _L_entry:;
   r = Resource_op__initCover(((int32_t)(1)));
   __copy0 = __smart_ptr_get(r);
-  __t2 = (__closure_env4){__copy0};
+  __t2 = (__closure_env4){.r = __copy0};
   __env3 = __t2;
-  c = (Closure_140){ .env = &__env3, .fn = __closure_body5, .dtor = nullptr };
+  c = (Closure_139){ .env = &__env3, .fn = __closure_body5, .dtor = nullptr };
   c.fn(c.env);
   goto _L_exit;
 _L_exit:;
@@ -170,7 +171,7 @@ _L_exit:;
 static void __closure_env6_op__destructor(__closure_env6 * this) {
 _L_entry:;
   __smart_ptr_drop(this->r);
-  memset(this->r, 0, sizeof(Resource));
+  this->r = nullptr;
   goto _L_exit;
 _L_exit:;
   return;
@@ -179,6 +180,7 @@ _L_exit:;
 static int32_t __closure_body7(__closure_env6 * this) {
   int32_t __ret;
 _L_entry:;
+  __ret = this->r->id;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -186,14 +188,14 @@ _L_exit:;
 
 static void testCaptureClassByMove() {
   Resource * r;
-  Closure_140 c;
+  Closure_139 c;
   __closure_env6 __t5;
   __closure_env6 __env6;
 _L_entry:;
   r = Resource_op__initCover(((int32_t)(2)));
-  __t5 = (__closure_env6){r};
+  __t5 = (__closure_env6){.r = r};
   __env6 = __t5;
-  c = (Closure_140){ .env = &__env6, .fn = __closure_body7, .dtor = nullptr };
+  c = (Closure_139){ .env = &__env6, .fn = __closure_body7, .dtor = nullptr };
   c.fn(c.env);
   goto _L_exit;
 _L_exit:;
@@ -217,7 +219,7 @@ _L_entry:;
   __t7 = __smart_ptr_alloc(sizeof(X), nullptr);
   __obj8 = ((X *)(__t7));
   memset(__obj8, 0, sizeof(X));
-  X_op__init(__obj8, s);
+  X_op__init(((X *)(__obj8)), s);
   __ret = __obj8;
   goto _L_exit;
 _L_exit:;
@@ -227,7 +229,7 @@ _L_exit:;
 static void __closure_env9_op__destructor(__closure_env9 * this) {
 _L_entry:;
   __smart_ptr_drop(this->s);
-  memset(this->s, 0, sizeof(X));
+  this->s = nullptr;
   goto _L_exit;
 _L_exit:;
   return;
@@ -236,6 +238,7 @@ _L_exit:;
 static uint64_t __closure_body10(__closure_env9 * this) {
   uint64_t __ret;
 _L_entry:;
+  __ret = strlen(this->s->s);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -243,16 +246,16 @@ _L_exit:;
 
 static void testCaptureString() {
   X * s;
-  Closure_163 c;
+  Closure_161 c;
   __closure_env9 __t9;
   X * __copy1;
   __closure_env9 __env10;
 _L_entry:;
   s = X_op__initCover("Hello");
   __copy1 = __smart_ptr_get(s);
-  __t9 = (__closure_env9){__copy1};
+  __t9 = (__closure_env9){.s = __copy1};
   __env10 = __t9;
-  c = (Closure_163){ .env = &__env10, .fn = __closure_body10, .dtor = nullptr };
+  c = (Closure_161){ .env = &__env10, .fn = __closure_body10, .dtor = nullptr };
   c.fn(c.env);
   goto _L_exit;
 _L_exit:;

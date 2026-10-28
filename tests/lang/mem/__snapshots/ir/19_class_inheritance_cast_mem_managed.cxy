@@ -1,7 +1,7 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/19_class_inheritance_cast_mem_managed.cxy
-global BaseResource_vTable: BaseResource_VTable = BaseResource_VTable {124, <func(^BaseResource): void>(BaseResource_op__deinit), <func(^BaseResource): i32>(BaseResource_getId)}
-global DerivedResource_vTable: BaseResource_VTable = BaseResource_VTable {<u64>(136), <func(^BaseResource): void>(DerivedResource_op__deinit), <func(^BaseResource): i32>(DerivedResource_getId)}
+global BaseResource_vTable: BaseResource_VTable = BaseResource_VTable {__tid: 124, op__deinit: <func(^BaseResource): void>(BaseResource_op__deinit), getId: <func(^BaseResource): i32>(BaseResource_getId)}
+global DerivedResource_vTable: BaseResource_VTable = BaseResource_VTable {__tid: <u64>(136), op__deinit: <func(^BaseResource): void>(DerivedResource_op__deinit), getId: <func(^BaseResource): i32>(DerivedResource_getId)}
 
 extern func __smart_ptr_get(ptr: ^void): ^void
 
@@ -50,7 +50,7 @@ _L_exit:
 func main.BaseResource.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  BaseResource_op__destructor(<^BaseResource>(ptr))
+  BaseResource_op__destructor(<^BaseResource>(<^BaseResource>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -112,7 +112,7 @@ _L_exit:
 func main.DerivedResource.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  DerivedResource_op__destructor(<^DerivedResource>(ptr))
+  DerivedResource_op__destructor(<^DerivedResource>(<^DerivedResource>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -134,7 +134,7 @@ func takeBaseByValue(b: ^BaseResource): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  __ret = b.vtable.getId(b)
+  __ret = b.vtable.getId(<^BaseResource>(b))
   goto _L_exit
 _L_exit:
   drop b
@@ -162,8 +162,8 @@ _L_entry:
   __t0 = alloc(^DerivedResource)
   __obj3 = <^DerivedResource>(__t0)
   zeromem __obj3
-  DerivedResource___defaults_init(__obj3)
-  DerivedResource_op__init(__obj3, id, &&extra)
+  DerivedResource___defaults_init(<^DerivedResource>(__obj3))
+  DerivedResource_op__init(<^DerivedResource>(__obj3), id, extra)
   __ret = __obj3
   goto _L_exit
 _L_exit:
@@ -183,7 +183,7 @@ _L_entry:
   copy d -> __copy0
   val1 = takeBaseByValue(<^BaseResource>(__copy0))
   var val2: i32
-  val2 = takeBaseByRef(<^BaseResource>(d))
+  val2 = takeBaseByRef(<^BaseResource>(<^DerivedResource>(d)))
   goto _L_exit
 _L_exit:
   drop b

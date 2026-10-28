@@ -1,6 +1,6 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/21_exceptions_basic.cxy
-global TestError_vTable: Exception_VTable = builtins_Exception_VTable {<u64>(130), <func(^Exception): ^char>(TestError_what)}
+global TestError_vTable: Exception_VTable = builtins_Exception_VTable {__tid: <u64>(130), what: <func(^Exception): ^char>(TestError_what)}
 
 extern func __smart_ptr_get(ptr: ^void): ^void
 
@@ -38,7 +38,7 @@ _L_exit:
 func main.Resource.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  Resource_op__destructor(<^Resource>(ptr))
+  Resource_op__destructor(<^Resource>(<^Resource>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -80,7 +80,7 @@ _L_exit:
 func main.TestError.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  TestError_op__destructor(<^TestError>(ptr))
+  TestError_op__destructor(<^TestError>(<^TestError>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -107,8 +107,8 @@ _L_entry:
   __t0 = alloc(^TestError)
   __obj3 = <^TestError>(__t0)
   zeromem __obj3
-  TestError___defaults_init(__obj3)
-  TestError_op__init(__obj3, &&msg)
+  TestError___defaults_init(<^TestError>(__obj3))
+  TestError_op__init(<^TestError>(__obj3), msg)
   __ret = __obj3
   goto _L_exit
 _L_exit:
@@ -153,6 +153,7 @@ _L_entry:
 _L_catch_0:
   __catch_res3 = 0
   drop __t2.val.1
+  __t2.val.1 = null
   __t2.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -169,6 +170,7 @@ _L_merge_1:
 _L_catch_1:
   __catch_res5 = -1
   drop __t4.val.1
+  __t4.val.1 = null
   __t4.tag = 0
   goto _L_merge_2
 _L_cont_2:
@@ -194,6 +196,7 @@ _L_catch_0:
   scope.enter 1
   scope.exit 1
   drop __t6.val.1
+  __t6.val.1 = null
   __t6.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -206,6 +209,7 @@ _L_catch_1:
   scope.enter 2
   scope.exit 2
   drop __t7.val.1
+  __t7.val.1 = null
   __t7.tag = 0
   goto _L_merge_2
 _L_cont_2:
@@ -232,6 +236,7 @@ _L_catch_0:
   res = 42
   scope.exit 1
   drop __t8.val.1
+  __t8.val.1 = null
   __t8.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -261,6 +266,7 @@ _L_catch_0:
   res = 100
   scope.exit 1
   drop __t10.val.1
+  __t10.val.1 = null
   __t10.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -288,6 +294,7 @@ _L_catch_0:
   scope.enter 1
   __catch_res13 = 99
   drop __t12.val.1
+  __t12.val.1 = null
   __t12.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -312,7 +319,7 @@ _L_entry:
   __t14 = alloc(^Resource)
   __obj4 = <^Resource>(__t14)
   zeromem __obj4
-  Resource_op__init(__obj4, &&id)
+  Resource_op__init(<^Resource>(__obj4), id)
   __ret = __obj4
   goto _L_exit
 _L_exit:
@@ -415,6 +422,7 @@ _L_catch_0:
   scope.enter 1
   __catch_res19 = -999
   drop __t18.val.1
+  __t18.val.1 = null
   __t18.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -445,7 +453,7 @@ _L_catch_0:
   builtins_Exception_push(__t20.val.1, "main", "", "testReraise", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/21_exceptions_basic.cxy", 79)
   __ret.val.1 = __t20.val.1
   __t20.tag = 0
-  goto _L_UNWIND1_return
+  goto _L_exit
 _L_cont_1:
   __catch_res21 = __t20.val.0
   __t20.tag = 0
@@ -454,9 +462,6 @@ _L_merge_1:
   v = __catch_res21
   __ret.tag = 0
   __ret.val.0 = v
-  goto _L_exit
-_L_UNWIND1_return:
-  scope.exit 1
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -485,6 +490,7 @@ _L_entry:
 _L_catch_0:
   __catch_res23 = -1
   drop __t22.val.1
+  __t22.val.1 = null
   __t22.tag = 0
   goto _L_merge_1
 _L_cont_1:
@@ -501,6 +507,7 @@ _L_merge_1:
 _L_catch_1:
   __catch_res25 = -2
   drop __t24.val.1
+  __t24.val.1 = null
   __t24.tag = 0
   goto _L_merge_2
 _L_cont_2:

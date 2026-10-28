@@ -2,6 +2,7 @@ typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct Resource Resource;
 typedef struct Slice_Resource Slice_Resource;
+typedef struct __drop_flags___array_dctor_133_t __drop_flags___array_dctor_133_t;
 
 struct builtins_Exception {
   builtins_Exception_VTable * vtable;
@@ -23,6 +24,10 @@ struct Slice_Resource {
   uint64_t len;
 };
 
+struct __drop_flags___array_dctor_133_t {
+  uint64_t arr: 1;
+};
+
 static void builtins_panicOnUnhandledException(builtins_Exception * ex);
 
 static void Resource_op__init(Resource * this, int32_t id);
@@ -39,12 +44,12 @@ static void __array_dctor_133(Slice_Resource arr);
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
-  char * __t1;
+  char * __t2;
 _L_entry:;
   if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t1 = ex->vtable->what(ex);
-  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  __t2 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t2, ex->stackTrace);
   goto _L_exit;
 _L_exit:;
   return;
@@ -75,7 +80,7 @@ _L_exit:;
 
 static void Resource_op__destructor_fwd(void * ptr) {
 _L_entry:;
-  Resource_op__destructor(((Resource *)(ptr)));
+  Resource_op__destructor(((Resource *)(((Resource *)(ptr)))));
   goto _L_exit;
 _L_exit:;
   return;
@@ -89,7 +94,7 @@ _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
   __obj3 = ((Resource *)(__t0));
   memset(__obj3, 0, sizeof(Resource));
-  Resource_op__init(__obj3, id);
+  Resource_op__init(((Resource *)(__obj3)), id);
   __ret = __obj3;
   goto _L_exit;
 _L_exit:;
@@ -144,12 +149,12 @@ _L_entry:;
   a[0] = Resource_op__initCover(((int32_t)(1)));
   a[1] = Resource_op__initCover(((int32_t)(2)));
   b.ptr = a;
-  b.len = 2;
+  b.len = 2ULL;
   c.ptr = a;
-  c.len = 2;
+  c.len = 2ULL;
   goto _L_exit;
 _L_exit:;
-    __array_dctor_133((Slice_Resource){ .ptr = a, .len = 2 });
+      __array_dctor_133((Slice_Resource){ .ptr = a, .len = 2 });
   return;
 }
 
@@ -165,9 +170,11 @@ _L_exit:;
 }
 
 static void __array_dctor_133(Slice_Resource arr) {
+  __drop_flags___array_dctor_133_t __drop_flags;
   uint64_t __i;
 _L_entry:;
-  __i = 0;
+  memset(&(__drop_flags), 0, sizeof(__drop_flags___array_dctor_133_t));
+  __i = 0ULL;
   goto _L_FOR0_cond;
 _L_FOR0_cond:;
   if (__i < arr.len) goto _L_FOR0_body; else goto _L_exit;
@@ -175,9 +182,10 @@ _L_FOR0_body:;
   __smart_ptr_drop(arr.ptr[__i]);
   goto _L_FOR0_update;
 _L_FOR0_update:;
-  __i = (__i + 1);
+  __i = (__i + 1ULL);
   goto _L_FOR0_cond;
 _L_exit:;
+  if (__drop_flags.arr)   __drop_flags.arr = 0ULL;
   return;
 }
 

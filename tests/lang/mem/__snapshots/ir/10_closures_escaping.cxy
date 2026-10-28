@@ -7,6 +7,7 @@ extern func __smart_ptr_drop(ptr: ^void): bool
 func main.Storage.op__init(this: ^Storage, cb: Closure_126): void {
 _L_entry:
   scope.enter 0
+  drop this.cb
   this.cb = cb
   goto _L_exit
 _L_exit:
@@ -18,7 +19,7 @@ func main.Storage.op__destructor(this: ^Storage): void {
 _L_entry:
   scope.enter 0
   drop this.cb
-  zeromem &this.cb
+  zeromem this.cb
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -28,7 +29,7 @@ _L_exit:
 func main.Storage.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  Storage_op__destructor(<^Storage>(ptr))
+  Storage_op__destructor(<^Storage>(<^Storage>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -44,7 +45,7 @@ _L_entry:
   __t0 = alloc(^Storage)
   __obj3 = <^Storage>(__t0)
   zeromem __obj3
-  Storage_op__init(__obj3, &&cb)
+  Storage_op__init(<^Storage>(__obj3), cb)
   __ret = __obj3
   goto _L_exit
 _L_exit:

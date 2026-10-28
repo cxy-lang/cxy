@@ -1,0 +1,148 @@
+module yaml_suite_runner
+
+// Runs the yaml-test-suite cases under `cases/` against stdlib/yaml.cxy.
+// Usage: runner <cases-dir>
+//
+// Every case directory holds `in.yaml` and either `in.json` (the expected
+// value) or an empty `error` file (parsing must fail). One line per case is
+// printed, so the runner output snapshot doubles as the known-failing list.
+
+import { Value } from "stdlib/value.cxy"
+import { Vector } from "stdlib/vector.cxy"
+import { parseAll } from "stdlib/yaml.cxy"
+import { ls, exists, PathLike, cast } from "stdlib/path.cxy"
+import { readAll } from "stdlib/os.cxy"
+import "stdlib/json.cxy"
+import { valuesEqual } from "stdlib/value.test.cxy"
+
+// `<root>/<id>/<file>`
+func casePath(root: __string, id: __string, file: __string): String {
+    var p = String(root)
+    p << "/" << id << "/" << file
+    return &&p
+}
+
+// `<id>` or `<id>: <title>` from the case's `name` file
+func caseLabel(root: __string, id: __string): String {
+    var label = String(id)
+    var title = readAll(casePath(root, id, "name")) catch {
+        return &&label
+    }
+    var s = title.__str()
+    var end = s.size()
+    while end > 0 && (s.[end - 1] == '\n' || s.[end - 1] == '\r' || s.[end - 1] == ' ') {
+        end -= 1
+    }
+    if end > 0 {
+        label << ": " << s.substr(0, <i64>end)
+    }
+    return &&label
+}
+
+// Empty when the case behaves as the suite expects, otherwise why it does not
+func runCase(root: __string, id: __string): String {
+    var yamlPath = casePath(root, id, "in.yaml")
+    var text = readAll(yamlPath) catch {
+        return String("cannot read in.yaml")
+    }
+
+    var expectError = exists(casePath(root, id, "error"))
+    var docs = parseAll(text.__str()) catch as ex {
+        if expectError {
+            return String()
+        }
+        return f"parse error: {ex!.what()}"
+    }
+    if expectError {
+        return String("expected a parse error")
+    }
+
+    var jsonPath = casePath(root, id, "in.json")
+    var expected = readAll(jsonPath) catch {
+        return String("cannot read in.json")
+    }
+    var want = json.parse[Value](expected.__str()) catch as ex {
+        return f"invalid in.json: {ex!.what()}"
+    }
+    if docs.size() != 1 {
+        return f"expected 1 document, got {docs.size()}"
+    }
+    if !valuesEqual(docs.[0], want) {
+        return f"value mismatch, got {docs.[0]}"
+    }
+    return String()
+}
+
+// The last component of a path
+func baseName(p: PathLike): String {
+    var s = cast[__string](&p)
+    var start = 0`u64
+    var i = 0`u64
+    while i < s.size() {
+        if s.[i] == '/' {
+            start = i + 1
+        }
+        i += 1
+    }
+    return String(s.substr(start))
+}
+
+func lessThan(a: &const String, b: &const String): bool {
+    var x = a.__str()
+    var y = b.__str()
+    var i = 0`u64
+    while i < x.size() && i < y.size() {
+        if x.[i] != y.[i] {
+            return x.[i] < y.[i]
+        }
+        i += 1
+    }
+    return x.size() < y.size()
+}
+
+pub func main(args: [string]): i32 {
+    if len!(args) < 2 {
+        println("usage: runner <cases-dir> [-v]")
+        return 2
+    }
+    var root = __string(args.[1])
+    var verbose = len!(args) > 2 && __string(args.[2]) == "-v"
+
+    var ids = Vector[String]()
+    ls(root, |&ids|(p: PathLike): bool => {
+        ids.push(baseName(p))
+        return true
+    }) catch as ex {
+        println("cannot list ", root, ": ", ex!.what())
+        return 2
+    }
+
+    // directory order is arbitrary, keep the output stable
+    var n = ids.size()
+    var i = 1`i32
+    while i < n {
+        var j = i
+        while j > 0 && lessThan(ids.[j], ids.[j - 1]) {
+            ids.swap(<i32>j, <i32>(j - 1))
+            j -= 1
+        }
+        i += 1
+    }
+
+    var passed = 0`i32
+    for (const k: 0.i32..n) {
+        var reason = runCase(root, ids.[k as i32].__str())
+        var label = caseLabel(root, ids.[k as i32].__str())
+        if reason.size() == 0 {
+            passed += 1
+            println("PASS ", label)
+        } else {
+            println("FAIL ", label)
+            if verbose {
+                println("  ", reason)
+            }
+        }
+    }
+    println("cases: ", n, " passed: ", passed, " failed: ", n - passed)
+    return passed < n ? -1 : 0
+}

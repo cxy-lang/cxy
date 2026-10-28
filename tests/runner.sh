@@ -142,7 +142,7 @@ timestamp() {
 
 TESTS_DIR=$(realpath $(dirname "$0"))
 CXY_DEFAULT_COMMAND=./cxy
-CXY_STDLIB=./stdlib
+CXY_STDLIB=""
 CXY_DEFAULT_ARGS="dev --dump-ast CXY --no-color --no-progress --clean-ast --warnings=~RedundantStmt"
 CXY_DEFAULT_SNAPSHOT_EXT=".cxy"
 
@@ -156,7 +156,7 @@ Options:
   -d, --test-dir <path>        Directory containing tests (default: script dir)
   -u, --update-snapshot        Update test snapshot files with current output
       --cxy <path>             Path to cxy compiler binary (default: ./cxy)
-      --lib <path>             Path to cxy stdlib (default: ./stdlib)
+      --lib <path>             Path to cxy stdlib (passed to the compiler as --stdlib)
       --no-check               Disable FileCheck validation
   -h, --help                   Show this help message
 
@@ -310,6 +310,10 @@ run_test () {
       suite_name=$(basename "$run_cfg" .cfg)
       snapshots_dir="${test_dir}/__snapshots/${suite_name}"
     fi
+  fi
+
+  if [ -n "${CXY_STDLIB}" ] && [ "$(basename "${run_cmd%% *}")" == "cxy" ]; then
+    run_args="${run_args} --stdlib ${CXY_STDLIB}"
   fi
 
   local display_name="${test_case}"

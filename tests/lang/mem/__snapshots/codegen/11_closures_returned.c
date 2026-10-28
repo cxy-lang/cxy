@@ -46,12 +46,12 @@ static void _main();
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
-  char * __t1;
+  char * __t2;
 _L_entry:;
   if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t1 = ex->vtable->what(ex);
-  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  __t2 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t2, ex->stackTrace);
   goto _L_exit;
 _L_exit:;
   return;
@@ -60,6 +60,7 @@ _L_exit:;
 static int32_t __closure_body5(__closure_env4 * this, int32_t x) {
   int32_t __ret;
 _L_entry:;
+  __ret = (x * this->factor);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -70,7 +71,7 @@ static Closure_125 makeMultiplier(int32_t factor) {
   __closure_env4 __t0;
   __closure_env4 * __env1;
 _L_entry:;
-  __t0 = (__closure_env4){factor};
+  __t0 = (__closure_env4){.factor = factor};
   __env1 = __smart_ptr_alloc(sizeof(__closure_env4), nullptr);
   (*(__env1)) = __t0;
   __ret = (Closure_125){ .env = __env1, .fn = __closure_body5, .dtor = __smart_ptr_drop };
@@ -95,7 +96,7 @@ static Closure_136 makeCounter() {
   __closure_env6 * __env3;
 _L_entry:;
   count = 0;
-  __t2 = (__closure_env6){count};
+  __t2 = (__closure_env6){.count = count};
   __env3 = __smart_ptr_alloc(sizeof(__closure_env6), nullptr);
   (*(__env3)) = __t2;
   __ret = (Closure_136){ .env = __env3, .fn = __closure_body7, .dtor = __smart_ptr_drop };

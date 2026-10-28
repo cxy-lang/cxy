@@ -89,12 +89,12 @@ static void _main();
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
-  char * __t1;
+  char * __t2;
 _L_entry:;
   if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t1 = ex->vtable->what(ex);
-  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  __t2 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t2, ex->stackTrace);
   goto _L_exit;
 _L_exit:;
   return;
@@ -103,6 +103,7 @@ _L_exit:;
 static int8_t __closure_body4(__closure_env3 * this) {
   int8_t __ret;
 _L_entry:;
+  __ret = (this->a + 5);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -116,7 +117,7 @@ static int32_t testValueCapture() {
   __closure_env3 __env1;
 _L_entry:;
   a = 10;
-  __t0 = (__closure_env3){a};
+  __t0 = (__closure_env3){.a = a};
   __env1 = __t0;
   c = (Closure_132){ .env = &__env1, .fn = __closure_body4, .dtor = nullptr };
   __ret = c.fn(c.env);
@@ -128,6 +129,7 @@ _L_exit:;
 static int8_t __closure_body6(__closure_env5 * this) {
   int8_t __ret;
 _L_entry:;
+  __ret = ((*(this->a)) + 20);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -141,7 +143,7 @@ static int32_t testRefCapture() {
   __closure_env5 __env3;
 _L_entry:;
   a = 10;
-  __t2 = (__closure_env5){&a};
+  __t2 = (__closure_env5){.a = &a};
   __env3 = __t2;
   c = (Closure_132){ .env = &__env3, .fn = __closure_body6, .dtor = nullptr };
   __ret = c.fn(c.env);
@@ -153,6 +155,7 @@ _L_exit:;
 static int8_t __closure_body8(__closure_env7 * this) {
   int8_t __ret;
 _L_entry:;
+  __ret = (this->a + 30);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -166,7 +169,7 @@ static int32_t testMoveCapture() {
   __closure_env7 __env5;
 _L_entry:;
   a = 10;
-  __t4 = (__closure_env7){a};
+  __t4 = (__closure_env7){.a = a};
   __env5 = __t4;
   c = (Closure_132){ .env = &__env5, .fn = __closure_body8, .dtor = nullptr };
   __ret = c.fn(c.env);
@@ -178,6 +181,7 @@ _L_exit:;
 static int8_t __closure_body10(__closure_env9 * this) {
   int8_t __ret;
 _L_entry:;
+  __ret = ((*(this->a)) + (*(this->b)));
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -193,7 +197,7 @@ static int32_t testDefaultRefCapture() {
 _L_entry:;
   a = 10;
   b = 20;
-  __t6 = (__closure_env9){&a, &b};
+  __t6 = (__closure_env9){.a = &a, .b = &b};
   __env7 = __t6;
   c = (Closure_132){ .env = &__env7, .fn = __closure_body10, .dtor = nullptr };
   __ret = c.fn(c.env);
@@ -205,6 +209,7 @@ _L_exit:;
 static int8_t __closure_body12(__closure_env11 * this) {
   int8_t __ret;
 _L_entry:;
+  __ret = (this->a + this->b);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -220,7 +225,7 @@ static int32_t testDefaultMoveCapture() {
 _L_entry:;
   a = 10;
   b = 20;
-  __t8 = (__closure_env11){a, b};
+  __t8 = (__closure_env11){.a = a, .b = b};
   __env9 = __t8;
   c = (Closure_132){ .env = &__env9, .fn = __closure_body12, .dtor = nullptr };
   __ret = c.fn(c.env);
@@ -232,6 +237,7 @@ _L_exit:;
 static int8_t __closure_body14(__closure_env13 * this) {
   int8_t __ret;
 _L_entry:;
+  __ret = ((this->a + (*(this->b))) + this->c);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -249,7 +255,7 @@ _L_entry:;
   a = 10;
   b = 20;
   c = 30;
-  __t10 = (__closure_env13){a, &b, c};
+  __t10 = (__closure_env13){.a = a, .b = &b, .c = c};
   __env11 = __t10;
   fn = (Closure_132){ .env = &__env11, .fn = __closure_body14, .dtor = nullptr };
   __ret = fn.fn(fn.env);
@@ -261,6 +267,7 @@ _L_exit:;
 static int8_t __closure_body16(__closure_env15 * this) {
   int8_t __ret;
 _L_entry:;
+  __ret = ((this->a + (*(this->b))) + (*(this->c)));
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -278,7 +285,7 @@ _L_entry:;
   a = 10;
   b = 20;
   c = 30;
-  __t12 = (__closure_env15){a, &b, &c};
+  __t12 = (__closure_env15){.a = a, .b = &b, .c = &c};
   __env13 = __t12;
   fn = (Closure_132){ .env = &__env13, .fn = __closure_body16, .dtor = nullptr };
   __ret = fn.fn(fn.env);
@@ -290,6 +297,7 @@ _L_exit:;
 static int8_t __closure_body18(__closure_env17 * this) {
   int8_t __ret;
 _L_entry:;
+  __ret = (((*(this->a)) + this->b) + this->c);
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -307,7 +315,7 @@ _L_entry:;
   a = 10;
   b = 20;
   c = 30;
-  __t14 = (__closure_env17){&a, b, c};
+  __t14 = (__closure_env17){.a = &a, .b = b, .c = c};
   __env15 = __t14;
   fn = (Closure_132){ .env = &__env15, .fn = __closure_body18, .dtor = nullptr };
   __ret = fn.fn(fn.env);

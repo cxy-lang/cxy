@@ -36,7 +36,7 @@ _L_exit:
 func main.Resource.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  Resource_op__destructor(<^Resource>(ptr))
+  Resource_op__destructor(<^Resource>(<^Resource>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -52,7 +52,7 @@ _L_entry:
   __t0 = alloc(^Resource)
   __obj3 = <^Resource>(__t0)
   zeromem __obj3
-  Resource_op__init(__obj3, &&id)
+  Resource_op__init(<^Resource>(__obj3), id)
   __ret = __obj3
   goto _L_exit
 _L_exit:
@@ -108,7 +108,7 @@ _L_entry:
   var a: [^Resource, 2]
   a = [Resource_op__initCover(<i32>(1)), Resource_op__initCover(<i32>(2))]
   var b: [^Resource]
-  b.ptr = a
+  copy a -> b.ptr
   b.len = 2
   var c: [^Resource]
   copy a -> c.ptr
@@ -116,6 +116,7 @@ _L_entry:
   goto _L_exit
 _L_exit:
   drop c
+  drop b
   drop a
   scope.exit 0
   return
@@ -136,6 +137,8 @@ _L_exit:
 
 func __array_dctor_133(arr: [^Resource]): void {
 _L_entry:
+  var __drop_flags: __drop_flags___array_dctor_133_t
+  zeromem __drop_flags
   scope.enter 0
   var __i: u64
   __i = 0
@@ -153,29 +156,8 @@ _L_FOR0_update:
 _L_FOR0_exit:
   goto _L_exit
 _L_exit:
-  scope.exit 0
-  return
-}
-
-func __array_dctor_133(arr: [^Resource]): void {
-_L_entry:
-  scope.enter 0
-  var __i: u64
-  __i = 0
-  goto _L_FOR0_cond
-_L_FOR0_cond:
-  if __i < arr.len goto _L_FOR0_body else goto _L_FOR0_exit
-_L_FOR0_body:
-  scope.enter 1
-  drop arr.ptr[__i]
-  scope.exit 1
-  goto _L_FOR0_update
-_L_FOR0_update:
-  __i = __i + 1
-  goto _L_FOR0_cond
-_L_FOR0_exit:
-  goto _L_exit
-_L_exit:
+  drop-if arr, __drop_flags.arr
+  __drop_flags.arr = 0
   scope.exit 0
   return
 }

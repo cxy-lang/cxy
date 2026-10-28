@@ -36,7 +36,7 @@ _L_exit:
 func main.Resource.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  Resource_op__destructor(<^Resource>(ptr))
+  Resource_op__destructor(<^Resource>(<^Resource>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -52,7 +52,7 @@ _L_entry:
   __t0 = alloc(^Resource)
   __obj3 = <^Resource>(__t0)
   zeromem __obj3
-  Resource_op__init(__obj3, &&id)
+  Resource_op__init(<^Resource>(__obj3), id)
   __ret = __obj3
   goto _L_exit
 _L_exit:
@@ -70,7 +70,7 @@ _L_entry:
   switch val {
     0 -> _L_SWITCH0_case_0
     1 -> _L_SWITCH0_case_1
-    2 -> _L_SWITCH0_case_2
+    2 -> _L_SWITCH0_case_3
     3 -> _L_SWITCH0_case_3
     else -> _L_SWITCH0_case_4
   }
@@ -91,27 +91,6 @@ _L_SWITCH0_case_1:
   case1 = Resource_op__initCover(<i32>(20))
   __drop_flags.case1 = 1
   if val == 1 goto _L_IF0_then else goto _L_IF0_end
-_L_IF0_then:
-  scope.enter 3
-  goto _L_UNWIND3_return
-_L_IF0_end:
-  drop case1
-  __drop_flags.case1 = 0
-  scope.exit 2
-  goto _L_SWITCH0_exit
-_L_UNWIND3_return:
-  scope.exit 3
-  goto _L_UNWIND2_return
-_L_UNWIND2_return:
-  drop case1
-  __drop_flags.case1 = 0
-  scope.exit 2
-  goto _L_UNWIND1_return
-_L_UNWIND1_return:
-  scope.exit 1
-  goto _L_exit
-_L_SWITCH0_case_2:
-  goto _L_SWITCH0_exit
 _L_SWITCH0_case_3:
   scope.enter 4
   var case23: ^Resource
@@ -130,6 +109,19 @@ _L_SWITCH0_case_4:
   __drop_flags.caseDef = 0
   scope.exit 5
   goto _L_SWITCH0_exit
+_L_IF0_then:
+  scope.enter 3
+  goto _L_UNWIND2_return
+_L_IF0_end:
+  drop case1
+  __drop_flags.case1 = 0
+  scope.exit 2
+  goto _L_SWITCH0_exit
+_L_UNWIND2_return:
+  drop case1
+  __drop_flags.case1 = 0
+  scope.exit 2
+  goto _L_exit
 _L_exit:
   drop outer
   scope.exit 0

@@ -19,8 +19,8 @@ struct Item {
 };
 
 struct __drop_flags_nested_t {
-  uint64_t outer;
-  uint64_t inner;
+  uint64_t outer: 1;
+  uint64_t inner: 1;
 };
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex);
@@ -35,12 +35,12 @@ static void _main();
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
-  char * __t1;
+  char * __t2;
 _L_entry:;
   if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t1 = ex->vtable->what(ex);
-  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  __t2 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t2, ex->stackTrace);
   goto _L_exit;
 _L_exit:;
   return;
@@ -71,7 +71,7 @@ _L_exit:;
 
 static void Item_op__destructor_fwd(void * ptr) {
 _L_entry:;
-  Item_op__destructor(((Item *)(ptr)));
+  Item_op__destructor(((Item *)(((Item *)(ptr)))));
   goto _L_exit;
 _L_exit:;
   return;
@@ -85,7 +85,7 @@ _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(Item), Item_op__destructor_fwd);
   __obj3 = ((Item *)(__t0));
   memset(__obj3, 0, sizeof(Item));
-  Item_op__init(__obj3, id);
+  Item_op__init(((Item *)(__obj3)), id);
   __ret = __obj3;
   goto _L_exit;
 _L_exit:;
@@ -110,7 +110,7 @@ _L_FOR0_cond:;
 _L_FOR0_body:;
   if (__drop_flags.outer) __smart_ptr_drop(outer);
   outer = Item_op__initCover(((int32_t)(i)));
-  __drop_flags.outer = 1;
+  __drop_flags.outer = 1ULL;
   j = 0;
   goto _L_FOR1_cond;
 _L_FOR0_update:;
@@ -121,14 +121,14 @@ _L_FOR1_cond:;
 _L_FOR1_body:;
   if (__drop_flags.inner) __smart_ptr_drop(inner);
   inner = Item_op__initCover(((int32_t)(((i * 10) + j))));
-  __drop_flags.inner = 1;
+  __drop_flags.inner = 1ULL;
   if (j == 1) goto _L_AND0_rhs; else goto _L_AND0_false;
 _L_FOR1_update:;
   j = (j + 1);
   goto _L_FOR1_cond;
 _L_FOR1_exit:;
   __smart_ptr_drop(outer);
-  __drop_flags.outer = 0;
+  __drop_flags.outer = 0ULL;
   goto _L_FOR0_update;
 _L_AND0_rhs:;
   __cond1 = condBreak;
@@ -140,7 +140,7 @@ _L_AND0_merge:;
   if (__cond1) goto _L_IF0_then; else goto _L_IF0_end;
 _L_IF0_then:;
   __smart_ptr_drop(inner);
-  __drop_flags.inner = 0;
+  __drop_flags.inner = 0ULL;
   goto _L_FOR1_exit;
 _L_IF0_end:;
   if (i == 2) goto _L_AND1_rhs; else goto _L_AND1_false;
@@ -162,15 +162,15 @@ _L_AND2_merge:;
   if (__cond3) goto _L_UNWIND2_return; else goto _L_IF1_end;
 _L_IF1_end:;
   __smart_ptr_drop(inner);
-  __drop_flags.inner = 0;
+  __drop_flags.inner = 0ULL;
   goto _L_FOR1_update;
 _L_UNWIND2_return:;
   __smart_ptr_drop(inner);
-  __drop_flags.inner = 0;
+  __drop_flags.inner = 0ULL;
   goto _L_UNWIND1_return;
 _L_UNWIND1_return:;
   __smart_ptr_drop(outer);
-  __drop_flags.outer = 0;
+  __drop_flags.outer = 0ULL;
   goto _L_exit;
 _L_exit:;
   return;

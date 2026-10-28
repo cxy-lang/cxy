@@ -8,6 +8,7 @@ func __closure_body4(this: ^__closure_env3): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
+  __ret = this.a
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -18,6 +19,7 @@ func __closure_body6(this: ^__closure_env5): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
+  __ret = this.b
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -35,7 +37,7 @@ _L_IF0_then:
   var a: i32
   a = 10
   var __t0: __closure_env3
-  __t0 = __closure_env3 {a}
+  __t0 = __closure_env3 {a: a}
   var __env1: __closure_env3
   __env1 = __t0
   fn = ClosureValue(&__env1, __closure_body4)
@@ -46,7 +48,7 @@ _L_IF0_else:
   var b: i32
   b = 20
   var __t2: __closure_env5
-  __t2 = __closure_env5 {b}
+  __t2 = __closure_env5 {b: b}
   var __env3: __closure_env5
   __env3 = __t2
   fn = ClosureValue(&__env3, __closure_body6)
@@ -64,6 +66,7 @@ func __closure_body8(this: ^__closure_env7): i8 {
 _L_entry:
   scope.enter 0
   var __ret: i8
+  __ret = this.i
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -82,7 +85,7 @@ _L_FOR0_body:
   scope.enter 1
   var c: Closure_147
   var __t4: __closure_env7
-  __t4 = __closure_env7 {i}
+  __t4 = __closure_env7 {i: i}
   var __env5: __closure_env7
   __env5 = __t4
   c = ClosureValue(&__env5, __closure_body8)
@@ -109,6 +112,7 @@ func __closure_body10(this: ^__closure_env9): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
+  __ret = this.x
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -119,6 +123,7 @@ func __closure_body12(this: ^__closure_env11): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
+  __ret = this.y
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -142,7 +147,7 @@ _L_SWITCH0_case_0:
   var x: i32
   x = 100
   var __t6: __closure_env9
-  __t6 = __closure_env9 {x}
+  __t6 = __closure_env9 {x: x}
   var __env7: __closure_env9
   __env7 = __t6
   fn = ClosureValue(&__env7, __closure_body10)
@@ -153,7 +158,7 @@ _L_SWITCH0_case_1:
   var y: i32
   y = 200
   var __t8: __closure_env11
-  __t8 = __closure_env11 {y}
+  __t8 = __closure_env11 {y: y}
   var __env9: __closure_env11
   __env9 = __t8
   fn = ClosureValue(&__env9, __closure_body12)

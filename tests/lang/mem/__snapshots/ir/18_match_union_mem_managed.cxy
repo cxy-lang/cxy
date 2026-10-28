@@ -36,7 +36,7 @@ _L_exit:
 func main.ResourceA.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  ResourceA_op__destructor(<^ResourceA>(ptr))
+  ResourceA_op__destructor(<^ResourceA>(<^ResourceA>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -75,7 +75,7 @@ _L_exit:
 func main.ResourceB.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  ResourceB_op__destructor(<^ResourceB>(ptr))
+  ResourceB_op__destructor(<^ResourceB>(<^ResourceB>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -91,7 +91,7 @@ _L_entry:
   __t0 = alloc(^ResourceA)
   __obj3 = <^ResourceA>(__t0)
   zeromem __obj3
-  ResourceA_op__init(__obj3, &&id)
+  ResourceA_op__init(<^ResourceA>(__obj3), id)
   __ret = __obj3
   goto _L_exit
 _L_exit:
@@ -108,7 +108,7 @@ _L_entry:
   __t1 = alloc(^ResourceB)
   __obj4 = <^ResourceB>(__t1)
   zeromem __obj4
-  ResourceB_op__init(__obj4, &&tag)
+  ResourceB_op__init(<^ResourceB>(__obj4), tag)
   __ret = __obj4
   goto _L_exit
 _L_exit:
@@ -255,9 +255,11 @@ _L_MATCH0_exit:
   goto _L_exit
 _L_MATCH0_case_0:
   drop u.val._0
+  u.val._0 = null
   goto _L_MATCH0_exit
 _L_MATCH0_case_1:
   drop u.val._1
+  u.val._1 = null
   goto _L_MATCH0_exit
 _L_exit:
   scope.exit 0

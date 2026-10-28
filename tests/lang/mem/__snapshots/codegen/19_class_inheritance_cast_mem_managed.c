@@ -55,19 +55,19 @@ static void _main();
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
-  char * __t1;
+  char * __t2;
 _L_entry:;
   if (ex != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t1 = ex->vtable->what(ex);
-  __cxy_dump_unhandled_exception(ex->name, __t1, ex->stackTrace);
+  __t2 = ex->vtable->what(ex);
+  __cxy_dump_unhandled_exception(ex->name, __t2, ex->stackTrace);
   goto _L_exit;
 _L_exit:;
   return;
 }
 
-BaseResource_VTable BaseResource_vTable = (BaseResource_VTable){124, ((void (*)(BaseResource *))(BaseResource_op__deinit)), ((int32_t (*)(BaseResource *))(BaseResource_getId))};
-BaseResource_VTable DerivedResource_vTable = (BaseResource_VTable){((uint64_t)(136)), ((void (*)(BaseResource *))(DerivedResource_op__deinit)), ((int32_t (*)(BaseResource *))(DerivedResource_getId))};
+BaseResource_VTable BaseResource_vTable = (BaseResource_VTable){.__tid = 124ULL, .op__deinit = ((void (*)(BaseResource *))(BaseResource_op__deinit)), .getId = ((int32_t (*)(BaseResource *))(BaseResource_getId))};
+BaseResource_VTable DerivedResource_vTable = (BaseResource_VTable){.__tid = ((uint64_t)(136)), .op__deinit = ((void (*)(BaseResource *))(DerivedResource_op__deinit)), .getId = ((int32_t (*)(BaseResource *))(DerivedResource_getId))};
 
 static void BaseResource_op__init(BaseResource * this, int32_t id) {
 _L_entry:;
@@ -103,7 +103,7 @@ _L_exit:;
 
 static void BaseResource_op__destructor_fwd(void * ptr) {
 _L_entry:;
-  BaseResource_op__destructor(((BaseResource *)(ptr)));
+  BaseResource_op__destructor(((BaseResource *)(((BaseResource *)(ptr)))));
   goto _L_exit;
 _L_exit:;
   return;
@@ -153,7 +153,7 @@ _L_exit:;
 
 static void DerivedResource_op__destructor_fwd(void * ptr) {
 _L_entry:;
-  DerivedResource_op__destructor(((DerivedResource *)(ptr)));
+  DerivedResource_op__destructor(((DerivedResource *)(((DerivedResource *)(ptr)))));
   goto _L_exit;
 _L_exit:;
   return;
@@ -171,7 +171,7 @@ _L_exit:;
 static int32_t takeBaseByValue(BaseResource * b) {
   int32_t __ret;
 _L_entry:;
-  __ret = b->vtable->getId(b);
+  __ret = b->vtable->getId(((BaseResource *)(b)));
   goto _L_exit;
 _L_exit:;
   __smart_ptr_drop(b);
@@ -195,8 +195,8 @@ _L_entry:;
   __t0 = __smart_ptr_alloc(sizeof(DerivedResource), DerivedResource_op__destructor_fwd);
   __obj3 = ((DerivedResource *)(__t0));
   memset(__obj3, 0, sizeof(DerivedResource));
-  DerivedResource___defaults_init(__obj3);
-  DerivedResource_op__init(__obj3, id, extra);
+  DerivedResource___defaults_init(((DerivedResource *)(__obj3)));
+  DerivedResource_op__init(((DerivedResource *)(__obj3)), id, extra);
   __ret = __obj3;
   goto _L_exit;
 _L_exit:;
@@ -214,7 +214,7 @@ _L_entry:;
   b = __smart_ptr_get(d);
   __copy0 = __smart_ptr_get(d);
   val1 = takeBaseByValue(((BaseResource *)(__copy0)));
-  val2 = takeBaseByRef(((BaseResource *)(d)));
+  val2 = takeBaseByRef(((BaseResource *)(((DerivedResource *)(d)))));
   goto _L_exit;
 _L_exit:;
   __smart_ptr_drop(b);

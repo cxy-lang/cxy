@@ -36,7 +36,7 @@ _L_exit:
 func main.Item.op__destructor_fwd(ptr: ^void): void {
 _L_entry:
   scope.enter 0
-  Item_op__destructor(<^Item>(ptr))
+  Item_op__destructor(<^Item>(<^Item>(ptr)))
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -52,7 +52,7 @@ _L_entry:
   __t0 = alloc(^Item)
   __obj3 = <^Item>(__t0)
   zeromem __obj3
-  Item_op__init(__obj3, &&id)
+  Item_op__init(<^Item>(__obj3), id)
   __ret = __obj3
   goto _L_exit
 _L_exit:
@@ -139,18 +139,12 @@ _L_AND2_merge:
   if __cond3 goto _L_IF1_then else goto _L_IF1_end
 _L_IF1_then:
   scope.enter 4
-  goto _L_UNWIND4_return
+  goto _L_UNWIND2_return
 _L_IF1_end:
   drop inner
   __drop_flags.inner = 0
   scope.exit 2
   goto _L_FOR1_update
-_L_UNWIND4_return:
-  scope.exit 4
-  goto _L_UNWIND3_return
-_L_UNWIND3_return:
-  scope.exit 3
-  goto _L_UNWIND2_return
 _L_UNWIND2_return:
   drop inner
   __drop_flags.inner = 0
