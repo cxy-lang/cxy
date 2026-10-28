@@ -1,0 +1,389 @@
+module json_spec
+
+// JSON conformance tests (RFC 8259). Tests marked @disabled("TODO") are known
+// bugs; remove the attribute once they are fixed.
+
+import test "stdlib/json.cxy"
+import test { Value } from "stdlib/value.cxy"
+import test { valuesEqual } from "stdlib/value.test.cxy"
+
+test {
+    // Parses `text` and compares the result with the JSON document `expected`
+    pub func jsonEquals(text: __string, expected: __string): bool {
+        var actual = json.parse[Value](text) catch as ex {
+            println("  parse failed: ", ex.what())
+            println("  input:    ", text)
+            return false
+        }
+        var want = json.parse[Value](expected) catch as ex {
+            println("  invalid expected JSON: ", ex.what())
+            println("  expected: ", expected)
+            return false
+        }
+        if !valuesEqual(actual, want) {
+            println("  input:    ", text)
+            println("  expected: ", expected)
+            println("  actual:   ", f"{actual}")
+            return false
+        }
+        return true
+    }
+
+    // `text` is a JSON string literal whose content must be `expected`
+    pub func jsonString(text: __string, expected: __string): bool {
+        var actual = json.parse[Value](text) catch as ex {
+            println("  parse failed: ", ex.what())
+            println("  input:    ", text)
+            return false
+        }
+        if !actual.isString() {
+            println("  input:    ", text)
+            println("  expected a string, got: ", f"{actual}")
+            return false
+        }
+        var s = actual.getString()
+        if *s != expected {
+            println("  input:    ", text)
+            println("  expected: ", expected)
+            println("  actual:   ", s)
+            return false
+        }
+        return true
+    }
+
+    // The document is invalid and parsing must fail
+    pub func jsonFails(text: __string): bool {
+        var result = json.parse[Value](text) catch {
+            return true
+        }
+        println("  expected a parse error, got: ", f"{result}")
+        println("  input:    ", text)
+        return false
+    }
+
+    // `depth` nested arrays: [[[...]]]
+    pub func nested(depth: u64): String {
+        var s = String()
+        for (const i: 0.u64..depth) {
+            s << '['
+        }
+        for (const i: 0.u64..depth) {
+            s << ']'
+        }
+        return &&s
+    }
+}
+
+// ------------------------------------------------------------------ values
+
+test "Spec - literals" {
+    ok!(jsonEquals("null", "null"))
+    ok!(jsonEquals("true", "true"))
+    ok!(jsonEquals("false", "false"))
+}
+
+test "Spec - top level scalars" {
+    ok!(jsonEquals("42", "42"))
+    ok!(jsonEquals("\"text\"", "\"text\""))
+    ok!(jsonEquals("-1.5", "-1.5"))
+}
+
+test "Spec - empty collections" {
+    ok!(jsonEquals("[]", "[]"))
+    ok!(jsonEquals("{}", "{}"))
+    ok!(jsonEquals("[[], {}, [[]]]", "[[], {}, [[]]]"))
+}
+
+test "Spec - nested collections" {
+    ok!(jsonEquals("{\"a\": {\"b\": {\"c\": [1, {\"d\": null}]}}}", "{\"a\": {\"b\": {\"c\": [1, {\"d\": null}]}}}"))
+    ok!(jsonEquals("[1, \"two\", true, null, [3], {\"four\": 4}]", "[1, \"two\", true, null, [3], {\"four\": 4}]"))
+}
+
+test "Spec - object key order is not significant" {
+    ok!(jsonEquals("{\"a\": 1, \"b\": 2}", "{\"b\": 2, \"a\": 1}"))
+}
+
+test "Spec - object keys" {
+    ok!(jsonEquals("{\"\": 1}", "{\"\": 1}"))
+    ok!(jsonEquals("{\"a\\nb\": 1}", "{\"a\\nb\": 1}"))
+    ok!(jsonEquals("{\"é€\": 1}", "{\"é€\": 1}"))
+}
+
+test "Spec - duplicate keys, the last one wins" {
+    ok!(jsonEquals("{\"a\": 1, \"a\": 2}", "{\"a\": 2}"))
+}
+
+// -------------------------------------------------------------- whitespace
+
+test "Spec - whitespace around tokens" {
+    ok!(jsonEquals(" \t\r\n[ 1 ,\n2 ]\r\n", "[1, 2]"))
+    ok!(jsonEquals("\n{\n\t\"a\" :\r\n 1\n}\n", "{\"a\": 1}"))
+}
+
+test "Spec - other whitespace is not allowed" {
+    ok!(jsonFails("\f[]"))
+    ok!(jsonFails("\v[]"))
+    ok!(jsonFails("\xc2\xa0[]"))
+}
+
+// ----------------------------------------------------------------- numbers
+
+test "Spec - valid numbers" {
+    ok!(jsonEquals("[0, -0, 1, -1, 123456789]", "[0, 0, 1, -1, 123456789]"))
+    ok!(jsonEquals("[0.5, -1.5, 3.14159]", "[0.5, -1.5, 3.14159]"))
+    ok!(jsonEquals("[1e5, 1E5, 1e+5, 1e-5, 1.5e3, -2.5E-2]", "[100000, 100000, 100000, 0.00001, 1500, -0.025]"))
+}
+
+test "Spec - leading zeros are not allowed" {
+    ok!(jsonFails("01"))
+    ok!(jsonFails("[01]"))
+    ok!(jsonFails("-01"))
+    ok!(jsonFails("[00]"))
+}
+
+test "Spec - invalid number forms" {
+    ok!(jsonFails("-"))
+    ok!(jsonFails("+1"))
+    ok!(jsonFails(".5"))
+    ok!(jsonFails("1."))
+    ok!(jsonFails("[1.]"))
+    ok!(jsonFails("1e"))
+    ok!(jsonFails("1e+"))
+    ok!(jsonFails("--1"))
+    ok!(jsonFails("1.5.5"))
+    ok!(jsonFails("- 1"))
+    ok!(jsonFails("1_000"))
+}
+
+test "Spec - non finite numbers and other bases are not allowed" {
+    ok!(jsonFails("NaN"))
+    ok!(jsonFails("Infinity"))
+    ok!(jsonFails("-Infinity"))
+    ok!(jsonFails("0x10"))
+}
+
+test "Spec - integers parse as ints" {
+    var value = json.parse[Value]("[1, -2, 3.5, 1e3]")
+    var a = value.[0]
+    ok!(!!a && a&.isInt() && a&.asInt() == 1)
+    var b = value.[1]
+    ok!(!!b && b&.isInt() && b&.asInt() == -2)
+    var c = value.[2]
+    ok!(!!c && c&.isFloat())
+    var d = value.[3]
+    ok!(!!d && d&.isFloat())
+}
+
+test "Spec - i64 limits" {
+    var value = json.parse[Value]("[9223372036854775807, -9223372036854775808, 9223372036854775808]")
+    var a = value.[0]
+    ok!(!!a && a&.isInt() && a&.asInt() == #i64.max)
+    var b = value.[1]
+    ok!(!!b && b&.isInt() && b&.asInt() == #i64.min)
+    var c = value.[2]
+    ok!(!!c && c&.isFloat())
+}
+
+test "Spec - asFloat accepts an int" {
+    var value = json.parse[Value]("[1, 2.5, -3]")
+    var a = value.[0]
+    ok!(!!a && a&.asFloat() == 1.0)
+    var b = value.[1]
+    ok!(!!b && b&.asFloat() == 2.5)
+    var c = value.[2]
+    ok!(!!c && c&.asFloat() == -3.0)
+}
+
+test "Spec - ints are serialized without a fraction" {
+    var value = json.parse[Value]("[1, -2, 3.5]")
+    var out = String()
+    json.toJSON(&out, &value)
+    ok!(out.__str() == "[1,-2,3.5]")
+}
+
+// ----------------------------------------------------------------- strings
+
+test "Spec - simple escapes" {
+    ok!(jsonString("\"\\\"\\\\\\/\\b\\f\\n\\r\\t\"", "\"\\/\b\f\n\r\t"))
+}
+
+test "Spec - unicode escapes" {
+    ok!(jsonString("\"\\u0041\"", "A"))
+    ok!(jsonString("\"\\u00e9\"", "é"))
+    ok!(jsonString("\"\\u00E9\"", "é"))
+    ok!(jsonString("\"\\u20ac\"", "€"))
+}
+
+test "Spec - surrogate pairs" {
+    ok!(jsonString("\"\\ud83d\\ude00\"", "😀"))
+    ok!(jsonString("\"a\\uD834\\uDD1Eb\"", "a𝄞b"))
+}
+
+test "Spec - lone surrogates are rejected" {
+    ok!(jsonFails("\"\\ud800\""))
+    ok!(jsonFails("\"\\udc00\""))
+    ok!(jsonFails("\"\\ud800x\""))
+    ok!(jsonFails("\"\\ud800\\u0041\""))
+    ok!(jsonFails("\"\\ud800\\ud800\""))
+    ok!(jsonFails("\"\\udc00\\ud800\""))
+}
+
+test "Spec - raw utf-8 is kept" {
+    ok!(jsonString("\"é€😀\"", "é€😀"))
+    ok!(jsonEquals("[\"日本語\"]", "[\"日本語\"]"))
+}
+
+test "Spec - empty string" {
+    ok!(jsonString("\"\"", ""))
+}
+
+test "Spec - invalid escapes" {
+    // `\x41` is built at run time, a backslash followed by `x` in a string
+    // literal reaches the C code as an escape sequence
+    var hex = String()
+    hex << "\"" << '\\' << "x41\""
+    ok!(jsonFails(hex.__str()))
+    ok!(jsonFails("\"\\a\""))
+    ok!(jsonFails("\"\\'\""))
+    ok!(jsonFails("\"\\u12\""))
+    ok!(jsonFails("\"\\u12g4\""))
+    ok!(jsonFails("\"\\u\""))
+}
+
+test "Spec - unterminated strings" {
+    ok!(jsonFails("\"abc"))
+    ok!(jsonFails("\"abc\\\""))
+    ok!(jsonFails("[\"abc]"))
+    ok!(jsonFails("\""))
+}
+
+test "Spec - single quotes are not allowed" {
+    ok!(jsonFails("'a'"))
+    ok!(jsonFails("{'a': 1}"))
+}
+
+test "Spec - control characters must be escaped in strings" {
+    ok!(jsonFails("\"a\nb\""))
+    ok!(jsonFails("\"a\tb\""))
+    ok!(jsonFails("\"a\x01z\""))
+}
+
+// -------------------------------------------------------------- invalid input
+
+test "Spec - empty documents" {
+    ok!(jsonFails(""))
+    ok!(jsonFails("   "))
+    ok!(jsonFails("\n"))
+}
+
+test "Spec - unbalanced brackets" {
+    ok!(jsonFails("["))
+    ok!(jsonFails("]"))
+    ok!(jsonFails("{"))
+    ok!(jsonFails("}"))
+    ok!(jsonFails("[1"))
+    ok!(jsonFails("{\"a\": 1"))
+    ok!(jsonFails("[1]]"))
+    ok!(jsonFails("{\"a\": 1}}"))
+    ok!(jsonFails("[}"))
+    ok!(jsonFails("{]"))
+}
+
+test "Spec - commas" {
+    ok!(jsonFails("[1,]"))
+    ok!(jsonFails("[,1]"))
+    ok!(jsonFails("[1,,2]"))
+    ok!(jsonFails("[,]"))
+    ok!(jsonFails("{\"a\": 1,}"))
+    ok!(jsonFails("{,}"))
+    ok!(jsonFails("{\"a\": 1,,\"b\": 2}"))
+    ok!(jsonFails("[1 2]"))
+    ok!(jsonFails("{\"a\": 1 \"b\": 2}"))
+}
+
+test "Spec - object syntax" {
+    ok!(jsonFails("{\"a\"}"))
+    ok!(jsonFails("{\"a\":}"))
+    ok!(jsonFails("{\"a\" 1}"))
+    ok!(jsonFails("{:1}"))
+    ok!(jsonFails("{1: 2}"))
+    ok!(jsonFails("{a: 1}"))
+    ok!(jsonFails("{null: 1}"))
+    ok!(jsonFails("{\"a\"::1}"))
+}
+
+test "Spec - several values in one document" {
+    ok!(jsonFails("1 2"))
+    ok!(jsonFails("[] []"))
+    ok!(jsonFails("{} {}"))
+    ok!(jsonFails("null null"))
+    ok!(jsonFails("\"a\" \"b\""))
+}
+
+test "Spec - literals are case sensitive and complete" {
+    ok!(jsonFails("True"))
+    ok!(jsonFails("FALSE"))
+    ok!(jsonFails("Null"))
+    ok!(jsonFails("nul"))
+    ok!(jsonFails("tru"))
+    ok!(jsonFails("fals"))
+    ok!(jsonFails("truee"))
+    ok!(jsonFails("nulll"))
+    ok!(jsonFails("[truefalse]"))
+}
+
+test "Spec - comments are not allowed" {
+    ok!(jsonFails("[1] // comment"))
+    ok!(jsonFails("/* c */ [1]"))
+    ok!(jsonFails("[1] # comment"))
+    ok!(jsonFails("[1, /* c */ 2]"))
+}
+
+test "Spec - garbage after the value" {
+    ok!(jsonFails("[]x"))
+    ok!(jsonFails("{}garbage"))
+    ok!(jsonFails("1a"))
+    ok!(jsonFails("\"a\"b"))
+}
+
+test "Spec - undefined values are not allowed" {
+    ok!(jsonFails("undefined"))
+    ok!(jsonFails("[undefined]"))
+    ok!(jsonFails("[1, ]"))
+}
+
+// ------------------------------------------------------------------- depth
+
+test "Spec - deep nesting is accepted" {
+    var text = nested(100)
+    ok!(jsonEquals(text.__str(), text.__str()))
+}
+
+test "Spec - excessive nesting is an error, not a crash" {
+    var text = nested(100000)
+    ok!(jsonFails(text.__str()))
+}
+
+// ------------------------------------------------------------ serialization
+
+test "Spec - serialized values parse back to the same value" {
+    var text = "{\"a\": [1, 2.5, true, null, \"x\"], \"b\": {\"c\": \"d\"}, \"e\": []}".s
+    var value = json.parse[Value](text)
+    var out = String()
+    json.toJSON(&out, &value)
+    ok!(jsonEquals(out.view(), text))
+}
+
+test "Spec - serialized strings are escaped" {
+    var value = Value("quote \" backslash \\ newline \n tab \t")
+    var out = String()
+    json.toJSON(&out, &value)
+    ok!(jsonString(out.__str(), "quote \" backslash \\ newline \n tab \t"))
+}
+
+test "Spec - control characters are escaped when serialized" {
+    var value = Value("a\x01z")
+    var out = String()
+    json.toJSON(&out, &value)
+    ok!(out.__str() == "\"a\\u0001z\"")
+}

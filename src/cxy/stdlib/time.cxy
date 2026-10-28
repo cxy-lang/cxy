@@ -1394,28 +1394,28 @@ pub struct Time {
 
     @[static]
     func fromDate(year: i32, month: i32, day: i32): Time {
-        var tm = ctime.tm{}
-        tm.tm_year = year - 1900
-        tm.tm_mon = month - 1
-        tm.tm_mday = day
-        tm.tm_hour = 0
-        tm.tm_min = 0
-        tm.tm_sec = 0
-        tm.tm_isdst = -1
-        return Time(ctime.timegm(ptrof tm))
+        var t = ctime.tm{}
+        t.tm_year = year - 1900
+        t.tm_mon = month - 1
+        t.tm_mday = day
+        t.tm_hour = 0
+        t.tm_min = 0
+        t.tm_sec = 0
+        t.tm_isdst = -1
+        return Time(ctime.timegm(ptrof t))
     }
 
     @[static]
     func fromDateTime(year: i32, month: i32, day: i32, hour: i32, minute: i32, second: i32): Time {
-        var tm = ctime.tm{}
-        tm.tm_year = year - 1900
-        tm.tm_mon = month - 1
-        tm.tm_mday = day
-        tm.tm_hour = hour
-        tm.tm_min = minute
-        tm.tm_sec = second
-        tm.tm_isdst = -1
-        return Time(ctime.timegm(ptrof tm))
+        var t = ctime.tm{}
+        t.tm_year = year - 1900
+        t.tm_mon = month - 1
+        t.tm_mday = day
+        t.tm_hour = hour
+        t.tm_min = minute
+        t.tm_sec = second
+        t.tm_isdst = -1
+        return Time(ctime.timegm(ptrof t))
     }
 
     @[static]

@@ -50,7 +50,7 @@ static void castIntegerLiteral(const Type *to, AstNode *expr)
 static void castLiteral(TypingContext *ctx, AstNode *node)
 {
     if (isLiteralExpr(node) && typeIs(node->type, Primitive)) {
-        AstNode *expr = node->castExpr.expr;
+        AstNode *expr = resolveGroupExpr(node->castExpr.expr);
         if (isIntegerType(node->type)) {
             if (nodeIs(expr, FloatLit)) {
                 expr->tag = astIntegerLit;
@@ -154,22 +154,31 @@ void checkCastExpr(AstVisitor *visitor, AstNode *node)
     TypingContext *ctx = getAstVisitorContext(visitor);
     const Type *expr = checkType(visitor, node->castExpr.expr);
     const Type *target = checkType(visitor, node->castExpr.to);
+    bool isDowncast = false;
     if (!isTypeCastAssignable(target, expr)) {
         const Type *bare = stripPointerOrReferenceOnce(expr, NULL);
         if (isClassOrStructType(bare)) {
-            checkCastOverload(visitor, bare, node);
+            // `base as Child` is a checked downcast unless `as` is overloaded
+            bool hasOverload =
+                nodeIs(findMemberDeclInType(bare, S_Cast), GenericDecl);
+            isDowncast = !hasOverload && isClassType(bare) &&
+                         typeIsBaseOf(resolveAndUnThisType(bare), target);
+            if (!isDowncast) {
+                checkCastOverload(visitor, bare, node);
+                return;
+            }
+        }
+        else {
+            logError(ctx->L,
+                     &node->loc,
+                     "type '{t}' cannot be cast to type '{t}'",
+                     (FormatArg[]){{.t = expr}, {.t = target}});
+            node->type = ERROR_TYPE(ctx);
             return;
         }
-
-        logError(ctx->L,
-                 &node->loc,
-                 "type '{t}' cannot be cast to type '{t}'",
-                 (FormatArg[]){{.t = expr}, {.t = target}});
-        node->type = ERROR_TYPE(ctx);
-        return;
     }
 
-    if (typeIsBaseOf(expr, target)) {
+    if (isDowncast || typeIsBaseOf(expr, target)) {
         // this is a special cast, we need to change to a ternary expr
         AstNode *exp = node->castExpr.expr;
         AstNode *lhs = makeMemberExpr(

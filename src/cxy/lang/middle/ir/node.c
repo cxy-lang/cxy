@@ -58,6 +58,31 @@ IrNode *makeIrFuncParam(MemPool *pool,
     return node;
 }
 
+// Matches `<token>` at the start or after '_' (module prefix), ending at '\0' or '_'
+static bool hasFiniToken(cstring name, const char *token)
+{
+    size_t len = strlen(token);
+    for (const char *p = strstr(name, token); p; p = strstr(p + 1, token)) {
+        bool startOk = p == name || p[-1] == '_';
+        bool endOk = p[len] == '\0' || p[len] == '_';
+        if (startOk && endOk)
+            return true;
+    }
+    return false;
+}
+
+int irModuleFiniKind(const IrNode *func)
+{
+    if (func == NULL || func->tag != irFunction || func->function.name == NULL)
+        return 0;
+    cstring name = func->function.name;
+    if (hasFiniToken(name, "__fini"))
+        return 1;
+    if (hasFiniToken(name, "__tfini"))
+        return 2;
+    return 0;
+}
+
 IrNode *makeIrGlobalVar(MemPool *pool,
                         const FileLoc *loc,
                         u64 flags,
@@ -155,6 +180,23 @@ IrNode *makeIrUnreachable(MemPool *pool, const FileLoc *loc)
     return makeIrNode(pool, loc, flgNone, irUnreachable, NULL);
 }
 
+IrNode *makeIrInlineAsm(MemPool *pool,
+                        const FileLoc *loc,
+                        cstring text,
+                        IrNode *outputs,
+                        IrNode *inputs,
+                        IrNode *clobbers,
+                        bool isVolatile)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irInlineAsm, NULL);
+    node->inlineAsm.text = text;
+    node->inlineAsm.outputs = outputs;
+    node->inlineAsm.inputs = inputs;
+    node->inlineAsm.clobbers = clobbers;
+    node->inlineAsm.isVolatile = isVolatile;
+    return node;
+}
+
 IrNode *makeIrVarRef(MemPool *pool, const FileLoc *loc, IrNode *decl)
 {
     csAssert0(decl);
@@ -214,6 +256,11 @@ IrNode *cloneIrNode(MemPool *pool, const IrNode *node)
     case irArrayConst:
         copy->arrayConst.count = node->arrayConst.count;
         copy->arrayConst.elements = cloneIrNodes(pool, node->arrayConst.elements);
+        break;
+    case irFieldConst:
+        copy->fieldConst.name = node->fieldConst.name;
+        copy->fieldConst.index = node->fieldConst.index;
+        copy->fieldConst.value = cloneIrNode(pool, node->fieldConst.value);
         break;
     case irStructConst:
         copy->structConst.count = node->structConst.count;
@@ -405,9 +452,9 @@ IrNode *makeIrSizeof(MemPool *pool, const FileLoc *loc, const IrType *targetType
     return node;
 }
 
-IrNode *makeIrAlloca(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size)
+IrNode *makeIrAlloca(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size, const IrType *ptrType)
 {
-    IrNode *node = makeIrNode(pool, loc, flgNone, irAlloca, NULL);
+    IrNode *node = makeIrNode(pool, loc, flgNone, irAlloca, ptrType);
     node->alloca.elemType = elemType;
     node->alloca.size = size;
     return node;
@@ -537,6 +584,15 @@ IrNode *makeIrArrayConst(MemPool *pool, const FileLoc *loc, IrNode *elements, u6
     IrNode *node = makeIrNode(pool, loc, flgNone, irArrayConst, type);
     node->arrayConst.elements = elements;
     node->arrayConst.count = count;
+    return node;
+}
+
+IrNode *makeIrFieldConst(MemPool *pool, const FileLoc *loc, cstring name, u32 index, IrNode *value, const IrType *type)
+{
+    IrNode *node = makeIrNode(pool, loc, flgNone, irFieldConst, type);
+    node->fieldConst.name = name;
+    node->fieldConst.index = index;
+    node->fieldConst.value = value;
     return node;
 }
 

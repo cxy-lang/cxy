@@ -323,7 +323,7 @@ pub class Command {
     positionalArgs = Vector[PositionalArg]()
 
     // Hierarchical command structure
-    parent: Optional[&This] = null
+    parent: &This? = null
     commands = HashMap[__string, Command]()
 
     // Persistent flags (inherited by subcommands)
@@ -334,7 +334,7 @@ pub class Command {
     flagGroups = Vector[FlagGroup]()
     type Handler = func(cmd: &This) -> i32
     // Action handler for this command
-    action: lambda_of!(#Handler)
+    action: Handler = null
 
     func `init`(name: __string, description: __string) {
         this.name = name
@@ -342,7 +342,7 @@ pub class Command {
     }
 
     // Set the action handler for this command
-    func setAction(handler: Handler): void {
+    func setAction(@escaping handler: Handler): void {
         action = &&handler
     }
 
@@ -434,7 +434,7 @@ pub class Command {
 
     // Find flag by shorthand character
     @private
-    func findFlagByShorthand(shorthand: char): Optional[&Flag] {
+    func findFlagByShorthand(shorthand: char): &Flag? {
         // First check local flags
         var flagName = flagsByShorthand.[shorthand]
         if flagName {
@@ -589,14 +589,14 @@ pub class Command {
             result = result * 10 + (c - '0')
         }
 
-        return Some(negative ? -result : result)
+        return negative ? -result : result
     }
 
     // Parse command line arguments with subcommand support
     // Returns (finalCommand, shouldExecute) - finalCommand is null if error
     func parse(argv: [string]): !(This, bool) {
         var i = 0 as i64
-        while (i < argv.size()) {
+        while (i < len!(argv)) {
             var arg = __string(argv.[i]);
 
             // Check for subcommands before treating as positional args
@@ -612,10 +612,10 @@ pub class Command {
 
                     // Parse subcommand with remaining args
                     var remaining = Vector[string]()
-                    for j : (i + 1)..argv.size() {
+                    for (j : (i + 1)..len!(argv)) {
                         remaining.push(argv.[j])
                     }
-                    var remainingArray = Slice[string](remaining.data(), remaining.size())
+                    var remainingArray = slice!(remaining.data(), remaining.size())
                     return subCmd.parse(remainingArray)
                 } else {
                     // Not a subcommand, store as positional arg
@@ -696,7 +696,7 @@ pub class Command {
         var hasValue = false
 
         // Check if next arg is the value (not another flag)
-        if (index + 1 < argv.size()) {
+        if (index + 1 < len!(argv)) {
             var nextArg = __string(argv.[index + 1])
             if !nextArg.startswith("-") {
                 // Only treat as value if this flag type requires a value.
@@ -797,7 +797,7 @@ pub class Command {
         var hasValue = false
 
         // Check if next arg is the value (not another flag)
-        if (index + 1 < argv.size()) {
+        if (index + 1 < len!(argv)) {
             var nextArg = __string(argv.[index + 1])
             if !nextArg.startswith("-") {
                 match (flag.defaultValue) {

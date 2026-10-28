@@ -102,7 +102,7 @@ pub class SseConnection[Context] {
         }
         var buf = String()
         buf << "event: " << event << "\n"
-        if (id != null && !id.empty()) {
+        if !id.empty() {
             buf << "id: " << id << "\n"
         }
         buf << "data: " << data << "\n\n"

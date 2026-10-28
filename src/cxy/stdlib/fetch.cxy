@@ -397,7 +397,7 @@ pub class Response {
     }
 
     @inline
-    func `init`(settings: ^const parser.llhttp_settings_t, fn: WriterFn) {
+    func `init`(settings: ^const parser.llhttp_settings_t, @escaping fn: WriterFn) {
         this.op__init(settings)
         _writer = &&fn
     }
@@ -506,7 +506,7 @@ pub class Response {
 }
 
 func responseParserOnHeaderField(p: ^parser.llhttp_t, at: ^const char, len: u64) {
-    var resp = p.data !: Response;
+    var resp = &(p.data !: Response)
     if (resp._s2 != null) {
         // We have seen a new header
         assert!(resp._s1 != null)
@@ -524,7 +524,7 @@ func responseParserOnHeaderField(p: ^parser.llhttp_t, at: ^const char, len: u64)
 }
 
 func responseParserOnHeaderValue(p: ^parser.llhttp_t, at: ^const char, len: u64) {
-    var resp = p.data !: Response;
+    var resp = &(p.data !: Response);
     assert!(resp._s1 != null)
     if (resp._s2 == null) {
         resp._s2 = String(at, len)
@@ -536,7 +536,7 @@ func responseParserOnHeaderValue(p: ^parser.llhttp_t, at: ^const char, len: u64)
 }
 
 func responseParserOnHeadersComplete(p: ^parser.llhttp_t): i32 {
-    var resp = p.data !: Response;
+    var resp = &(p.data !: Response);
     if (resp._s1 != null) {
         assert!(resp._s1 != null)
         resp._headers.[&&resp._s1] = &&resp._s2
@@ -552,12 +552,12 @@ func responseParserOnHeadersComplete(p: ^parser.llhttp_t): i32 {
 }
 
 func responseParserOnBody(p: ^parser.llhttp_t, at: ^const char, len: u64) {
-    var resp = p.data !: Response;
+    var resp = &(p.data !: Response);
     return resp.onBodyPart(at, len)
 }
 
 func responseParserOnMessageComplete(p: ^parser.llhttp_t) {
-    var resp = p.data !: Response;
+    var resp = &(p.data !: Response);
     resp._isComplete = true;
     return 0
 }
@@ -607,7 +607,7 @@ pub class Session {
         method: Method,
         resource: __string,
         builder: RequestBuilder = null,
-        writer: WriterFn = null
+        @escaping writer: WriterFn = null
     ): !Response {
         if (_req == null)
             _req = Request()

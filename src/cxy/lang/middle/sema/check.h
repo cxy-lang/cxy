@@ -81,6 +81,14 @@ const FileLoc *lastNodeLoc_(FileLoc *dst, AstNode *nodes);
 
 AstNode *makeDefaultValue(MemPool *pool, const Type *type, FileLoc *loc);
 
+// `arr: [T, N] = null` means zero-init; C can't express it as an initializer
+static inline bool isZeroInitArrayField(const AstNode *member)
+{
+    return nodeIs(member, FieldDecl) && member->type &&
+           nodeIs(member->structField.value, NullLit) &&
+           isArrayType(resolveUnThisUnwrapType(member->type));
+}
+
 bool transformToTruthyOperator(AstVisitor *visitor, AstNode *node);
 bool transformToAwaitOperator(AstVisitor *visitor, AstNode *node);
 bool transformToDerefOperator(AstVisitor *visitor, AstNode *node);

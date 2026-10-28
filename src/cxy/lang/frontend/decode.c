@@ -350,6 +350,10 @@ static void unpackNodeBody(AstNodeUnpackContext *ctx, AstNode *node)
         node->caseStmt.match = unpackNode(ctx);
         node->caseStmt.body = unpackNode(ctx);
         break;
+    case astLaunch:
+        node->launch.name = unpackNode(ctx);
+        node->launch.closure = unpackNode(ctx);
+        break;
     default:
         unreachable("UNKNOWN NODE ast%s", getAstNodeName(node));
     }

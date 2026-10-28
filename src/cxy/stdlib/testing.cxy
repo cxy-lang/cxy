@@ -14,4 +14,80 @@ test {
         })()
     }
 
+    macro assertEq(a, b) {
+        @temp var aVal = a!
+        @temp var bVal = b!
+        if aVal != bVal {
+            raise TestFailed(f"Expected {aVal} to equal {bVal}")
+        }
+    }
+
+    macro assertNe(a, b) {
+        @temp var aVal = a!
+        @temp var bVal = b!
+        if aVal == bVal {
+            raise TestFailed(f"Expected {aVal} to not equal {bVal}")
+        }
+    }
+
+    macro assertTrue(a) {
+        @temp var aVal = a!
+        if !aVal {
+            raise TestFailed(f"Expected true, got {aVal}")
+        }
+    }
+
+    macro assertFalse(a) {
+        @temp var aVal = a!
+        if aVal {
+            raise TestFailed(f"Expected false, got {aVal}")
+        }
+    }
+
+    macro assertNull(a) {
+        @temp var aVal = a!
+        if aVal != null {
+            raise TestFailed(f"Expected null, got {aVal}")
+        }
+    }
+
+    macro assertNotNull(a) {
+        @temp var aVal = a!
+        if aVal == null {
+            raise TestFailed("Expected non-null value")
+        }
+    }
+
+    macro assertLt(a, b) {
+        @temp var aVal = a!
+        @temp var bVal = b!
+        if aVal >= bVal {
+            raise TestFailed(f"Expected {aVal} < {bVal}")
+        }
+    }
+
+    macro assertLte(a, b) {
+        @temp var aVal = a!
+        @temp var bVal = b!
+        if aVal > bVal {
+            raise TestFailed(f"Expected {aVal} <= {bVal}")
+        }
+    }
+
+    macro assertGt(a, b) {
+        @temp var aVal = a!
+        @temp var bVal = b!
+        if aVal <= bVal {
+            raise TestFailed(f"Expected {aVal} > {bVal}")
+        }
+    }
+
+    macro assertGte(a, b) {
+        @temp var aVal = a!
+        @temp var bVal = b!
+        if aVal < bVal {
+            raise TestFailed(f"Expected {aVal} >= {bVal}")
+        }
+    }
+
 }

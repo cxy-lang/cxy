@@ -122,6 +122,28 @@ static bool checkForStmtCustomRange(TypingContext *ctx,
     return true;
 }
 
+// A plain variable or member chain: evaluating it twice has no side effects
+static bool isStableLValue(AstNode *node)
+{
+    if (nodeIs(node, Identifier) || nodeIs(node, Path))
+        return nodeIsLeftValue(node);
+    if (nodeIs(node, MemberExpr))
+        return nodeIsLeftValue(node) && isStableLValue(node->memberExpr.target);
+    return false;
+}
+
+static AstNode *makeSequenceRef(TypingContext *ctx,
+                                const FileLoc *loc,
+                                AstNode *range,
+                                AstNode *seqDecl,
+                                cstring seqName)
+{
+    if (seqDecl == NULL)
+        return deepCloneAstNode(ctx->pool, range);
+    return makeResolvedPath(
+        ctx->pool, loc, seqName, flgNone, seqDecl, NULL, range->type);
+}
+
 static void transformForSequence(AstVisitor *visitor,
                                  AstNode *node,
                                  u64 numVariables)
@@ -133,19 +155,23 @@ static void transformForSequence(AstVisitor *visitor,
     AstNode *body = node->forStmt.body;
     const Type *u64Type = getPrimitiveType(ctx->types, prtU64);
 
+    // An lvalue is iterated in place, a copy of it would duplicate (and then
+    // drop) every element. Anything else is evaluated once into `_seq`.
     cstring seqName = makeAnonymousVariable(ctx->strings, "_seq");
-    AstNode *seqDecl = makeVarDecl(
-        ctx->pool, &loc, flgNone, seqName, NULL, range, NULL, range->type);
-    astModifierAdd(&ctx->blockModifier, seqDecl);
+    AstNode *seqDecl = NULL;
+    if (!isStableLValue(range)) {
+        seqDecl = makeVarDecl(
+            ctx->pool, &loc, flgNone, seqName, NULL, range, NULL, range->type);
+        astModifierAdd(&ctx->blockModifier, seqDecl);
+    }
 
-    AstNode *lenExpr = makeBackendCallExpr(
-        ctx->pool,
-        &loc,
-        flgNone,
-        bfiLen,
-        makeResolvedPath(
-            ctx->pool, &loc, seqName, flgNone, seqDecl, NULL, range->type),
-        u64Type);
+    AstNode *lenExpr =
+        makeBackendCallExpr(ctx->pool,
+                            &loc,
+                            flgNone,
+                            bfiLen,
+                            makeSequenceRef(ctx, &loc, range, seqDecl, seqName),
+                            u64Type);
 
     cstring idxName = makeAnonymousVariable(ctx->strings, "_idx");
     AstNode *idxVar = makeVarDecl(
@@ -165,40 +191,42 @@ static void transformForSequence(AstVisitor *visitor,
         ctx->pool,
         &loc,
         flgNone,
-        makeResolvedPath(
-            ctx->pool, &loc, seqName, flgNone, seqDecl, NULL, range->type),
+        makeSequenceRef(ctx, &loc, range, seqDecl, seqName),
         makeResolvedPath(
             ctx->pool, &loc, idxName, flgNone, idxVar, NULL, u64Type),
         NULL,
         var->type);
-    AstNode *elemDecl = makeVarDecl(ctx->pool,
-                                    &loc,
-                                    var->flags,
-                                    var->_namedNode.name,
-                                    NULL,
-                                    elemInit,
-                                    NULL,
-                                    var->type);
 
-    if (var->next) {
-        AstNode *userI = var->next;
-        AstNode *iDecl = makeVarDecl(
-            ctx->pool,
-            &loc,
-            userI->flags,
-            userI->_namedNode.name,
-            NULL,
-            makeResolvedPath(
-                ctx->pool, &loc, idxName, flgNone, idxVar, NULL, u64Type),
-            NULL,
-            userI->type);
-        elemDecl->next = iDecl;
-        iDecl->next = body->blockStmt.stmts;
+    AstNode *nextVar = var->next;
+    var->next = NULL;
+
+    cstring varName = var->varDecl.name ?: (var->varDecl.names ? var->varDecl.names->ident.value : var->_namedNode.name);
+    clearAstBody(var);
+    var->tag = astAliasExpr;
+    var->aliasExpr.name = varName;
+    var->aliasExpr.expr = elemInit;
+    var->type = elemInit->type;
+
+    AstNodeList bodyStmts = {};
+    insertAstNode(&bodyStmts, var);
+
+    if (nextVar) {
+        AstNode *userI = nextVar;
+        userI->next = NULL;
+        cstring iName = userI->varDecl.name ?: (userI->varDecl.names ? userI->varDecl.names->ident.value : userI->_namedNode.name);
+        if (iName && !isIgnoreVar(iName)) {
+            clearAstBody(userI);
+            userI->tag = astAliasExpr;
+            userI->aliasExpr.name = iName;
+            userI->aliasExpr.expr = makeResolvedPath(
+                ctx->pool, &loc, idxName, flgNone, idxVar, NULL, u64Type);
+            userI->type = u64Type;
+            insertAstNode(&bodyStmts, userI);
+        }
     }
-    else {
-        elemDecl->next = body->blockStmt.stmts;
-    }
-    body->blockStmt.stmts = elemDecl;
+
+    insertAstNode(&bodyStmts, body->blockStmt.stmts);
+    body->blockStmt.stmts = bodyStmts.first;
 
     node->forStmt.var = idxVar;
     node->forStmt.range = rangeExpr;
@@ -369,8 +397,10 @@ static void transformForCustomRange(AstVisitor *visitor,
                 continue;
             }
 
+            cstring name = var->varDecl.name ?: (var->varDecl.names ? var->varDecl.names->ident.value : var->_namedNode.name);
             clearAstBody(var);
             var->tag = astAliasExpr;
+            var->aliasExpr.name = name;
             AstNode *itemRef = makeResolvedPath(ctx->pool,
                                                 &range->loc,
                                                 itemVarName,
@@ -434,7 +464,16 @@ void checkRangeExpr(AstVisitor *visitor, AstNode *node)
     }
 
     const Type *end = checkType(visitor, node->rangeExpr.end);
-    if (!isTypeAssignableFrom(start, end)) {
+    if (typeIs(end, Error)) {
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
+
+    // Range takes the common (larger) type, e.g. `0..len` is u64 not i8
+    const Type *type = isNumericType(end)
+                           ? unwrapType(promoteType(ctx->types, start, end), NULL)
+                           : NULL;
+    if (type == NULL) {
         logError(ctx->L,
                  &node->rangeExpr.end->loc,
                  "`range` inconsistent types, expect type `{t}`, but got `{t}`",
@@ -444,18 +483,22 @@ void checkRangeExpr(AstVisitor *visitor, AstNode *node)
     }
 
     if (node->rangeExpr.step) {
-        const Type *step = checkType(visitor, node->rangeExpr.end);
+        const Type *step = checkType(visitor, node->rangeExpr.step);
+        if (typeIs(step, Error)) {
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
         if (!isNumericType(step)) {
             logError(ctx->L,
-                     &node->rangeExpr.start->loc,
+                     &node->rangeExpr.step->loc,
                      "`range` step type '{t}' is not supported, expecting a "
                      "numeric type",
-                     (FormatArg[]){{.t = start}, {.t = end}});
+                     (FormatArg[]){{.t = step}});
             node->type = ERROR_TYPE(ctx);
             return;
         }
     }
-    node->type = start;
+    node->type = type;
 }
 
 void checkForStmt(AstVisitor *visitor, AstNode *node)

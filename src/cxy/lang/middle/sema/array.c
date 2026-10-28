@@ -32,6 +32,9 @@ static const Type *synthesizeArrayDestructor(TypingContext *ctx,
 {
     const FileLoc *loc = builtinLoc();
     const Type *sliceType = makeSliceType(ctx->types, arrayType->array.elementType);
+    if (sliceType->array.destructorFunc)
+        return sliceType->array.destructorFunc;
+
     cstring funcName = makeStringf(ctx->strings, "__array_dctor_%u", (unsigned)sliceType->index);
     cstring paramName = makeString(ctx->strings, "arr");
     cstring elemVarName = makeString(ctx->strings, "__i");
@@ -77,8 +80,10 @@ static const Type *synthesizeArrayDestructor(TypingContext *ctx,
     AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, makeVoidAstNode(ctx->pool, loc, flgNone, NULL, NULL), body, flgGenerated | flgPure | flgBuiltin, NULL, NULL);
 
     const Type *funcType = checkType(visitor, funcDecl);
-    if (!typeIs(funcType, Error) && ctx->root.parent) {
-        astModifierAddAsLast(&ctx->root, funcDecl);
+    if (!typeIs(funcType, Error)) {
+        ((Type *)sliceType)->array.destructorFunc = funcType;
+        if (ctx->root.parent)
+            astModifierAddAsLast(&ctx->root, funcDecl);
     }
     return funcType;
 }
@@ -89,6 +94,12 @@ void implementArrayTypeCopyAndDestructor(AstVisitor *visitor, AstNode *node)
     if (node->type == NULL || !typeIs(node->type, Array) || hasFlag(node->type, Slice) || node->type->array.len == UINT64_MAX)
         return;
 
+    const Type *sliceType = makeSliceType(ctx->types, node->type->array.elementType);
+    if (node->type->array.destructorFunc == NULL && sliceType->array.destructorFunc != NULL) {
+        ((Type *)node->type)->array.destructorFunc = sliceType->array.destructorFunc;
+        return;
+    }
+
     if (node->type->array.destructorFunc != NULL || !isDestructible(node->type))
         return;
 
@@ -98,6 +109,7 @@ void implementArrayTypeCopyAndDestructor(AstVisitor *visitor, AstNode *node)
         return;
     }
     ((Type *)node->type)->array.destructorFunc = func;
+    ((Type *)sliceType)->array.destructorFunc = func;
 }
 
 void checkArrayType(AstVisitor *visitor, AstNode *node)

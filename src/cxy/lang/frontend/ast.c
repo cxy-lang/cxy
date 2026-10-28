@@ -1328,6 +1328,24 @@ AstNode *makeCatchExpr(MemPool *pool,
                    .catchExpr = {.expr = expr, .var = var, .body = body}});
 }
 
+AstNode *makeLaunchAstNode(MemPool *pool,
+                           const FileLoc *loc,
+                           u64 flags,
+                           AstNode *name,
+                           AstNode *closure,
+                           AstNode *next,
+                           const Type *type)
+{
+    return makeAstNode(
+        pool,
+        loc,
+        &(AstNode){.tag = astLaunch,
+                   .flags = flags,
+                   .next = next,
+                   .type = type,
+                   .launch = {.name = name, .closure = closure}});
+}
+
 AstNode *makeIndexExpr(MemPool *pool,
                        const FileLoc *loc,
                        u64 flags,
@@ -1782,6 +1800,13 @@ bool isAssignableExpr(attr(unused) const AstNode *node)
 {
     csAssert(node->type, "expression must have been type-checked first");
     return false;
+}
+
+AstNode *resolveGroupExpr(AstNode *node)
+{
+    while (node && nodeIs(node, GroupExpr))
+        node = node->groupExpr.expr;
+    return node;
 }
 
 bool isLiteralExpr(const AstNode *node)
@@ -2326,6 +2351,9 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
     case astOptionalType:
         CLONE_ONE(optionalType, type);
         break;
+    case astResultType:
+        CLONE_ONE(resultType, target);
+        break;
     case astFuncType:
         CLONE_ONE(funcType, ret);
         CLONE_MANY(funcType, params);
@@ -2431,6 +2459,15 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
         CLONE_ONE(ternaryExpr, body);
         CLONE_ONE(ternaryExpr, otherwise);
         break;
+    case astCatchExpr:
+        CLONE_ONE(catchExpr, expr);
+        CLONE_ONE(catchExpr, var);
+        CLONE_ONE(catchExpr, body);
+        break;
+    case astLaunch:
+        CLONE_ONE(launch, name);
+        CLONE_ONE(launch, closure);
+        break;
     case astStmtExpr:
         CLONE_ONE(stmtExpr, stmt);
         break;
@@ -2523,6 +2560,9 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
 
     case astReturnStmt:
         CLONE_ONE(returnStmt, expr);
+        break;
+    case astYieldStmt:
+        CLONE_ONE(yieldStmt, expr);
         break;
     case astBlockStmt:
         CLONE_MANY(blockStmt, stmts);
@@ -2790,6 +2830,8 @@ const char *getDeclarationName(const AstNode *node)
     case astBackendCall:
         if (node->backendCallExpr.func == bfiDeclare)
             return getDeclarationName(node->backendCallExpr.args);
+    case astAliasExpr:
+        return node->aliasExpr.name;
     default:
         csAssert(false, "%s is not a declaration", getAstNodeName(node));
     }

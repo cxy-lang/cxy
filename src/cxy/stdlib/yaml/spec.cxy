@@ -1,0 +1,663 @@
+module yaml_spec
+
+// YAML conformance tests. Tests marked @disabled("TODO") are known bugs and
+// unsupported features (docs/stage/YAML.md); remove the attribute once implemented.
+
+import test { YamlParser } from "./parser.cxy"
+import test "stdlib/json.cxy"
+import test { Value } from "stdlib/value.cxy"
+import test { Vector } from "stdlib/vector.cxy"
+import test { valuesEqual } from "stdlib/value.test.cxy"
+
+test {
+    // Parses `yaml` and compares the result with the JSON document `expected`
+    pub func yamlEquals(yaml: __string, expected: __string): bool {
+        var parser = YamlParser(yaml)
+        var actual = parser.parse() catch as ex {
+            println("  parse failed: ", ex.what())
+            println("  input:    ", yaml)
+            return false
+        }
+        var want = json.parse[Value](expected) catch as ex {
+            println("  invalid expected JSON: ", ex.what())
+            println("  expected: ", expected)
+            return false
+        }
+        if !valuesEqual(actual, want) {
+            println("  input:    ", yaml)
+            println("  expected: ", expected)
+            println("  actual:   ", f"{actual}")
+            return false
+        }
+        return true
+    }
+
+    // Parses a stream and compares its documents with the JSON array `expected`
+    pub func yamlAllEquals(yaml: __string, expected: __string): bool {
+        var parser = YamlParser(yaml)
+        var docs = parser.parseAll() catch as ex {
+            println("  parseAll failed: ", ex!.what())
+            println("  input:    ", yaml)
+            return false
+        }
+        var want = json.parse[Value](expected) catch as ex {
+            println("  invalid expected JSON: ", ex!.what())
+            return false
+        }
+        if docs.size() != want.size() {
+            println("  input:    ", yaml)
+            println("  expected ", want.size(), " documents, got ", docs.size())
+            return false
+        }
+        for (const i: 0.u64..docs.size()) {
+            var w = want.get(<i32>i)
+            if !w || !valuesEqual(docs.[i as i32], *w) {
+                println("  input:    ", yaml)
+                println("  document ", i, " differs, expected: ", expected)
+                return false
+            }
+        }
+        return true
+    }
+
+    // Parsing must fail and the error message must point at `line`:`column`
+    pub func yamlFailsAt(yaml: __string, line: u64, column: u64): bool {
+        var parser = YamlParser(yaml)
+        var result = parser.parse() catch as ex {
+            var msg = f"{ex!.what()}"
+            var at = f"at line {line}, column {column}"
+            if msg.contains(at.__str()) {
+                return true
+            }
+            println("  input:    ", yaml)
+            println("  expected position ", at, ", got: ", msg)
+            return false
+        }
+        println("  expected a parse error, got: ", f"{result}")
+        println("  input:    ", yaml)
+        return false
+    }
+
+    // The document is invalid and parsing must fail
+    pub func yamlFails(yaml: __string): bool {
+        var parser = YamlParser(yaml)
+        var result = parser.parse() catch {
+            return true
+        }
+        println("  expected a parse error, got: ", f"{result}")
+        println("  input:    ", yaml)
+        return false
+    }
+}
+
+// ---------------------------------------------------------------- scalars
+
+test "Spec - plain scalar" {
+    ok!(yamlEquals("hello", "\"hello\""))
+}
+
+test "Spec - null, booleans and numbers" {
+    ok!(yamlEquals("a: true\nb: false\nc: null\nd: ~", "{\"a\": true, \"b\": false, \"c\": null, \"d\": null}"))
+    ok!(yamlEquals("a: 1\nb: -2\nc: 3.5\nd: 1e3", "{\"a\": 1, \"b\": -2, \"c\": 3.5, \"d\": 1000}"))
+}
+
+test "Spec - quoted scalars" {
+    ok!(yamlEquals("a: \"x y\"\nb: 'z'", "{\"a\": \"x y\", \"b\": \"z\"}"))
+}
+
+test "Spec - quoted scalars keep their type" {
+    ok!(yamlEquals("a: \"true\"\nb: \"123\"\nc: \"null\"", "{\"a\": \"true\", \"b\": \"123\", \"c\": \"null\"}"))
+}
+
+test "Spec - unquoted multi-word value" {
+    ok!(yamlEquals("run: echo installing", "{\"run\": \"echo installing\"}"))
+}
+
+test "Spec - scalar with colon not followed by space" {
+    ok!(yamlEquals("url: http://host:8080/x", "{\"url\": \"http://host:8080/x\"}"))
+}
+
+test "Spec - empty value is null" {
+    ok!(yamlEquals("a:\nb: 1", "{\"a\": null, \"b\": 1}"))
+}
+
+// ----------------------------------------------------------- block structure
+
+test "Spec - block mapping" {
+    ok!(yamlEquals("name: John\nage: 30", "{\"name\": \"John\", \"age\": 30}"))
+}
+
+test "Spec - nested block mapping" {
+    ok!(yamlEquals("person:\n  name: John\n  age: 30\nnext: 1", "{\"person\": {\"name\": \"John\", \"age\": 30}, \"next\": 1}"))
+}
+
+test "Spec - block sequence" {
+    ok!(yamlEquals("- apple\n- banana\n- orange", "[\"apple\", \"banana\", \"orange\"]"))
+}
+
+test "Spec - sequence under a key" {
+    ok!(yamlEquals("a:\n  - 1\n  - 2\nb: 3", "{\"a\": [1, 2], \"b\": 3}"))
+}
+
+test "Spec - sequence at the same indent as its key" {
+    ok!(yamlEquals("a:\n- 1\n- 2\nb: 3", "{\"a\": [1, 2], \"b\": 3}"))
+}
+
+test "Spec - sequence of mappings" {
+    ok!(yamlEquals("- a: 1\n  b: 2\n- a: 3", "[{\"a\": 1, \"b\": 2}, {\"a\": 3}]"))
+}
+
+test "Spec - dash item with nested mapping then sibling key" {
+    ok!(yamlEquals("- name: x\n  env:\n    ID: 1\n  run: y\n- name: z", "[{\"name\": \"x\", \"env\": {\"ID\": 1}, \"run\": \"y\"}, {\"name\": \"z\"}]"))
+}
+
+test "Spec - comments" {
+    ok!(yamlEquals("# header\na: 1 # trailing\n\n# middle\nb: 2\n", "{\"a\": 1, \"b\": 2}"))
+}
+
+test "Spec - empty input is null" {
+    ok!(yamlEquals("", "null"))
+}
+
+// -------------------------------------------------------------- flow style
+
+test "Spec - flow collections" {
+    ok!(yamlEquals("user: {name: John, age: 30}\nitems: [a, b, c]", "{\"user\": {\"name\": \"John\", \"age\": 30}, \"items\": [\"a\", \"b\", \"c\"]}"))
+}
+
+test "Spec - nested flow collections" {
+    ok!(yamlEquals("a: [1, [2, 3], {b: 4}]", "{\"a\": [1, [2, 3], {\"b\": 4}]}"))
+}
+
+test "Spec - empty flow collections at top level" {
+    ok!(yamlEquals("a: []\nb: {}\nc: 1", "{\"a\": [], \"b\": {}, \"c\": 1}"))
+}
+
+test "Spec - flow collection spanning lines" {
+    ok!(yamlEquals("a: [1,\n  2,\n  3]\nb: 4", "{\"a\": [1, 2, 3], \"b\": 4}"))
+}
+
+// ------------------------------------------------------ anchors and aliases
+
+test "Spec - anchor and alias" {
+    ok!(yamlEquals("a: &x hello\nb: *x", "{\"a\": \"hello\", \"b\": \"hello\"}"))
+}
+
+test "Spec - merge key" {
+    ok!(yamlEquals("base: &b\n  x: 1\nchild:\n  <<: *b\n  y: 2", "{\"base\": {\"x\": 1}, \"child\": {\"x\": 1, \"y\": 2}}"))
+}
+
+test "Spec - undefined alias is an error" {
+    ok!(yamlFails("a: *missing"))
+}
+
+// ------------------------------------------------------------ block scalars
+
+test "Spec - literal block scalar" {
+    ok!(yamlEquals("a: |\n  l1\n  l2\nb: x", "{\"a\": \"l1\\nl2\\n\", \"b\": \"x\"}"))
+}
+
+test "Spec - folded block scalar" {
+    ok!(yamlEquals("a: >\n  l1\n  l2\nb: x", "{\"a\": \"l1 l2\\n\", \"b\": \"x\"}"))
+}
+
+test "Spec - literal block scalar strip chomping" {
+    ok!(yamlEquals("a: |-\n  l1\n  l2\nb: x", "{\"a\": \"l1\\nl2\", \"b\": \"x\"}"))
+}
+
+// --------------------------------------------------------------- invalid input
+
+test "Spec - inconsistent indentation is an error" {
+    ok!(yamlFails("a:\n    b: 1\n  c: 2"))
+}
+
+test "Spec - tab indentation is an error" {
+    ok!(yamlFails("a:\n\tb: 1"))
+}
+
+test "Spec - unterminated quote is an error" {
+    ok!(yamlFails("a: \"unterminated"))
+}
+
+// =============================================================================
+// TODO: known bugs and unsupported features
+// =============================================================================
+
+// -- indicators inside plain scalars
+
+test "Spec - pipe inside a plain scalar" {
+    ok!(yamlEquals("run: cat f | grep x", "{\"run\": \"cat f | grep x\"}"))
+}
+
+test "Spec - ampersands inside a plain scalar" {
+    ok!(yamlEquals("run: a && b", "{\"run\": \"a && b\"}"))
+}
+
+test "Spec - star inside a plain scalar" {
+    ok!(yamlEquals("run: ls *.txt", "{\"run\": \"ls *.txt\"}"))
+}
+
+test "Spec - greater-than inside a plain scalar" {
+    ok!(yamlEquals("run: echo a > out", "{\"run\": \"echo a > out\"}"))
+}
+
+test "Spec - quotes inside a plain scalar are kept" {
+    ok!(yamlEquals("run: echo \"hi\"", "{\"run\": \"echo \\\"hi\\\"\"}"))
+}
+
+test "Spec - spacing inside a plain scalar is kept" {
+    ok!(yamlEquals("run: a  b", "{\"run\": \"a  b\"}"))
+}
+
+test "Spec - hash without preceding whitespace is not a comment" {
+    ok!(yamlEquals("u: http://x/#frag\nv: a#b", "{\"u\": \"http://x/#frag\", \"v\": \"a#b\"}"))
+}
+
+test "Spec - braces inside a plain scalar" {
+    ok!(yamlEquals("run: echo {a}", "{\"run\": \"echo {a}\"}"))
+}
+
+// -- keys
+
+test "Spec - multi-word key" {
+    ok!(yamlEquals("first name: John", "{\"first name\": \"John\"}"))
+}
+
+test "Spec - numeric, boolean and null keys" {
+    ok!(yamlEquals("1: a\ntrue: b\nnull: c", "{\"1\": \"a\", \"true\": \"b\", \"null\": \"c\"}"))
+}
+
+test "Spec - quoted multi-word key" {
+    ok!(yamlEquals("\"a b\": 1\n'c d': 2", "{\"a b\": 1, \"c d\": 2}"))
+}
+
+// -- nesting and flow
+
+test "Spec - empty flow array nested in a block mapping" {
+    ok!(yamlEquals("a:\n  x: []\n  y: 1", "{\"a\": {\"x\": [], \"y\": 1}}"))
+}
+
+test "Spec - empty flow object nested in a block mapping" {
+    ok!(yamlEquals("a:\n  x: {}\n  y: 1", "{\"a\": {\"x\": {}, \"y\": 1}}"))
+}
+
+test "Spec - empty flow collections in a sequence" {
+    ok!(yamlEquals("- []\n- {}\n- 1", "[[], {}, 1]"))
+}
+
+test "Spec - trailing comma in a flow sequence" {
+    ok!(yamlEquals("x: [a, b, ]", "{\"x\": [\"a\", \"b\"]}"))
+}
+
+test "Spec - empty entry in a flow sequence is an error" {
+    ok!(yamlFails("x: [a, , b]"))
+}
+
+test "Spec - flow mapping entries without a value" {
+    ok!(yamlEquals("{a, b: 1}", "{\"a\": null, \"b\": 1}"))
+}
+
+test "Spec - single pair in a flow sequence" {
+    ok!(yamlEquals("[a: 1, b]", "[{\"a\": 1}, \"b\"]"))
+}
+
+test "Spec - compact nested sequence" {
+    ok!(yamlEquals("- - a\n  - b\n- c", "[[\"a\", \"b\"], \"c\"]"))
+}
+
+test "Spec - sequence of sequences on separate lines" {
+    ok!(yamlEquals("-\n  - a\n  - b\n-\n  - c", "[[\"a\", \"b\"], [\"c\"]]"))
+}
+
+test "Spec - mapping nested in a sequence nested in a mapping" {
+    ok!(yamlEquals("a:\n  - b:\n      - c: 1\n        d: 2\n      - e: 3\n  - f: 4\ng: 5", "{\"a\": [{\"b\": [{\"c\": 1, \"d\": 2}, {\"e\": 3}]}, {\"f\": 4}], \"g\": 5}"))
+}
+
+// -- scalars
+
+test "Spec - single quote escape" {
+    ok!(yamlEquals("a: 'it''s'", "{\"a\": \"it's\"}"))
+}
+
+test "Spec - multi-line plain scalar is folded" {
+    ok!(yamlEquals("k: one\n  two\n  three\nm: 1", "{\"k\": \"one two three\", \"m\": 1}"))
+}
+
+test "Spec - multi-line double quoted scalar is folded" {
+    ok!(yamlEquals("k: \"one\n  two\"", "{\"k\": \"one two\"}"))
+}
+
+test "Spec - double quoted escaped line break" {
+    ok!(yamlEquals("k: \"one\\\n  two\"", "{\"k\": \"onetwo\"}"))
+}
+
+test "Spec - capitalized booleans and nulls" {
+    ok!(yamlEquals("a: True\nb: FALSE\nc: Null\nd: NULL", "{\"a\": true, \"b\": false, \"c\": null, \"d\": null}"))
+}
+
+test "Spec - hex and octal integers" {
+    ok!(yamlEquals("a: 0x1F\nb: 0o17", "{\"a\": 31, \"b\": 15}"))
+}
+
+test "Spec - plus sign and leading dot numbers" {
+    ok!(yamlEquals("a: +5\nb: .5\nc: -.5", "{\"a\": 5, \"b\": 0.5, \"c\": -0.5}"))
+}
+
+test "Spec - integers resolve to i64" {
+    var parser = YamlParser("a: 1\nb: 1.5\nc: 9007199254740993\nd: 1e3")
+    var value = parser.parse()
+    var a = value.["a"]
+    ok!(!!a && a&.isInt() && a&.asInt() == 1)
+    var b = value.["b"]
+    ok!(!!b && b&.isFloat())
+    var c = value.["c"]
+    ok!(!!c && c&.isInt() && c&.asInt() == 9007199254740993.i64)
+    var d = value.["d"]
+    ok!(!!d && d&.isFloat())
+}
+
+test "Spec - integer overflow falls back to float" {
+    var parser = YamlParser("a: 99999999999999999999")
+    var value = parser.parse()
+    var a = value.["a"]
+    ok!(!!a && a&.isFloat())
+}
+
+// -- block scalars
+
+test "Spec - block scalar starting with a blank line" {
+    ok!(yamlEquals("a: |\n\n  x\nb: 1", "{\"a\": \"\\nx\\n\", \"b\": 1}"))
+}
+
+test "Spec - block scalar keep chomping" {
+    ok!(yamlEquals("a: |+\n  x\n\nb: 1", "{\"a\": \"x\\n\\n\", \"b\": 1}"))
+}
+
+test "Spec - block scalar indentation indicator" {
+    ok!(yamlEquals("a: |2\n   x\n  y\nb: 1", "{\"a\": \" x\\ny\\n\", \"b\": 1}"))
+}
+
+test "Spec - folded block scalar with more-indented lines" {
+    ok!(yamlEquals("a: >\n  one\n  two\n\n    indented\n  three\n", "{\"a\": \"one two\\n\\n  indented\\nthree\\n\"}"))
+}
+
+test "Spec - block scalar in a sequence" {
+    ok!(yamlEquals("- |\n  a\n  b\n- c", "[\"a\\nb\\n\", \"c\"]"))
+}
+
+// -- line endings, documents, markers
+
+test "Spec - CRLF line endings" {
+    ok!(yamlEquals("a: 1\r\nb:\r\n  c: x\r\n", "{\"a\": 1, \"b\": {\"c\": \"x\"}}"))
+}
+
+test "Spec - triple dash inside a value is not a marker" {
+    ok!(yamlEquals("a: ---\nb: ...", "{\"a\": \"---\", \"b\": \"...\"}"))
+}
+
+test "Spec - document start with content on the same line" {
+    ok!(yamlEquals("--- hello", "\"hello\""))
+}
+
+test "Spec - single document with end marker" {
+    ok!(yamlEquals("---\na: 1\n...\n", "{\"a\": 1}"))
+}
+
+test "Spec - multiple documents are an error for parse" {
+    ok!(yamlFails("a: 1\n---\nb: 2\n"))
+}
+
+test "Spec - directive" {
+    ok!(yamlEquals("%YAML 1.2\n---\na: 1", "{\"a\": 1}"))
+}
+
+test "Spec - tab as separation whitespace" {
+    ok!(yamlEquals("a:\t1\nb:\t2", "{\"a\": 1, \"b\": 2}"))
+}
+
+// -- tags
+
+test "Spec - !!str forces a string" {
+    ok!(yamlEquals("a: !!str 123\nb: !!str true", "{\"a\": \"123\", \"b\": \"true\"}"))
+}
+
+test "Spec - !!int and !!float" {
+    ok!(yamlEquals("a: !!int \"42\"\nb: !!float 1", "{\"a\": 42, \"b\": 1.0}"))
+}
+
+test "Spec - !!null" {
+    ok!(yamlEquals("a: !!null \"\"", "{\"a\": null}"))
+}
+
+test "Spec - !!str on a block value" {
+    ok!(yamlEquals("a: !!str\n  hello", "{\"a\": \"hello\"}"))
+}
+
+test "Spec - mismatching tag content is an error" {
+    ok!(yamlFails("a: !!int abc"))
+}
+
+test "Spec - local tag keeps the value" {
+    ok!(yamlEquals("a: !point {x: 1}\nb: !secret hunter2", "{\"a\": {\"x\": 1}, \"b\": \"hunter2\"}"))
+}
+
+test "Spec - verbatim tag" {
+    ok!(yamlEquals("a: !<tag:yaml.org,2002:str> 123", "{\"a\": \"123\"}"))
+}
+
+test "Spec - tag directive" {
+    ok!(yamlEquals("%TAG !e! tag:example.com,2000:app/\n---\na: !e!foo bar", "{\"a\": \"bar\"}"))
+}
+
+// -- keys and anchors
+
+test "Spec - explicit key" {
+    ok!(yamlEquals("? a\n: 1\n? b\n: 2", "{\"a\": 1, \"b\": 2}"))
+}
+
+test "Spec - anchor on a key" {
+    ok!(yamlEquals("&k a: 1\nb: *k", "{\"a\": 1, \"b\": \"a\"}"))
+}
+
+test "Spec - anchor names with dots and slashes" {
+    ok!(yamlEquals("a: &x.y/z 1\nb: *x.y/z", "{\"a\": 1, \"b\": 1}"))
+}
+
+test "Spec - duplicate keys are an error" {
+    ok!(yamlFails("a: 1\na: 2"))
+}
+
+test "Spec - nested mapping on the same line is an error" {
+    ok!(yamlFails("a: b: c"))
+}
+
+// =============================================================================
+// Documents and streams
+// =============================================================================
+
+test "Spec - parseAll with explicit documents" {
+    ok!(yamlAllEquals("---\na: 1\n---\nb: 2\n", "[{\"a\": 1}, {\"b\": 2}]"))
+}
+
+test "Spec - parseAll empty stream has no documents" {
+    ok!(yamlAllEquals("", "[]"))
+    ok!(yamlAllEquals("# only a comment\n", "[]"))
+}
+
+test "Spec - parseAll empty explicit documents" {
+    ok!(yamlAllEquals("---\n---\n", "[null, null]"))
+    ok!(yamlAllEquals("a: 1\n---\n", "[{\"a\": 1}, null]"))
+}
+
+test "Spec - parseAll document end marker" {
+    ok!(yamlAllEquals("a: 1\n...\n---\nb: 2\n", "[{\"a\": 1}, {\"b\": 2}]"))
+}
+
+test "Spec - parseAll directives apply to the next document only" {
+    ok!(yamlAllEquals("%YAML 1.2\n---\na: 1\n...\n%TAG !e! tag:example.com,2000:\n---\nb: !e!t v\n", "[{\"a\": 1}, {\"b\": \"v\"}]"))
+
+    // the handle is gone in the second document
+    var parser = YamlParser("%TAG !e! tag:example.com,2000:\n---\na: !e!t 1\n---\nb: !e!t 2\n")
+    var docs = parser.parseAll() catch Vector[Value]()
+    ok!(docs.size() == 0)
+}
+
+test "Spec - anchors do not cross documents" {
+    ok!(yamlAllEquals("---\na: &x 1\nb: *x\n---\nc: &x 2\nd: *x\n", "[{\"a\": 1, \"b\": 1}, {\"c\": 2, \"d\": 2}]"))
+}
+
+test "Spec - byte order mark is skipped" {
+    ok!(yamlEquals("\xEF\xBB\xBFk: 1", "{\"k\": 1}"))
+}
+
+// =============================================================================
+// Anchors, aliases and merge keys
+// =============================================================================
+
+test "Spec - merge key keeps explicit keys" {
+    ok!(yamlEquals("a: &a {x: 1, y: 2}\nb:\n  <<: *a\n  y: 3", "{\"a\": {\"x\": 1, \"y\": 2}, \"b\": {\"x\": 1, \"y\": 3}}"))
+}
+
+test "Spec - merge sequence, earlier sources win" {
+    ok!(yamlEquals("a: &a {x: 1}\nb: &b {x: 2, y: 2}\nc:\n  <<: [*a, *b]", "{\"a\": {\"x\": 1}, \"b\": {\"x\": 2, \"y\": 2}, \"c\": {\"x\": 1, \"y\": 2}}"))
+}
+
+test "Spec - alias to a collection inside a sequence" {
+    ok!(yamlEquals("a: &x [1, 2]\nb: [*x, *x]", "{\"a\": [1, 2], \"b\": [[1, 2], [1, 2]]}"))
+}
+
+// =============================================================================
+// Sequences, mappings and flow collections
+// =============================================================================
+
+test "Spec - empty sequence items are null" {
+    ok!(yamlEquals("-\n- a\n-\n", "[null, \"a\", null]"))
+    ok!(yamlEquals("- \n- b", "[null, \"b\"]"))
+}
+
+test "Spec - flow collections nested in block collections" {
+    ok!(yamlEquals("a: {b: [1, 2], c: {d: e}}\nf: [{g: 1}, [h]]", "{\"a\": {\"b\": [1, 2], \"c\": {\"d\": \"e\"}}, \"f\": [{\"g\": 1}, [\"h\"]]}"))
+}
+
+test "Spec - comments inside flow collections" {
+    ok!(yamlEquals("a: [1, # one\n  2]\nb: {x: 1, # c\n  y: 2}", "{\"a\": [1, 2], \"b\": {\"x\": 1, \"y\": 2}}"))
+}
+
+test "Spec - quoted key containing a colon" {
+    ok!(yamlEquals("\"a:b\": 1\n'c: d': 2", "{\"a:b\": 1, \"c: d\": 2}"))
+}
+
+test "Spec - explicit key with a block scalar" {
+    ok!(yamlEquals("? |\n  block key\n: v", "{\"block key\\n\": \"v\"}"))
+}
+
+test "Spec - explicit key without a value" {
+    ok!(yamlEquals("? a\n? b\n: 1", "{\"a\": null, \"b\": 1}"))
+}
+
+test "Spec - explicit value that is a sequence" {
+    ok!(yamlEquals("? a\n: - 1\n  - 2\nb: 3", "{\"a\": [1, 2], \"b\": 3}"))
+}
+
+// =============================================================================
+// Scalars
+// =============================================================================
+
+test "Spec - block scalar clip keeps one line break" {
+    ok!(yamlEquals("a: |\n  x\n\n\nb: 1", "{\"a\": \"x\\n\", \"b\": 1}"))
+}
+
+test "Spec - folded block scalar strip chomping" {
+    ok!(yamlEquals("a: >-\n  one\n  two\n", "{\"a\": \"one two\"}"))
+}
+
+test "Spec - hash inside a block scalar is content" {
+    ok!(yamlEquals("a: |\n  # not a comment\n  b: c\n", "{\"a\": \"# not a comment\\nb: c\\n\"}"))
+}
+
+test "Spec - i64 limits" {
+    var parser = YamlParser("a: 9223372036854775807\nb: -9223372036854775808\nc: 9223372036854775808\nd: -9223372036854775809")
+    var value = parser.parse()
+    var a = value.["a"]
+    ok!(!!a && a&.isInt() && a&.asInt() == #i64.max)
+    var b = value.["b"]
+    ok!(!!b && b&.isInt() && b&.asInt() == #i64.min)
+    var c = value.["c"]
+    ok!(!!c && c&.isFloat())
+    var d = value.["d"]
+    ok!(!!d && d&.isFloat())
+}
+
+test "Spec - special floats" {
+    var parser = YamlParser("a: .inf\nb: -.inf\nc: .nan")
+    var value = parser.parse()
+    var a = value.["a"]
+    ok!(!!a && a&.isFloat() && a&.asFloat() > 1.0e308)
+    var b = value.["b"]
+    ok!(!!b && b&.isFloat() && b&.asFloat() < -1.0e308)
+    var c = value.["c"]
+    ok!(!!c && c&.isFloat() && c&.asFloat() != c&.asFloat())
+}
+
+// =============================================================================
+// Tags
+// =============================================================================
+
+test "Spec - lone ! forces a string" {
+    ok!(yamlEquals("a: ! 123\nb: ! true", "{\"a\": \"123\", \"b\": \"true\"}"))
+}
+
+test "Spec - !!str without content is the empty string" {
+    ok!(yamlEquals("a: !!str\nb: 1", "{\"a\": \"\", \"b\": 1}"))
+}
+
+test "Spec - !!seq and !!map tags" {
+    ok!(yamlEquals("a: !!seq [1, 2]\nb: !!map {x: 1}", "{\"a\": [1, 2], \"b\": {\"x\": 1}}"))
+    ok!(yamlFails("a: !!seq {x: 1}"))
+    ok!(yamlFails("a: !!map [1]"))
+}
+
+test "Spec - scalar tag on a collection is an error" {
+    ok!(yamlFails("a: !!str [1, 2]"))
+}
+
+test "Spec - local tags are kept on the value" {
+    var parser = YamlParser("a: !point {x: 1}\nb: !secret hunter2\nc: plain")
+    var value = parser.parse()
+    var a = value.["a"]
+    ok!(!!a)
+    var ta = (*a).tag()
+    ok!(!!ta && (*ta) == "!point")
+    var b = value.["b"]
+    ok!(!!b)
+    var tb = (*b).tag()
+    ok!(!!tb && (*tb) == "!secret")
+    var c = value.["c"]
+    ok!(!!c)
+    var tc = (*c).tag()
+    ok!(!tc)
+}
+
+test "Spec - undefined tag handle is an error" {
+    ok!(yamlFails("a: !e!foo bar"))
+}
+
+// =============================================================================
+// Error positions
+// =============================================================================
+
+test "Spec - error position of an unterminated flow sequence" {
+    ok!(yamlFailsAt("a: 1\nb: [1, 2", 2, 9))
+}
+
+test "Spec - error position of a duplicate key" {
+    ok!(yamlFailsAt("a: 1\nb: 2\na: 3", 3, 1))
+}
+
+test "Spec - error position of an undefined alias" {
+    ok!(yamlFailsAt("a: *missing", 1, 12))
+}
+
+test "Spec - an anchor can be merged more than once" {
+    ok!(yamlEquals("a: &a {x: 1}\nb:\n  <<: *a\nc:\n  <<: *a\nd: *a", "{\"a\": {\"x\": 1}, \"b\": {\"x\": 1}, \"c\": {\"x\": 1}, \"d\": {\"x\": 1}}"))
+}

@@ -554,6 +554,18 @@ static void dumpCatchExpr(ConstAstVisitor *visitor, const AstNode *node)
     }
 }
 
+static void dumpLaunch(ConstAstVisitor *visitor, const AstNode *node)
+{
+    DumpContext *ctx = getConstAstVisitorContext(visitor);
+    printKeyword(ctx->state, "launch");
+    AddSpace();
+    if (node->launch.name) {
+        astConstVisit(visitor, node->launch.name);
+        AddSpace();
+    }
+    astConstVisit(visitor, node->launch.closure);
+}
+
 static void dumpBinaryExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     DumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -1472,6 +1484,7 @@ AstNode *dumpCxySource(CompilerDriver *driver, AstNode *node, FILE *file)
         [astUnaryExpr] = dumpUnaryExpr,
         [astBinaryExpr] = dumpBinaryExpr,
         [astCatchExpr] = dumpCatchExpr,
+        [astLaunch] = dumpLaunch,
         [astAssignExpr] = dumpAssignExpr,
         [astTernaryExpr] = dumpTernaryExpr,
         [astGroupExpr] = dumpGroupExpr,

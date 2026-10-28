@@ -191,6 +191,17 @@ void checkMemberExpr(AstVisitor *visitor, AstNode *node)
         return;
     }
 
+    // `#T.attr`: the target is a type info node, evaluate at comp-time
+    if (target && hasFlag(target, Typeinfo)) {
+        if (!evaluate(ctx->evaluator, node)) {
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        if (node->type == NULL)
+            checkType(visitor, node);
+        return;
+    }
+
     if (hasFlag(member, Comptime) && !evaluate(ctx->evaluator, member)) {
         node->type = ERROR_TYPE(ctx);
         return;

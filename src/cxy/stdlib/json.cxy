@@ -4,6 +4,7 @@ import { Value, Null } from "./value.cxy"
 import { Vector } from "./vector.cxy"
 import { HashMap } from "./hash.cxy"
 import "./base64.cxy"
+import test "./testing.cxy"
 
 // JSON Tokens
 enum JsonToken {
@@ -158,7 +159,7 @@ class JsonLexer {
                 var escaped = this.advance()
                 switch escaped {
                     '"' as char => _tokenValue << "\""
-                    '\\' as char => _tokenValue << "\\"
+                    '\\' as char => _tokenValue << '\\'
                     '/' as char => _tokenValue << "/"
                     'b' as char => _tokenValue << "\b"
                     'f' as char => _tokenValue << "\f"
@@ -167,23 +168,26 @@ class JsonLexer {
                     't' as char => _tokenValue << "\t"
                     'u' as char => {
                         // Unicode escape \uXXXX
-                        var codePoint = 0 as u32
-                        for (i: 0..4) {
-                            if (this.isAtEnd()) {
+                        var first = this.readHex4()
+                        if (first < 0) {
+                            return JsonToken.Invalid
+                        }
+                        var codePoint = first as u32
+                        if (codePoint >= 0xD800 && codePoint <= 0xDBFF) {
+                            // a high surrogate must be followed by a low one
+                            if (this.peek() != '\\' as char || this.peek(1) != 'u' as char) {
                                 return JsonToken.Invalid
                             }
-                            var digit = this.advance()
-                            var hexValue = 0 as u32
-                            if (digit >= '0' && digit <= '9') {
-                                hexValue = (digit - '0') as u32
-                            } else if (digit >= 'a' && digit <= 'f') {
-                                hexValue = (digit - 'a' + 10) as u32
-                            } else if (digit >= 'A' && digit <= 'F') {
-                                hexValue = (digit - 'A' + 10) as u32
-                            } else {
+                            this.advance()
+                            this.advance()
+                            var second = this.readHex4()
+                            if (second < 0xDC00 || second > 0xDFFF) {
                                 return JsonToken.Invalid
                             }
-                            codePoint = (codePoint << 4) | hexValue
+                            codePoint = 0x10000 + ((codePoint - 0xD800) << 10) + ((second as u32) - 0xDC00)
+                        } else if (codePoint >= 0xDC00 && codePoint <= 0xDFFF) {
+                            // a lone low surrogate
+                            return JsonToken.Invalid
                         }
 
                         // Convert Unicode code point to UTF-8
@@ -196,11 +200,21 @@ class JsonLexer {
                             _tokenValue << ((0xE0 | (codePoint >> 12)) as char)
                             _tokenValue << ((0x80 | ((codePoint >> 6) & 0x3F)) as char)
                             _tokenValue << ((0x80 | (codePoint & 0x3F)) as char)
+                        } else {
+                            _tokenValue << ((0xF0 | (codePoint >> 18)) as char)
+                            _tokenValue << ((0x80 | ((codePoint >> 12) & 0x3F)) as char)
+                            _tokenValue << ((0x80 | ((codePoint >> 6) & 0x3F)) as char)
+                            _tokenValue << ((0x80 | (codePoint & 0x3F)) as char)
                         }
                     }
                     default => return JsonToken.Invalid
                 }
             } else {
+                // control characters must be escaped
+                var code = c as u8
+                if (code < 0x20) {
+                    return JsonToken.Invalid
+                }
                 _tokenValue << c
             }
         }
@@ -211,6 +225,29 @@ class JsonLexer {
 
         this.advance() // Skip closing quote
         return JsonToken.String
+    }
+
+    // The four hex digits of a `\u` escape, -1 when they are not valid
+    - func readHex4(): i64 {
+        var codePoint = 0 as u32
+        for (i: 0..4) {
+            if (this.isAtEnd()) {
+                return -1
+            }
+            var digit = this.advance()
+            var hexValue = 0 as u32
+            if (digit >= '0' && digit <= '9') {
+                hexValue = (digit - '0') as u32
+            } else if (digit >= 'a' && digit <= 'f') {
+                hexValue = (digit - 'a' + 10) as u32
+            } else if (digit >= 'A' && digit <= 'F') {
+                hexValue = (digit - 'A' + 10) as u32
+            } else {
+                return -1
+            }
+            codePoint = (codePoint << 4) | hexValue
+        }
+        return codePoint as i64
     }
 
     - func scanNumber(): JsonToken {
@@ -414,10 +451,52 @@ class JsonParser {
         return &&arr
     }
 
+    // A number without a fraction or exponent is an i64 when it fits, every
+    // other number (and an integer that overflows) is an f64
     - func parseNumber(): !Value {
         var numStr = &&_tokenValue
         this.advance()
-        return Value(numStr.__str().tof[f64]())
+        var s = numStr.__str()
+
+        var integral = true
+        for (i: 0..s.size()) {
+            var c = s.[i as u32]
+            if (c == '.' || c == 'e' || c == 'E') {
+                integral = false
+                break
+            }
+        }
+
+        if (integral) {
+            var negative = s.[0 as u32] == '-'
+            var acc = 0 as u64
+            var fits = true
+            var i = (negative ? 1 : 0) as u32
+            while (i < s.size()) {
+                var digit = (s.[i] - '0') as u64
+                // acc * 10 + digit must fit in u64
+                if (acc > (#u64.max - digit) / 10) {
+                    fits = false
+                    break
+                }
+                acc = acc * 10 + digit
+                i++
+            }
+
+            // the magnitude of i64.min is i64.max + 1
+            var limit = (#i64.max) as u64
+            if (negative) {
+                limit = limit + 1
+            }
+            if (fits && acc <= limit) {
+                var value = ((0 as u64) - acc) as i64
+                if (!negative) {
+                    value = acc as i64
+                }
+                return Value(value)
+            }
+        }
+        return Value(s.tof[f64]())
     }
 
     // Utility methods
@@ -510,11 +589,11 @@ func fieldFromJSONB64[T](
         #const M = T.targetType;
         if (parser.currentToken() == JsonToken.Null) {
             parser.advance()
-            return None[M]()
+            return null
         }
         else {
             var value = fieldFromJSONB64[M](parser)
-            return Some(value)
+            return value
         }
     }
     else {
@@ -737,7 +816,16 @@ func escapeJsonString(os: &OutputStream, s: __string) {
             case '\n' as char => os << "\\n"
             case '\r' as char => os << "\\r"
             case '\t' as char => os << "\\t"
-            default => os << c
+            default => {
+                var code = c as u8
+                if (code < 0x20) {
+                    // the other control characters are written as \u00XX
+                    var hex = __string("0123456789abcdef")
+                    os << "\\u00" << hex.[(code >> 4) as u32] << hex.[(code & 0x0F) as u32]
+                } else {
+                    os << c
+                }
+            }
         }
     }
 }
@@ -1060,12 +1148,12 @@ test "Json encode" {
 
     s.clear()
     toJSON(&s, &[10`u32, 20, 30])
-    ok!(s == "[10, 20, 30]")
+    assertEq!(s, "[10, 20, 30]")
 
     var x:i32? = 100;
     s.clear()
     toJSON(&s, &x)
-    ok!(s == "100")
+    assertEq!(s, "100")
 
     x = null
     s.clear()

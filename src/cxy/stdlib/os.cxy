@@ -346,8 +346,9 @@ pub class FileInputStream: InputStream {
                 raise IOError(f"reading from file {fd} failed: {strerr()}")
             }
 
-            if (*tmp == 0)
-                return Void{}
+            if (*tmp == 0) {
+                return
+            }
             os.append(buf, *tmp)
         }
     }
@@ -599,10 +600,21 @@ pub struct Process {
 
     func waitAsync(): !i32 {
         #if (defined MACOS) {
-            #if (!defined MACOS_WAIT_ASYNC_WARNING_OFF) {
-                warn!("Process::waitAsync is not defined for MACOS yet")
+            var status = 0`i32;
+            var ret = syswait.waitpid(_pid, ptrof status, WNOHANG!);
+            if (ret < 0)
+                raise IOError(f"wait for pid {_pid} failed: {strerr()}")
+            if (ret == 0) {
+                pidWait(_pid)
+                ret = syswait.waitpid(_pid, ptrof status, WNOHANG!)
+                if (ret < 0)
+                    raise IOError(f"wait for pid {_pid} failed: {strerr()}")
             }
-            raise IOError("Process::waitAsync is not defined for MACOS yet")
+
+            if (WIFEXITED!(status)) {
+                return WEXITSTATUS!(status)
+            }
+            return -1`i32
         }
         else {
             const pidFd = pidfd_open(_pid, PIDFD_NONBLOCK!);
@@ -637,7 +649,7 @@ pub func execvpe(cmd: string, argv: [string], env: [(string, string)]): !Process
     var out:[i32, 2] = []
     var err:[i32, 2] = []
 
-    const sz = argv.size()
+    const sz = len!(argv)
     if (sz < 2 || argv.[sz-1] != null)
         raise IOError("arguments `argv` must be null terminated and argv[0] must be the command")
     if (__string(cmd) != __string(argv.[0]))
@@ -664,9 +676,8 @@ pub func execvpe(cmd: string, argv: [string], env: [(string, string)]): !Process
         unistd.close(err.[0])
         for (const x, _: env)
             stdlib.setenv(x.0 !: ^const char, x.1 !: ^const char, 1)
-        var ret = unistd.execvp(cmd !: ^const char, argv.data !: ^^const char)
+        var ret = unistd.execvp(cmd !: ^const char, &argv.[0] !: ^^const char)
         raise IOError(f"starting {cmd} failed: {strerr()}")
-        stdlib.exit(ret)
     }
     else if (pid > 0) {
         unistd.close(input.[1])
@@ -678,13 +689,13 @@ pub func execvpe(cmd: string, argv: [string], env: [(string, string)]): !Process
 }
 
 @[inline]
-pub func execvp(cmd: string, argv: Slice[string]): !Process {
-    var env = Slice[(string, string)](null, 0);
+pub func execvp(cmd: string, argv: [string]): !Process {
+    var env: [(string, string), 0] = [];
     return execvpe(cmd, argv, env)
 }
 
 pub func execlp(cmd: string, ...args: string): !Process {
-    var env = Slice[(string, string)](null, 0);
+    var env: [(string, string), 0] = [];
     #const sz = len!(args) + 2
     var argv: [string, #{sz}] = [];
     argv.[0] = cmd
@@ -711,8 +722,8 @@ pub func execlpe(cmd: string, env: [(string, string)], ...args: string): !Proces
 }
 
 pub func capture(cmd: string, ...args: auto): !Process {
+    var env: [(string, string), 0] = [];
     #if (len!(args)) {
-        var env = Slice[(string, string)](null, 0);
         var argv: [string, #{len!(args) + 2}] = [];
         #const hasEnv = false;
         #const argc = 1;
@@ -729,11 +740,11 @@ pub func capture(cmd: string, ...args: auto): !Process {
                         #{i += 1}
                     }
                 }
-                env = Slice[(string, string)](_env, #{i})
+                env = slice!(_env, #{i})
                 #{hasEnv = true}
             }
             else #if (T.isArray) {
-                env = Slice[(string, string)](#{arg}, len!(#{arg}))
+                env = slice!(#{arg}, len!(#{arg}))
                 #{hasEnv = true}
             }
             else #if (T.isSlice) {
@@ -753,13 +764,13 @@ pub func capture(cmd: string, ...args: auto): !Process {
         return execvpe(cmd, argv, env)
     }
     else {
-        return execvpe(cmd, [cmd, null], Slice[(string, string)](null, 0))
+        return execvpe(cmd, [cmd, null], env)
     }
 }
 
 pub func shell(cmd: string, ...args: string): !Process {
+    var env: [(string, string), 0] = []
     #if (len!(args)) {
-        var env = Slice[(string, string)](null, 0);
         var s = String(cmd);
         #const hasEnv = false
         #for (const arg: args) {
@@ -774,11 +785,11 @@ pub func shell(cmd: string, ...args: string): !Process {
                         #{i += 1}
                     }
                 }
-                env = Slice[(string, string)](_env, #{i})
+                env = slice!(_env, #{i})
                 #{hasEnv = true}
             }
             else #if (T.isArray) {
-                env = Slice[(string, string)](#{arg}, len!(#{arg}))
+                env = slice!(#{arg}, len!(#{arg}))
                 #{hasEnv = true}
             }
             else #if (T.isSlice) {
@@ -792,7 +803,7 @@ pub func shell(cmd: string, ...args: string): !Process {
         return execlpe("sh", env, "-c", s.str())
     }
     else
-        return execlpe("sh",  Slice[(string, string)](null, 0), "-c", cmd)
+        return execlpe("sh", env, "-c", cmd)
 }
 
 pub func execute[T](

@@ -35,7 +35,7 @@ class WsApplication {
 func main(): !void {
     var app = WsApplication("chat".S)
     var server = Server[](Config{address: Address("0.0.0.0", 8004)});
-    server("GET /wss", (req: &const Request, resp: &Response) => {
+    server("GET /wss", |&app|(req: &const Request, resp: &Response) => {
         wssUpgrade(req, resp, app, WsContext())
     })
     server.start()

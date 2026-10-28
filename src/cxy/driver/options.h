@@ -102,6 +102,7 @@ typedef enum {
     utlSubFindFreePort,
     utlSubEnvCheck,
     utlSubLock,
+    utlSubMem,
 } UtilsSubcommand;
 
 // clang-format on
@@ -265,6 +266,11 @@ typedef struct Options {
             const char *lockName; // Lock name (used as filename)
             i64 lockTimeout;      // Timeout waiting for lock in milliseconds
                                   // (default: 30000)
+            // mem
+            DynArray memArgs;        // Query command and its arguments
+            i64 memPid;              // Target process (0 = auto-detect)
+            const char *memSocket;   // Explicit socket path (empty = unset)
+            i64 memTimeout;          // Reply timeout in milliseconds
         } utils;
     };
 } Options;

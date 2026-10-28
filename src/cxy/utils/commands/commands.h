@@ -81,6 +81,13 @@ bool utilsEnvCheckCommand(const Options *options, struct StrPool *strings, Log *
 bool utilsLockCommand(const Options *options, struct StrPool *strings, Log *log);
 
 /**
+ * Query a running program built with memory tracing over its unix socket.
+ * Usage: cxy utils mem <query...> [--pid <pid>] [--socket <path>]
+ *        [--timeout <ms>]
+ */
+bool utilsMemCommand(const Options *options, struct StrPool *strings, Log *log);
+
+/**
  * Dispatch the parsed utils command to the corresponding handler.
  */
 bool dispatchUtilsCommand(const Options *options, struct StrPool *strings, Log *log);

@@ -159,26 +159,28 @@ pub class Vector[T] {
     }
 
     func `..`() {
-        var i : i64 = 0;
-        return () : (&T, i64)? => {
-            if (i < _size) {
-                var tmp = (&_data.[i], i++);
-                return &&tmp
-            }
-            else
+        return iterator[(&T, i64)](_data, _size, 0.i64:i) {
+            `()` => {
+                if (i < _size) {
+                    var tmp = (&_data.[i], i++);
+                    return &&tmp
+                }
                 return null
+            }
+            `!!` => i < _size
         }
     }
 
     const func `..`() {
-        var i : i64 = 0;
-        return () : (&const T, i64)? => {
-            if (i < _size) {
-                var tmp = (&_data.[i], i++);
-                return &&tmp
-            }
-            else
+        return iterator[(&const T, i64)](_data, _size, 0.i64:i) {
+            `()` => {
+                if (i < _size) {
+                    var tmp = (&_data.[i], i++);
+                    return &&tmp
+                }
                 return null
+            }
+            `!!` => i < _size
         }
     }
 

@@ -17,6 +17,7 @@ bool checkBuiltinAttribute(Log *L, const AstNode *decl, bool isBuiltinModule);
 bool validateBuiltinContracts(Log *L, const Type *module);
 AstNode *findBuiltinDecl(cstring name);
 const Type *findBuiltinType(cstring name);
+bool hasBuiltinOverride(cstring name);
 bool isBuiltinString(const Type *type);
 bool overrideBuiltin(cstring name, AstNode *node);
 

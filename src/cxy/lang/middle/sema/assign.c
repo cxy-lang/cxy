@@ -134,10 +134,13 @@ void checkAssignExpr(AstVisitor *visitor, AstNode *node)
                 ctx->L, &node->loc, "assign to an array is not allowed", NULL);
         node->type = ERROR_TYPE(ctx);
     }
-    const Type *targetType =
-        (isReferenceType(lhs) && !isClassType(stripReference(lhs)))
-            ? stripReference(lhs)
-            : lhs;
+    const Type *targetType = lhs;
+    if (!isTypeAssignableFrom(targetType, rhs)) {
+        if (isReferenceType(lhs) && !isClassType(stripReference(lhs)) &&
+            isTypeAssignableFrom(stripReference(lhs), rhs)) {
+            targetType = stripReference(lhs);
+        }
+    }
     if (!isTypeAssignableFrom(targetType, rhs) &&
         !(typeIs(lhs, Pointer) && typeIs(rhs, Null))) {
         logError(ctx->L,

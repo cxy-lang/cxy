@@ -177,6 +177,7 @@ extern "C" {
     ff(sptr_drop_trace,     "__smart_ptr_drop_trace")  \
     ff(sptr_get_trace,      "__smart_ptr_get_trace")   \
     ff(panicOnUnhandledException, "builtins_panicOnUnhandledException") \
+    ff(runTests,            "builtins_runTests") \
     ff(copy,                "__copy")            \
     ff(AsmInputPrefix,      "\"r\"")             \
     ff(AsmOutputPrefix,     "\"=r\"")            \
@@ -184,12 +185,14 @@ extern "C" {
 
 #define OVERRIDABLE_BUILTINS(f)    \
     f(__scheduler)                 \
-    f(__thread_launch)             \
+    f(__Thread_launch)             \
+    f(__Thread)                    \
     f(timestamp)                   \
     f(fdWaitRead)                  \
     f(fdWaitWrite)                 \
     f(sleepAsync)                  \
     f(timeout)                     \
+    f(pidWait)                     \
     f(__smart_ptr_alloc)           \
     f(__smart_ptr_alloc_trace)
 

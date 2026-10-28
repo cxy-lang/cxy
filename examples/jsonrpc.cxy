@@ -16,6 +16,6 @@ func main(): !void {
     }
     else {
         var client = connect[Calculator](addr);
-        println(client.add(1, 2))
+        println(client.add(10, 2))
     }
 }

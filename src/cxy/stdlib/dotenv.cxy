@@ -183,7 +183,7 @@ pub class DotEnv {
     func get[T](key: string): T? {
         if !vars.contains(key) {
             var val = getenv(key) catch {
-                return None[T]()
+                return null
             }
             vars.[key] = String(val)
         }

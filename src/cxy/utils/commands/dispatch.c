@@ -41,6 +41,9 @@ bool dispatchUtilsCommand(const Options *options, struct StrPool *strings, Log *
         case utlSubLock:
             return utilsLockCommand(options, strings, log);
 
+        case utlSubMem:
+            return utilsMemCommand(options, strings, log);
+
         default:
             logError(log, NULL, "unknown utils subcommand", NULL);
             return false;

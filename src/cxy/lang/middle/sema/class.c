@@ -230,7 +230,8 @@ AstNode *makeDropReferenceCall(TypingContext *ctx,
                                const FileLoc *loc)
 {
     const Type *type = member->type;
-    csAssert0(isClassType(type) || isClosureType(type));
+    csAssert0(isClassType(type) || isClosureType(type) ||
+              (isOptionalType(type) && isDestructible(type)));
     return makeExprStmt(
         ctx->pool,
         loc,

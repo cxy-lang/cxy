@@ -793,6 +793,9 @@ bool isReferable(const Type *type)
     case typUnion:
     case typThis:
         return !hasFlag(type, Extern);
+    case typArray:
+        // Fixed-size arrays can be copied, so they can be referred; slices stay views
+        return type->array.len != UINT64_MAX && !hasFlag(type, Slice);
     default:
         return false;
     }
@@ -1361,6 +1364,7 @@ bool isTruthyType(const Type *type)
 {
     return isIntegralType(type) || isFloatType(type) || typeIs(type, Pointer) ||
            typeIs(type, Optional) || typeIs(type, String) ||
+           typeIs(type, Closure) ||
            (isClassOrStructType(type) &&
             findStructMemberType(type, S_Truthy) != NULL);
 }
@@ -1424,13 +1428,17 @@ bool hasReferenceMembers(const Type *type)
         return decl && hasFlag(decl, ReferenceMembers);
     }
 
+    // `T?` holds references exactly when `T` is destructible (see isDestructible)
+    if (isOptionalType(type))
+        return isDestructible(type->optional.target);
+
     return (isTupleType(type) || isUnionType(type)) &&
            hasFlag(type, ReferenceMembers);
 }
 
 bool isDestructible(const Type *type)
 {
-    if (type == NULL)
+    if (type == NULL || isReferenceType(type) || isPointerTypeExact(type))
         return false;
     type = unwrapType(type, NULL);
     if (isClassType(type))

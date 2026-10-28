@@ -59,7 +59,8 @@ typedef enum IrTypeCategory {
     irTypeCatSlice,
     irTypeCatArray,
     irTypeCatResult,
-    irTypeCatClosure
+    irTypeCatClosure,
+    irTypeCatEnum
 } IrTypeCategory;
 
 typedef struct IrType IrType;
@@ -72,12 +73,18 @@ typedef struct IrField {
     u32 bits;
 } IrField;
 
+typedef struct IrEnumOption {
+    cstring name;
+    i64 value;
+} IrEnumOption;
+
 struct IrType {
     IrTypeTag tag;
     IrTypeCategory category;
     Flags flags;
     u64 size;
     u64 align;
+    bool isPacked;
     u64 index;
     cstring name;
     cstring display;
@@ -115,6 +122,10 @@ struct IrType {
             const IrType *ret;
             bool variadic;
         } func;
+        struct {
+            IrEnumOption *options;
+            u64 count;
+        } enm;
     };
 };
 
@@ -122,20 +133,36 @@ typedef struct IrTypeTable {
     MemPool *pool;
     StrPool *strings;
     HashTable types;
+    HashTable names; // cstring, every emitted struct/union name
     u64 count;
     const IrType *primitives[irTypeCOUNT];
 } IrTypeTable;
+
+// Everything that affects identity or layout of a struct/union type
+typedef struct IrStructOpts {
+    IrTypeCategory category;
+    u64 align;       // 0 = natural alignment
+    bool isPacked;
+    bool structural; // same name + different fields gets a unique suffix
+} IrStructOpts;
 
 IrTypeTable *newIrTypeTable(MemPool *pool, StrPool *strings);
 void freeIrTypeTable(IrTypeTable *table);
 
 const IrType *getIrPrimitiveType(IrTypeTable *table, IrTypeTag tag);
-const IrType *makeIrPointerType(IrTypeTable *table, Flags flags, const IrType *pointee);
+const IrType *makeIrPointerType(IrTypeTable *table, Flags flags, IrTypeCategory category, const IrType *pointee);
 const IrType *makeIrClassType(IrTypeTable *table, Flags flags, const IrType *structType);
-const IrType *makeIrArrayType(IrTypeTable *table, Flags flags, const IrType *elem, u64 len);
-const IrType *makeIrStructType(IrTypeTable *table, Flags flags, cstring name, cstring display, IrField *fields, u64 count);
-const IrType *makeIrUntaggedUnionType(IrTypeTable *table, Flags flags, cstring name, cstring display, IrField *fields, u64 count);
+const IrType *makeIrArrayType(IrTypeTable *table, Flags flags, IrTypeCategory category, const IrType *elem, u64 len);
+const IrType *makeIrStructType(IrTypeTable *table, Flags flags, IrStructOpts opts, cstring name, cstring display, IrField *fields, u64 count);
+const IrType *makeIrUntaggedUnionType(IrTypeTable *table, Flags flags, IrStructOpts opts, cstring name, cstring display, IrField *fields, u64 count);
 const IrType *makeIrFuncType(IrTypeTable *table, Flags flags, const IrType **params, u64 count, const IrType *ret, bool variadic);
+const IrType *makeIrEnumType(IrTypeTable *table,
+                             Flags flags,
+                             cstring name,
+                             cstring display,
+                             const IrType *baseType,
+                             IrEnumOption *options,
+                             u64 optionsCount);
 
 static inline bool isIrPointerType(const IrType *type) { return type && type->tag == irTypePointer; }
 static inline bool isIrArrayType(const IrType *type) { return type && type->tag == irTypeArray; }

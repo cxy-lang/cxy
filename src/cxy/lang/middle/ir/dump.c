@@ -141,6 +141,15 @@ static void dumpArrayConst(ConstIrVisitor *visitor, const IrNode *node)
     format(ctx->state, "]", NULL);
 }
 
+static void dumpFieldConst(ConstIrVisitor *visitor, const IrNode *node)
+{
+    IrDumpContext *ctx = getConstIrVisitorContext(visitor);
+    if (node->fieldConst.name) {
+        format(ctx->state, "{s}: ", (FormatArg[]){{.s = node->fieldConst.name}});
+    }
+    irConstVisit(visitor, node->fieldConst.value);
+}
+
 static void dumpStructConst(ConstIrVisitor *visitor, const IrNode *node)
 {
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
@@ -238,6 +247,38 @@ static void dumpDeref(ConstIrVisitor *visitor, const IrNode *node)
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
     format(ctx->state, "*", NULL);
     irConstVisit(visitor, node->deref.target);
+}
+
+static void dumpAlloca(ConstIrVisitor *visitor, const IrNode *node)
+{
+    IrDumpContext *ctx = getConstIrVisitorContext(visitor);
+    const IrType *type = node->alloca.elemType;
+    const IrType *st = isIrPointerType(type) ? type->pointer.pointee : type;
+    format(ctx->state, "alloca(", NULL);
+    if (st) {
+        dumpIrType(ctx->state, st);
+    }
+    if (node->alloca.size) {
+        format(ctx->state, ", ", NULL);
+        irConstVisit(visitor, node->alloca.size);
+    }
+    format(ctx->state, ")", NULL);
+}
+
+static void dumpMalloc(ConstIrVisitor *visitor, const IrNode *node)
+{
+    IrDumpContext *ctx = getConstIrVisitorContext(visitor);
+    const IrType *type = node->malloc.elemType;
+    const IrType *st = isIrPointerType(type) ? type->pointer.pointee : type;
+    format(ctx->state, "malloc(", NULL);
+    if (st) {
+        dumpIrType(ctx->state, st);
+    }
+    if (node->malloc.size) {
+        format(ctx->state, ", ", NULL);
+        irConstVisit(visitor, node->malloc.size);
+    }
+    format(ctx->state, ")", NULL);
 }
 
 static void dumpSizeof(ConstIrVisitor *visitor, const IrNode *node)
@@ -361,9 +402,14 @@ static void dumpSwitch(ConstIrVisitor *visitor, const IrNode *node)
     irConstVisit(visitor, node->switchStmt.cond);
     format(ctx->state, " {{\n", NULL);
     for (u64 i = 0; i < node->switchStmt.casesCount; i++) {
-        format(ctx->state, "    {u64} -> {s}\n",
+        format(ctx->state, "    ", NULL);
+        irConstVisit(visitor, node->switchStmt.cases[i].valNode);
+        if (node->switchStmt.cases[i].endNode) {
+            format(ctx->state, " .. ", NULL);
+            irConstVisit(visitor, node->switchStmt.cases[i].endNode);
+        }
+        format(ctx->state, " -> {s}\n",
                (FormatArg[]){
-                   {.u64 = node->switchStmt.cases[i].value},
                    {.s = node->switchStmt.cases[i].target ? node->switchStmt.cases[i].target->basicBlock.name : "?"}});
     }
     if (node->switchStmt.defaultTarget) {
@@ -522,6 +568,8 @@ static void dumpGlobalVar(ConstIrVisitor *visitor, const IrNode *node)
 {
     IrDumpContext *ctx = getConstIrVisitorContext(visitor);
     printKeyword(ctx->state, "global");
+    if (node->globalVar.isThreadLocal)
+        format(ctx->state, " thread", NULL);
     format(ctx->state, " {s}: ", (FormatArg[]){{.s = node->globalVar.name}});
     dumpIrType(ctx->state, node->type);
     if (node->globalVar.init) {
@@ -579,6 +627,7 @@ AstNode *dumpIr(CompilerDriver *driver, const IrNode *module, FILE *file)
         [irFloatConst] = dumpFloatConst,
         [irStringConst] = dumpStringConst,
         [irArrayConst] = dumpArrayConst,
+        [irFieldConst] = dumpFieldConst,
         [irStructConst] = dumpStructConst,
         [irVarRef] = dumpVarRef,
         [irGlobalRef] = dumpGlobalRef,
@@ -589,6 +638,8 @@ AstNode *dumpIr(CompilerDriver *driver, const IrNode *module, FILE *file)
         [irBinary] = dumpBinary,
         [irAddrOf] = dumpAddrOf,
         [irDeref] = dumpDeref,
+        [irAlloca] = dumpAlloca,
+        [irMalloc] = dumpMalloc,
         [irSizeof] = dumpSizeof,
         [irAlias] = dumpAlias,
         [irOptionalValue] = dumpOptionalValue,

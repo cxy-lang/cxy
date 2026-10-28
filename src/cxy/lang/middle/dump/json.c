@@ -827,6 +827,19 @@ static void visitTypedExpr(ConstAstVisitor *visitor, const AstNode *node)
     Return(ctx, jsonNode);
 }
 
+static void visitLaunch(ConstAstVisitor *visitor, const AstNode *node)
+{
+    JsonConverterContext *ctx = getConstAstVisitorContext(visitor);
+    cJSON *jsonNode = nodeCreateJSON(visitor, node);
+
+    cJSON_AddItemToObject(
+        jsonNode, "name", nodeToJson(visitor, node->launch.name));
+    cJSON_AddItemToObject(
+        jsonNode, "closure", nodeToJson(visitor, node->launch.closure));
+
+    Return(ctx, jsonNode);
+}
+
 static void visitCallExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     JsonConverterContext *ctx = getConstAstVisitorContext(visitor);
@@ -1098,6 +1111,7 @@ AstNode *dumpAstJson(CompilerDriver *driver, AstNode *node, FILE *file)
         [astAssignExpr] = visitBinaryExpr,
         [astBinaryExpr] = visitBinaryExpr,
         [astCatchExpr] = visitCatchExpr,
+        [astLaunch] = visitLaunch,
         [astUnaryExpr] = visitUnaryExpr,
         [astTernaryExpr] = visitTernaryExpr,
         [astIfStmt] = visitTernaryExpr,

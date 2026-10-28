@@ -17,6 +17,7 @@ extern void *memcpy(void *dest, const void *src, unsigned long n);
 extern int memcmp(const void *s1, const void *s2, unsigned long n);
 extern void *malloc(unsigned long size);
 extern void *realloc(void *ptr, unsigned long size);
+extern void *alloca(unsigned long size);
 extern void free(void *ptr);
 extern void abort(void);
 extern void exit(int status);
@@ -355,141 +356,78 @@ static inline void __cxy_dump_unhandled_exception(const char *name,
     }
 }
 
+#define __CXY_MAX_THREAD_FINIS 256
+static void (*__cxy_thread_finis[__CXY_MAX_THREAD_FINIS])(void);
+static unsigned __cxy_thread_fini_count;
+
+__attribute__((used)) void __cxy_register_thread_fini(void (*fn)(void))
+{
+    if (__cxy_thread_fini_count >= __CXY_MAX_THREAD_FINIS) {
+        write(2, "cxy: too many thread finalizers\n", 32);
+        abort();
+    }
+    __cxy_thread_finis[__cxy_thread_fini_count++] = fn;
+}
+
+// Runs the calling thread's module finalizers in reverse registration order
+__attribute__((used)) void __cxy_run_thread_finis(void)
+{
+    for (unsigned i = __cxy_thread_fini_count; i > 0; i--)
+        __cxy_thread_finis[i - 1]();
+}
+
+static void (*__cxy_process_finis[__CXY_MAX_THREAD_FINIS])(void);
+static unsigned __cxy_process_fini_count;
+
+__attribute__((used)) void __cxy_register_process_fini(void (*fn)(void))
+{
+    if (__cxy_process_fini_count >= __CXY_MAX_THREAD_FINIS) {
+        write(2, "cxy: too many module finalizers\n", 32);
+        abort();
+    }
+    __cxy_process_finis[__cxy_process_fini_count++] = fn;
+}
+
 #define MEMORY_MAGIC 0xAEAEAE00U
 
-#if defined(ENABLE_MEMORY_TRACE)
-#define MEM_FLAG_STATIC 0x01U
-static uint32_t __cxy_alloc_flags = MEM_FLAG_STATIC;
-
-static inline void __cxy_start_runtime(void)
-{
-    __cxy_alloc_flags = 0;
-}
-#else
-#define __cxy_start_runtime()
-#endif
-
+// Same layout with or without tracing; trace metadata lives in libcxy-trace
 typedef struct __attribute__((aligned(16))) __mem {
     uint32_t refs;
     uint32_t flags;
     sptr_dctor dctor;
-#if defined(ENABLE_MEMORY_TRACE)
-    uint64_t alloc_size;
-    const char *alloc_path;
-    uint64_t alloc_line;
-    struct __mem *prev;
-    struct __mem *next;
-#endif
 } __mem;
 
-extern int atexit(void (*func)(void));
-extern int backtrace(void **buffer, int size);
-extern void backtrace_symbols_fd(void *const *buffer, int size, int fd);
-__attribute__((weak)) extern void __cxy_symbolize_stack(void *const *stack, int count);
-
 #if defined(ENABLE_MEMORY_TRACE)
-#define __CXY_MEM_TRACE_RING_SIZE 1024
+// Implemented in stdlib/trace/mem.c (libcxy-trace)
+extern void __cxy_mem_trace_start(void);
+extern void __cxy_mem_trace_alloc(void *ptr, uint64_t size, const char *path, uint64_t line);
+extern void __cxy_mem_trace_event(void *ptr, const char *op, uint32_t refs, const char *path, uint64_t line);
+extern void __cxy_mem_trace_free(void *ptr);
+extern void __cxy_mem_trace_dump(void *ptr);
 
-typedef struct {
-    sptr ptr;
-    const char *op;
-    const char *path;
-    uint64_t line;
-    uint32_t refs;
-    void *stack[8];
-    int stackSize;
-} __cxy_mem_trace_event;
-
-static __cxy_mem_trace_event __cxy_mem_ring[__CXY_MEM_TRACE_RING_SIZE];
-static uint32_t __cxy_mem_ring_idx = 0;
-static __mem *__cxy_live_allocs_head = nullptr;
-static uint8_t __cxy_trace_lock = 0;
-static bool __cxy_leak_handler_registered = false;
-
-static inline void __cxy_trace_lock_acquire(void)
+// Lets the trace library read refcounts without knowing the header layout
+__attribute__((used)) uint32_t __cxy_mem_header_refs(void *ptr)
 {
-    while (__atomic_test_and_set(&__cxy_trace_lock, __ATOMIC_ACQUIRE)) {}
+    return ptr ? ((__mem *)((char *)ptr - sizeof(__mem)))->refs : 0;
 }
 
-static inline void __cxy_trace_lock_release(void)
-{
-    __atomic_clear(&__cxy_trace_lock, __ATOMIC_RELEASE);
-}
-
-static inline void __cxy_default_memory_trace(sptr ptr, const char *op, const char *path, uint64_t line)
-{
-    if (ptr == nullptr)
-        return;
-    __mem *mem = (__mem *)((char *)ptr - sizeof(__mem));
-    uint32_t idx = __atomic_fetch_add(&__cxy_mem_ring_idx, 1, __ATOMIC_RELAXED) % __CXY_MEM_TRACE_RING_SIZE;
-    __cxy_mem_trace_event *ev = &__cxy_mem_ring[idx];
-    ev->ptr = ptr;
-    ev->op = op;
-    ev->path = path;
-    ev->line = line;
-    ev->refs = mem->refs;
-    ev->stackSize = backtrace(ev->stack, 8);
-#ifdef VERBOSE_MEMORY_TRACE
-    printf("[MEM:%s] ptr=%p refs=%u @ %s:%llu\n", op, ptr, (unsigned)mem->refs, path, (unsigned long long)line);
+extern void __cxy_mem_trace_report(void);
+#define __cxy_start_runtime() __cxy_mem_trace_start()
+#define __cxy_report_runtime() __cxy_mem_trace_report()
+#else
+#define __cxy_start_runtime()
+#define __cxy_report_runtime()
 #endif
-}
 
-static inline void __cxy_mem_ring_dump(sptr ptr)
+// Single exit sequence (destructor priorities are not portable to Mach-O):
+// thread finalizers, module finalizers, then the leak report.
+__attribute__((destructor)) static void __cxy_shutdown(void)
 {
-    printf("\n--- Lifecycle Timeline for %p in __cxy_mem_ring ---\n", ptr);
-    uint32_t current_idx = __cxy_mem_ring_idx;
-    uint32_t count = 0;
-    for (uint32_t i = 0; i < __CXY_MEM_TRACE_RING_SIZE; i++) {
-        uint32_t idx = (current_idx + i) % __CXY_MEM_TRACE_RING_SIZE;
-        __cxy_mem_trace_event *ev = &__cxy_mem_ring[idx];
-        if (ev->ptr == ptr && ev->op != nullptr) {
-            count++;
-            printf("  [%u] %-5s refs=%-3u @ %s:%llu\n",
-                   count,
-                   ev->op,
-                   (unsigned)ev->refs,
-                   ev->path ? ev->path : "<unknown>",
-                   (unsigned long long)ev->line);
-            if (ev->stackSize > 2) {
-                if (__cxy_symbolize_stack != nullptr) {
-                    __cxy_symbolize_stack(ev->stack + 2, ev->stackSize - 2);
-                }
-                else {
-                    backtrace_symbols_fd(ev->stack + 2, ev->stackSize - 2, 1);
-                }
-            }
-            else if (ev->stackSize > 0) {
-                if (__cxy_symbolize_stack != nullptr) {
-                    __cxy_symbolize_stack(ev->stack, ev->stackSize);
-                }
-                else {
-                    backtrace_symbols_fd(ev->stack, ev->stackSize, 1);
-                }
-            }
-        }
-    }
-    if (count == 0) {
-        printf("  (no trace events recorded for %p)\n", ptr);
-    }
-    printf("---------------------------------------------------\n\n");
+    __cxy_run_thread_finis();
+    for (unsigned i = __cxy_process_fini_count; i > 0; i--)
+        __cxy_process_finis[i - 1]();
+    __cxy_report_runtime();
 }
-
-static inline void __cxy_untrack_alloc(__mem *mem)
-{
-    __cxy_trace_lock_acquire();
-    if (mem->prev != nullptr) {
-        mem->prev->next = mem->next;
-    } else if (__cxy_live_allocs_head == mem) {
-        __cxy_live_allocs_head = mem->next;
-    }
-    if (mem->next != nullptr) {
-        mem->next->prev = mem->prev;
-    }
-    mem->prev = nullptr;
-    mem->next = nullptr;
-    __cxy_trace_lock_release();
-}
-#endif
 
 static inline void __cxy_panic_mem(sptr ptr, const char *file, uint64_t line, const char *msg)
 {
@@ -515,7 +453,7 @@ static inline void __cxy_panic_mem(sptr ptr, const char *file, uint64_t line, co
                       (unsigned long long)line);
     write(2, buf, len);
 #if defined(ENABLE_MEMORY_TRACE)
-    __cxy_mem_ring_dump(ptr);
+    __cxy_mem_trace_dump(ptr);
 #endif
     abort();
 }
@@ -526,11 +464,7 @@ static inline sptr __smart_ptr_alloc(uint64_t size, sptr_dctor dctor)
     if (ptr == nullptr)
         return nullptr;
     __mem *mem = (__mem *)ptr;
-#if defined(ENABLE_MEMORY_TRACE)
-    mem->flags = MEMORY_MAGIC | __cxy_alloc_flags;
-#else
     mem->flags = MEMORY_MAGIC;
-#endif
     __atomic_store_n(&mem->refs, 1, __ATOMIC_RELAXED);
     mem->dctor = dctor;
     return (sptr)((char *)ptr + sizeof(__mem));
@@ -566,7 +500,7 @@ static inline bool __smart_ptr_drop(sptr ptr)
             mem->dctor(ptr);
         }
 #if defined(ENABLE_MEMORY_TRACE)
-        __cxy_untrack_alloc(mem);
+        __cxy_mem_trace_free(ptr);
 #endif
 #ifndef NDEBUG
         mem->flags = 0xDEADDEADU;
@@ -582,89 +516,14 @@ static inline bool __smart_ptr_drop(sptr ptr)
 extern void TRACE_MEMORY(sptr ptr, const char *op, const char *path, uint64_t line);
 #define CXY_MEMORY_TRACE(ptr, op, path, line) TRACE_MEMORY(ptr, op, path, line)
 #else
-#define CXY_MEMORY_TRACE(ptr, op, path, line) __cxy_default_memory_trace(ptr, op, path, line)
+#define CXY_MEMORY_TRACE(ptr, op, path, line) \
+    __cxy_mem_trace_event(ptr, op, __cxy_mem_header_refs(ptr), path, line)
 #endif
-
-static inline void __cxy_memory_leak_report(void)
-{
-    __cxy_trace_lock_acquire();
-    uint64_t count = 0;
-    uint64_t totalBytes = 0;
-    __mem *curr = __cxy_live_allocs_head;
-    while (curr != nullptr) {
-        count++;
-        totalBytes += curr->alloc_size;
-        curr = curr->next;
-    }
-    if (count > 0) {
-        printf("\n=== CXY Memory Leak Summary ===\n");
-        curr = __cxy_live_allocs_head;
-        while (curr != nullptr) {
-            void *payload = (void *)((char *)curr + sizeof(__mem));
-            printf("[LEAK] ptr=%p size=%llu refs=%u @ %s:%llu\n",
-                   payload,
-                   (unsigned long long)curr->alloc_size,
-                   (unsigned)curr->refs,
-                   curr->alloc_path ? curr->alloc_path : "<unknown>",
-                   (unsigned long long)curr->alloc_line);
-
-            __cxy_mem_trace_event *alloc_ev = nullptr;
-            uint32_t current_idx = __cxy_mem_ring_idx;
-            for (uint32_t i = 0; i < __CXY_MEM_TRACE_RING_SIZE; i++) {
-                uint32_t idx = (current_idx + __CXY_MEM_TRACE_RING_SIZE - 1 - i) % __CXY_MEM_TRACE_RING_SIZE;
-                __cxy_mem_trace_event *ev = &__cxy_mem_ring[idx];
-                if (ev->ptr == payload && ev->op != nullptr && strcmp(ev->op, "alloc") == 0) {
-                    alloc_ev = ev;
-                    break;
-                }
-            }
-            if (alloc_ev != nullptr && alloc_ev->stackSize > 2) {
-                printf("  Allocation callstack:\n");
-                if (__cxy_symbolize_stack != nullptr) {
-                    __cxy_symbolize_stack(alloc_ev->stack + 2, alloc_ev->stackSize - 2);
-                }
-                else {
-                    backtrace_symbols_fd(alloc_ev->stack + 2, alloc_ev->stackSize - 2, 1);
-                }
-            }
-            curr = curr->next;
-        }
-        printf("Total: %llu active allocations (%llu bytes leaked)\n",
-               (unsigned long long)count,
-               (unsigned long long)totalBytes);
-    }
-    __cxy_trace_lock_release();
-}
-
-static inline void __cxy_track_alloc(__mem *mem, uint64_t size, const char *path, uint64_t line)
-{
-    if (mem->flags & MEM_FLAG_STATIC)
-        return;
-    mem->alloc_size = size;
-    mem->alloc_path = path;
-    mem->alloc_line = line;
-
-    __cxy_trace_lock_acquire();
-    if (!__cxy_leak_handler_registered) {
-        __cxy_leak_handler_registered = true;
-        atexit(__cxy_memory_leak_report);
-    }
-    mem->prev = nullptr;
-    mem->next = __cxy_live_allocs_head;
-    if (__cxy_live_allocs_head != nullptr) {
-        __cxy_live_allocs_head->prev = mem;
-    }
-    __cxy_live_allocs_head = mem;
-    __cxy_trace_lock_release();
-}
 
 static inline sptr __smart_ptr_alloc_trace(uint64_t size, sptr_dctor dctor, const char *path, uint64_t line)
 {
     sptr ptr = __smart_ptr_alloc(size, dctor);
-    if (ptr != nullptr) {
-        __mem *mem = (__mem *)((char *)ptr - sizeof(__mem));
-        __cxy_track_alloc(mem, size, path, line);
-    }
+    __cxy_mem_trace_alloc(ptr, size, path, line);
     CXY_MEMORY_TRACE(ptr, "alloc", path, line);
     return ptr;
 }
@@ -698,24 +557,8 @@ static inline bool __smart_ptr_drop_trace(sptr ptr, const char *path, uint64_t l
     return __smart_ptr_drop(ptr);
 }
 #else
-static inline sptr __smart_ptr_alloc_trace(uint64_t size, sptr_dctor dctor, const char *path, uint64_t line)
-{
-    (void)path;
-    (void)line;
-    return __smart_ptr_alloc(size, dctor);
-}
-
-static inline sptr __smart_ptr_get_trace(sptr ptr, const char *path, uint64_t line)
-{
-    (void)path;
-    (void)line;
-    return __smart_ptr_get(ptr);
-}
-
-static inline bool __smart_ptr_drop_trace(sptr ptr, const char *path, uint64_t line)
-{
-    (void)path;
-    (void)line;
-    return __smart_ptr_drop(ptr);
-}
+// path/line are always literals from codegen, so dropping them is safe
+#define __smart_ptr_alloc_trace(size, dctor, path, line) __smart_ptr_alloc(size, dctor)
+#define __smart_ptr_get_trace(ptr, path, line) __smart_ptr_get(ptr)
+#define __smart_ptr_drop_trace(ptr, path, line) __smart_ptr_drop(ptr)
 #endif

@@ -8,7 +8,7 @@ pub class CircularBuffer[T] {
     _size: i32 = 0
 
     func `init`(capacity: i32 = 0) {
-        this._capacity = _capacity ?: 1
+        this._capacity = capacity ?: 1
         _buffer = __calloc(capacity * sizeof!(T)) as ^T
     }
 
@@ -32,7 +32,7 @@ pub class CircularBuffer[T] {
         return &&value
     }
 
-    func peek(): Optional[&T] {
+    func peek(): &T? {
         if _size == 0 {
             return null
         }
@@ -80,11 +80,11 @@ test "CircularBuffer.peek" {
     _buffer.push(1)
     _buffer.push(2)
     _buffer.push(3)
-    ok!(_buffer.peek() == 1)
+    ok!(*_buffer.peek() == 1)
     ok!(_buffer.pop() == 1)
-    ok!(_buffer.peek() == 2)
+    ok!(*_buffer.peek() == 2)
     ok!(_buffer.pop() == 2)
-    ok!(_buffer.peek() == 3)
+    ok!(*_buffer.peek() == 3)
     ok!(_buffer.pop() == 3)
     ok!(!_buffer.peek())
 }

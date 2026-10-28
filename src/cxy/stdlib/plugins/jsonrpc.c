@@ -20,23 +20,17 @@ static AstNode *makeReturnType(CxyPluginContext *ctx,
                                AstNode *voidType,
                                AstNode *exceptionType)
 {
-    AstNode *resultType = isVoidType(retType)
-                              ? makeResolvedPath(ctx->pool,
-                                                 loc,
-                                                 S_Void,
-                                                 flgNone,
-                                                 voidType,
-                                                 NULL,
-                                                 voidType->type)
-                              : makeTypeReferenceNode(ctx->pool, retType, loc);
-    resultType->next = makeResolvedPath(ctx->pool,
-                                        loc,
-                                        S_Exception,
-                                        flgNone,
-                                        exceptionType,
-                                        NULL,
-                                        exceptionType->type);
-    return makeUnionDeclAst(ctx->pool, loc, flgNone, resultType, NULL, NULL);
+    // `!Ret` / `!void`, the same node the parser creates for a result type
+    (void)exceptionType;
+    AstNode *target = isVoidType(retType)
+                          ? makeVoidAstNode(
+                                ctx->pool, loc, flgNone, NULL, voidType->type)
+                          : makeTypeReferenceNode(ctx->pool, retType, loc);
+    return makeAstNode(ctx->pool,
+                       loc,
+                       &(AstNode){.tag = astResultType,
+                                  .flags = flgTypeAst,
+                                  .resultType = {.target = target}});
 }
 
 static AstNode *createThisParameter(CxyPluginContext *ctx,

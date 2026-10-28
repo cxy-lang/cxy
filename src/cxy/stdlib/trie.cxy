@@ -61,7 +61,7 @@ pub class Trie[Data] {
         return add(key.str(), key.size(), &&data)
     }
 
-    func find(key: string) : Optional[&Data] {
+    func find(key: string) : &Data? {
         var size = len!(key);
         var found = find(key, size);
         if (found) {
@@ -79,23 +79,80 @@ pub class Trie[Data] {
         }
         assert!(!node.data)
         node.data = &&data
-        return node.data.ref()
+        return &*node.data
     }
 
     - func find(prefix: string, len: u64) : (i64, &Data)? {
-        var node = ptrof root;
-        var found: (i64, &Data)? = null;
+        var node = ptrof root
+        var found: (i64, &Data)? = null
+        if node.data {
+            found = (0.i64, &*node.data)
+        }
 
         for (var i: 0..len) {
-            var child = node.get(prefix.[i]);
+            var child = node.get(prefix.[i])
             if (!child)
                 break
 
             node = *child;
             if (node.data) {
-                found = (<i64>(i+1), &node.data.val)
+                found = (<i64>(i+1), &*node.data)
             }
         }
         return found
     }
+}
+
+test "Trie basic insert and find" {
+    var t = Trie[i32]()
+    t.add("apple", 100)
+    t.add("app", 200)
+    t.add("banana", 300)
+
+    var res = t.find("apple")
+    ok!(res)
+    ok!(*res == 100)
+
+    res = t.find("app")
+    ok!(res)
+    ok!(*res == 200)
+
+    res = t.find("banana")
+    ok!(res)
+    ok!(*res == 300)
+
+    res = t.find("ap")
+    ok!(!res)
+
+    res = t.find("orange")
+    ok!(!res)
+}
+
+test "Trie prefix matching" {
+    var t = Trie[String]()
+    t.add("cat", String("feline"))
+    t.add("caterpillar", String("insect"))
+
+    var res = t.find("cat")
+    ok!(res)
+    ok!(*res == "feline")
+
+    res = t.find("caterpillar")
+    ok!(res)
+    ok!(*res == "insect")
+
+    res = t.find("cater")
+    ok!(!res)
+}
+
+test "Trie empty string key" {
+    var t = Trie[i32]()
+    t.add("", 42)
+
+    var res = t.find("")
+    ok!(res)
+    ok!(*res == 42)
+
+    res = t.find("nonexistent")
+    ok!(!res)
 }

@@ -70,7 +70,7 @@ static AstNode *makeDefaultStructValue(MemPool *pool,
     AstNodeList nodes = {NULL};
     AstNode *decl = type->tStruct.decl, *member = decl->structDecl.members;
     for (; member; member = member->next) {
-        if (!nodeIs(member, FieldDecl))
+        if (!nodeIs(member, FieldDecl) || isZeroInitArrayField(member))
             continue;
 
         if (member->structField.value)

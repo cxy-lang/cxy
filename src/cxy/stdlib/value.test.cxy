@@ -1,0 +1,78 @@
+module value_test
+
+// Helpers shared by the conformance tests of the Value based formats
+// (json, yaml). Import it with `import test { valuesEqual } from "stdlib/value.test.cxy"`.
+
+import { Value } from "./value.cxy"
+
+// Numbers compare by value, the int/float distinction is tested separately
+pub func numberOf(v: &const Value): f64 {
+    if v.isInt() {
+        var i = v.getInt()
+        return <f64>(*i)
+    }
+    var f = v.getFloat()
+    return *f
+}
+
+pub func isNumber(v: &const Value): bool => v.isInt() || v.isFloat()
+
+// Structural equality, object key order is ignored
+pub func valuesEqual(a: &const Value, b: &const Value): bool {
+    if a.isNull() || b.isNull() {
+        return a.isNull() && b.isNull()
+    }
+    if a.isBool() || b.isBool() {
+        if !(a.isBool() && b.isBool()) {
+            return false
+        }
+        var x = a.getBool()
+        var y = b.getBool()
+        return *x == *y
+    }
+    if isNumber(a) || isNumber(b) {
+        if !(isNumber(a) && isNumber(b)) {
+            return false
+        }
+        return numberOf(a) == numberOf(b)
+    }
+    if a.isString() || b.isString() {
+        if !(a.isString() && b.isString()) {
+            return false
+        }
+        var x = a.getString()
+        var y = b.getString()
+        return (*x).__str() == (*y).__str()
+    }
+    if a.isArray() || b.isArray() {
+        if !(a.isArray() && b.isArray()) {
+            return false
+        }
+        if a.size() != b.size() {
+            return false
+        }
+        for (const i: 0.u64..a.size()) {
+            var x = a.get(<i32>i)
+            var y = b.get(<i32>i)
+            if !x || !y || !valuesEqual(*x, *y) {
+                return false
+            }
+        }
+        return true
+    }
+
+    if !(a.isObject() && b.isObject()) {
+        return false
+    }
+    if a.size() != b.size() {
+        return false
+    }
+    var obj = a.getObject()
+    for (key, value : obj) {
+        var other = b.get(key)
+        if !other || !valuesEqual(value, *other) {
+            return false
+        }
+    }
+    return true
+}

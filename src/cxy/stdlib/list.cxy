@@ -30,15 +30,16 @@ pub struct List[T] {
     }
 
     func `..`() {
-        var item = _head;
-        return () : Optional[^T] => {
-            if (item != null) {
-                var curr = item;
-                item = item.link;
-                return Some[^T](curr)
+        return iterator[^T?](_head: item) {
+            `()` => {
+                if item != null {
+                    var curr = item;
+                    item = item.link;
+                    return curr
+                }
+                return null
             }
-            else
-                return None[^T]()
+            `!!` => item != null
         }
     }
 
@@ -175,26 +176,28 @@ pub class LinkedList[T] {
     }
 
     func `..`() {
-        var item = _head
-        var idx = 0 as u64
-        return (): (&T, u64)? => {
-            if (item == null)
-                return null
-            var tmp = &item._value
-            item = item._next
-            return (tmp, idx++)
+        return iterator[(&T, u64)](_head: item, 0.u64: idx) {
+            `()` => {
+                if (item == null)
+                    return null
+                var tmp = &item._value
+                item = item._next
+                return (tmp, idx++)
+            }
+            `!!` => item == null
         }
     }
 
     const func `..`() {
-        var item = _head
-        var idx = 0 as u64
-        return (): (&const T, u64)? => {
-            if (item == null)
-                return null
-            var tmp = &item._value
-            item = item._next
-            return (tmp, idx++)
+        return iterator[(&const T, u64)](_head: item, 0.u64: idx) {
+            `()` => {
+                if (item == null)
+                    return null
+                var tmp = &item._value
+                item = item._next
+                return (tmp, idx++)
+            }
+            `!!` => item == null
         }
     }
 

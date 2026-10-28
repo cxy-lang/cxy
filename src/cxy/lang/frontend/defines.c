@@ -116,16 +116,15 @@ void initCompilerPreprocessor(struct CompilerDriver *driver)
         preprocessorDefineMacro(&driver->preprocessor,
                                 makeString(driver->strings, "__DEBUG"),
                                 NULL);
+    }
+
+    // Memory tracing is only enabled through `--memory-trace`
+    if (options->withMemoryTrace) {
         cstring S_trace_memory = makeString(driver->strings, "TRACE_MEMORY");
-        AstNode *trace = NULL;
-        options->withMemoryTrace =
-            preprocessorHasMacro(&driver->preprocessor, S_trace_memory, &trace);
-        if (options->withMemoryTrace && nodeIs(trace, Path)) {
-            pushStringOnDynArray(
-                &options->cDefines,
-                makeStringConcat(driver->strings, "-DTRACE_MEMORY=",
-                    trace->path.elements->_name));
-        }
+        if (!preprocessorHasMacro(
+                &driver->preprocessor, S_trace_memory, NULL))
+            preprocessorDefineMacro(
+                &driver->preprocessor, S_trace_memory, NULL);
     }
 
     // add backend call ID's

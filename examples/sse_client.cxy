@@ -5,7 +5,7 @@ class ClientApplication {
     eventCount: i64 = 0
 
     func `init`(channel: String) {
-        this.channel = channel
+        this.channel = &&channel
     }
 
     func onOpen(@unused client: &SseClient): bool => {

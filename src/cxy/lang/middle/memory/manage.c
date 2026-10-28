@@ -204,41 +204,69 @@ static inline IrNode *findMovedVarDecl(const IrNode *src)
     return NULL;
 }
 
+// The single definition of "this operand is a move": returns the slot holding an
+// irMove, looking through casts (`<Base>(&&x)`), or NULL.
+static IrNode **moveSlot(IrNode **slot)
+{
+    while (slot && *slot && (*slot)->tag == irCast)
+        slot = &(*slot)->cast.expr;
+    return (slot && *slot && (*slot)->tag == irMove) ? slot : NULL;
+}
+
+
+// Visits every slot through which a value is handed over (assign rhs itself,
+// call args, composite payloads).
+static void forEachOwningSlot(IrNode **slot, void (*cb)(IrNode **slot, void *ctx), void *cbCtx)
+{
+    IrNode *v = slot ? *slot : NULL;
+    if (v == NULL)
+        return;
+    switch (v->tag) {
+    case irUnionValue:
+        cb(&v->unionValue.value, cbCtx);
+        break;
+    case irOptionalValue:
+        if (v->optionalValue.hasValue)
+            cb(&v->optionalValue.value, cbCtx);
+        break;
+    case irStructConst:
+        for (IrNode **f = &v->structConst.fields; *f; f = &(*f)->next)
+            cb(((*f)->tag == irFieldConst) ? &(*f)->fieldConst.value : f, cbCtx);
+        break;
+    case irArrayConst:
+        for (IrNode **e = &v->arrayConst.elements; *e; e = &(*e)->next)
+            cb(e, cbCtx);
+        break;
+    case irClosureValue:
+        cb(&v->closureValue.env, cbCtx);
+        break;
+    case irCall:
+        for (IrNode **a = &v->call.args; *a; a = &(*a)->next)
+            cb(a, cbCtx);
+        break;
+    default:
+        cb(slot, cbCtx);
+        break;
+    }
+}
+
+typedef struct MovedSourceVisit {
+    void (*cb)(IrNode *src, void *ctx);
+    void *ctx;
+} MovedSourceVisit;
+
+static void onOwningSlotMovedSource(IrNode **slot, void *ctxPtr)
+{
+    MovedSourceVisit *visit = ctxPtr;
+    IrNode **mv = moveSlot(slot);
+    if (mv)
+        visit->cb((*mv)->move.src, visit->ctx);
+}
+
 static void forEachMovedSource(IrNode *rhs, void (*cb)(IrNode *src, void *ctx), void *cbCtx)
 {
-    if (rhs == NULL)
-        return;
-    if (rhs->tag == irMove) {
-        cb(rhs->move.src, cbCtx);
-    }
-    else if (rhs->tag == irUnionValue && rhs->unionValue.value && rhs->unionValue.value->tag == irMove) {
-        cb(rhs->unionValue.value->move.src, cbCtx);
-    }
-    else if (rhs->tag == irOptionalValue && rhs->optionalValue.hasValue && rhs->optionalValue.value && rhs->optionalValue.value->tag == irMove) {
-        cb(rhs->optionalValue.value->move.src, cbCtx);
-    }
-    else if (rhs->tag == irStructConst) {
-        for (IrNode *f = rhs->structConst.fields; f; f = f->next) {
-            if (f->tag == irMove)
-                cb(f->move.src, cbCtx);
-        }
-    }
-    else if (rhs->tag == irArrayConst) {
-        for (IrNode *elem = rhs->arrayConst.elements; elem; elem = elem->next) {
-            if (elem->tag == irMove)
-                cb(elem->move.src, cbCtx);
-        }
-    }
-    else if (rhs->tag == irClosureValue) {
-        if (rhs->closureValue.env && rhs->closureValue.env->tag == irMove)
-            cb(rhs->closureValue.env->move.src, cbCtx);
-    }
-    else if (rhs->tag == irCall) {
-        for (IrNode *arg = rhs->call.args; arg; arg = arg->next) {
-            if (arg->tag == irMove)
-                cb(arg->move.src, cbCtx);
-        }
-    }
+    MovedSourceVisit visit = {.cb = cb, .ctx = cbCtx};
+    forEachOwningSlot(&rhs, onOwningSlotMovedSource, &visit);
 }
 
 typedef struct MoveGenKillContext {
@@ -514,7 +542,8 @@ static void synthesizeDropFlags(MemMgmtContext *ctx, IrNode *func)
 
     csAssert0(func->function.name);
     cstring typeName = makeStringf(ctx->strings, "__drop_flags_%s_t", func->function.name);
-    const IrType *dropFlagsType = makeIrStructType(ctx->types, flgNone, typeName, typeName, fields, flagCount);
+    const IrType *dropFlagsType = makeIrStructType(
+        ctx->types, flgNone, (IrStructOpts){0}, typeName, typeName, fields, flagCount);
     IrNode *dropFlagsDecl = makeIrVarDecl(ctx->pool, &func->loc, flgNone, "__drop_flags", "__drop_flags", dropFlagsType, 0);
     ctx->dropFlagsDecl = dropFlagsDecl;
 
@@ -558,6 +587,18 @@ static void processPayloadItem(MemMgmtContext *ctx,
                                BitSet *currMay,
                                BitSet *currMust);
 
+
+// Splices `node` in front of `stmt`; `*prevRef` tracks the node before `stmt`
+static void insertBeforeStmt(IrNode *bb, IrNode **prevRef, IrNode *stmt, IrNode *node)
+{
+    node->next = stmt;
+    if (*prevRef)
+        (*prevRef)->next = node;
+    else
+        bb->basicBlock.first = node;
+    *prevRef = node;
+}
+
 static void injectCallArgumentCopies(MemMgmtContext *ctx,
                                      IrNode *bb,
                                      IrNode **prevRef,
@@ -573,14 +614,17 @@ static void injectCallArgumentCopies(MemMgmtContext *ctx,
     const IrType *calleeType = call->call.callee->type;
     if (calleeType && calleeType->tag == irTypeFunc) {
         IrNode **argRef = &call->call.args;
-        for (u64 i = 0; *argRef && i < calleeType->func.count; i++) {
+        u64 i = 0;
+        for (; *argRef && i < calleeType->func.count; i++) {
             const IrType *paramType = calleeType->func.params[i];
             csAssert(paramType != NULL, "Compiler error: paramType is NULL in call argument processing");
             if (paramType->category == irTypeCatReference) {
-                if ((*argRef)->tag == irMove) {
-                    IrNode *src = (*argRef)->move.src;
-                    src->next = (*argRef)->next;
-                    *argRef = src;
+                // References don't own: drop the move, keep any outer casts
+                IrNode **mvRef = moveSlot(argRef);
+                if (mvRef) {
+                    IrNode *src = (*mvRef)->move.src;
+                    src->next = (*mvRef)->next;
+                    *mvRef = src;
                 }
                 argRef = &(*argRef)->next;
                 continue;
@@ -588,6 +632,22 @@ static void injectCallArgumentCopies(MemMgmtContext *ctx,
 
             processPayloadItem(ctx, bb, prevRef, callStmt, argRef, afterStmtRef, currMay, currMust);
             argRef = &(*argRef)->next;
+        }
+
+        // Variadic arguments have no declared parameter: manage them by their own
+        // type (values are copied/moved, references are passed as-is).
+        for (; *argRef; argRef = &(*argRef)->next) {
+            const IrType *argType = (*argRef)->type;
+            if (argType && argType->category == irTypeCatReference) {
+                IrNode **mvRef = moveSlot(argRef);
+                if (mvRef) {
+                    IrNode *src = (*mvRef)->move.src;
+                    src->next = (*mvRef)->next;
+                    *mvRef = src;
+                }
+                continue;
+            }
+            processPayloadItem(ctx, bb, prevRef, callStmt, argRef, afterStmtRef, currMay, currMust);
         }
     }
 }
@@ -605,42 +665,66 @@ static void processPayloadItem(MemMgmtContext *ctx,
     if (val == NULL)
         return;
 
-    if (val->tag == irMove) {
-        IrNode *src = val->move.src;
-        src->next = val->next;
-        *itemRef = src;
-
+    // Moves take effect when the operand is evaluated, i.e. before `stmt`.
+    // Clearing after `stmt` is wrong once the parent can resume mid-call (async).
+    (void)afterStmtRef;
+    IrNode **mvRef = moveSlot(itemRef);
+    if (mvRef) {
+        IrNode *mv = *mvRef;
+        IrNode *src = mv->move.src;
         IrNode *rhsDecl = findMovedVarDecl(src);
+        bool isPtrLike = src && src->type &&
+                         (src->type->tag == irTypePointer ||
+                          src->type->category == irTypeCatClass);
+        bool isMemberSrc =
+            src && (src->tag == irMember || src->tag == irIndex) &&
+            (isPtrLike || isIrTypeDestructible(src->type));
+
         if (rhsDecl) {
+            src->next = mv->next;
+            *mvRef = src;
             TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
             if (rhsVar && !rhsVar->isTemporary) {
                 bitSetReset(currMay, rhsVar->varIndex);
                 bitSetReset(currMust, rhsVar->varIndex);
                 if (rhsVar->needsDropFlag) {
+                    // The operand still reads the variable; only ownership moves
                     IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, rhsVar, false);
-                    if (clearFlag) {
-                        clearFlag->next = *afterStmtRef;
-                        stmt->next = clearFlag;
-                        *afterStmtRef = clearFlag;
-                    }
+                    if (clearFlag)
+                        insertBeforeStmt(bb, prevRef, stmt, clearFlag);
                 }
             }
         }
-        else if (src && (src->tag == irMember || src->tag == irIndex)) {
-            if (src->type && src->type->tag == irTypePointer) {
-                IrNode *nullify = makeIrAssign(ctx->pool, &stmt->loc, src, makeIrNullConst(ctx->pool, &stmt->loc, src->type));
-                nullify->flags |= flgUnmanaged;
-                nullify->next = *afterStmtRef;
-                stmt->next = nullify;
-                *afterStmtRef = nullify;
-            }
-            else if (isIrTypeDestructible(src->type)) {
-                IrNode *nullify = makeIrZeromem(ctx->pool, &stmt->loc, src);
-                nullify->flags |= flgUnmanaged;
-                nullify->next = *afterStmtRef;
-                stmt->next = nullify;
-                *afterStmtRef = nullify;
-            }
+        else if (isMemberSrc) {
+            // __mv = src; src = null; then pass __mv
+            cstring tempName = makeStringf(ctx->strings, "__mv%u", ctx->tempCounter++);
+            IrNode *tempVar = makeIrVarDecl(ctx->pool, &src->loc, flgTemporary, tempName, tempName, src->type, ctx->currentScopeId);
+            TrackedVar *tv = addTrackedVar(ctx, tempVar, tempName, ctx->currentScopeId, src->type);
+            if (tv)
+                tv->state = irVarMoved;
+
+            IrNode *capture = makeIrAssign(
+                ctx->pool, &src->loc, makeIrVarRef(ctx->pool, &src->loc, tempVar), src);
+            capture->flags |= flgUnmanaged;
+
+            IrNode *srcClone = cloneIrNode(ctx->pool, src);
+            IrNode *nullify =
+                isPtrLike
+                    ? makeIrAssign(ctx->pool, &stmt->loc, srcClone, makeIrNullConst(ctx->pool, &stmt->loc, src->type))
+                    : makeIrZeromem(ctx->pool, &stmt->loc, srcClone);
+            nullify->flags |= flgUnmanaged;
+
+            insertBeforeStmt(bb, prevRef, stmt, tempVar);
+            insertBeforeStmt(bb, prevRef, stmt, capture);
+            insertBeforeStmt(bb, prevRef, stmt, nullify);
+
+            IrNode *tempRef = makeIrVarRef(ctx->pool, &src->loc, tempVar);
+            tempRef->next = mv->next;
+            *mvRef = tempRef;
+        }
+        else {
+            src->next = mv->next;
+            *mvRef = src;
         }
         return;
     }
@@ -700,7 +784,8 @@ static void injectCompositePayloadCopies(MemMgmtContext *ctx,
     }
     else if (rhs->tag == irStructConst) {
         for (IrNode **fld = &rhs->structConst.fields; *fld; fld = &(*fld)->next) {
-            processPayloadItem(ctx, bb, prevRef, stmt, fld, afterStmtRef, currMay, currMust);
+            IrNode **item = ((*fld)->tag == irFieldConst) ? &(*fld)->fieldConst.value : fld;
+            processPayloadItem(ctx, bb, prevRef, stmt, item, afterStmtRef, currMay, currMust);
         }
     }
     else if (rhs->tag == irArrayConst) {
@@ -746,13 +831,34 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
 
             if (stmt->tag == irAssign && !hasFlag(stmt, Unmanaged)) {
                 if (stmt->assign.lhs->tag == irIndex && isIrTypeDestructible(stmt->assign.lhs->type)) {
-                    IrNode *dropStmt = makeIrDrop(ctx->pool, &stmt->loc, stmt->assign.lhs);
-                    dropStmt->next = stmt;
-                    if (prev)
-                        prev->next = dropStmt;
-                    else
-                        bb->basicBlock.first = dropStmt;
-                    prev = dropStmt;
+                    IrNode *base = stmt->assign.lhs->index.target;
+                    // Do not auto-drop if indexing into a raw pointer buffer (^T)
+                    if (base && base->type && !isIrPointerType(base->type)) {
+                        IrNode *dropStmt = makeIrDrop(ctx->pool, &stmt->loc, stmt->assign.lhs);
+                        dropStmt->next = stmt;
+                        if (prev)
+                            prev->next = dropStmt;
+                        else
+                            bb->basicBlock.first = dropStmt;
+                        prev = dropStmt;
+                    }
+                }
+                else if (stmt->assign.lhs->tag == irMember && isIrTypeDestructible(stmt->assign.lhs->type)) {
+                    IrNode *baseDecl = findVarDeclInNode(stmt->assign.lhs);
+                    bool shouldDrop = true;
+                    if (baseDecl && baseDecl->tag == irVarDecl) {
+                        TrackedVar *baseVar = getTrackedVar(ctx, baseDecl);
+                        shouldDrop = (baseVar && !baseVar->isTemporary && bitSetTest(&currMust, baseVar->varIndex));
+                    }
+                    if (shouldDrop) {
+                        IrNode *dropStmt = makeIrDrop(ctx->pool, &stmt->loc, stmt->assign.lhs);
+                        dropStmt->next = stmt;
+                        if (prev)
+                            prev->next = dropStmt;
+                        else
+                            bb->basicBlock.first = dropStmt;
+                        prev = dropStmt;
+                    }
                 }
 
                 IrNode *lhsDecl = findVarDeclInNode(stmt->assign.lhs);
@@ -819,10 +925,11 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                     }
                 }
 
+                IrNode **rhsMove = rhs ? moveSlot(&stmt->assign.rhs) : NULL;
                 if (rhs) {
-                    if (rhs->tag == irMove) {
-                        IrNode *src = rhs->move.src;
-                        stmt->assign.rhs = src;
+                    if (rhsMove) {
+                        IrNode *src = (*rhsMove)->move.src;
+                        *rhsMove = src;
                         IrNode *rhsDecl = findMovedVarDecl(src);
                         if (rhsDecl) {
                             TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
@@ -840,7 +947,7 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                             }
                         }
                         else if (src && (src->tag == irMember || src->tag == irIndex)) {
-                            if (src->type && src->type->tag == irTypePointer) {
+                            if (src->type && (src->type->tag == irTypePointer || src->type->category == irTypeCatClass)) {
                                 IrNode *nullify = makeIrAssign(ctx->pool, &stmt->loc, src, makeIrNullConst(ctx->pool, &stmt->loc, src->type));
                                 nullify->flags |= flgUnmanaged;
                                 nullify->next = next;
@@ -867,6 +974,24 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         stmt->tag = irCopy;
                         stmt->copy.src = rhs;
                         stmt->copy.dst = lhs;
+                    }
+                }
+            }
+            else if (stmt->tag == irDrop && !hasFlag(stmt, Unmanaged)) {
+                IrNode *target = stmt->drop.target;
+                if (target && target->tag == irMember) {
+                    IrNode *zero = NULL;
+                    if (target->type && (target->type->tag == irTypePointer || target->type->category == irTypeCatClass)) {
+                        zero = makeIrAssign(ctx->pool, &stmt->loc, target, makeIrNullConst(ctx->pool, &stmt->loc, target->type));
+                    }
+                    else if (isIrTypeDestructible(target->type)) {
+                        zero = makeIrZeromem(ctx->pool, &stmt->loc, target);
+                    }
+                    if (zero) {
+                        zero->flags |= flgUnmanaged;
+                        zero->next = next;
+                        stmt->next = zero;
+                        next = zero;
                     }
                 }
             }
@@ -950,10 +1075,12 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
     u64 blockCount = 0;
     CfgBlockInfo **blocks = buildFunctionCfg(ctx, func, &blockCount);
 
-    if (blockCount > 0 && ctx->trackedVarList.size > 0) {
-        runDataflowAnalysis(ctx, blocks, blockCount, ctx->trackedVarList.size);
-        identifyDropFlagVariables(ctx, blocks, blockCount);
-        synthesizeDropFlags(ctx, func);
+    if (blockCount > 0) {
+        if (ctx->trackedVarList.size > 0) {
+            runDataflowAnalysis(ctx, blocks, blockCount, ctx->trackedVarList.size);
+            identifyDropFlagVariables(ctx, blocks, blockCount);
+            synthesizeDropFlags(ctx, func);
+        }
         elaborateDropsAndReassignments(ctx, blocks, blockCount);
     }
 

@@ -19,7 +19,8 @@ static AstNode *makeStructInitializerForDefaults(TypingContext *ctx,
     AstNode *member = decl ? decl->structDecl.members : NULL;
     AstNodeList init = {};
     for (; member; member = member->next) {
-        if (!nodeIs(member, FieldDecl) || hasFlag(member, Static)) {
+        if (!nodeIs(member, FieldDecl) || hasFlag(member, Static) ||
+            isZeroInitArrayField(member)) {
             continue;
         }
         AstNode *value =
@@ -87,7 +88,7 @@ static AstNode *createStructInitialize(TypingContext *ctx,
     for (AstNode *member = decl->structDecl.members; member;
          member = member->next) {
         if (hasFlag(member, Static) || !nodeIs(member, FieldDecl) ||
-            member->structField.value == NULL)
+            member->structField.value == NULL || isZeroInitArrayField(member))
             continue;
 
         AstNode *expr = insertAstNode(
@@ -627,7 +628,7 @@ AstNode *implementDefaultInitializer(AstVisitor *visitor,
     for (; member; member = member->next) {
         last = member;
         if (hasFlag(member, Static) || !nodeIs(member, FieldDecl) ||
-            member->structField.value == NULL)
+            member->structField.value == NULL || isZeroInitArrayField(member))
             continue;
         insertAstNode(&initializers,
                       makeExprStmt(ctx->pool,

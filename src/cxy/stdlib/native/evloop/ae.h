@@ -124,6 +124,9 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, enum State mask);
 
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd);
 
+enum Status aeWaitPid(aeEventLoop *eventLoop, int pid, aeFileProc *proc, void *clientData, uint64_t timeout);
+void aeCancelWaitPid(aeEventLoop *eventLoop, int pid);
+
 enum Status aeCreateTimeEvent(aeEventLoop *eventLoop,
                               long long milliseconds,
                               aeTimeProc *proc,

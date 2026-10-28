@@ -133,7 +133,8 @@ set(CXY_PACKAGE_SOURCES
         src/cxy/utils/commands/dispatch.c
         src/cxy/utils/commands/async_cmd.c
         src/cxy/utils/commands/wait_for.c
-        src/cxy/utils/commands/lock.c)
+        src/cxy/utils/commands/lock.c
+        src/cxy/utils/commands/mem.c)
 
 
 set(CXY_3RD_PARTY_SOURCES
@@ -401,7 +402,6 @@ set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/atomic.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/base64.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/buffer.cxy
-        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/build.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/coro.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/crypto.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/dotenv.cxy
@@ -429,9 +429,14 @@ set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/vector.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/ws.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml.cxy
-        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/lexer.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/parser.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/serializer.cxy
+)
+
+set(CXY_STD_LIB_TEST_SOURCES
+        ${CXY_STD_LIB_SOURCES}
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/json.spec.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/spec.cxy
 )
 
 set(CXY_STDLIB_PLUGINS
@@ -581,7 +586,7 @@ if (OPENSSL_ROOT_DIR)
     message(STATUS "OpenSSL options needed for tests: ${CXY_OPEN_SSL_OPTIONS}")
 endif ()
 
-foreach (CXY_SRC ${CXY_STD_LIB_SOURCES})
+foreach (CXY_SRC ${CXY_STD_LIB_TEST_SOURCES})
     if (IS_DIRECTORY "${CXY_SRC}")
         continue()
     endif ()

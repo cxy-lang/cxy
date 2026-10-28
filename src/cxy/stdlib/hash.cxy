@@ -334,7 +334,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
             return status
         }
 
-        func get(key: K) : Optional[&V] {
+        func get(key: K) : &V? {
             const idx = getInternal(&key)
             if (idx) {
                 return &this._values.[*idx]
@@ -342,7 +342,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
             return null
         }
 
-        const func get(key: K) : Optional[&V] {
+        const func get(key: K) : &V? {
             const idx = getInternal(&key)
             if (idx) {
                 return &this._values.[*idx]
@@ -360,30 +360,50 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         func `[]=`(key: K, value: V) => insert(&&key, &&value)
 
         func `..`() {
-            var i = 0;
-            return () : (K, V)? => {
-                while (i < _capacity) {
-                    if (_nodes.[i].hash != 0) {
-                        var j = i++
-                        return (_nodes.[j].key, this._values.[j])
+            return iterator[(K, V)](_capacity, _nodes, this._values:values, 0.i64:i) {
+                `()` => {
+                    while i < _capacity {
+                        if (_nodes.[i].hash != 0) {
+                            var j = i++
+                            return (_nodes.[j].key, values.[j])
+                        }
+                        i++
                     }
-                    i++
+                    return null
                 }
-                return null
+                `!!` => {
+                    while i < _capacity {
+                        if (_nodes.[i].hash != 0) {
+                            return true
+                        }
+                        i++
+                    }
+                    return false
+                }
             }
         }
 
         const func `..`() {
-            var i = 0;
-            return () : (K, V)? => {
-                while (i < _capacity) {
-                    if (_nodes.[i].hash != 0) {
-                        var j = i++
-                        return (_nodes.[j].key, this._values.[j])
+            return iterator[(const K, const V)](_capacity, _nodes, this._values:values, 0.i64:i) {
+                `()` => {
+                    while i < _capacity {
+                        if (_nodes.[i].hash != 0) {
+                            var j = i++
+                            return (_nodes.[j].key, values.[j])
+                        }
+                        i++
                     }
-                    i++
+                    return null
                 }
-                return null
+                `!!` => {
+                    while i < _capacity {
+                        if (_nodes.[i].hash != 0) {
+                            return true
+                        }
+                        i++
+                    }
+                    return false
+                }
             }
         }
 
@@ -415,30 +435,50 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         }
 
         func `..`() {
-            var i = 0;
-            return () : K? => {
-                while (i < _capacity) {
-                    if (_nodes.[i].hash != 0) {
-                        var j = i++
-                        return _nodes.[j].key
+            return iterator[K](_capacity, _nodes, 0.i64:i) {
+                `()` => {
+                    while i < _capacity {
+                        if (_nodes.[i].hash != 0) {
+                            var j = i++
+                            return _nodes.[j].key
+                        }
+                        i++
                     }
-                    i++
+                    return null
                 }
-                return null
+                `!!` => {
+                    while i < _capacity {
+                        if (_nodes.[i].hash != 0) {
+                            return true
+                        }
+                        i++
+                    }
+                    return false
+                }
             }
         }
 
         const func `..`() {
-            var i = 0;
-            return () : K? => {
-                while (i < _capacity) {
-                    if (_nodes.[i].hash != 0) {
-                        var j = i++
-                        return _nodes.[j].key
+            return iterator[const K](_capacity, _nodes, 0.i64:i) {
+                `()` => {
+                    while i < _capacity {
+                        if (_nodes.[i].hash != 0) {
+                            var j = i++
+                            return _nodes.[j].key
+                        }
+                        i++
                     }
-                    i++
+                    return null
                 }
-                return null
+                `!!` => {
+                    while i < _capacity {
+                        if (_nodes.[i].hash != 0) {
+                            return true
+                        }
+                        i++
+                    }
+                    return false
+                }
             }
         }
 

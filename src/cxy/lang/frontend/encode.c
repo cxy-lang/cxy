@@ -555,6 +555,13 @@ static void visitBlockStmt(ConstAstVisitor *visitor, const AstNode *node)
     manyNodesToBinary(visitor, node->blockStmt.stmts);
 }
 
+static void visitLaunch(ConstAstVisitor *visitor, const AstNode *node)
+{
+    nodePackHeader(visitor, node);
+    nodeToBinary(visitor, node->launch.name);
+    nodeToBinary(visitor, node->launch.closure);
+}
+
 static void visitForStmt(ConstAstVisitor *visitor, const AstNode *node)
 {
     nodePackHeader(visitor, node);
@@ -679,7 +686,8 @@ bool binaryEncodeAstNode(struct msgpack_sbuffer *sbuf,
         [astForStmt] = visitForStmt,
         [astWhileStmt] = visitWhileStmt,
         [astSwitchStmt] = visitSwitchStmt,
-        [astCaseStmt] = visitCaseStmt
+        [astCaseStmt] = visitCaseStmt,
+        [astLaunch] = visitLaunch
     }, .fallback = visitFallback);
 
     // clang-format on

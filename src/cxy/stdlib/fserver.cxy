@@ -146,10 +146,10 @@ pub class FileServer {
 
             var ext = String(path.substr(*idx))
             if (req.method() == .Get) {
-                resp.end(this.get(req, resp, pathOpt.move(), &&ext))
+                resp.end(this.get(req, resp, &&*pathOpt, &&ext))
             }
             else {
-                resp.end(this.head(req, resp, pathOpt.move(), &&ext))
+                resp.end(this.head(req, resp, &&*pathOpt, &&ext))
             }
         })([Method.Get, Method.Head])
           .setAttrs({isStatic: true})
@@ -431,7 +431,7 @@ pub class FileServer {
         }
     }
 
-    func loadFile(path: String) : Optional[&CachedFile] {
+    func loadFile(path: String) : &CachedFile? {
         var it = cachedFiles.[path];
         if (!it) {
             var cf = CachedFile{};

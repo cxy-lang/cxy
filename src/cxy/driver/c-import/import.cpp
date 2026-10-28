@@ -214,10 +214,16 @@ static const Type *toCxy(IncludeContext &ctx, const clang::RecordDecl *record)
     }
     auto flags = flgExtern | flgPublic;
     auto name = getCDeclName(ctx, *record);
-    auto type =
-        (record->isUnion() ? findUntaggedUnionType(ctx.types, name, flags)
-                           : findStructType(ctx.types, name, flags))
-            ?: findAliasType(ctx.types, name, flags);
+    auto type = record->isUnion()
+                    ? findUntaggedUnionType(ctx.types, name, flags)
+                    : findStructType(ctx.types, name, flags);
+    if (type == nullptr) {
+        // An anonymous record is named after its typedef, refer to the record
+        // itself so every use of the C type is the same type
+        auto alias = findAliasType(ctx.types, name, flags);
+        if (alias != nullptr)
+            type = alias->alias.aliased;
+    }
     if (type != nullptr)
         return type;
 

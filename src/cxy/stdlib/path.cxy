@@ -317,7 +317,7 @@ pub func ls(
     recursive: bool = false
 ): !void {
     var spath = cast[__string](&path)
-    var d = withNullTermination[^dirent.DIR](&spath, (p: ^const char) => dirent.opendir(p))
+    var d = withNullTermination[^dirent.DIR](&spath, (p: ^const char): ^dirent.DIR => dirent.opendir(p))
     if (d == null)
         raise IOError(f"opendir('{path}') failed: {strerr()}")
     defer dirent.closedir(d)
@@ -349,7 +349,7 @@ pub func ls(
 
 pub func isDirEmpty(path: PathLike): !bool {
     var spath = cast[__string](&path);
-    var d = withNullTermination[^dirent.DIR](&spath, (p: ^const char) => dirent.opendir(p))
+    var d = withNullTermination[^dirent.DIR](&spath, (p: ^const char): ^dirent.DIR => dirent.opendir(p))
     if (d == null)
         raise IOError(f"opendir('{spath}') failed: {strerr()}")
     defer dirent.closedir(d)

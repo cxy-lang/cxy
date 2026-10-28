@@ -135,3 +135,94 @@ pub func escapeHtml(os: &OutputStream, s: __string) {
         }
     }
 }
+
+test "readHexEscape valid" {
+    var val = readHexEscape("1A", 0, 2)
+    ok!(val.0 == 0x1A)
+    ok!(val.1 == 2)
+
+    val = readHexEscape("00FF", 0, 4)
+    ok!(val.0 == 0xFF)
+    ok!(val.1 == 4)
+
+    val = readHexEscape("prefixA5suffix", 6, 2)
+    ok!(val.0 == 0xA5)
+    ok!(val.1 == 8)
+}
+
+test "readHexEscape invalid" {
+    var failed = false
+    readHexEscape("1G", 0, 2) catch {
+        failed = true
+    }
+    ok!(failed)
+
+    failed = false
+    readHexEscape("1", 0, 2) catch {
+        failed = true
+    }
+    ok!(failed)
+}
+
+test "fromHex valid" {
+    var buf: [u8, 3]
+    fromHex("01aBff", ptrof buf, 3)
+    ok!(buf.[0] == 0x01)
+    ok!(buf.[1] == 0xAB)
+    ok!(buf.[2] == 0xFF)
+}
+
+test "fromHex invalid" {
+    var buf: [u8, 2]
+    var failed = false
+    fromHex("abc", ptrof buf, 2) catch {
+        failed = true
+    }
+    ok!(failed)
+
+    failed = false
+    fromHex("abcd", ptrof buf, 1) catch {
+        failed = true
+    }
+    ok!(failed)
+
+    failed = false
+    fromHex("zz", ptrof buf, 2) catch {
+        failed = true
+    }
+    ok!(failed)
+}
+
+test "split string" {
+    var parts = split("a,b,c", ",")
+    ok!(parts.size() == 3)
+    ok!(parts.[0] == "a")
+    ok!(parts.[1] == "b")
+    ok!(parts.[2] == "c")
+
+    parts = split("hello world foo", " ")
+    ok!(parts.size() == 3)
+    ok!(parts.[0] == "hello")
+    ok!(parts.[1] == "world")
+    ok!(parts.[2] == "foo")
+
+    parts = split("one;two,three", ",;")
+    ok!(parts.size() == 3)
+    ok!(parts.[0] == "one")
+    ok!(parts.[1] == "two")
+    ok!(parts.[2] == "three")
+}
+
+test "toLower and toUpper" {
+    var lower = toLower("Hello, WORLD 123!")
+    ok!(lower == "hello, world 123!")
+
+    var upper = toUpper("Hello, world 123!")
+    ok!(upper == "HELLO, WORLD 123!")
+}
+
+test "escapeHtml" {
+    var os = String()
+    escapeHtml(&os, "<a href=\"test\" data='val'>Tom & Jerry</a>")
+    ok!(os == "&lt;a href=&quot;test&quot; data=&#39;val&#39;&gt;Tom &amp; Jerry&lt;/a&gt;")
+}

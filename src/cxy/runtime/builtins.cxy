@@ -59,7 +59,6 @@ else {
 @hint pub extern func __cxy_panic(file: string, line: u64, column: u64, msg: string): void
 macro panic(msg) { __cxy_panic(file!, line!, column!, msg!) }
 
-@hint pub extern func strerr(): string
 @hint pub extern func __bswap16(x: u16): u16
 @hint pub extern func __bswap32(x: u32): u32
 @hint pub extern func __bswap64(x: u64): u64
@@ -77,6 +76,9 @@ pub func __calloc(size: u64) => memset(malloc(size), 0, size)
 @hint extern func __cxy_stack_trace_alloc(): ^void
 @hint extern func __cxy_stack_trace_push(st: ^void, mod: string, cls: string, fun: string, path: string, line: u64): void
 @hint extern func __cxy_stack_trace_destroy(st: ^void): void
+
+@inline
+pub func strerr() => strerror(errno!)
 
 /* Builtin Optional Type */
 pub struct Optional[T] {
@@ -137,7 +139,7 @@ pub func Some[T](value: T) => Optional[T]{ ok: true, val: &&value }
 @inline
 pub func None[T]() => Optional[T]()
 
-// @builtin
+@builtin
 pub class Exception {
     name: string
     stackTrace: ^void = null
@@ -505,7 +507,7 @@ pub func isnull[T](cls: &const T) {
     return cls == null
 }
 
-// @builtin
+@builtin
 pub class OutputStream {
     virtual func append(str: ^const void, size: u64): u64?
 
@@ -704,7 +706,7 @@ pub class OutputStream {
     }
 }
 
-// @builtin
+@builtin
 pub class String : OutputStream {
     - _capacity: u64 = 0;
     - _size: u64 = 0;
@@ -1510,31 +1512,27 @@ macro ok(cond, ...msg) {
 }
 
 #if (!defined TESTS_RUNNER) {
-    func runFixtureMethod(fixtureMethod: &(string, func() -> !void, u8), tag: u8) {
+    func runFixtureMethod(fixtureMethod: &(string, func() -> !void, u8), tag: u8): bool {
         if fixtureMethod.2 == tag {
             stdout << " ::" << WHT("b") << fixtureMethod.0 << DEF << "\n"
 
-            fixtureMethod.1() catch {
-                // test case failed
+            fixtureMethod.1() catch as ex {
                 stdout << "\r" << RED("b") << "\xE2\x9C\x98 " << DEF << "\n"
-                ex!.header( &stdout )
-                stdout << " at:"
-                ex!.dumpStackTrace( &stdout, 1, 4 )
-                stdout << "\n"
+                if (ex != null) {
+                    __cxy_dump_unhandled_exception(ex.name, ex.what(), ex.stackTrace)
+                }
                 return false
             }
         }
         return true
     }
 
-    func runTest(testCase: (string, func() -> !void, u8)) {
-        testCase.1() catch {
-            // test case failed
+    func runTest(testCase: (string, func() -> !void, u8)): bool {
+        testCase.1() catch as ex {
             stdout << "\r" << RED("b") << "\xE2\x9C\x98 " << DEF << "\n"
-            ex!.header( &stdout )
-            stdout << " at:"
-            ex!.dumpStackTrace( &stdout, 1, 4 )
-            stdout << "\n"
+            if (ex != null) {
+                __cxy_dump_unhandled_exception(ex.name, ex.what(), ex.stackTrace)
+            }
             return false
         }
 
@@ -1542,27 +1540,28 @@ macro ok(cond, ...msg) {
         return true
     }
 
-    func runTests(args: Slice[string],
-                  testFile: string,
-                  tests: Slice[(string, func() -> !void, u8)] ) {
+    @used
+    pub func runTests(args: [string],
+                      testFile: string,
+                      tests: [(string, func() -> !void, u8)]): i32 {
 
         var passed = 0
         var total = len!(tests)
         if (total == 0) {
-            stdout << "0 tests defined in " << testFile << "\n";
+            stdout << "0 tests defined in " << testFile << "\n"
             return 0
         }
 
-        stdout << "Running " << testFile << " tests...\n"
+        stdout << DEF << "Running " << testFile << " tests...\n"
 
         var firstTest = &tests.[0]
         var lastTest = &tests.[total - 1]
 
         if runFixtureMethod(firstTest, 0x1) {
-            for (const testCase, _ : tests) {
-                 if testCase.2 == 0 {
-                    stdout << "  Running test case '" << WHT("b") << testCase.0 << DEF << "'"
-                    if (runTest(testCase))
+            for (const ts, _ : tests) {
+                 if ts.2 == 0 {
+                    stdout << "  Running test case '" << WHT("b") << ts.0 << DEF << "'"
+                    if (runTest(ts))
                         passed++
                 }
                 else {
@@ -1579,6 +1578,7 @@ macro ok(cond, ...msg) {
                    << DEF << "\n"
             return -1
         }
+        stdout << GRN("b") << "\xE2\x9C\x93 PASSED " << total << " tests!" << DEF << "\n"
         return 0
     }
 }

@@ -428,7 +428,7 @@ class CoroutineScheduler {
         - pending = List[Coroutine]{};
         - pendingMtx = tinyThread.mtx_t{};
     }
-    - mainName: [char, 32] = [];
+    - mainName: [char, 32];
     /* Coroutine that we don't launch */
     - main = Coroutine(null, 0);
     /* Cache some stacks */
@@ -445,7 +445,7 @@ class CoroutineScheduler {
 
     func `init`() {
         this.id = __cxy_coro_sched_id_gen.fetchAdd(1)
-        stdio.sprintf(ptrof mainName.[0] !: ^char, "main-%d", this.id)
+        sprintf(ptrof mainName.[0] !: ^char, "main-%d", this.id)
         main.name = ptrof mainName.[0] !: string
         main.id = 0
         main.schedId = this.id
@@ -529,7 +529,7 @@ class CoroutineScheduler {
     @[static]
     func eventLoopCallback(loop: ^ae.aeEventLoop, @unused fd: i32, arg: ^void, mask: i32) {
         // resume the coroutine waiting for the event
-        var scheduler = &(loop.context !: This);
+        var scheduler = &(loop.context !: This)
         var cr = arg !: ^Coroutine;
         // printf("    fev(%p, %s:%p)\n", scheduler.running, cr.name, cr)
         scheduler.resume(cr, mask)
@@ -538,7 +538,7 @@ class CoroutineScheduler {
     @[static]
     func eventLoopTimerFired(loop: ^ae.aeEventLoop, id: i64, arg: ^void): ae.Status {
         // resume the coroutine waiting for the timer
-        var scheduler = loop.context !: This;
+        var scheduler = &(loop.context !: This)
         var cr = arg !: ^Coroutine;
         scheduler.resume(cr, <i32>id)
         return ae.Status.AE_NO_MORE;
@@ -678,6 +678,22 @@ class CoroutineScheduler {
         return status
     }
 
+    func pidWait(pid: i32, timeout: u64 = 0) {
+        var status = ae.aeWaitPid(
+            eventLoop,
+            pid,
+            eventLoopCallback,
+            running !: ^void,
+            timeout
+        );
+        if (status == .AE_OK) {
+            var result = suspend();
+            ae.aeCancelWaitPid(eventLoop, pid)
+            return result
+        }
+        return status
+    }
+
     func sleep(ms: i64) {
         if (ms > 0) {
             @unused var status = ae.aeCreateTimeEvent(
@@ -739,7 +755,7 @@ pub func yld() { __get_scheduler().yld() }
 pub func running() => __get_scheduler().running
 
 @inline
-pub func id() => __get_scheduler().running
+pub func id() => __get_scheduler().running.id
 
 macro __async(CALL, NAME) {
     // Only create the scheduler when it's needed
@@ -757,6 +773,9 @@ func __now() => ae.aeOsTime()
 
 @[inline, __override_builtin("fdWaitRead")]
 func __fdWaitRead(fd: i32, timeout: u64 = 0) => __get_scheduler().fdWaitRead(fd, timeout)
+
+@[inline, __override_builtin("pidWait")]
+func __pidWait(pid: i32, timeout: u64 = 0) => __get_scheduler().pidWait(pid, timeout)
 
 @[inline, __override_builtin("fdWaitWrite")]
 func __fdWaitWrite(fd: i32, timeout: u64 = 0) => __get_scheduler().fdWaitWrite(fd, timeout)
@@ -903,9 +922,9 @@ pub struct CoWaitGroup {
             tinyThread.mtx_unlock(ptrof _osMutex)
 
             // Wake the waiter (lock stays held by them)
-            var waiterScheduler = waiter.scheduler !: CoroutineScheduler
+            var waiterScheduler = &(waiter.scheduler !: CoroutineScheduler)
             var currentScheduler = __get_scheduler()
-            if ((waiterScheduler !: ^void) == (currentScheduler !: ^void)) {
+            if (waiterScheduler.id == currentScheduler.id) {
                 // Same thread - direct resume
                 waiterScheduler.resume(waiter, 0)
             } else {
@@ -918,9 +937,9 @@ pub struct CoWaitGroup {
     // Helper function for cross-thread aware coroutine resumption
     @inline
     func resumeWaiter(waiter: ^Coroutine) {
-        var waiterScheduler = waiter.scheduler !: CoroutineScheduler
+        var waiterScheduler = &(waiter.scheduler !: CoroutineScheduler)
         var currentScheduler = __get_scheduler()
-        if ((waiterScheduler !: ^void) == (currentScheduler !: ^void)) {
+        if (waiterScheduler.id == currentScheduler.id) {
             // Same thread - direct resume
             waiterScheduler.resume(waiter, 0)
         } else {

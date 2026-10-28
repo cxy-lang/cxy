@@ -3,11 +3,22 @@
 
 #include <string.h>
 
+// The reference-members flag of a slice is derived from how it was spelled in
+// the source and may be OR-ed on after interning, so it is not part of identity.
+static u64 irTypeIdentityFlags(const IrType *type)
+{
+    if (type->category == irTypeCatSlice)
+        return type->flags & ~(u64)flgReferenceMembers;
+    return type->flags;
+}
+
 static HashCode hashIrType(HashCode hash, const IrType *type)
 {
     hash = hashUint32(hash, type->tag);
     hash = hashUint32(hash, (u32)type->category);
-    hash = hashUint64(hash, type->flags);
+    hash = hashUint64(hash, irTypeIdentityFlags(type));
+    if (type->category == irTypeCatEnum && type->name)
+        return hashStr(hash, type->name);
     switch (type->tag) {
     case irTypePointer:
         return hashPtr(hash, type->pointer.pointee);
@@ -43,7 +54,8 @@ static bool compareIrTypes(const void *lhs, const void *rhs)
     const IrType *r = *(const IrType **)rhs;
     if (l == r)
         return true;
-    if (l->tag != r->tag || l->category != r->category || l->flags != r->flags)
+    if (l->tag != r->tag || l->category != r->category ||
+        irTypeIdentityFlags(l) != irTypeIdentityFlags(r))
         return false;
 
     switch (l->tag) {
@@ -93,6 +105,59 @@ static const IrType *getOrInsertIrType(IrTypeTable *table, IrType *type)
     return allocated;
 }
 
+static bool compareIrTypeNames(const void *lhs, const void *rhs)
+{
+    return strcmp(*(cstring *)lhs, *(cstring *)rhs) == 0;
+}
+
+static bool isIrTypeNameTaken(IrTypeTable *table, cstring name)
+{
+    return findInHashTable(&table->names,
+                           &name,
+                           hashStr(hashInit(), name),
+                           sizeof(cstring),
+                           compareIrTypeNames) != NULL;
+}
+
+static void reserveIrTypeName(IrTypeTable *table, cstring name)
+{
+    insertInHashTable(&table->names,
+                      &name,
+                      hashStr(hashInit(), name),
+                      sizeof(cstring),
+                      compareIrTypeNames);
+}
+
+// Named struct/union interning. Structural types whose name collides with a
+// different shape probe name, name_2, name_3... deterministically.
+static const IrType *getOrInsertNamedIrType(IrTypeTable *table,
+                                            IrType *type,
+                                            bool structural)
+{
+    if (type->name == NULL)
+        return getOrInsertIrType(table, type);
+
+    cstring base = type->name;
+    bool keepDisplay = type->display == base;
+    for (u32 n = 1;; n++) {
+        if (n > 1) {
+            type->name = makeStringf(table->strings, "%s_%u", base, n);
+            if (keepDisplay)
+                type->display = type->name;
+        }
+        HashCode hash = hashIrType(hashInit(), type);
+        const IrType **found = findInHashTable(
+            &table->types, &type, hash, sizeof(IrType *), compareIrTypes);
+        if (found)
+            return *found;
+        if (!structural || !isIrTypeNameTaken(table, type->name))
+            break;
+    }
+
+    reserveIrTypeName(table, type->name);
+    return getOrInsertIrType(table, type);
+}
+
 static void initPrimitive(IrTypeTable *table, IrTypeTag tag, cstring name, u64 size, u64 align)
 {
     IrType type = {.tag = tag, .size = size, .align = align, .name = name, .display = name};
@@ -105,6 +170,7 @@ IrTypeTable *newIrTypeTable(MemPool *pool, StrPool *strings)
     table->pool = pool;
     table->strings = strings;
     table->types = newHashTable(sizeof(IrType *), pool);
+    table->names = newHashTable(sizeof(cstring), pool);
 
     initPrimitive(table, irTypeVoid, "void", 0, 1);
     initPrimitive(table, irTypeBool, "bool", 1, 1);
@@ -130,6 +196,7 @@ void freeIrTypeTable(IrTypeTable *table)
 {
     if (table) {
         freeHashTable(&table->types);
+        freeHashTable(&table->names);
     }
 }
 
@@ -153,11 +220,12 @@ const IrType *makeIrClassType(IrTypeTable *table, Flags flags, const IrType *str
     return getOrInsertIrType(table, &type);
 }
 
-const IrType *makeIrPointerType(IrTypeTable *table, Flags flags, const IrType *pointee)
+const IrType *makeIrPointerType(IrTypeTable *table, Flags flags, IrTypeCategory category, const IrType *pointee)
 {
     cstring display = makeStringf(table->strings, "^%s", pointee ? (pointee->display ?: pointee->name) : "void");
     IrType type = {
         .tag = irTypePointer,
+        .category = category,
         .flags = flags,
         .size = sizeof(void *),
         .align = sizeof(void *),
@@ -166,7 +234,7 @@ const IrType *makeIrPointerType(IrTypeTable *table, Flags flags, const IrType *p
     return getOrInsertIrType(table, &type);
 }
 
-const IrType *makeIrArrayType(IrTypeTable *table, Flags flags, const IrType *elem, u64 len)
+const IrType *makeIrArrayType(IrTypeTable *table, Flags flags, IrTypeCategory category, const IrType *elem, u64 len)
 {
     u64 size = (len == UINT64_MAX) ? 0 : (elem->size * len);
     cstring display = (len == UINT64_MAX)
@@ -174,6 +242,7 @@ const IrType *makeIrArrayType(IrTypeTable *table, Flags flags, const IrType *ele
                           : makeStringf(table->strings, "[%s, %llu]", elem ? (elem->display ?: elem->name) : "void", (unsigned long long)len);
     IrType type = {
         .tag = irTypeArray,
+        .category = category,
         .flags = flags,
         .size = size,
         .align = elem->align,
@@ -182,11 +251,11 @@ const IrType *makeIrArrayType(IrTypeTable *table, Flags flags, const IrType *ele
     return getOrInsertIrType(table, &type);
 }
 
-const IrType *makeIrStructType(IrTypeTable *table, Flags flags, cstring name, cstring display, IrField *fields, u64 count)
+const IrType *makeIrStructType(IrTypeTable *table, Flags flags, IrStructOpts opts, cstring name, cstring display, IrField *fields, u64 count)
 {
     u64 offset = 0, maxAlign = 1;
     for (u64 i = 0; i < count; i++) {
-        u64 align = fields[i].type ? fields[i].type->align : 1;
+        u64 align = opts.isPacked ? 1 : (fields[i].type ? fields[i].type->align : 1);
         if (align > maxAlign)
             maxAlign = align;
         offset = (offset + align - 1) & ~(align - 1);
@@ -194,20 +263,24 @@ const IrType *makeIrStructType(IrTypeTable *table, Flags flags, cstring name, cs
         fields[i].index = (u32)i;
         offset += fields[i].type ? fields[i].type->size : 0;
     }
+    if (opts.align > maxAlign)
+        maxAlign = opts.align;
     u64 totalSize = (offset + maxAlign - 1) & ~(maxAlign - 1);
 
     IrType type = {
         .tag = irTypeStruct,
+        .category = opts.category,
         .flags = flags,
         .name = name,
         .display = display ?: name,
         .size = totalSize,
         .align = maxAlign,
+        .isPacked = opts.isPacked,
         .strct = {.fields = fields, .count = count}};
-    return getOrInsertIrType(table, &type);
+    return getOrInsertNamedIrType(table, &type, opts.structural);
 }
 
-const IrType *makeIrUntaggedUnionType(IrTypeTable *table, Flags flags, cstring name, cstring display, IrField *fields, u64 count)
+const IrType *makeIrUntaggedUnionType(IrTypeTable *table, Flags flags, IrStructOpts opts, cstring name, cstring display, IrField *fields, u64 count)
 {
     u64 maxSize = 0, maxAlign = 1;
     for (u64 i = 0; i < count; i++) {
@@ -220,32 +293,40 @@ const IrType *makeIrUntaggedUnionType(IrTypeTable *table, Flags flags, cstring n
                 maxAlign = fields[i].type->align;
         }
     }
+    if (opts.align > maxAlign)
+        maxAlign = opts.align;
     u64 totalSize = (maxSize + maxAlign - 1) & ~(maxAlign - 1);
 
     IrType type = {
         .tag = irTypeUntaggedUnion,
+        .category = opts.category,
         .flags = flags,
         .name = name,
         .display = display ?: name,
         .size = totalSize,
         .align = maxAlign,
+        .isPacked = opts.isPacked,
         .strct = {.fields = fields, .count = count}};
-    return getOrInsertIrType(table, &type);
+    return getOrInsertNamedIrType(table, &type, opts.structural);
 }
 
 const IrType *makeIrFuncType(IrTypeTable *table, Flags flags, const IrType **params, u64 count, const IrType *ret, bool variadic)
 {
-    char buf[256];
+    char buf[1024];
     int len = snprintf(buf, sizeof(buf), "func(");
-    for (u64 i = 0; i < count; i++) {
+    for (u64 i = 0; i < count && len < (int)sizeof(buf) - 64; i++) {
         if (i > 0)
             len += snprintf(buf + len, sizeof(buf) - len, ", ");
         cstring pName = params[i] ? (params[i]->display ?: params[i]->name) : "void";
-        len += snprintf(buf + len, sizeof(buf) - len, "%s", pName);
+        if (len < (int)sizeof(buf) - 32)
+            len += snprintf(buf + len, sizeof(buf) - len, "%s", pName);
     }
-    if (variadic)
+    if (variadic && len < (int)sizeof(buf) - 32)
         len += snprintf(buf + len, sizeof(buf) - len, ", ...");
-    snprintf(buf + len, sizeof(buf) - len, "): %s", ret ? (ret->display ?: ret->name) : "void");
+    if (len < (int)sizeof(buf) - 32)
+        snprintf(buf + len, sizeof(buf) - len, "): %s", ret ? (ret->display ?: ret->name) : "void");
+    else
+        snprintf(buf + sizeof(buf) - 8, 8, ")...");
     cstring display = makeString(table->strings, buf);
 
     const IrType **savedParams = NULL;
@@ -261,5 +342,25 @@ const IrType *makeIrFuncType(IrTypeTable *table, Flags flags, const IrType **par
         .align = sizeof(void *),
         .display = display,
         .func = {.params = savedParams, .count = count, .ret = ret, .variadic = variadic}};
+    return getOrInsertIrType(table, &type);
+}
+
+const IrType *makeIrEnumType(IrTypeTable *table,
+                             Flags flags,
+                             cstring name,
+                             cstring display,
+                             const IrType *baseType,
+                             IrEnumOption *options,
+                             u64 optionsCount)
+{
+    IrType type = {
+        .tag = baseType ? baseType->tag : irTypeI64,
+        .category = irTypeCatEnum,
+        .flags = flags,
+        .size = baseType ? baseType->size : 8,
+        .align = baseType ? baseType->align : 8,
+        .name = name,
+        .display = display ?: name,
+        .enm = {.options = options, .count = optionsCount}};
     return getOrInsertIrType(table, &type);
 }

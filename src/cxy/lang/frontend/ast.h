@@ -49,7 +49,8 @@ struct Plugin;
     f(ClosureValue)                         \
     f(IteratorExpr)                         \
     f(CatchExpr)                            \
-    f(XformExpr)
+    f(XformExpr)                            \
+    f(Launch)
 
 #define CXY_LANG_AST_STMT_TAGS(f)           \
     f(ExprStmt)                             \
@@ -230,7 +231,8 @@ typedef struct {
     f(AtomicFetchAnd)          \
     f(AtomicFetchXor)          \
     f(AtomicThreadFence)       \
-    f(AtomicSignalFence)
+    f(AtomicSignalFence)       \
+    f(CurrentException)
 
 // clang-format on
 
@@ -671,6 +673,11 @@ struct AstNode {
             AstNode *var;
             AstNode *body;
         } catchExpr;
+
+        struct {
+            AstNode *name;
+            AstNode *closure;
+        } launch;
 
         struct {
             Operator op;
@@ -1446,6 +1453,14 @@ AstNode *makeCatchExpr(MemPool *pool,
                        AstNode *next,
                        const Type *type);
 
+AstNode *makeLaunchAstNode(MemPool *pool,
+                           const FileLoc *loc,
+                           u64 flags,
+                           AstNode *name,
+                           AstNode *closure,
+                           AstNode *next,
+                           const Type *type);
+
 AstNode *makeAttribute(MemPool *pool,
                        const FileLoc *loc,
                        cstring name,
@@ -1662,6 +1677,9 @@ bool isNumericLiteral(const AstNode *node);
 bool isTypeExpr(const AstNode *node);
 
 bool isBuiltinTypeExpr(const AstNode *node);
+
+// Returns the innermost expression of nested group expressions `((x))`
+AstNode *resolveGroupExpr(AstNode *node);
 
 bool isMemberFunction(const AstNode *node);
 

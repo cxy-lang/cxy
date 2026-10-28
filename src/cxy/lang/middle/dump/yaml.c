@@ -960,6 +960,13 @@ static void visitTypedExpr(ConstAstVisitor *visitor, const AstNode *node)
     nodeToYaml(visitor, "expr", node->typedExpr.expr);
 }
 
+static void visitLaunch(ConstAstVisitor *visitor, const AstNode *node)
+{
+    nodeAddHeader(visitor, node);
+    nodeToYaml(visitor, "name", node->launch.name);
+    nodeToYaml(visitor, "closure", node->launch.closure);
+}
+
 static void visitCallExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     YamlDumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -1170,6 +1177,7 @@ AstNode *dumpAstToYaml(CompilerDriver *driver, AstNode *node, FILE *file)
         [astSliceExpr] = visitSliceExpr,
         [astIteratorExpr] = visitIteratorExpr,
         [astCatchExpr] = visitCatchExpr,
+        [astLaunch] = visitLaunch,
         [astXformExpr] = visitXformExpr,
         [astGenericParam] = visitGenericParam,
         [astGenericDecl] = visitGenericDecl,

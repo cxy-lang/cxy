@@ -1,401 +1,2023 @@
 module yaml_parser
 
+// YAML parser: recursive descent over the characters, following the spec
+// productions (see docs/stage/YAML.md). There is no token stream: block structure
+// is decided by comparing the column of the next content with the enclosing indent,
+// and whoever opens a construct closes it.
+
 import { Value } from "stdlib/value.cxy"
 import { Vector } from "stdlib/vector.cxy"
 import { HashMap } from "stdlib/hash.cxy"
-import { YamlLexer, YamlToken } from "./lexer.cxy"
 import { YamlError } from "./common.cxy"
+import { readHexEscape } from "stdlib/utils.cxy"
+import test "stdlib/testing.cxy"
+
+// How a plain scalar resolves in the core schema
+enum NumberKind {
+    NotNumber,
+    Integer,
+    Real,
+    Hex,
+    Octal,
+    PosInf,
+    NegInf,
+    NaN
+}
+
+#const CORE_TAG_PREFIX = "tag:yaml.org,2002:"
+
+// What a resolved tag means to the parser
+enum TagKind {
+    Local,          // kept on the value (`!point`, `!<uri>`, unknown core tags)
+    NonSpecific,    // a lone `!`
+    Str,
+    Int,
+    Float,
+    Bool,
+    Null,
+    Seq,
+    Map
+}
 
 pub class YamlParser {
-    _lexer: YamlLexer
-    _lookAhead: [(YamlToken, String), 3]
+    _text: String               // normalized copy, only used when the input has CR
+    _src: __string              // the input (or a view of _text); must outlive the parser
+    _pos: u64 = 0
+    _line: u64 = 1
+    _col: u64 = 1
     _anchors = HashMap[String, Value]()
+    _keyPlain = false           // the last parsed key was a plain scalar
+    _peekedPos: i64 = -1        // cache of _nextContent()
+    _peekedIndent: i64 = -1
+    _tagHandles = HashMap[String, String]()  // `%TAG` handles of the document
+    _pendingTag: String         // expanded tag of the node being parsed
+    _hasTag = false
+    _noTag: String              // placeholder for untagged nodes
+    _sawYaml = false            // a %YAML directive was seen in this document
+    _contIndent: i64 = -1       // continuation lines of the flow/quoted node need a larger indent
+    _implicitPos: i64 = -1      // cache of _isImplicitKey()
+    _implicitResult = false
 
     func `init`(input: __string) {
-        _lexer = YamlLexer(input)
+        _text = String()
+        _pendingTag = String()
+        _noTag = String()
+        var n = input.size()
+        var i = 0`u64
+        if n >= 3 {
+            var b0 = <u8>input.[0]
+            var b1 = <u8>input.[1]
+            var b2 = <u8>input.[2]
+            if b0 == 0xEF`u8 && b1 == 0xBB`u8 && b2 == 0xBF`u8 {
+                i = 3
+            }
+        }
 
-        // Initialize lookahead buffer
-        // [0] = previous (initially Invalid)
-        // [1] = current
-        // [2] = next
-        _lookAhead.[0] = (YamlToken.Invalid, null as String)
-        _lookAhead.[1] = (_nextToken(), _lexer.moveValue())
-        _lookAhead.[2] = (_nextToken(), _lexer.moveValue())
+        // Parse in place; start copying only at the first CR
+        var start = i
+        var copying = false
+        while i < n {
+            var c = input.[i]
+            if c == '\r' {
+                if !copying {
+                    copying = true
+                    _text << input.substr(start, <i64>(i - start))
+                }
+                // CRLF and a lone CR are both one line break
+                if i + 1 < n && input.[i + 1] == '\n' {
+                    i += 1
+                    continue
+                }
+                _text << '\n'
+            } else if copying {
+                _text << c
+            }
+            i += 1
+        }
+
+        if copying {
+            _src = _text.__str()
+        } else {
+            _src = input.substr(start)
+        }
     }
 
-    func _nextToken(): YamlToken {
-        return _lexer.nextToken() catch YamlToken.Invalid
-    }
+    // ------------------------------------------------------------------ entry points
 
+    // Parses a stream that holds exactly one document
     func parse(): !Value {
-        // Skip leading whitespace and optional document start
-        _skipNewlines(YamlToken.DocStart)
-
-        // Parse first document
-        var value = parseValue()
-
-        // Skip trailing whitespace and optional end marker
-        _skipNewlines(YamlToken.DocEnd)
-
-        // Check if there are more documents
-        if currentToken() != .DocStart {
-            // Single document - verify we're at EOF
-            if currentToken() != .EOF {
-                raise YamlError(
-                    "Unexpected tokens after parsing",
-                    _lexer.line(),
-                    _lexer.column()
-                )
-            }
-            return &&value
+        var value = _parseDocument()
+        if !_atStreamEnd() {
+            raise YamlError("Expected a single document, use parseAll() for several", _line, _col)
         }
-
-        // Multiple documents - create array and add first doc
-        var result = Value.Array()
-        result.push(&&value)
-
-        // Parse remaining documents
-        while currentToken() == .DocStart {
-            _anchors.clear()  // Clear anchors for new document
-
-            _skipNewlines(YamlToken.DocStart)
-
-            var doc = parseValue()
-            result.push(&&doc)
-
-            _skipNewlines(YamlToken.DocEnd)
-        }
-
-        // Should be at EOF
-        if currentToken() != YamlToken.EOF {
-            raise YamlError(
-                "Unexpected tokens after parsing",
-                _lexer.line(),
-                _lexer.column()
-            )
-        }
-
-        return &&result
-    }
-
-    func parseValue(): !Value {
-        // Check for anchor before value
-        var anchorName: String = null
-        if currentToken() == .Anchor {
-            anchorName = &&current().1
-            advance()
-        }
-
-        // Check for alias (reference to anchored value)
-        if currentToken() == .Alias {
-            var aliasName = &&current().1
-            advance()
-
-            // Look up anchored value
-            var anchored = _anchors.[aliasName]
-            if !anchored {
-                raise YamlError(
-                    f"Undefined alias '*{aliasName}'",
-                    _lexer.line(),
-                    _lexer.column()
-                )
-            }
-
-            // Return a copy of the anchored value
-            var tmp = *anchored
-            return __copy!(tmp)
-        }
-
-        // Parse the actual value
-        var value: Value = null
-        switch currentToken() {
-            .String => {
-                // Check if this is a key-value pair (object) or just a scalar
-                if nextToken() == .Colon {
-                    value = parseObject(false)  // Top-level object
-                } else {
-                    value = parseScalar()
-                }
-            }
-            .Number, .True, .False, .Null => {
-                value = parseScalar()
-            }
-            .Indent, .IndentFlowArray => {
-                // IndentFlowArray (`[...]`) is a distinct token so we can
-                // recognize an empty array (`[]`) even when there's no
-                // item to produce a following Dash token.
-                var isFlowArray = currentToken() == .IndentFlowArray
-                advance()
-                // Look at current token to determine type
-                if currentToken() == .Dash || isFlowArray {
-                    value = parseArray()
-                } else {
-                    value = parseObject(true)  // Nested object after Indent
-                }
-            }
-            .Dash => {
-                // Top-level array
-                value = parseArray()
-            }
-            .Newline => {
-                // A bare newline here means either a nested value follows
-                // (an indented block, or a same-level flow/block sequence
-                // dash) or there's nothing at all - e.g. "hello:\n" with no
-                // further indented content, or "hello:\nworld: 1\n" where
-                // "world" is a sibling key, not hello's value. In the latter
-                // case hello is implicitly null; leave the Newline token
-                // unconsumed so the enclosing object/array's own "what's
-                // next" handling still sees it.
-                if nextToken() == .Indent || nextToken() == .IndentFlowArray || nextToken() == .Dash {
-                    advance()
-                    value = parseValue()
-                } else {
-                    value = Value()
-                }
-            }
-            .EOF, .Dedent, .DedentFlowArray => {
-                // Key/item with no value at all, e.g. "hello:" at the very
-                // end of input, or an empty flow entry like "{a:}". Don't
-                // consume the token - the caller's own EOF/Dedent handling
-                // still needs to see it.
-                value = Value()
-            }
-            ... => {
-                raise YamlError("Unexpected token in parseValue", _lexer.line(), _lexer.column())
-            }
-        }
-
-        // Store anchor if one was specified
-        if anchorName != null {
-            _anchors.[&&anchorName] = value
-        }
-
         return &&value
     }
 
-    // A plain (unquoted) scalar value can span multiple space-separated
-    // words on the same source line (e.g. `run: echo installing`). The
-    // lexer tokenizes word-by-word, so a real line break always shows up
-    // as an explicit Newline/Indent/Dedent/EOF token between words. That
-    // means if the token right after a scalar word is *another* scalar
-    // word token, they must have been separated only by whitespace on the
-    // same line, so we greedily merge them into a single string value.
-    @private
-    func _isScalarWordToken(tok: YamlToken): bool {
-        switch tok {
-            .String, .Number, .True, .False, .Null => return true
-            ... => return false
-        }
+    // Skips what is left of the current document and tells whether the stream is over
+    func _atStreamEnd(): !bool {
+        _nextContent()
+        return _atEnd()
     }
 
-    func parseScalar(): !Value {
-        switch currentToken() {
-            .String, .Number, .True, .False, .Null => {
-                var kind = currentToken()
-                var text = &&current().1
-                advance()
-
-                var merged = false
-                while _isScalarWordToken(currentToken()) {
-                    merged = true
-                    text << " " << current().1
-                    advance()
-                }
-
-                if merged {
-                    return Value(&&text)
-                }
-
-                switch kind {
-                    .Number => { return Value(text.__str().tof[f64]()) }
-                    .True => { return Value(true) }
-                    .False => { return Value(false) }
-                    .Null => { return Value() }
-                    ... => { return Value(&&text) }
-                }
-            }
-            ... => {
-                raise YamlError("Expected scalar value", _lexer.line(), _lexer.column())
-            }
+    // Parses every document of the stream
+    func parseAll(): !Vector[Value] {
+        var docs = Vector[Value]()
+        // an empty stream has no documents
+        if _atStreamEnd() {
+            return &&docs
         }
-    }
-
-    func parseObject(isNested: bool = false, listItem: bool = false): !Value {
-        var obj = Value.Object()
-        var listItemIndented = false
-
-        while currentToken() == .String {
-            // Read key
-            var key = &&current().1
-            advance()
-
-            // Expect colon
-            if currentToken() != .Colon {
-                raise YamlError("Expected ':' after object key", _lexer.line(), _lexer.column())
-            }
-            advance()
-
-            // Check if this is a merge key
-            if key == "<<" {
-                var mergeValue = parseValue()
-
-                // Only perform merge if value is object or array
-                if mergeValue.isObject() {
-                    _mergeObject(&obj, &mergeValue)
-                }
-                else if mergeValue.isArray() {
-                    _mergeArray(&obj, &&mergeValue)
-                }
-                else {
-                    // Treat as literal key
-                    obj.["<<"] = &&mergeValue
-                }
-            }
-            else {
-                // Normal key-value pair
-                var value = parseValue()
-                obj.[&&key] = &&value
-            }
-
-            if currentToken() == .String {
-                continue
-            } else if currentToken() == .Newline {
-                advance()
-                if listItem && !listItemIndented && (currentToken() == .Indent || currentToken() == .IndentFlowArray) {
-                    listItemIndented = true
-                    advance()
-                }
-                continue
-            } else if currentToken() == .Dedent || currentToken() == .DedentFlowArray {
-                if isNested || listItemIndented {
-                    advance()
-                    break
-                } else if listItem {
-                    break
-                } else {
-                    advance()
-                    if currentToken() == .Newline {
-                        advance()
-                    }
-                    continue
-                }
-            } else if currentToken() == .EOF {
+        while true {
+            var doc = _parseDocument()
+            docs.push(&&doc)
+            if _atStreamEnd() {
                 break
-            } else {
-                raise YamlError("Expected newline or dedent in object", _lexer.line(), _lexer.column())
             }
         }
-
-        return &&obj
+        return &&docs
     }
 
-    func parseArray(): !Value {
-        var arr = Value.Array()
+    func _parseDocument(): !Value {
+        // anchors and tag handles do not cross documents
+        _anchors = HashMap[String, Value]()
+        _tagHandles = HashMap[String, String]()
+        _sawYaml = false
 
-        while currentToken() == .Dash {
-            advance()
+        var indent = _nextContent()
+        var hadDirective = false
+        while indent == 0 && _peek() == '%' {
+            hadDirective = true
+            _parseDirective()
+            indent = _nextContent()
+        }
+        if hadDirective && !(_atDocMarker() && _peek() == '-') {
+            raise YamlError("Directives must be followed by '---'", _line, _col)
+        }
 
-            // Check if this is an object after dash (key:value pattern)
-            var value: Value = null
-            if currentToken() == .String && nextToken() == .Colon {
-                value = parseObject(false, true)  // isNested=false, afterDash=true
-            } else {
-                value = parseValue()
+        var value = _parseDocumentContent(indent)
+
+        var after = _nextContent()
+        if after >= 0 {
+            raise YamlError("Unexpected content after the document", _line, _col)
+        }
+        if _atDocMarker() && _peek() == '.' {
+            _advN(3)
+            _skipSpaces()
+            if _peek() == '#' && _commentAllowed() {
+                _skipToEol()
             }
-            arr.push(&&value)
+        }
+        return &&value
+    }
 
-            // Check what's next
-            if currentToken() == .Newline {
-                advance()
-                if currentToken() == .Dedent || currentToken() == .DedentFlowArray {
-                    if currentToken() == .DedentFlowArray {
-                        advance()
+    // The root node of a document, a null value when the document is empty
+    func _parseDocumentContent(indent: i64): !Value {
+        if _atDocMarker() && _peek() == '-' {
+            _advN(3)
+            _skipSpaces()
+            if _atEol() {
+                var next = _nextContent()
+                if next >= 0 {
+                    return _parseNodeAt(next, -1, false)
+                }
+                return Value()
+            }
+            return _parseNodeAt(<i64>(_col - 1), -1, true)
+        }
+        if indent >= 0 {
+            return _parseNodeAt(indent, -1, false)
+        }
+        return Value()
+    }
+
+    // A plain scalar cannot start with an indicator, `-`, `?` and `:` only when
+    // followed by a blank (or a flow indicator in flow context)
+    func _checkPlainStart(inFlow: bool): !void {
+        var c = _peek()
+        var n = _peek(1)
+        var bad = c == ',' || c == '[' || c == ']' || c == '{' || c == '}' ||
+                  c == '#' || c == '&' || c == '*' || c == '!' || c == '|' ||
+                  c == '>' || c == '\'' || c == '"' || c == '%' || c == '@' ||
+                  c == '`'
+        if !bad && (c == '-' || c == '?' || c == ':') {
+            bad = _isBlankOrEol(n) || (inFlow && _isFlowIndicator(n))
+        }
+        if bad {
+            raise YamlError(f"Unexpected '{c}' at the start of a plain scalar", _line, _col)
+        }
+    }
+
+    func _readWord(): String {
+        var w = String()
+        while !_isBlankOrEol(_peek()) {
+            w << _peek()
+            _adv()
+        }
+        return &&w
+    }
+
+    // `%YAML 1.x` and `%TAG !handle! prefix`, other directives are ignored
+    func _parseDirective(): !void {
+        _adv()  // '%'
+        var name = _readWord()
+        if name == "TAG" {
+            _skipSpaces()
+            var handle = _readWord()
+            _skipSpaces()
+            var prefix = _readWord()
+            var h = handle.__str()
+            if h.size() < 1 || h.[0] != '!' || h.[h.size() - 1] != '!' || prefix.size() == 0 {
+                raise YamlError("Invalid %TAG directive", _line, _col)
+            }
+            _tagHandles.[&&handle] = &&prefix
+        } else if name == "YAML" {
+            _skipSpaces()
+            var version = _readWord()
+            var v = version.__str()
+            if v.size() < 2 || v.[0] != '1' || v.[1] != '.' {
+                raise YamlError(f"Unsupported YAML version '{version}'", _line, _col)
+            }
+            if _sawYaml {
+                raise YamlError("Duplicate %YAML directive", _line, _col)
+            }
+            _sawYaml = true
+            _skipSpaces()
+            if _peek() != '\n' && !_atEnd() && !(_peek() == '#' && _commentAllowed()) {
+                raise YamlError("Unexpected content after the %YAML version", _line, _col)
+            }
+        }
+        _skipToEol()
+    }
+
+    // -------------------------------------------------------------------- reader
+
+    func _atEnd(): bool => _pos >= _src.size()
+
+    func _peek(offset: u64 = 0): char {
+        var p = _pos + offset
+        if p >= _src.size() {
+            return '\0'
+        }
+        return _src.[p]
+    }
+
+    func _adv(): void {
+        if _atEnd() {
+            return
+        }
+        var c = _src.[_pos]
+        _pos += 1
+        if c == '\n' {
+            _line += 1
+            _col = 1
+        } else {
+            _col += 1
+        }
+    }
+
+    func _advN(n: u64): void {
+        var i = 0`u64
+        while i < n {
+            _adv()
+            i += 1
+        }
+    }
+
+    // Skips `n` characters that are known to be on this line
+    func _skipInLine(n: u64): void {
+        _pos += n
+        _col += n
+    }
+
+    func _isBlank(c: char): bool => c == ' ' || c == '\t'
+
+    func _isBlankOrEol(c: char): bool => c == ' ' || c == '\t' || c == '\n' || c == '\0'
+
+    func _isFlowIndicator(c: char): bool => c == ',' || c == '[' || c == ']' || c == '{' || c == '}'
+
+    func _skipSpaces(): void {
+        while _isBlank(_peek()) {
+            _adv()
+        }
+    }
+
+    func _skipToEol(): void {
+        while !_atEnd() && _peek() != '\n' {
+            _adv()
+        }
+    }
+
+    // A `#` starts a comment only at the start of a line or after whitespace
+    func _commentAllowed(): bool {
+        if _pos == 0 {
+            return true
+        }
+        var p = _src.[_pos - 1]
+        return p == ' ' || p == '\t' || p == '\n'
+    }
+
+    func _docMarkerAt(offset: u64): bool {
+        var c = _peek(offset)
+        if c != '-' && c != '.' {
+            return false
+        }
+        if _peek(offset + 1) != c || _peek(offset + 2) != c {
+            return false
+        }
+        return _isBlankOrEol(_peek(offset + 3))
+    }
+
+    func _atDocMarker(): bool => _col == 1 && _docMarkerAt(0)
+
+    func _atSeqDash(): bool => _peek() == '-' && _isBlankOrEol(_peek(1))
+
+    // Nothing but a comment is left on this line
+    func _atEol(): bool {
+        var c = _peek()
+        return c == '\n' || c == '\0' || (c == '#' && _commentAllowed())
+    }
+
+    // The end of the anchor, alias or tag name that starts at offset `start`
+    func _nameEnd(start: u64): u64 {
+        var i = start
+        while !_isBlankOrEol(_peek(i)) && !_isFlowIndicator(_peek(i)) {
+            i += 1
+        }
+        return i
+    }
+
+    // Finishes the current line (it may only hold blanks or a comment), skips
+    // blank and comment lines and leaves the position on the first character of
+    // the next content line. Returns its indent, or -1 at the end of the input or
+    // at a document marker. Calling it again at the same position is free.
+    func _nextContent(): !i64 {
+        if ((<i64>_pos) == _peekedPos) {
+            return _peekedIndent
+        }
+        var crossed = _col == 1
+        var result: i64 = -1
+        while true {
+            if crossed {
+                crossed = false
+                var k = 0`u64
+                while _peek(k) == ' ' {
+                    k += 1
+                }
+                var c = _peek(k)
+                if c == '\t' {
+                    // tabs are fine on blank / comment lines, never as indentation
+                    var look = k
+                    while _isBlank(_peek(look)) {
+                        look += 1
+                    }
+                    var after = _peek(look)
+                    if after == '[' || after == '{' {
+                        // a tab separates the indentation from a flow collection
+                        _advN(look)
+                        result = <i64>k
                         break
                     }
-                    advance()
-                    if currentToken() == .Dash {
-                        continue
+                    if after != '\n' && after != '\0' && after != '#' {
+                        _advN(k)
+                        raise YamlError("Tabs are not allowed for indentation", _line, _col)
+                    }
+                }
+                if c != '\n' && c != '\0' && c != '#' && c != '\t' {
+                    _advN(k)
+                    if k == 0 && _atDocMarker() {
+                        result = -1
+                    } else {
+                        result = <i64>k
                     }
                     break
                 }
+            }
+
+            _skipSpaces()
+            var d = _peek()
+            if d == '#' && _commentAllowed() {
+                _skipToEol()
                 continue
-            } else if currentToken() == .Dedent || currentToken() == .DedentFlowArray {
-                if currentToken() == .DedentFlowArray {
-                    advance()
-                    break
-                }
-                advance()
-                if currentToken() == .Dash {
-                    continue
-                }
+            }
+            if _atEnd() {
+                result = -1
                 break
-            } else if currentToken() == .EOF {
-                break
-            } else if currentToken() == .Dash {
-                // Next array item, continue loop
+            }
+            if d == '\n' {
+                _adv()
+                crossed = true
                 continue
+            }
+            raise YamlError("Unexpected content", _line, _col)
+        }
+        _peekedPos = <i64>_pos
+        _peekedIndent = result
+        return result
+    }
+
+    // --------------------------------------------------------------------- nodes
+
+    // Parses the node that starts at the current position. `indent` is the column
+    // of the node, `parentIndent` the indent of the enclosing block collection (-1
+    // at the root). `sameLine` is set when the node follows an indicator on the
+    // same line (`key: ...`), where block collections cannot start.
+    func _parseNodeAt(indent: i64, parentIndent: i64, sameLine: bool, seqAtParent: bool = false): !Value {
+        var c = _peek()
+        if c != '&' && c != '!' {
+            return _parseNodeContent(indent, parentIndent, sameLine)
+        }
+
+        var after = _peek(_propsEnd())
+        var eol = after == '\n' || after == '\0' || after == '#'
+        if !eol && !sameLine && _isImplicitKey() {
+            // the properties belong to the first key of a block mapping
+            return _parseNodeContent(indent, parentIndent, sameLine)
+        }
+
+        var anchor = _readNodeProps()
+        var value: Value = null
+        if eol {
+            // the content follows on the next lines
+            var next = _nextContent()
+            if next > parentIndent {
+                // an anchor on the next line is fine when it belongs to a mapping key
+                if anchor.size() > 0 && _peek() == '&' && !_isImplicitKey() {
+                    raise YamlError("A node can only have one anchor", _line, _col)
+                }
+                value = _parseNodeAt(next, parentIndent, false, seqAtParent)
+            }
+            else if next == parentIndent && seqAtParent && _atSeqDash() {
+                // a sequence may sit at the same indent as its key
+                var tagged = _hasTag
+                var tag = _takeTag()
+                var seq = _parseBlockSequence(next)
+                value = _finishCollection(tag, tagged, &&seq)
+            }
+            else {
+                value = _emptyNode()
+            }
+        } else {
+            if anchor.size() > 0 && _peek() == '*' {
+                raise YamlError("An alias cannot have an anchor", _line, _col)
+            }
+            if _atSeqDash() {
+                raise YamlError("Block sequence entries are not allowed after properties", _line, _col)
+            }
+            value = _parseNodeContent(<i64>(_col - 1), parentIndent, sameLine)
+        }
+        _registerAnchor(&&anchor, value)
+        return &&value
+    }
+
+    // The length of the anchors and tags (and the blanks after them) at the
+    // current position, 0 when the node has no properties
+    func _propsEnd(): u64 {
+        var i = 0`u64
+        while true {
+            var c = _peek(i)
+            if c == '&' {
+                i = _nameEnd(i + 1)
+            } else if c == '!' {
+                i += _tagTokenLength(i)
             } else {
-                raise YamlError("Expected newline or dedent in array", _lexer.line(), _lexer.column())
+                return i
+            }
+            while _isBlank(_peek(i)) {
+                i += 1
+            }
+        }
+        return i
+    }
+
+    // The length of the tag token (`!x`, `!!x`, `!<uri>`) that starts at `base`
+    func _tagTokenLength(base: u64): u64 {
+        var i = base
+        if _peek(base + 1) == '<' {
+            while !_isBlankOrEol(_peek(i)) && _peek(i) != '>' {
+                i += 1
+            }
+            if _peek(i) == '>' {
+                i += 1
+            }
+            return i - base
+        }
+        return _nameEnd(base + 1) - base
+    }
+
+    // Consumes the anchor and tag of a node, returns the anchor name
+    func _readProps(tag: &String): String {
+        var anchor = String()
+        while true {
+            var c = _peek()
+            if c == '&' {
+                _adv()
+                anchor = _readAnchorName()
+            } else if c == '!' {
+                var len = _tagTokenLength(0)
+                tag.clear()
+                tag << _src.substr(_pos, <i64>len)
+                _skipInLine(len)
+            } else {
+                break
+            }
+            _skipSpaces()
+        }
+        return &&anchor
+    }
+
+    // Expands the tag token and keeps it for the next node that is parsed
+    func _setPendingTag(token: &const String): !void {
+        if _hasTag {
+            raise YamlError("A node can only have one tag", _line, _col)
+        }
+        _pendingTag = _expandTag(token)
+        _hasTag = true
+    }
+
+    // A node without content, `!!str` on it is the empty string
+    func _emptyNode(): !Value {
+        if !_hasTag {
+            return Value()
+        }
+        var tag = _takeTag()
+        var empty = String()
+        return _taggedScalar(tag, empty, true)
+    }
+
+    // Takes the pending tag, an empty string when there is none
+    func _takeTag(): String {
+        if !_hasTag {
+            return String()
+        }
+        _hasTag = false
+        return __copy!(_pendingTag)
+    }
+
+    // Reads the anchor and tag of a node, the tag becomes the pending tag and
+    // the anchor name is returned
+    func _readNodeProps(): !String {
+        var tagToken = String()
+        var anchor = _readProps(&tagToken)
+        if tagToken.size() > 0 {
+            _setPendingTag(tagToken)
+        }
+        return &&anchor
+    }
+
+    func _registerAnchor(anchor: String, value: &Value): void {
+        if anchor.size() > 0 {
+            _anchors.[&&anchor] = __copy!(value)
+        }
+    }
+
+    // Keys are always strings: a tag is only validated, an anchor names the key
+    func _applyKeyProps(tagToken: &const String, anchor: &const String, key: &const String): !void {
+        if tagToken.size() > 0 {
+            var expanded = _expandTag(tagToken)
+        }
+        if anchor.size() > 0 {
+            var name = String(anchor.__str())
+            _anchors.[&&name] = Value(String(key.__str()))
+        }
+    }
+
+    // The value of a scalar: a tagged one goes through its tag, the others
+    // resolve by how they were written
+    func _finishScalar(tag: &const String, tagged: bool, text: String, plain: bool): !Value {
+        if tagged {
+            return _taggedScalar(tag, text, plain)
+        }
+        if plain {
+            return _resolvePlain(&&text)
+        }
+        return Value(&&text)
+    }
+
+    func _finishCollection(tag: &const String, tagged: bool, value: Value): !Value {
+        if tagged {
+            return _taggedCollection(tag, &&value)
+        }
+        return &&value
+    }
+
+    // The pending tag (if any) is taken here so that it never leaks into the
+    // children of a collection
+    func _parseNodeContent(indent: i64, parentIndent: i64, sameLine: bool): !Value {
+        if !_hasTag {
+            return _parseNodeBody(indent, parentIndent, sameLine, _noTag, false)
+        }
+        var tag = _takeTag()
+        return _parseNodeBody(indent, parentIndent, sameLine, tag, true)
+    }
+
+    func _parseNodeBody(indent: i64, parentIndent: i64, sameLine: bool, tag: &const String, tagged: bool): !Value {
+        var c = _peek()
+        if c == '-' && _atSeqDash() {
+            if sameLine {
+                raise YamlError("Block sequence entries are not allowed here", _line, _col)
+            }
+            var seq = _parseBlockSequence(indent)
+            return _finishCollection(tag, tagged, &&seq)
+        }
+        if !sameLine && (_atExplicitKey() || _isImplicitKey()) {
+            var map = _parseBlockMapping(indent)
+            return _finishCollection(tag, tagged, &&map)
+        }
+
+        switch c {
+            '|', '>' => {
+                var s = _parseBlockScalar(parentIndent)
+                return _finishScalar(tag, tagged, &&s, false)
+            }
+            '[', '{' => {
+                var savedIndent = _contIndent
+                _contIndent = parentIndent
+                var flow = _parseFlowNode()
+                _contIndent = savedIndent
+                return _finishCollection(tag, tagged, &&flow)
+            }
+            '"', '\'' => {
+                var savedIndent = _contIndent
+                _contIndent = parentIndent
+                var s = _parseQuoted()
+                _contIndent = savedIndent
+                return _finishScalar(tag, tagged, &&s, false)
+            }
+            '*' => {
+                return _parseAliasNode(tagged)
+            }
+            ... => {}
+        }
+        var text = _parsePlain(parentIndent)
+        if text.size() == 0 {
+            raise YamlError("Unexpected character", _line, _col)
+        }
+        return _finishScalar(tag, tagged, &&text, true)
+    }
+
+    // ----------------------------------------------------------------------- tags
+
+
+    // Expands `!x`, `!!x`, `!h!x` and `!<uri>` with the `%TAG` handles of the document
+    func _expandTag(token: &const String): !String {
+        var t = token.__str()
+        var out = String()
+        if t.size() == 1 {
+            out << t
+            return &&out
+        }
+        if t.[1] == '<' {
+            if t.size() < 4 || t.[t.size() - 1] != '>' {
+                raise YamlError("Invalid verbatim tag", _line, _col)
+            }
+            out << t.substr(2, <i64>(t.size() - 3))
+            return &&out
+        }
+
+        // length of the handle, including its closing '!'
+        var handleLen = 1`u64
+        if t.[1] == '!' {
+            handleLen = 2
+        } else {
+            var k = 1`u64
+            while k < t.size() && t.[k] != '!' {
+                k += 1
+            }
+            if k < t.size() {
+                handleLen = k + 1
             }
         }
 
+        var handle = String(t.substr(0, <i64>handleLen))
+        var suffix = t.substr(handleLen)
+        if suffix.size() == 0 {
+            raise YamlError("Empty tag suffix", _line, _col)
+        }
+        var found = _tagHandles.[handle]
+        if found {
+            out << (*found).__str()
+        } else if handleLen == 2 {
+            out << #{CORE_TAG_PREFIX}
+        } else if handleLen == 1 {
+            out << "!"
+        } else {
+            raise YamlError(f"Undefined tag handle '{handle}'", _line, _col)
+        }
+        out << suffix
+        return &&out
+    }
+
+    func _tagKind(tag: &const String): TagKind {
+        var t = tag.__str()
+        if t == "!" {
+            return TagKind.NonSpecific
+        }
+        var core = __string(#{CORE_TAG_PREFIX})
+        if !t.startswith(core) {
+            return TagKind.Local
+        }
+        var name = t.substr(core.size())
+        if name == "str" {
+            return TagKind.Str
+        }
+        if name == "int" {
+            return TagKind.Int
+        }
+        if name == "float" {
+            return TagKind.Float
+        }
+        if name == "bool" {
+            return TagKind.Bool
+        }
+        if name == "null" {
+            return TagKind.Null
+        }
+        if name == "seq" {
+            return TagKind.Seq
+        }
+        if name == "map" {
+            return TagKind.Map
+        }
+        return TagKind.Local
+    }
+
+    // Applies a tag to a scalar; `text` is the scalar content, `plain` tells
+    // whether it was written unquoted (only then does it resolve by itself)
+    func _taggedScalar(tag: &const String, text: &const String, plain: bool): !Value {
+        var s = text.__str()
+        switch _tagKind(tag) {
+            .Str, .NonSpecific => {
+                return Value(String(s))
+            }
+            .Int => {
+                if s.size() > 0 {
+                    var nk = _numberKind(s)
+                    if nk == NumberKind.Integer || nk == NumberKind.Hex || nk == NumberKind.Octal {
+                        var v = _numberValue(s, nk)
+                        if v.isInt() {
+                            return &&v
+                        }
+                        raise YamlError("Integer out of range for !!int", _line, _col)
+                    }
+                }
+                raise YamlError(f"Invalid value '{text}' for !!int", _line, _col)
+            }
+            .Float => {
+                if s.size() > 0 {
+                    var nk = _numberKind(s)
+                    if nk == NumberKind.Integer {
+                        var v = _numberValue(s, nk)
+                        if v.isInt() {
+                            var i = v.getInt()
+                            return Value(<f64>(*i))
+                        }
+                        return &&v
+                    }
+                    if nk == NumberKind.Real || nk == NumberKind.PosInf || nk == NumberKind.NegInf || nk == NumberKind.NaN {
+                        return _numberValue(s, nk)
+                    }
+                }
+                raise YamlError(f"Invalid value '{text}' for !!float", _line, _col)
+            }
+            .Bool => {
+                if _isTrueLiteral(s) {
+                    return Value(true)
+                }
+                if _isFalseLiteral(s) {
+                    return Value(false)
+                }
+                raise YamlError(f"Invalid value '{text}' for !!bool", _line, _col)
+            }
+            .Null => {
+                if s.size() == 0 || _isNullLiteral(s) {
+                    return Value()
+                }
+                raise YamlError(f"Invalid value '{text}' for !!null", _line, _col)
+            }
+            .Seq, .Map => {
+                raise YamlError("A collection tag on a scalar", _line, _col)
+            }
+            ... => {}
+        }
+
+        // local tag: the value is parsed as usual and keeps the tag
+        var v = Value()
+        if plain {
+            v = _resolvePlain(String(s))
+        } else {
+            v = Value(String(s))
+        }
+        v.setTag(String(tag.__str()))
+        return &&v
+    }
+
+    // Applies a tag to a sequence or a mapping
+    func _taggedCollection(tag: &const String, value: Value): !Value {
+        switch _tagKind(tag) {
+            .Seq => {
+                if !value.isArray() {
+                    raise YamlError("!!seq on a node that is not a sequence", _line, _col)
+                }
+                return &&value
+            }
+            .Map => {
+                if !value.isObject() {
+                    raise YamlError("!!map on a node that is not a mapping", _line, _col)
+                }
+                return &&value
+            }
+            .NonSpecific => {
+                return &&value
+            }
+            .Str, .Int, .Float, .Bool, .Null => {
+                raise YamlError("A scalar tag on a collection", _line, _col)
+            }
+            ... => {}
+        }
+        value.setTag(String(tag.__str()))
+        return &&value
+    }
+
+    func _readAnchorName(): String {
+        var len = _nameEnd(0)
+        if len == 0 {
+            return String()
+        }
+        var name = String(_src.substr(_pos, <i64>len))
+        _skipInLine(len)
+        return &&name
+    }
+
+    // An alias used as a node, it cannot carry a tag
+    func _parseAliasNode(tagged: bool): !Value {
+        if tagged {
+            raise YamlError("An alias cannot have a tag", _line, _col)
+        }
+        return _parseAlias()
+    }
+
+    func _parseAlias(): !Value {
+        _adv()  // '*'
+        var name = _readAnchorName()
+        if name.size() == 0 {
+            raise YamlError("Empty alias name", _line, _col)
+        }
+        var anchored = _anchors.[name]
+        if !anchored {
+            raise YamlError(f"Undefined alias '*{name}'", _line, _col)
+        }
+        var tmp = *anchored
+        return __copy!(tmp)
+    }
+
+    // ------------------------------------------------------------ block sequences
+
+    func _parseBlockSequence(n: i64): !Value {
+        var arr = Value.Array()
+        while true {
+            _adv()  // '-'
+            var item = _parseNestedNode(n)
+            arr.push(&&item)
+
+            var next = _nextContent()
+            if next < n {
+                break
+            }
+            if next > n {
+                raise YamlError("Bad indentation of a sequence entry", _line, _col)
+            }
+            if !_atSeqDash() {
+                break
+            }
+        }
         return &&arr
     }
 
-    // Helper methods
+    // ----------------------------------------------------------- block mappings
 
-    func advance(): void {
-        _lookAhead.[0] = &&_lookAhead.[1]
-        _lookAhead.[1] = &&_lookAhead.[2]
-        _lookAhead.[2] = (_nextToken(), _lexer.moveValue())
+    // The length of the plain implicit key at the current position (without the
+    // trailing blanks), 0 when the line does not hold `key: `
+    func _plainKeyLength(base: u64 = 0): u64 {
+        var i = 0`u64
+        var last = 0`u64
+        while true {
+            var c = _peek(base + i)
+            if c == '\n' || c == '\0' {
+                return 0
+            }
+            if c == ':' && _isBlankOrEol(_peek(base + i + 1)) {
+                return last
+            }
+            if c == '#' && i > 0 && _isBlank(_peek(base + i - 1)) {
+                return 0
+            }
+            if !_isBlank(c) {
+                last = i + 1
+            }
+            i += 1
+        }
+        return 0
     }
 
-    func _skipNewlines(marker: YamlToken = YamlToken.Newline): void {
-        if currentToken() == marker {
-            advance()
+    // The offset after the closing quote of the quoted scalar that starts at
+    // `start`, 0 when it does not end on the same line
+    func _singleLineQuotedEnd(start: u64): u64 {
+        var quote = _peek(start)
+        var i = start + 1
+        while true {
+            var d = _peek(i)
+            if d == '\n' || d == '\0' {
+                return 0
+            }
+            if quote == '"' && d == '\\' {
+                i += 2
+                continue
+            }
+            if d == quote {
+                if quote == '\'' && _peek(i + 1) == '\'' {
+                    i += 2
+                    continue
+                }
+                return i + 1
+            }
+            i += 1
         }
-        while currentToken() == .Newline {
-            advance()
+        return 0
+    }
+
+    // Whether a `:` followed by a blank or the end of the line comes after the
+    // blanks at offset `start`
+    func _keyColonAt(start: u64): bool {
+        var i = start
+        while _isBlank(_peek(i)) {
+            i += 1
+        }
+        return _peek(i) == ':' && _isBlankOrEol(_peek(i + 1))
+    }
+
+    // Whether the current line starts with an implicit mapping key (after any
+    // anchor or tag)
+    func _isImplicitKey(): bool {
+        if ((<i64>_pos) == _implicitPos) {
+            return _implicitResult
+        }
+        var result = _scanImplicitKey()
+        _implicitPos = <i64>_pos
+        _implicitResult = result
+        return result
+    }
+
+    func _scanImplicitKey(): bool {
+        var b = _propsEnd()
+        var c = _peek(b)
+        if c == '"' || c == '\'' {
+            var end = _singleLineQuotedEnd(b)
+            return end > 0 && _keyColonAt(end)
+        }
+        if c == '*' {
+            // an alias is a key when it is followed by `:`, it cannot have properties
+            if b > 0 {
+                return false
+            }
+            return _keyColonAt(_nameEnd(b + 1))
+        }
+        if c == '[' || c == '{' || c == '|' || c == '>' {
+            return false
+        }
+        if c == '#' || c == '\n' || c == '\0' {
+            return false
+        }
+        return _plainKeyLength(b) > 0
+    }
+
+    func _parseKey(): !String {
+        var c = _peek()
+        if c == '"' || c == '\'' {
+            _keyPlain = false
+            return _parseQuoted()
+        }
+        if c == '*' {
+            _keyPlain = false
+            var aliased = _parseAlias()
+            return _keyToString(aliased)
+        }
+        _keyPlain = true
+        var len = _plainKeyLength()
+        var key = String(_src.substr(_pos, <i64>len))
+        _skipInLine(len)
+        return &&key
+    }
+
+    func _parseBlockMapping(n: i64): !Value {
+        var obj = Value.Object()
+        var merges = Value.Array()
+        while true {
+            if _atExplicitKey() {
+                _parseExplicitEntry(n, &obj, &merges)
+            } else {
+                _parseImplicitEntry(n, &obj, &merges)
+            }
+
+            var next = _nextContent()
+            if next < n {
+                break
+            }
+            if next > n {
+                raise YamlError("Bad indentation of a mapping entry", _line, _col)
+            }
+            if _atSeqDash() {
+                break
+            }
+        }
+        _applyMerges(&obj, &merges)
+        return &&obj
+    }
+
+    func _atExplicitKey(): bool => _peek() == '?' && _isBlankOrEol(_peek(1))
+
+    func _parseImplicitEntry(n: i64, obj: &Value, merges: &Value): !void {
+        var keyLine = _line
+        var keyCol = _col
+        if !_isImplicitKey() {
+            raise YamlError("Expected a mapping key followed by ':'", _line, _col)
+        }
+        var key: String = null
+        if _peek() == '&' || _peek() == '!' {
+            var keyTag = String()
+            var keyAnchor = _readProps(&keyTag)
+            key = _parseKey()
+            _applyKeyProps(keyTag, keyAnchor, key)
+        } else {
+            key = _parseKey()
+        }
+        var plain = _keyPlain
+        _skipSpaces()
+        _adv()  // ':'
+
+        var value = _parseNestedNode(n, true)
+        _addEntry(obj, merges, &&key, plain, &&value, keyLine, keyCol)
+    }
+
+    // `? key` optionally followed by `: value` at the same indent
+    func _parseExplicitEntry(n: i64, obj: &Value, merges: &Value): !void {
+        var keyLine = _line
+        var keyCol = _col
+        _adv()  // '?'
+        var keyNode = _parseNestedNode(n)
+        var key = _keyToString(keyNode)
+
+        var value = Value()
+        var next = _nextContent()
+        if next == n && _peek() == ':' && _isBlankOrEol(_peek(1)) {
+            _adv()  // ':'
+            value = _parseNestedNode(n)
+        }
+        _addEntry(obj, merges, &&key, false, &&value, keyLine, keyCol)
+    }
+
+    // The node after a `-`, `?` or `:` indicator of a block collection whose
+    // entries are at indent `n`. After `-` and `?` it may start a compact
+    // collection (`- - a`, `- k: v`). After the `:` of a mapping key it cannot
+    // on the same line, and a sequence may sit at the same indent as its key.
+    func _parseNestedNode(n: i64, isMappingValue: bool = false): !Value {
+        _skipSpaces()
+        if _atEol() {
+            var next = _nextContent()
+            if next > n {
+                return _parseNodeAt(next, n, false, isMappingValue)
+            }
+            if isMappingValue && next == n && _atSeqDash() {
+                return _parseBlockSequence(n)
+            }
+            return Value()
+        }
+        return _parseNodeAt(<i64>(_col - 1), n, isMappingValue, isMappingValue)
+    }
+
+    // Mapping keys are strings; any other key is stored as its JSON text
+    func _keyToString(key: &const Value): String {
+        if key.isString() {
+            var s = key.getString()
+            return __copy!(*s)
+        }
+        var text = f"{key}"
+        return &&text
+    }
+
+
+    // Adds an entry to a mapping: `<<` collects merge sources, duplicate keys are errors
+    func _addEntry(obj: &Value, merges: &Value, key: String, plain: bool, value: Value, line: u64, col: u64): !void {
+        if plain && key == "<<" && (value.isObject() || value.isArray()) {
+            merges.push(&&value)
+            return
+        }
+        if obj.contains(&key) {
+            raise YamlError(f"Duplicate mapping key '{key}'", line, col)
+        }
+        obj.[&&key] = &&value
+    }
+
+    func _applyMerges(target: &Value, merges: &Value): !void {
+        var list = merges.asArray()
+        for item, _ in list {
+            if item.isObject() {
+                _mergeObject(target, item)
+            } else {
+                var inner = item.asArray()
+                for source, _ in inner {
+                    if !source.isObject() {
+                        raise YamlError("Merge array must contain only objects", _line, _col)
+                    }
+                    _mergeObject(target, source)
+                }
+            }
         }
     }
 
-    func current(): &(YamlToken, String) => &_lookAhead.[1]
-
-    func currentToken(): YamlToken => _lookAhead.[1].0
-
-    func nextToken(): YamlToken => _lookAhead.[2].0
-
-    func prevToken(): YamlToken => _lookAhead.[0].0
-
+    // Keys already in the target take precedence
     func _mergeObject(target: &Value, source: &Value): !void {
-        // Get source object as HashMap
         var sourceObj = source.asObject()
-
-        // Iterate over all keys in source
         for it in sourceObj {
-            // Only add if key doesn't exist in target
-            // (keys already in target take precedence)
             if !target.contains(&it.0) {
                 target.[&&it.0] = &&it.1
             }
         }
     }
 
-    func _mergeArray(target: &Value, array: Value): !void {
-        // Iterate over array items
-        var arrayObj = array.asArray()
-        for item, _ in arrayObj {
-            if item.isObject() {
-                _mergeObject(target, item)
+    // -------------------------------------------------------------- plain scalars
+
+    // The length of the plain scalar text on the current line starting at `base`,
+    // without trailing blanks
+    func _plainLineEnd(base: u64, inFlow: bool): u64 {
+        var i = 0`u64
+        var last = 0`u64
+        while true {
+            var c = _peek(base + i)
+            if c == '\n' || c == '\0' {
+                break
             }
-            else {
-                raise YamlError(
-                    "Merge array must contain only objects",
-                    _lexer.line(),
-                    _lexer.column()
-                )
+            if c == ':' {
+                var d = _peek(base + i + 1)
+                if _isBlankOrEol(d) || (inFlow && _isFlowIndicator(d)) {
+                    break
+                }
+            }
+            if c == '#' && i > 0 && _isBlank(_peek(base + i - 1)) {
+                break
+            }
+            if inFlow && _isFlowIndicator(c) {
+                break
+            }
+            if !_isBlank(c) {
+                last = i + 1
+            }
+            i += 1
+        }
+        return last
+    }
+
+    func _repeat(out: &String, c: char, n: u64): void {
+        var i = 0`u64
+        while i < n {
+            out << c
+            i += 1
+        }
+    }
+
+    // A plain scalar (block or flow context), continuation lines are folded
+    func _parsePlain(parentIndent: i64, inFlow: bool = false): !String {
+        _checkPlainStart(inFlow)
+        var text = String()
+        var len = _plainLineEnd(0, inFlow)
+        if len == 0 {
+            return &&text
+        }
+        text << _src.substr(_pos, <i64>len)
+        _skipInLine(len)
+
+        while true {
+            var o = 0`u64
+            while _isBlank(_peek(o)) {
+                o += 1
+            }
+            if _peek(o) != '\n' {
+                break  // a comment or something the caller must report
+            }
+
+            // look ahead over blank lines to the next content line
+            var p = o + 1
+            var blanks = 0`u64
+            var found = false
+            var contentOff = 0`u64
+            while true {
+                // the indentation is spaces, a tab after it is only separation
+                var k = 0`u64
+                while _peek(p + k) == ' ' {
+                    k += 1
+                }
+                var t = k
+                while _isBlank(_peek(p + t)) {
+                    t += 1
+                }
+                var d = _peek(p + t)
+                if d == '\n' {
+                    blanks += 1
+                    p = p + t + 1
+                    continue
+                }
+                if d == '\0' || d == '#' {
+                    break
+                }
+                if ((<i64>k) <= parentIndent) {
+                    break
+                }
+                if k == 0 && _docMarkerAt(p) {
+                    break
+                }
+                contentOff = p + t
+                found = true
+                break
+            }
+            if !found {
+                break
+            }
+            var seg = _plainLineEnd(contentOff, inFlow)
+            if seg == 0 {
+                break
+            }
+
+            _advN(contentOff)
+            if blanks == 0 {
+                text << ' '
+            } else {
+                _repeat(&text, '\n', blanks)
+            }
+            text << _src.substr(_pos, <i64>seg)
+            _skipInLine(seg)
+        }
+        return &&text
+    }
+
+    // ------------------------------------------------------------ quoted scalars
+
+    // Appends the escape sequence of a double quoted scalar, `e` is the
+    // character after the backslash (already consumed)
+    func _appendEscape(out: &String, e: char): !void {
+        switch e {
+            '0' => out << '\0'
+            'a' => out << <char>0x07
+            'b' => out << <char>0x08
+            't', '\t' => out << '\t'
+            'n' => out << '\n'
+            'v' => out << <char>0x0b
+            'f' => out << <char>0x0c
+            'r' => out << '\r'
+            'e' => out << <char>0x1b
+            ' ' => out << ' '
+            '"' => out << '"'
+            '/' => out << '/'
+            '\\' => out << '\\'
+            'x' => {
+                var result = readHexEscape(_src, _pos, 2)
+                out << <char>result.0
+                _pos = result.1
+                _col += 2
+            }
+            'u' => {
+                var result = readHexEscape(_src, _pos, 4)
+                out << (result.0 as wchar)
+                _pos = result.1
+                _col += 4
+            }
+            'U' => {
+                var result = readHexEscape(_src, _pos, 8)
+                out << (result.0 as wchar)
+                _pos = result.1
+                _col += 8
+            }
+            'N' => out << (0x85`u32 as wchar)
+            '_' => out << (0xA0`u32 as wchar)
+            'L' => out << (0x2028`u32 as wchar)
+            'P' => out << (0x2029`u32 as wchar)
+            ... => raise YamlError(f"Invalid escape sequence '\\{e}'", _line, _col - 1)
+        }
+    }
+
+    // A single or double quoted scalar (the current character is the quote)
+    func _parseQuoted(): !String {
+        var q = _peek()
+        _adv()
+        var out = String()
+        var ws = String()  // blanks that are only content when no line break follows
+        while true {
+            if _atEnd() {
+                raise YamlError("Unterminated quoted scalar", _line, _col)
+            }
+            var c = _peek()
+            if c == q {
+                if q == '\'' && _peek(1) == '\'' {
+                    out << ws
+                    ws.clear()
+                    out << '\''
+                    _adv()
+                    _adv()
+                    continue
+                }
+                _adv()
+                out << ws
+                return &&out
+            }
+            if _isBlank(c) {
+                ws << c
+                _adv()
+                continue
+            }
+            if c == '\n' {
+                // a line break folds to a space, blank lines to line breaks
+                ws.clear()
+                _adv()
+                var blanks = 0`u64
+                while true {
+                    if _col == 1 && _docMarkerAt(0) {
+                        raise YamlError("Document marker inside a quoted scalar", _line, _col)
+                    }
+                    while _isBlank(_peek()) {
+                        _adv()
+                    }
+                    if _peek() == '\n' {
+                        blanks += 1
+                        _adv()
+                        continue
+                    }
+                    break
+                }
+                if _contIndent >= 0 && !_atEnd() && (<i64>(_col - 1)) <= _contIndent {
+                    raise YamlError("Bad indentation of a multi-line quoted scalar", _line, _col)
+                }
+                if blanks == 0 {
+                    out << ' '
+                } else {
+                    _repeat(&out, '\n', blanks)
+                }
+                continue
+            }
+            if c == '\\' && q == '"' {
+                out << ws
+                ws.clear()
+                _adv()
+                var e = _peek()
+                if e == '\n' {
+                    // escaped line break joins the lines without a space
+                    _adv()
+                    while _isBlank(_peek()) {
+                        _adv()
+                    }
+                    continue
+                }
+                _adv()
+                _appendEscape(&out, e)
+                continue
+            }
+            // a run of ordinary characters is appended at once
+            out << ws
+            ws.clear()
+            var run = 1`u64
+            while true {
+                var d = _peek(run)
+                if d == q || _isBlankOrEol(d) || (q == '"' && d == '\\') {
+                    break
+                }
+                run += 1
+            }
+            out << _src.substr(_pos, <i64>run)
+            _skipInLine(run)
+        }
+        return &&out
+    }
+
+    // ------------------------------------------------------------- block scalars
+
+    // `|` or `>` scalar, `parentIndent` is the indent of the enclosing collection
+    func _parseBlockScalar(parentIndent: i64): !String {
+        var style = _peek()
+        _adv()
+        var chomp = 'c'
+        var explicit: i64 = 0
+        var i = 0
+        while i < 2 {
+            var c = _peek()
+            if c == '-' || c == '+' {
+                chomp = c
+                _adv()
+            } else if c >= '1' && c <= '9' {
+                explicit = <i64>(c - '0')
+                _adv()
+            } else {
+                break
+            }
+            i += 1
+        }
+        _skipSpaces()
+        if _peek() == '#' && _commentAllowed() {
+            _skipToEol()
+        }
+        if _peek() != '\n' && !_atEnd() {
+            raise YamlError("Invalid block scalar header", _line, _col)
+        }
+        if _peek() == '\n' {
+            _adv()
+        }
+
+        var blockIndent: i64 = -1
+        if explicit > 0 {
+            blockIndent = parentIndent + explicit
+        }
+
+        var out = String()
+        var havePrev = false
+        var prevMore = false
+        var pendingBlank = 0`u64
+        var leadingBlank: i64 = 0  // the most spaces on a blank line before the first content
+        while !_atEnd() {
+            var k = 0`u64
+            while _peek(k) == ' ' {
+                k += 1
+            }
+            var c = _peek(k)
+            if c == '\n' || c == '\0' {
+                // spaces beyond the block indent are content, not a blank line
+                var spacesAreContent = c == '\n' && blockIndent >= 0 && (<i64>k) > blockIndent
+                if !spacesAreContent {
+                    if c == '\0' {
+                        _advN(k)
+                        break
+                    }
+                    if blockIndent < 0 && (<i64>k) > leadingBlank {
+                        leadingBlank = <i64>k
+                    }
+                    _advN(k + 1)
+                    pendingBlank += 1
+                    continue
+                }
+            }
+
+            var indent = <i64>k
+            if blockIndent < 0 {
+                if indent <= parentIndent {
+                    break  // no content, empty scalar
+                }
+                blockIndent = indent
+                if leadingBlank > blockIndent {
+                    raise YamlError("A leading blank line of a block scalar is indented more than its content", _line, _col)
+                }
+            }
+            if indent < blockIndent {
+                break
+            }
+            if blockIndent == 0 && _atDocMarker() {
+                break
+            }
+
+            _advN(<u64>blockIndent)
+            var start = _pos
+            while !_atEnd() && _peek() != '\n' {
+                _adv()
+            }
+            var lineText = _src.substr(start, <i64>(_pos - start))
+            if _peek() == '\n' {
+                _adv()
+            }
+
+            var more = lineText.size() > 0 && _isBlank(lineText.[0])
+            if havePrev {
+                if style == '|' {
+                    _repeat(&out, '\n', pendingBlank + 1)
+                } else if !more && !prevMore {
+                    if pendingBlank == 0 {
+                        out << ' '
+                    } else {
+                        _repeat(&out, '\n', pendingBlank)
+                    }
+                } else {
+                    _repeat(&out, '\n', pendingBlank + 1)
+                }
+            } else {
+                _repeat(&out, '\n', pendingBlank)
+            }
+            out << lineText
+            havePrev = true
+            prevMore = more
+            pendingBlank = 0
+        }
+
+        if chomp == '+' {
+            if havePrev {
+                out << '\n'
+            }
+            _repeat(&out, '\n', pendingBlank)
+        } else if chomp == 'c' {
+            if havePrev {
+                out << '\n'
             }
         }
+        return &&out
+    }
+
+    // --------------------------------------------------------------------- flow
+
+    // The start of a new line inside a flow collection: no document markers and
+    // the content must be indented more than the enclosing block node
+    func _checkFlowLine(): !void {
+        if _docMarkerAt(0) {
+            raise YamlError("Document marker inside a flow collection", _line, _col)
+        }
+        if _contIndent < 0 {
+            return
+        }
+        var k = 0`u64
+        while _peek(k) == ' ' {
+            k += 1
+        }
+        var d = _peek(k)
+        if d == '\n' || d == '\0' || d == '#' {
+            return
+        }
+        if ((<i64>k) <= _contIndent) {
+            raise YamlError("Bad indentation in a flow collection", _line, _col + k)
+        }
+    }
+
+    // Spaces, line breaks and comments inside a flow collection
+    func _skipFlowSpace(): !void {
+        while true {
+            var c = _peek()
+            if c == '\n' {
+                _adv()
+                _checkFlowLine()
+                continue
+            }
+            if _isBlank(c) {
+                _adv()
+                continue
+            }
+            if c == '#' && _commentAllowed() {
+                _skipToEol()
+                continue
+            }
+            break
+        }
+    }
+
+    func _parseFlowNode(): !Value {
+        _skipFlowSpace()
+        var c = _peek()
+        if c == '&' || c == '!' {
+            var anchor = _readNodeProps()
+            _skipFlowSpace()
+            var next = _peek()
+            var value = Value()
+            if next == ',' || next == ']' || next == '}' || (next == ':' && _atFlowColon(true)) {
+                // the properties have no content, an empty node
+                value = _emptyNode()
+            } else {
+                value = _parseFlowNode()
+            }
+            _registerAnchor(&&anchor, value)
+            return &&value
+        }
+
+        if !_hasTag {
+            return _parseFlowNodeBody(_noTag, false)
+        }
+        var tag = _takeTag()
+        return _parseFlowNodeBody(tag, true)
+    }
+
+    func _parseFlowNodeBody(tag: &const String, tagged: bool): !Value {
+        var c = _peek()
+        if c == '[' || c == '{' {
+            var flow = Value()
+            if c == '[' {
+                flow = _parseFlowSeq()
+            } else {
+                flow = _parseFlowMap()
+            }
+            return _finishCollection(tag, tagged, &&flow)
+        }
+        if c == '*' {
+            return _parseAliasNode(tagged)
+        }
+        if c == '"' || c == '\'' {
+            var s = _parseQuoted()
+            return _finishScalar(tag, tagged, &&s, false)
+        }
+        var text = _parseFlowScalar()
+        return _finishScalar(tag, tagged, &&text, true)
+    }
+
+    // A plain scalar in flow context, it may continue on the following lines
+    func _parseFlowScalar(): !String {
+        var text = _parsePlain(_contIndent, true)
+        if text.size() == 0 {
+            raise YamlError("Unexpected character in flow collection", _line, _col)
+        }
+        _keyPlain = true
+        return &&text
+    }
+
+    // The ':' of a flow pair: followed by a blank or flow indicator, or after a quoted key
+    func _atFlowColon(plain: bool): bool {
+        if _peek() != ':' {
+            return false
+        }
+        var d = _peek(1)
+        return !plain || _isBlankOrEol(d) || _isFlowIndicator(d)
+    }
+
+    func _parseFlowSeq(): !Value {
+        _adv()  // '['
+        var arr = Value.Array()
+        while true {
+            _skipFlowSpace()
+            var c = _peek()
+            if c == ']' {
+                _adv()
+                return &&arr
+            }
+            if _atEnd() {
+                raise YamlError("Unterminated flow sequence", _line, _col)
+            }
+            if c == ',' {
+                raise YamlError("Unexpected ',' in flow sequence", _line, _col)
+            }
+
+            var entry = _parseFlowSeqEntry()
+            arr.push(&&entry)
+
+            _skipFlowSpace()
+            c = _peek()
+            if c == ',' {
+                _adv()
+                continue
+            }
+            if c == ']' {
+                _adv()
+                return &&arr
+            }
+            raise YamlError("Expected ',' or ']' in flow sequence", _line, _col)
+        }
+        return &&arr
+    }
+
+    // A sequence entry, or a single `key: value` pair which is a one entry mapping
+    func _parseFlowSeqEntry(): !Value {
+        var c = _peek()
+        if c == '?' && _isBlankOrEol(_peek(1)) {
+            return _parseFlowExplicitPair()
+        }
+        if c == '[' || c == '{' || c == '*' {
+            return _parseFlowNode()
+        }
+
+        // properties belong to the entry, or to its key when a `:` follows
+        var tagToken = String()
+        var anchor = String()
+        if c == '&' || c == '!' {
+            anchor = _readProps(&tagToken)
+            _skipFlowSpace()
+            c = _peek()
+            if c == '[' || c == '{' || c == '*' || c == ',' || c == ']' {
+                if tagToken.size() > 0 {
+                    _setPendingTag(tagToken)
+                }
+                var node = Value()
+                if c == ',' || c == ']' {
+                    node = _emptyNode()
+                } else {
+                    node = _parseFlowNode()
+                }
+                _registerAnchor(&&anchor, node)
+                return &&node
+            }
+        }
+
+        var text: String = null
+        var plain = true
+        if c == '"' || c == '\'' {
+            text = _parseQuoted()
+            plain = false
+        } else {
+            text = _parseFlowScalar()
+        }
+        var keyEndLine = _line
+        _skipFlowSpace()
+        if _atFlowColon(plain) {
+            if _line != keyEndLine {
+                raise YamlError("An implicit key must be on a single line", _line, _col)
+            }
+            _applyKeyProps(tagToken, anchor, text)
+            _adv()
+            _skipFlowSpace()
+            var value = Value()
+            var d = _peek()
+            if d != ',' && d != ']' {
+                value = _parseFlowNode()
+            }
+            var pair = Value.Object()
+            pair.[&&text] = &&value
+            return &&pair
+        }
+
+        var result = Value()
+        if tagToken.size() > 0 {
+            var tag = _expandTag(tagToken)
+            result = _taggedScalar(tag, text, plain)
+        } else {
+            result = _finishScalar(_noTag, false, &&text, plain)
+        }
+        _registerAnchor(&&anchor, result)
+        return &&result
+    }
+
+    // `? key : value` inside a flow sequence, a one entry mapping
+    func _parseFlowExplicitPair(): !Value {
+        _adv()  // '?'
+        _skipFlowSpace()
+        var key = Value()
+        var c = _peek()
+        if c != ':' && c != ',' && c != ']' {
+            key = _parseFlowNode()
+        }
+        _skipFlowSpace()
+        var value = Value()
+        if _atFlowColon(false) {
+            _adv()
+            _skipFlowSpace()
+            c = _peek()
+            if c != ',' && c != ']' {
+                value = _parseFlowNode()
+            }
+        }
+        var pair = Value.Object()
+        var name = _keyToString(key)
+        pair.[&&name] = &&value
+        return &&pair
+    }
+
+    func _parseFlowMap(): !Value {
+        _adv()  // '{'
+        var obj = Value.Object()
+        var merges = Value.Array()
+        while true {
+            _skipFlowSpace()
+            var c = _peek()
+            if c == '}' {
+                _adv()
+                _applyMerges(&obj, &merges)
+                return &&obj
+            }
+            if _atEnd() {
+                raise YamlError("Unterminated flow mapping", _line, _col)
+            }
+            if c == ',' {
+                raise YamlError("Unexpected ',' in flow mapping", _line, _col)
+            }
+
+            var keyLine = _line
+            var keyCol = _col
+            var keyTagToken = String()
+            var keyAnchor = String()
+            if c == '&' || c == '!' {
+                keyAnchor = _readProps(&keyTagToken)
+                _skipFlowSpace()
+                c = _peek()
+            }
+            var key: String = null
+            var plain = true
+            if c == '"' || c == '\'' {
+                key = _parseQuoted()
+                plain = false
+            } else if keyTagToken.size() + keyAnchor.size() > 0 &&
+                      (c == ',' || c == '}' || (c == ':' && _atFlowColon(true))) {
+                // properties without a key, an empty key
+                key = String()
+            } else {
+                key = _parseFlowScalar()
+            }
+            _applyKeyProps(keyTagToken, keyAnchor, key)
+            _skipFlowSpace()
+
+            var value = Value()
+            if _atFlowColon(plain) {
+                _adv()
+                _skipFlowSpace()
+                var d = _peek()
+                if d != ',' && d != '}' {
+                    value = _parseFlowNode()
+                }
+            }
+            _addEntry(&obj, &merges, &&key, plain, &&value, keyLine, keyCol)
+
+            _skipFlowSpace()
+            c = _peek()
+            if c == ',' {
+                _adv()
+                continue
+            }
+            if c == '}' {
+                _adv()
+                _applyMerges(&obj, &merges)
+                return &&obj
+            }
+            raise YamlError("Expected ',' or '}' in flow mapping", _line, _col)
+        }
+        return &&obj
+    }
+
+    // ------------------------------------------------------------ scalar types
+
+    func _numberKind(s: __string): NumberKind {
+        var n = s.size()
+        var i = 0`u64
+        var c = s.[0]
+        var negative = false
+        if c == '-' || c == '+' {
+            negative = c == '-'
+            i = 1
+        }
+        if i >= n {
+            return NumberKind.NotNumber
+        }
+
+        if s.[i] == '.' {
+            var rest = s.substr(i)
+            if rest == ".inf" || rest == ".Inf" || rest == ".INF" {
+                return negative ? NumberKind.NegInf : NumberKind.PosInf
+            }
+            if i == 0 && (rest == ".nan" || rest == ".NaN" || rest == ".NAN") {
+                return NumberKind.NaN
+            }
+        }
+
+        if i == 0 && n > 2 && s.[0] == '0' && (s.[1] == 'x' || s.[1] == 'o') {
+            var j = 2`u64
+            while j < n {
+                var d = s.[j]
+                if s.[1] == 'x' {
+                    if _hexValue(d) < 0 {
+                        return NumberKind.NotNumber
+                    }
+                } else if d < '0' || d > '7' {
+                    return NumberKind.NotNumber
+                }
+                j += 1
+            }
+            return s.[1] == 'x' ? NumberKind.Hex : NumberKind.Octal
+        }
+
+        var j = i
+        var digitsBefore = 0`u64
+        while j < n && s.[j] >= '0' && s.[j] <= '9' {
+            digitsBefore += 1
+            j += 1
+        }
+        var isFloat = false
+        var digitsAfter = 0`u64
+        if j < n && s.[j] == '.' {
+            isFloat = true
+            j += 1
+            while j < n && s.[j] >= '0' && s.[j] <= '9' {
+                digitsAfter += 1
+                j += 1
+            }
+        }
+        if digitsBefore == 0 && digitsAfter == 0 {
+            return NumberKind.NotNumber
+        }
+        if j < n && (s.[j] == 'e' || s.[j] == 'E') {
+            isFloat = true
+            j += 1
+            if j < n && (s.[j] == '+' || s.[j] == '-') {
+                j += 1
+            }
+            var expDigits = 0`u64
+            while j < n && s.[j] >= '0' && s.[j] <= '9' {
+                expDigits += 1
+                j += 1
+            }
+            if expDigits == 0 {
+                return NumberKind.NotNumber
+            }
+        }
+        if j != n {
+            return NumberKind.NotNumber
+        }
+        return isFloat ? NumberKind.Real : NumberKind.Integer
+    }
+
+    func _isNullLiteral(s: __string): bool => s == "~" || s == "null" || s == "Null" || s == "NULL"
+
+    func _isTrueLiteral(s: __string): bool => s == "true" || s == "True" || s == "TRUE"
+
+    func _isFalseLiteral(s: __string): bool => s == "false" || s == "False" || s == "FALSE"
+
+    func _hexValue(c: char): i32 {
+        if c >= '0' && c <= '9' {
+            return <i32>(c - '0')
+        }
+        if c >= 'a' && c <= 'f' {
+            return <i32>(c - 'a') + 10
+        }
+        if c >= 'A' && c <= 'F' {
+            return <i32>(c - 'A') + 10
+        }
+        return -1
+    }
+
+    // Integer digits of `s` from `start`; (false, 0) when the value overflows i64
+    func _parseInteger(s: __string, start: u64, base: u64, negative: bool): (bool, i64) {
+        var acc = 0`u64
+        var j = start
+        while j < s.size() {
+            var d = <u64>_hexValue(s.[j])
+            // acc * base + d must fit in u64
+            var limit = #u64.max / base
+            if acc > limit || (acc == limit && d > #u64.max % base) {
+                return (false, 0.i64)
+            }
+            acc = acc * base + d
+            j += 1
+        }
+        if !negative {
+            if acc > <u64>(#i64.max) {
+                return (false, 0.i64)
+            }
+            return (true, <i64>acc)
+        }
+        // the magnitude of i64.min is i64.max + 1
+        if acc > (<u64>#i64.max) + 1 {
+            return (false, 0.i64)
+        }
+        return (true, <i64>(0`u64 - acc))
+    }
+
+    // The value of a plain (unquoted) scalar, YAML 1.2 core schema. A string
+    // result takes over `text` instead of copying it.
+    func _resolvePlain(text: String): !Value {
+        var s = text.__str()
+        if s.size() == 0 {
+            return Value()
+        }
+        if _isNullLiteral(s) {
+            return Value()
+        }
+        if _isTrueLiteral(s) {
+            return Value(true)
+        }
+        if _isFalseLiteral(s) {
+            return Value(false)
+        }
+
+        var kind = _numberKind(s)
+        if kind == NumberKind.NotNumber {
+            return Value(&&text)
+        }
+        return _numberValue(s, kind)
+    }
+
+    // The value of a plain scalar of the given number kind, a string for NotNumber
+    func _numberValue(s: __string, kind: NumberKind): !Value {
+        var zero = 0.0
+        switch kind {
+            .Integer => {
+                var negative = s.[0] == '-'
+                var start = 0`u64
+                if s.[0] == '-' || s.[0] == '+' {
+                    start = 1
+                }
+                var r = _parseInteger(s, start, 10, negative)
+                if r.0 {
+                    return Value(r.1)
+                }
+                return Value(s.tof[f64]())
+            }
+            .Real => { return Value(s.tof[f64]()) }
+            .Hex, .Octal => {
+                var base = 16`u64
+                if kind == NumberKind.Octal {
+                    base = 8
+                }
+                var r = _parseInteger(s, 2, base, false)
+                if r.0 {
+                    return Value(r.1)
+                }
+                return Value(s.tof[f64]())
+            }
+            .PosInf => { return Value(1.0 / zero) }
+            .NegInf => { return Value(-1.0 / zero) }
+            .NaN => { return Value(zero / zero) }
+            ... => {}
+        }
+        return Value(String(s))
     }
 }
 
@@ -490,7 +2112,8 @@ test "Parser - dash item with nested mapping value then sibling key" {
     var item1Env = item1&.get("env")
     ok!(!!item1Env && item1Env&.isObject())
     ok!(!!item1Env&.get("NAME") && item1Env&.get("NAME")&.asString() == "cleanup")
-    ok!(!!item1&.get("run") && item1&.get("run")&.asString() == "echo Cleaning up from $NAME")
+    ok!(!!item1&.get("run"))
+    assertEq!(item1&.get("run")&.asString(), "echo \"Cleaning up from $NAME\"")
 }
 
 test "Parser - mixed single-key and multi-key dash items" {
@@ -531,9 +2154,9 @@ next: value
     ok!(!!items && items&.isArray() && items&.size() == 1)
 
     var item0 = items&.get(0)
-    ok!(!!item0&.get("a") && item0&.get("a")&.asFloat() == 1)
-    ok!(!!item0&.get("b") && item0&.get("b")&.asFloat() == 2)
-    ok!(!!item0&.get("c") && item0&.get("c")&.asFloat() == 3)
+    ok!(!!item0&.get("a") && item0&.get("a")&.asInt() == 1)
+    ok!(!!item0&.get("b") && item0&.get("b")&.asInt() == 2)
+    ok!(!!item0&.get("c") && item0&.get("c")&.asInt() == 3)
 
     var next = value.["next"]
     ok!(!!next && next&.asString() == "value")
@@ -594,21 +2217,6 @@ other: value
     ok!(!!other && other&.isString() && other&.asString() == "value")
 }
 
-test "Parser - simple scalar" {
-    var parser = YamlParser("hello")
-    var value = parser.parse()
-
-    ok!(value.isString())
-    ok!(value.asString() == "hello")
-}
-
-test "Parser - empty input" {
-    var parser = YamlParser("")
-    var value = parser.parse()
-
-    ok!(value.isNull())
-}
-
 test "Parser - key with no value at end of input" {
     var parser = YamlParser("hello:")
     var value = parser.parse()
@@ -616,27 +2224,6 @@ test "Parser - key with no value at end of input" {
     ok!(value.isObject())
     var hello = value.["hello"]
     ok!(!!hello && hello&.isNull())
-}
-
-test "Parser - key with no value followed by newline" {
-    var parser = YamlParser("hello:\n")
-    var value = parser.parse()
-
-    ok!(value.isObject())
-    var hello = value.["hello"]
-    ok!(!!hello && hello&.isNull())
-}
-
-test "Parser - key with no value followed by sibling key" {
-    var parser = YamlParser("hello:\nworld: foo\n")
-    var value = parser.parse()
-
-    ok!(value.isObject())
-    var hello = value.["hello"]
-    ok!(!!hello && hello&.isNull())
-
-    var world = value.["world"]
-    ok!(!!world && world&.isString() && world&.asString() == "foo")
 }
 
 test "Parser - flow mapping key with no value" {
@@ -648,15 +2235,6 @@ test "Parser - flow mapping key with no value" {
 
     var b = a&.get("b")
     ok!(!!b && b&.isNull())
-}
-
-test "Parser - unquoted multi-word scalar value" {
-    var parser = YamlParser("run: echo installing")
-    var value = parser.parse()
-
-    ok!(value.isObject())
-    var run = value.["run"]
-    ok!(!!run && run&.isString() && run&.asString() == "echo installing")
 }
 
 test "Parser - unquoted multi-word scalar as list item" {
@@ -673,129 +2251,10 @@ test "Parser - unquoted multi-word scalar as list item" {
     ok!(!!item1 && item1&.isString() && item1&.asString() == "next step")
 }
 
-test "Parser - unquoted multi-word scalar with trailing comment" {
-    var parser = YamlParser("run: echo installing # comment")
-    var value = parser.parse()
-
-    var run = value.["run"]
-    ok!(!!run && run&.isString() && run&.asString() == "echo installing")
-}
-
-test "Parser - quoted scalar still matches unquoted equivalent" {
-    var parser = YamlParser("run: \"echo installing\"")
-    var value = parser.parse()
-
-    var run = value.["run"]
-    ok!(!!run && run&.isString() && run&.asString() == "echo installing")
-}
-
-test "Parser - simple object" {
-    var parser = YamlParser("name: John\nage: 30")
-    var value = parser.parse()
-
-    ok!(value.isObject())
-    var name = value.["name"]
-    ok!(!!name && name&.isString() && name&.asString() == "John")
-
-    var age = value.["age"]
-    ok!(!!age && age&.isFloat() && age&.asFloat() == 30)
-}
-
-test "Parser - simple array" {
-    var parser = YamlParser("- apple\n- banana\n- orange")
-    var value = parser.parse()
-
-    ok!(value.isArray())
-    ok!(value.size() == 3)
-
-    var item0 = value.[0]
-    ok!(!!item0 && item0&.isString() && item0&.asString() == "apple")
-}
-
-test "Parser - nested object" {
-    var parser = YamlParser("person:\n  name: John\n  age: 30")
-    var value = parser.parse()
-
-    ok!(value.isObject())
-    var person = value.["person"]
-    ok!(!!person && person&.isObject())
-
-    var name = person&.get("name")
-    ok!(!!name && name&.asString() == "John")
-}
-
-test "Parser - flow style object" {
-    var parser = YamlParser("user: {name: John, age: 30}")
-    var value = parser.parse()
-
-    ok!(value.isObject())
-    var user = value.["user"]
-    ok!(!!user && user&.isObject())
-
-    var name = user&.get("name")
-    ok!(!!name && name&.asString() == "John")
-
-    var age = user&.get("age")
-    ok!(!!age && age&.asFloat() == 30)
-}
-
-test "Parser - flow style array" {
-    var parser = YamlParser("items: [apple, banana, orange]")
-    var value = parser.parse()
-
-    ok!(value.isObject())
-    var items = value.["items"]
-    ok!(!!items && items&.isArray())
-    ok!(items&.size() == 3)
-}
-
-test "Parser - empty flow array with content after it" {
-    var parser = YamlParser("steps: []\nname: build\n")
-    var value = parser.parse()
-
-    ok!(value.isObject())
-    var steps = value.["steps"]
-    ok!(!!steps && steps&.isArray())
-    ok!(steps&.size() == 0)
-
-    var name = value.["name"]
-    ok!(!!name && name&.isString() && name&.asString() == "build")
-}
-
 test "Parser - empty flow array with internal space" {
     var parser = YamlParser("steps: [ ]\n")
     var value = parser.parse()
 
-    var steps = value.["steps"]
-    ok!(!!steps && steps&.isArray())
-    ok!(steps&.size() == 0)
-}
-
-test "Parser - empty flow object still works" {
-    var parser = YamlParser("opts: {}\n")
-    var value = parser.parse()
-
-    var opts = value.["opts"]
-    ok!(!!opts && opts&.isObject())
-    ok!(opts&.size() == 0)
-}
-
-test "Parser - empty flow object with content after it" {
-    var parser = YamlParser("opts: {}\nname: build\n")
-    var value = parser.parse()
-
-    var opts = value.["opts"]
-    ok!(!!opts && opts&.isObject())
-
-    var name = value.["name"]
-    ok!(!!name && name&.isString() && name&.asString() == "build")
-}
-
-test "Parser - empty flow array" {
-    var parser = YamlParser("steps: []\n")
-    var value = parser.parse()
-
-    ok!(value.isObject())
     var steps = value.["steps"]
     ok!(!!steps && steps&.isArray())
     ok!(steps&.size() == 0)
@@ -841,7 +2300,7 @@ metadata:
 
     // config.port: 8080
     var port = config&.get("port")
-    ok!(!!port && port&.isFloat() && port&.asFloat() == 8080)
+    ok!(!!port && port&.isInt() && port&.asInt() == 8080)
 
     // config.hosts array
     var hosts = config&.get("hosts")
@@ -875,16 +2334,6 @@ metadata:
 }
 
 
-test "Parser - document with start marker" {
-    var parser = YamlParser("""---
-name: test""")
-    var value = parser.parse()
-
-    ok!(value.isObject())
-    var name = value.["name"]
-    ok!(!!name && name&.asString() == "test")
-}
-
 test "Parser - multiple documents" {
     var input = """
 ---
@@ -900,49 +2349,29 @@ items:
 active: true
 """
     var parser = YamlParser(input)
-    var value = parser.parse()
-
-    // Should return array of documents
-    ok!(value.isArray())
-    ok!(value.size() == 3)
+    var docs = parser.parseAll()
+    ok!(docs.size() == 3)
 
     // First document - object with name and age
-    var doc0 = value.[0]
-    ok!(!!doc0 && doc0&.isObject())
-    var name = doc0&.get("name")
+    var doc0 = docs.[0]
+    ok!(doc0.isObject())
+    var name = doc0.get("name")
     ok!(!!name && name&.asString() == "Alice")
-    var age = doc0&.get("age")
-    ok!(!!age && age&.asFloat() == 30)
+    var age = doc0.get("age")
+    ok!(!!age && age&.asInt() == 30)
 
     // Second document - object with array
-    var doc1 = value.[1]
-    ok!(!!doc1 && doc1&.isObject())
-    var items = doc1&.get("items")
+    var doc1 = docs.[1]
+    ok!(doc1.isObject())
+    var items = doc1.get("items")
     ok!(!!items && items&.isArray())
     ok!(items&.size() == 2)
 
     // Third document - object with boolean
-    var doc2 = value.[2]
-    ok!(!!doc2 && doc2&.isObject())
-    var active = doc2&.get("active")
+    var doc2 = docs.[2]
+    ok!(doc2.isObject())
+    var active = doc2.get("active")
     ok!(!!active && active&.asBool() == true)
-}
-
-test "Parser - simple anchor and alias" {
-    var input = """
-value: &anchor hello
-ref: *anchor
-"""
-    var parser = YamlParser(input)
-    var result = parser.parse()
-
-    ok!(result.isObject())
-
-    var value = result.["value"]
-    ok!(!!value && value&.isString() && value&.asString() == "hello")
-
-    var ref = result.["ref"]
-    ok!(!!ref && ref&.isString() && ref&.asString() == "hello")
 }
 
 test "Parser - anchor on object" {
@@ -964,7 +2393,7 @@ user: *default
     var personName = person&.get("name")
     ok!(!!personName && personName&.asString() == "John")
     var personAge = person&.get("age")
-    ok!(!!personAge && personAge&.asFloat() == 30)
+    ok!(!!personAge && personAge&.asInt() == 30)
 
     // First alias
     var admin = result.["admin"]
@@ -972,7 +2401,7 @@ user: *default
     var adminName = admin&.get("name")
     ok!(!!adminName && adminName&.asString() == "John")
     var adminAge = admin&.get("age")
-    ok!(!!adminAge && adminAge&.asFloat() == 30)
+    ok!(!!adminAge && adminAge&.asInt() == 30)
 
     // Second alias
     var user = result.["user"]
@@ -980,7 +2409,7 @@ user: *default
     var userName = user&.get("name")
     ok!(!!userName && userName&.asString() == "John")
     var userAge = user&.get("age")
-    ok!(!!userAge && userAge&.asFloat() == 30)
+    ok!(!!userAge && userAge&.asInt() == 30)
 }
 
 test "Parser - anchor on array" {
@@ -1030,14 +2459,6 @@ items:
     ok!(!!item2 && item2&.isString() && item2&.asString() == "apple")
 }
 
-test "Parser - undefined alias error" {
-    var input = "value: *undefined"
-    var parser = YamlParser(input)
-
-    var result = parser.parse() catch Value()
-    ok!(result.isNull())  // Should have failed
-}
-
 test "Parser - alias before anchor error" {
     var input = """
 ref: *anchor
@@ -1058,36 +2479,8 @@ ref: *anchor
 """
     var parser = YamlParser(input)
 
-    var result = parser.parse() catch Value()
-    ok!(result.isNull())  // Should have failed - anchor not defined in second doc
-}
-
-test "Parser - anchors work within same document" {
-    var input = """
----
-value: &anchor hello
-ref: *anchor
----
-value: &anchor world
-ref: *anchor
-"""
-    var parser = YamlParser(input)
-    var result = parser.parse()
-
-    ok!(result.isArray())
-    ok!(result.size() == 2)
-
-    // First document
-    var doc0 = result.[0]
-    ok!(!!doc0 && doc0&.isObject())
-    var ref0 = doc0&.get("ref")
-    ok!(!!ref0 && ref0&.isString() && ref0&.asString() == "hello")
-
-    // Second document
-    var doc1 = result.[1]
-    ok!(!!doc1 && doc1&.isObject())
-    var ref1 = doc1&.get("ref")
-    ok!(!!ref1 && ref1&.isString() && ref1&.asString() == "world")
+    var result = parser.parseAll() catch Vector[Value]()
+    ok!(result.size() == 0)  // Should have failed - anchor not defined in second doc
 }
 
 test "Parser - nested structure with anchors" {
@@ -1112,7 +2505,7 @@ prod: *config
     var devDebug = dev&.get("debug")
     ok!(!!devDebug && devDebug&.asBool() == true)
     var devPort = dev&.get("port")
-    ok!(!!devPort && devPort&.asFloat() == 8080)
+    ok!(!!devPort && devPort&.asInt() == 8080)
     var devHosts = dev&.get("hosts")
     ok!(!!devHosts && devHosts&.isArray())
     ok!(devHosts&.size() == 2)
@@ -1140,32 +2533,6 @@ test "Parser - anchor with flow style" {
     ok!(copy&.size() == 2)
 }
 
-test "Parser - simple merge key" {
-    var input = """
-default: &default
-  host: localhost
-  port: 8080
-dev:
-  <<: *default
-  port: 3000
-"""
-    var parser = YamlParser(input)
-    var result = parser.parse()
-
-    ok!(result.isObject())
-
-    var dev = result.["dev"]
-    ok!(!!dev && dev&.isObject())
-
-    // Should have merged host
-    var host = dev&.get("host")
-    ok!(!!host && host&.asString() == "localhost")
-
-    // Should have overridden port
-    var port = dev&.get("port")
-    ok!(!!port && port&.asFloat() == 3000)
-}
-
 test "Parser - merge multiple anchors" {
     var input = """
 defaults: &defaults
@@ -1185,7 +2552,7 @@ service:
     ok!(!!service && service&.isObject())
 
     var timeout = service&.get("timeout")
-    ok!(!!timeout && timeout&.asFloat() == 30)
+    ok!(!!timeout && timeout&.asInt() == 30)
 
     var user = service&.get("user")
     ok!(!!user && user&.asString() == "admin")
@@ -1232,15 +2599,15 @@ child:
 
     // Explicit keys should win
     var a = child&.get("a")
-    ok!(!!a && a&.asFloat() == 100)
+    ok!(!!a && a&.asInt() == 100)
 
     // Merged key
     var b = child&.get("b")
-    ok!(!!b && b&.asFloat() == 2)
+    ok!(!!b && b&.asInt() == 2)
 
     // Explicit key should win
     var c = child&.get("c")
-    ok!(!!c && c&.asFloat() == 300)
+    ok!(!!c && c&.asInt() == 300)
 }
 
 test "Parser - merge with inline object" {
@@ -1263,5 +2630,5 @@ dev:
 
     // Should have overridden port
     var port = dev&.get("port")
-    ok!(!!port && port&.asFloat() == 3000)
+    ok!(!!port && port&.asInt() == 3000)
 }

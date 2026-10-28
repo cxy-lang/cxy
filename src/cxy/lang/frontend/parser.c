@@ -9,6 +9,7 @@
 #include "defines.h"
 #include "flag.h"
 #include "lang/frontend/token.h"
+#include "lang/frontend/types.h"
 #include "lexer.h"
 #include "strings.h"
 
@@ -55,6 +56,7 @@ static inline AstNode *statementOrExpression(Parser *P)
 static inline AstNode *statementOnly(Parser *P) { return statement(P, false); }
 
 static AstNode *parseType(Parser *P);
+static AstNode *parseTypeImpl(Parser *P, bool allowOptional);
 
 static AstNode *parseUnionType(Parser *P);
 
@@ -976,6 +978,7 @@ static AstNode *postfix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
             &operand->loc,
             &(AstNode){.tag = astUnaryExpr,
                        .unaryExpr = {.operand = operand,
+                                     .isPrefix = false,
                                      .op = tokenToPostfixUnaryOperator(tag)}});
     }
 
@@ -1417,7 +1420,8 @@ static AstNode *funcReturnType(Parser *P)
 
 static AstNode *closure(Parser *P, AstNode *captures, CaptureMode defaultMode);
 
-static AstNode *closureWithCaptures(Parser *P)
+// Parses `|a, &b, &&c, &&|` and returns the capture list
+static AstNode *parseClosureCaptures(Parser *P, CaptureMode *modeOut)
 {
     Token start = *consume0(P, tokBOr);
     CaptureMode defaultMode = capValue;
@@ -1482,7 +1486,15 @@ static AstNode *closureWithCaptures(Parser *P)
                     NULL);
     }
 
-    return closure(P, list.first, defaultMode);
+    *modeOut = defaultMode;
+    return list.first;
+}
+
+static AstNode *closureWithCaptures(Parser *P)
+{
+    CaptureMode defaultMode = capValue;
+    AstNode *captures = parseClosureCaptures(P, &defaultMode);
+    return closure(P, captures, defaultMode);
 }
 
 static AstNode *closure(Parser *P, AstNode *captures, CaptureMode defaultMode)
@@ -1551,12 +1563,22 @@ static AstNode *tuple(
 static AstNode *parseTupleType(Parser *P)
 {
     Token tok = *consume0(P, tokLParen);
-    AstNode *elems = parseMany(P, tokRParen, tokComma, parseType);
+    AstNode *first = parseType(P);
+    if (match(P, tokRParen)) {
+        return first;
+    }
+    AstNodeList list = {};
+    insertAstNode(&list, first);
+    while (match(P, tokComma)) {
+        if (check(P, tokRParen))
+            break;
+        insertAstNode(&list, parseType(P));
+    }
     consume0(P, tokRParen);
     return newAstNode(
         P,
         &tok,
-        &(AstNode){.tag = astTupleType, .tupleType = {.elements = elems}});
+        &(AstNode){.tag = astTupleType, .tupleType = {.elements = list.first}});
 }
 
 static AstNode *parseArrayType(Parser *P)
@@ -1666,7 +1688,7 @@ static AstNode *parsePointerType(Parser *P)
 {
     // u64 flags = match(P, tokConst) ? flgConst : flgNone;
     Token tok = *consume0(P, tokBXor);
-    AstNode *pointed = parseType(P);
+    AstNode *pointed = parseTypeImpl(P, false);
 
     return newAstNode(P,
                       &tok,
@@ -1679,7 +1701,7 @@ static AstNode *parseReferenceType(Parser *P)
 {
     Token tok = *consume0(P, tokBAnd);
     u64 flags = match(P, tokConst) ? flgConst : flgNone;
-    AstNode *referred = parseType(P);
+    AstNode *referred = parseTypeImpl(P, false);
 
     return newAstNode(P,
                       &tok,
@@ -1758,6 +1780,16 @@ static AstNode *macroExpression(Parser *P, AstNode *callee)
 static AstNode *launchExpression(Parser *P)
 {
     Token tok = *consume0(P, tokLaunch);
+    AstNode *name = NULL;
+    if (check(P, tokStringLiteral)) {
+        name = parseString(P);
+    }
+
+    CaptureMode defaultMode = capValue;
+    AstNode *captures = NULL;
+    if (check(P, tokBOr))
+        captures = parseClosureCaptures(P, &defaultMode);
+
     AstNode *body = NULL;
     bool callStyle = match(P, tokLParen);
     if (check(P, tokLBrace)) {
@@ -1771,32 +1803,39 @@ static AstNode *launchExpression(Parser *P)
     if (callStyle)
         consume0(P, tokRParen);
 
-    body->next = makeReturnAstNode(
+    AstNode *stmts = body;
+    if (nodeIs(body, BlockStmt)) {
+        stmts = body->blockStmt.stmts;
+    }
+    AstNode *retStmt = makeReturnAstNode(
         P->memPool,
         builtinLoc(),
         flgNone,
         makeIntegerLiteral(P->memPool, builtinLoc(), 0, NULL, NULL),
         NULL,
         NULL);
-    body = makeBlockStmt(P->memPool, &body->loc, body, NULL, NULL);
-    AstNode *arg = newAstNode(
+    if (stmts) {
+        getLastAstNode(stmts)->next = retStmt;
+    }
+    else {
+        stmts = retStmt;
+    }
+    body = makeBlockStmt(P->memPool, &body->loc, stmts, NULL, NULL);
+    AstNode *retType = makePrimitiveTypeAst(P->memPool, builtinLoc(), flgNone, prtI32, NULL, NULL);
+    AstNode *closure = newAstNode(
         P,
         &tok,
-        &(AstNode){.tag = astClosureExpr, .closureExpr = {.body = body}});
+        &(AstNode){.tag = astClosureExpr,
+                   .closureExpr = {.captures = captures,
+                                   .body = body,
+                                   .ret = retType,
+                                   .defaultMode = defaultMode}});
 
     return newAstNode(
         P,
         &tok,
-        &(AstNode){
-            .tag = astCallExpr,
-            .callExpr = {
-                .callee = makePath(
-                    P->memPool, &tok.fileLoc, S___thread_launch, flgNone, NULL),
-                .args =
-                    newAstNode(P,
-                               &tok,
-                               &(AstNode){.tag = astClosureExpr,
-                                          .closureExpr = {.body = body}})}});
+        &(AstNode){.tag = astLaunch,
+                   .launch = {.name = name, .closure = closure}});
 }
 
 static AstNode *parseCallArguments(Parser *P)
@@ -3496,7 +3535,7 @@ static AstNode *xFormType(Parser *P)
                                            .xForm = xForm}});
 }
 
-static AstNode *parseTypeImpl(Parser *P)
+static AstNode *parseTypeImpl(Parser *P, bool allowOptional)
 {
     AstNode *type;
     FileLoc loc = current(P)->fileLoc;
@@ -3544,7 +3583,7 @@ static AstNode *parseTypeImpl(Parser *P)
             break;
         case tokLNot: {
             Token notTok = *advance(P);
-            AstNode *target = parseTypeImpl(P);
+            AstNode *target = parseTypeImpl(P, false);
             return makeAstNode(
                 P->memPool,
                 &notTok.fileLoc,
@@ -3587,7 +3626,7 @@ static AstNode *parseTypeImpl(Parser *P)
     }
 
     type->loc.begin = loc.begin;
-    if (match(P, tokQuestion)) {
+    if (allowOptional && match(P, tokQuestion)) {
         type = makeAstNode(
             P->memPool,
             &loc,
@@ -3603,7 +3642,7 @@ static AstNode *parseType(Parser *P)
     AstNodeList members = {0};
     Token tok = *current(P);
     do {
-        listAddAstNode(&members, parseTypeImpl(P));
+        listAddAstNode(&members, parseTypeImpl(P, true));
     } while (match(P, tokBOr));
 
     if (members.first != members.last) {

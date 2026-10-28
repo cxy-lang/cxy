@@ -747,13 +747,13 @@ pub class Request {
 }
 
 func requestParserOnMessageBegin(p: ^parser.llhttp_t) {
-    var req = p.data !: Request;
+    var req = &(p.data !: Request);
     req.clear()
     return 0`i32
 }
 
 func requestParserOnUrl(p: ^parser.llhttp_t, at: ^const char, len: u64) {
-    var req = p.data !: Request;
+    var req = &(p.data !: Request);
     if (req._path == null) {
         req._path = String(at, len)
     }
@@ -764,7 +764,7 @@ func requestParserOnUrl(p: ^parser.llhttp_t, at: ^const char, len: u64) {
 }
 
 func requestParserOnHeaderField(p: ^parser.llhttp_t, at: ^const char, len: u64) {
-    var req = p.data !: Request;
+    var req = &(p.data !: Request);
     if (req._s2 != null) {
         // We have seen a new header
         assert!(req._s1 != null)
@@ -781,7 +781,7 @@ func requestParserOnHeaderField(p: ^parser.llhttp_t, at: ^const char, len: u64) 
 }
 
 func requestParserOnHeaderValue(p: ^parser.llhttp_t, at: ^const char, len: u64) {
-    var req = p.data !: Request;
+    var req = &(p.data !: Request);
     assert!(req._s1 != null)
     if (req._s2 == null) {
         req._s2 = String(at, len)
@@ -793,7 +793,7 @@ func requestParserOnHeaderValue(p: ^parser.llhttp_t, at: ^const char, len: u64) 
 }
 
 func requestParserOnHeadersComplete(p: ^parser.llhttp_t) {
-    var req = p.data !: Request;
+    var req = &(p.data !: Request);
     if (req._s1 != null) {
         assert!(req._s1 != null)
         req._headers.[&&req._s1] = &&req._s2
@@ -804,7 +804,7 @@ func requestParserOnHeadersComplete(p: ^parser.llhttp_t) {
 }
 
 func requestParserOnBody(p: ^parser.llhttp_t, at: ^const char, len: u64) {
-    var req = p.data !: Request;
+    var req = &(p.data !: Request);
     if (req._body == null) {
         req._body = String(at, len)
     }
@@ -815,7 +815,7 @@ func requestParserOnBody(p: ^parser.llhttp_t, at: ^const char, len: u64) {
 }
 
 func requestParserOnMessageComplete(p: ^parser.llhttp_t) {
-    var req = p.data !: Request;
+    var req = &(p.data !: Request);
     req._isComplete = true;
     return 0
 }
@@ -908,7 +908,7 @@ class RouteLeaf {
         return pos == len || (pos < len && remainingPath.[pos] == '?') || isStatic
     }
 
-    func find(method: Method, remainingPath: __string, req: &Request): Optional[&Route] {
+    func find(method: Method, remainingPath: __string, req: &Request): &Route? {
         // Try to find matching route - prioritize exact matches (fewer dynamic segments)
         var bestMatch: &Route
         var found = false
@@ -947,13 +947,19 @@ class RouteLeaf {
 
 pub class Route {
     prefix: __string
-    handler: lambda_of!(#HandlerFn)
+    handler: HandlerFn
     pattern: Vector[RouteSegment]
     _methods: u32
     _attrs = RouteAttrs{};
     _id: u64 = 0
 
-    func `init`(id: u64, methods: u32, prefix: __string, fn: HandlerFn, pattern: Vector[RouteSegment]) {
+    func `init`(
+        id: u64,
+        methods: u32,
+        prefix: __string,
+        @escaping fn: HandlerFn,
+        pattern: Vector[RouteSegment],
+    ) {
         handler = &&fn
         this.prefix = prefix
         this.pattern = &&pattern
@@ -1005,7 +1011,7 @@ class Router {
         routes = Trie[RouteLeaf]();
     }
 
-    func add(methods: u32, path: string, idx: i64, fn: HandlerFn) {
+    func add(methods: u32, path: string, idx: i64, @escaping fn: HandlerFn) {
         assert!(path.[idx] == '/')
         var i = idx;
         while path.[i] != '\0' && path.[i] != '{' {
@@ -1023,7 +1029,7 @@ class Router {
         // Find or create RouteLeaf (must be exact match, not just prefix)
         var leaf = routes.find(prefix.str(), prefix.size())
         if leaf {
-            var consumed, leafData = leaf.ref()
+            var consumed, leafData = &*leaf
             if consumed == prefix.size() {
                 // Exact match - reuse existing leaf
                 return leafData.add(&&route)
@@ -1035,7 +1041,7 @@ class Router {
         return newLeaf.add(&&route)
     }
 
-    func add(path: string, fn: HandlerFn) {
+    func add(path: string, @escaping fn: HandlerFn) {
         var methods = Method.Get;
         var idx = 0`i64;
         if (path.[0] != '/') {
@@ -1058,7 +1064,7 @@ class Router {
             return;
         }
 
-        var consumed, leaf = found.move();
+        var consumed, leaf = &&*found
         var remainingPath = path.substr(consumed);
 
         var route = leaf.find(req.method(), remainingPath, req)
@@ -1083,17 +1089,17 @@ class Router {
         (*route)(req, resp)
     }
 
-    func find(req: &Request, resp: &Response): Optional[&Route] {
+    func find(req: &Request, resp: &Response): &Route? {
         var path = req.path().__str();
-        var found = routes.find(path.str(), path.size());
+        var found = routes.find(path.str(), path.size())
         if (!found) {
             TRC!("Route not found - path: " << req.path())
             resp.end(Status.NotFound)
             return null;
         }
 
-        var consumed, leaf = found.move();
-        var remainingPath = path.substr(consumed);
+        var consumed, leaf = &&*found
+        var remainingPath = path.substr(consumed)
 
         var route = leaf.find(req.method(), remainingPath, req)
         if !route {
@@ -1196,13 +1202,13 @@ class Connection[Middlewares] {
     - resp: Response
     - config: ^Config
     - _close: bool = false;
-    - _notFoundRoute: Optional[&Route] = null
+    - _notFoundRoute: &Route? = null
 
     func `init`(config: ^Config,
                 mws: ^Middlewares,
                 router: ^Router,
                 sock: TcpSocket,
-                notFoundRoute: Optional[&Route] = null) {
+                notFoundRoute: &Route? = null) {
         this.router = router
         this.sock = &&sock
         this.config = config
@@ -1475,7 +1481,7 @@ pub class Server[...Middlewares] {
             if (!sock)
                 continue;
 
-            async handleConnection(sock.move())
+            async handleConnection(&&*sock)
         }
         DBG!( "server stopped" )
     }
@@ -1520,11 +1526,11 @@ pub class Server[...Middlewares] {
         }
     }
 
-    func `()`(route: string, handler: HandlerFn) {
+    func `()`(route: string, @escaping handler: HandlerFn) {
         return router.add(route, &&handler)
     }
 
-    func notFound(handler: HandlerFn) {
+    func notFound(@escaping handler: HandlerFn) {
         notFoundRoute = Route(
             0,
             0,
@@ -1618,10 +1624,10 @@ test "Route pattern matching with different parameter counts" {
     var state = {called: 0}
 
     // Add routes with same prefix but different patterns
-    router.add("GET /home/{arg1}/{arg2}", (@unused req: &const Request, @unused res: &Response) => {
+    router.add("GET /home/{arg1}/{arg2}", |&state|(@unused req: &const Request, @unused res: &Response) => {
         state.called = 2
     })
-    router.add("GET /home/{arg1}/{arg2}/{arg3}", (@unused req: &const Request, @unused res: &Response) => {
+    router.add("GET /home/{arg1}/{arg2}/{arg3}", |&state|(@unused req: &const Request, @unused res: &Response) => {
         state.called = 3
     })
 
@@ -1645,7 +1651,7 @@ test "Route pattern matching with middle parameters" {
     var router = Router()
     var params = {id: __string()}
 
-    router.add("GET /home/{id}/edit", (req: &const Request, @unused res: &Response) => {
+    router.add("GET /home/{id}/edit", |&params|(req: &const Request, @unused res: &Response) => {
         var val = req.param("id")
         if val {
             params.id = __copy!(*val)
@@ -1665,10 +1671,10 @@ test "Route pattern matching with different HTTP methods" {
     var router = Router()
     var params = {method: __string()}
 
-    router.add("GET /home", (@unused req: &const Request, @unused res: &Response) => {
+    router.add("GET /home", |&params|(@unused req: &const Request, @unused res: &Response) => {
         params.method = "GET".s
     })
-    router.add("POST /home", (@unused req: &const Request, @unused res: &Response) => {
+    router.add("POST /home", |&params|(@unused req: &const Request, @unused res: &Response) => {
         params.method = "POST".s
     })
 
@@ -1692,7 +1698,7 @@ test "Route pattern matching with multiple middle parameters" {
     var router = Router()
     var params = {id: __string(), commentId: __string()}
 
-    router.add("GET /home/{id}/comments/{commentId}", (req: &const Request, @unused res: &Response) => {
+    router.add("GET /home/{id}/comments/{commentId}", |&params|(req: &const Request, @unused res: &Response) => {
         var val1 = req.param("id")
         var val2 = req.param("commentId")
         if val1 {
@@ -1717,7 +1723,7 @@ test "Route pattern matching with extension suffix" {
     var router = Router()
     var matchedProject = { namespace: __string(), name: __string() }
 
-    router.add("GET /projects/{namespace}/{name}/badge.svg", (req: &const Request, @unused res: &Response) => {
+    router.add("GET /projects/{namespace}/{name}/badge.svg", |&matchedProject|(req: &const Request, @unused res: &Response) => {
         var ns = req.param("namespace")
         if ns {
             matchedProject.namespace = __copy!(*ns)
@@ -1793,13 +1799,13 @@ test "Route pattern matching with common prefix at different levels" {
     var router = Router()
     var state = {route: __string()}
 
-    router.add("GET /admin", (@unused req: &const Request, @unused res: &Response) => {
+    router.add("GET /admin", |&state|(@unused req: &const Request, @unused res: &Response) => {
         state.route = "admin".s
     })
-    router.add("GET /admin/tokens", (@unused req: &const Request, @unused res: &Response) => {
+    router.add("GET /admin/tokens", |&state|(@unused req: &const Request, @unused res: &Response) => {
         state.route = "admin/tokens".s
     })
-    router.add("GET /admin/packages", (@unused req: &const Request, @unused res: &Response) => {
+    router.add("GET /admin/packages", |&state|(@unused req: &const Request, @unused res: &Response) => {
         state.route = "admin/packages".s
     })
 

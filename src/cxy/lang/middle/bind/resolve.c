@@ -391,10 +391,12 @@ void bindFunctionDecl(AstVisitor *visitor, AstNode *node)
         defineSymbol(ctx->env, ctx->L, node->funcParam.name, node);
     }
 
-    ctx->isConstFunc |= hasFlag(node, Const);
+    bool prevIsConstFunc = ctx->isConstFunc;
+    ctx->isConstFunc = hasFlag(node, Const);
     astVisit(visitor, node->funcDecl.signature->ret);
     astVisitManyNodes(visitor, node->funcDecl.signature->params);
     astVisit(visitor, node->funcDecl.body);
+    ctx->isConstFunc = prevIsConstFunc;
 
     popScope(ctx->env);
 }
@@ -923,6 +925,12 @@ static void bindCatchExpr(AstVisitor *visitor, AstNode *node)
     }
 }
 
+static void bindLaunch(AstVisitor *visitor, AstNode *node)
+{
+    astVisit(visitor, node->launch.name);
+    astVisit(visitor, node->launch.closure);
+}
+
 void withParentScope(Visitor func, AstVisitor *visitor, AstNode *node)
 {
     BindContext *ctx = getAstVisitorContext(visitor);
@@ -974,6 +982,7 @@ void bindAstPhase2(CompilerDriver *driver, Env *env, AstNode *node)
         [astIteratorExpr] = bindIteratorExpr,
         [astAliasExpr] = bindAliasExpr,
         [astCatchExpr] = bindCatchExpr,
+        [astLaunch] = bindLaunch,
         [astDeferStmt] = bindDeferStmt,
         [astBreakStmt] = bindBreakOrContinueStmt,
         [astContinueStmt] = bindBreakOrContinueStmt,

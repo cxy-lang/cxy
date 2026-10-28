@@ -24,7 +24,7 @@ pub func main(): !void  {
     server("/stream", (@unused req: &const Request, resp: &Response) => {
         stream(resp) catch {
             // Just write the exception
-            resp.body() << ex!
+            resp.body() << ex!.what()
         }
     })
 

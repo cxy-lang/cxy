@@ -253,8 +253,13 @@ bool evalExplicitConstruction(AstVisitor *visitor,
     type = resolveAndUnThisType(unwrapType(type, NULL));
     TypingContext *ctx = getAstVisitorContext(visitor);
 
-    if (isTypeAssignableFrom(type, source))
+    if (isTypeAssignableFrom(type, source)) {
+        // `null` for a closure is the empty closure of the target type, so
+        // lowering emits (Closure_X){0} rather than nullptr
+        if (nodeIs(node, NullLit) && isClosureType(type))
+            node->type = type;
         return true;
+    }
 
     if (isReferenceType(type) && !isReferenceType(source)) {
         AstNode *operand = deepCloneAstNode(ctx->pool, node);
@@ -383,6 +388,12 @@ void checkStructExpr(AstVisitor *visitor, AstNode *node)
                                                         member->type);
             type = member->type;
         }
+        else if (isOptionalType(member->type) && !isOptionalType(type) &&
+                 !nodeIs(value, NullLit)) {
+            // `T` for a `T?` field: keep the real type, lowering wraps it
+            const Type *target = getOptionalTargetType(member->type);
+            value->type = target ? target : type;
+        }
         else {
             value->type = member->type;
         }
@@ -399,7 +410,8 @@ void checkStructExpr(AstVisitor *visitor, AstNode *node)
     bool isExtern = hasFlag(striped, Extern);
     for (u64 i = 0; i < striped->tStruct.members->count; i++) {
         const AstNode *targetField = striped->tStruct.members->members[i].decl;
-        if (initialized[i] || !nodeIs(targetField, FieldDecl))
+        if (initialized[i] || !nodeIs(targetField, FieldDecl) ||
+            isZeroInitArrayField(targetField))
             continue;
 
         if (targetField->structField.value == NULL) {

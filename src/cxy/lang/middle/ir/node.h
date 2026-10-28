@@ -20,6 +20,7 @@ extern "C" {
     f(FloatConst)                   \
     f(StringConst)                  \
     f(ArrayConst)                   \
+    f(FieldConst)                   \
     f(StructConst)                  \
     f(GlobalRef)
 
@@ -97,7 +98,8 @@ typedef struct IrBasicBlock IrBasicBlock;
     void *codegen;
 
 typedef struct IrCase {
-    u64 value;
+    IrNode *valNode;
+    IrNode *endNode;
     IrNode *target;
 } IrCase;
 
@@ -111,6 +113,7 @@ struct IrNode {
         struct { f64 value; } floatConst;
         struct { cstring value; } stringConst;
         struct { IrNode *elements; u64 count; } arrayConst;
+        struct { cstring name; u32 index; IrNode *value; } fieldConst;
         struct { IrNode *fields; u64 count; } structConst;
         struct { cstring name; IrNode *target; } globalRef;
 
@@ -148,7 +151,13 @@ struct IrNode {
         struct { IrNode *cond; IrNode *trueTarget; IrNode *falseTarget; } branchIf;
         struct { IrNode *cond; IrCase *cases; u64 casesCount; IrNode *defaultTarget; } switchStmt;
         struct { IrNode *value; } returnStmt;
-        struct { cstring text; IrNode *inputs; IrNode *outputs; } inlineAsm;
+        struct {
+            cstring text;
+            IrNode *inputs;
+            IrNode *outputs;
+            IrNode *clobbers;
+            bool isVolatile;
+        } inlineAsm;
 
         // Declarations
         struct { cstring name; IrNode *first; IrNode *last; } basicBlock;
@@ -163,7 +172,7 @@ struct IrNode {
             u32 nextScopeId;
             bool isHint;
         } function;
-        struct { cstring name; IrNode *init; } globalVar;
+        struct { cstring name; IrNode *init; bool isThreadLocal; } globalVar;
         struct {
             cstring name;
             IrNode *globals;
@@ -184,6 +193,9 @@ IrNode *makeIrBasicBlock(MemPool *pool, const FileLoc *loc, cstring name);
 IrNode *makeIrFuncParam(MemPool *pool, const FileLoc *loc, u64 flags, cstring name, u32 index, const IrType *type);
 IrNode *makeIrGlobalVar(MemPool *pool, const FileLoc *loc, u64 flags, cstring name, const IrType *type, IrNode *init);
 
+// 1 = process finalizer (__fini_<module>), 2 = thread finalizer (__tfini_<module>), 0 = neither
+int irModuleFiniKind(const IrNode *func);
+
 IrNode *makeIrVarDecl(MemPool *pool, const FileLoc *loc, u64 flags, cstring name, cstring display, const IrType *type, u32 scopeId);
 IrNode *makeIrAssign(MemPool *pool, const FileLoc *loc, IrNode *lhs, IrNode *rhs);
 IrNode *makeIrScopeEnter(MemPool *pool, const FileLoc *loc, u32 scopeId);
@@ -193,6 +205,13 @@ IrNode *makeIrBranchIf(MemPool *pool, const FileLoc *loc, IrNode *cond, IrNode *
 IrNode *makeIrSwitch(MemPool *pool, const FileLoc *loc, IrNode *cond, IrCase *cases, u64 casesCount, IrNode *defaultTarget);
 IrNode *makeIrReturn(MemPool *pool, const FileLoc *loc, IrNode *value);
 IrNode *makeIrUnreachable(MemPool *pool, const FileLoc *loc);
+IrNode *makeIrInlineAsm(MemPool *pool,
+                        const FileLoc *loc,
+                        cstring text,
+                        IrNode *outputs,
+                        IrNode *inputs,
+                        IrNode *clobbers,
+                        bool isVolatile);
 
 IrNode *makeIrVarRef(MemPool *pool, const FileLoc *loc, IrNode *decl);
 IrNode *makeIrGlobalRef(MemPool *pool, const FileLoc *loc, cstring name, IrNode *target, const IrType *type);
@@ -208,7 +227,7 @@ IrNode *makeIrCall(MemPool *pool, const FileLoc *loc, IrNode *callee, IrNode *ar
 IrNode *makeIrAddrOf(MemPool *pool, const FileLoc *loc, IrNode *target, const IrType *ptrType);
 IrNode *makeIrDeref(MemPool *pool, const FileLoc *loc, IrNode *target, const IrType *valType);
 IrNode *makeIrSizeof(MemPool *pool, const FileLoc *loc, const IrType *targetType, const IrType *u64Type);
-IrNode *makeIrAlloca(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size);
+IrNode *makeIrAlloca(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size, const IrType *ptrType);
 IrNode *makeIrMalloc(MemPool *pool, const FileLoc *loc, const IrType *elemType, IrNode *size);
 IrNode *makeIrOptionalValue(MemPool *pool, const FileLoc *loc, IrNode *value, const IrType *type);
 IrNode *makeIrUnionValue(MemPool *pool, const FileLoc *loc, u32 index, IrNode *value, const IrType *type);
@@ -228,6 +247,7 @@ IrNode *makeIrIntConst(MemPool *pool, const FileLoc *loc, u128 value, bool isNeg
 IrNode *makeIrFloatConst(MemPool *pool, const FileLoc *loc, f64 value, const IrType *type);
 IrNode *makeIrStringConst(MemPool *pool, const FileLoc *loc, cstring value, const IrType *type);
 IrNode *makeIrArrayConst(MemPool *pool, const FileLoc *loc, IrNode *elements, u64 count, const IrType *type);
+IrNode *makeIrFieldConst(MemPool *pool, const FileLoc *loc, cstring name, u32 index, IrNode *value, const IrType *type);
 IrNode *makeIrStructConst(MemPool *pool, const FileLoc *loc, IrNode *fields, u64 count, const IrType *type);
 
 static inline bool isIrConst(const IrNode *node)

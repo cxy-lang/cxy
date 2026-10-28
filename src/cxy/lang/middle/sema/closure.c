@@ -157,6 +157,14 @@ static AstNode *synthesizeClosureBodyFunction(AstVisitor *visitor,
                           flgNone,
                           params);
 
+    // `(x) => expr` returns the expression, shake only wraps declared functions
+    AstNode *implicitReturn = NULL;
+    if (body && !nodeIs(body, BlockStmt)) {
+        implicitReturn = makeReturnAstNode(
+            ctx->pool, &body->loc, flgNone, body, NULL, NULL);
+        body = makeBlockStmt(ctx->pool, &body->loc, implicitReturn, NULL, NULL);
+    }
+
     AstNode *bodyFunc = makeFunctionDecl(ctx->pool,
                                          loc,
                                          bodyName,
@@ -169,6 +177,9 @@ static AstNode *synthesizeClosureBodyFunction(AstVisitor *visitor,
     bodyFunc->funcDecl.this_ = envThisParam;
     if (closureNode)
         closureNode->closureExpr.construct = bodyFunc;
+    // returns of a closure point at the closure expression, like written ones
+    if (implicitReturn)
+        implicitReturn->returnStmt.func = closureNode ?: bodyFunc;
 
     const Type *fnType = checkType(visitor, bodyFunc);
     if (typeIs(fnType, Error))
@@ -235,6 +246,7 @@ void checkClosureExpr(AstVisitor *visitor, AstNode *node)
                 .flags = flgNone,
                 .func = {.params = userParamTypes,
                          .paramsCount = (u16)paramsCount,
+                         .decl = bodyFunc,
                          .retType = bodyFunc->type->func.retType}});
 
     const Type *closureType = makeClosureType(ctx->types, envType, userFnType, false);

@@ -13,6 +13,8 @@ typedef struct SymbolEntry {
 typedef struct ModuleInitEntry {
     const IrNode *module;
     IrNode *initFunc;
+    IrNode *finiFunc;  // __fini_<module>
+    IrNode *tfiniFunc; // __tfini_<module>
 } ModuleInitEntry;
 
 typedef struct ReachabilityContext {
@@ -63,11 +65,18 @@ static inline bool compareModuleInitEntry(const void *a, const void *b)
     return ea && ea->module == mod;
 }
 
-static void addModuleInit(ReachabilityContext *ctx, const IrNode *module, IrNode *initFunc)
+static void addModuleInit(ReachabilityContext *ctx,
+                          const IrNode *module,
+                          IrNode *initFunc,
+                          IrNode *finiFunc,
+                          IrNode *tfiniFunc)
 {
-    if (module == NULL || initFunc == NULL)
+    if (module == NULL || (initFunc == NULL && finiFunc == NULL && tfiniFunc == NULL))
         return;
-    ModuleInitEntry entry = {.module = module, .initFunc = initFunc};
+    ModuleInitEntry entry = {.module = module,
+                             .initFunc = initFunc,
+                             .finiFunc = finiFunc,
+                             .tfiniFunc = tfiniFunc};
     insertInHashTable(&ctx->moduleInits,
                       &entry,
                       hashPtr(hashInit(), module),
@@ -75,16 +84,15 @@ static void addModuleInit(ReachabilityContext *ctx, const IrNode *module, IrNode
                       compareModuleInitEntry);
 }
 
-static IrNode *findModuleInit(ReachabilityContext *ctx, const IrNode *module)
+static ModuleInitEntry *findModuleInit(ReachabilityContext *ctx, const IrNode *module)
 {
     if (module == NULL)
         return NULL;
-    ModuleInitEntry *found = findInHashTable(&ctx->moduleInits,
-                                            module,
-                                            hashPtr(hashInit(), module),
-                                            sizeof(ModuleInitEntry),
-                                            compareModuleInitEntry);
-    return found ? found->initFunc : NULL;
+    return findInHashTable(&ctx->moduleInits,
+                           module,
+                           hashPtr(hashInit(), module),
+                           sizeof(ModuleInitEntry),
+                           compareModuleInitEntry);
 }
 
 static void markAndEnqueue(ReachabilityContext *ctx, IrNode *node)
@@ -95,9 +103,13 @@ static void markAndEnqueue(ReachabilityContext *ctx, IrNode *node)
     pushOnDynArray(&ctx->worklist, &node);
 
     if (node->tag == irGlobalVar && node->parent) {
-        IrNode *initFunc = findModuleInit(ctx, node->parent);
-        if (initFunc)
-            markAndEnqueue(ctx, initFunc);
+        // A live global needs its module's initializer and finalizers
+        ModuleInitEntry *entry = findModuleInit(ctx, node->parent);
+        if (entry) {
+            markAndEnqueue(ctx, entry->initFunc);
+            markAndEnqueue(ctx, entry->finiFunc);
+            markAndEnqueue(ctx, entry->tfiniFunc);
+        }
     }
 }
 
@@ -234,7 +246,7 @@ static void collectRoots(ReachabilityContext *ctx)
                 isRoot = true;
             }
             else if (ctx->driver->options.cmd == cmdTest || ctx->driver->hasTestCases) {
-                if (hasFlag(func, TestContext) || func->function.name == S_allTestCases)
+                if (hasFlag(func, TestContext) || func->function.name == S_allTestCases || func->function.name == S_runTests)
                     isRoot = true;
             }
 
@@ -277,12 +289,17 @@ void runReachabilityAnalysis(CompilerDriver *driver)
         if (mod == NULL)
             continue;
 
-        IrNode *initFunc = NULL;
+        IrNode *initFunc = NULL, *finiFunc = NULL, *tfiniFunc = NULL;
         for (IrNode *func = mod->module.functions; func; func = func->next) {
             func->flags &= ~flgReachable;
             func->parent = mod;
             addSymbol(&ctx, func->function.name, func);
-            if (hasFlag(func, ModuleInit) || func->function.name == S___init ||
+            int finiKind = irModuleFiniKind(func);
+            if (finiKind == 1)
+                finiFunc = func;
+            else if (finiKind == 2)
+                tfiniFunc = func;
+            else if (hasFlag(func, ModuleInit) || func->function.name == S___init ||
                 (func->function.name && strstr(func->function.name, "___init"))) {
                 initFunc = func;
             }
@@ -293,8 +310,7 @@ void runReachabilityAnalysis(CompilerDriver *driver)
             addSymbol(&ctx, glob->globalVar.name, glob);
         }
 
-        if (initFunc)
-            addModuleInit(&ctx, mod, initFunc);
+        addModuleInit(&ctx, mod, initFunc, finiFunc, tfiniFunc);
     }
 
     collectRoots(&ctx);

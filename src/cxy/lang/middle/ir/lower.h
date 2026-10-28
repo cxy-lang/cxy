@@ -2,6 +2,7 @@
 
 #include "node.h"
 #include "type.h"
+#include "core/array.h"
 #include "driver/driver.h"
 #include "lang/frontend/ast.h"
 
@@ -15,6 +16,11 @@ typedef struct LoopCtx {
     u32 scopeId;
     struct LoopCtx *prev;
 } LoopCtx;
+
+typedef struct ScopeInfo {
+    u32 parent;    // enclosing scope id (0 = function body)
+    bool hasDrops; // scope declared a destructible variable
+} ScopeInfo;
 
 typedef struct LowerContext {
     CompilerDriver *driver;
@@ -41,6 +47,7 @@ typedef struct LowerContext {
     u32 nextLogicId;
     u32 tempCounter;
     HashTable varNames;
+    DynArray scopes; // ScopeInfo, indexed by scope id
     LoopCtx *loopCtx;
     IrNode *catchTargetVar;
     IrNode *catchMergeBB;

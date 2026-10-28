@@ -3,6 +3,7 @@ module thread
 import "native/thread/tinythread.h" as tinyThread
 
 @__cc "native/thread/tinythread.c"
+@__cc "native/thread/thread.c"
 
 pub exception ThreadError(msg: String) => msg == null? "" : msg.str()
 
@@ -29,6 +30,7 @@ struct Handle {
     const func `==`(other: &const This) => hdl == other.hdl
 }
 
+@[__override_builtin("__Thread")]
 pub struct Thread {
     - _handle: Handle
     - _joinable = false;
@@ -56,14 +58,14 @@ pub struct Thread {
     func `==`(other: &const This) => _handle == other._handle
 }
 
-@[__override_builtin("__thread_launch")]
-func __launch(fn: func() -> i32): !Thread {
-    var handle: tinyThread.thrd_t = DEFAULT_TID!;
-    // This take advantage of the fact that fn will be a callable tuple
-    var status = tinyThread.thrd_create(ptrof handle, fn.1, ref!(fn.0))
-    if (status != thrd_success!) {
-        deref!(fn.0)
-        raise ThreadError(f"creating thread failed: {status}")
+extern func __cxy_thread_launch(hdl: ^tinyThread.thrd_t, cl: ^void, size: u64): bool
+
+@[__override_builtin("__Thread_launch")]
+func thread_launch(fn: func() -> i32): !Thread {
+    var hdl: tinyThread.thrd_t
+    var status = __cxy_thread_launch(ptrof hdl, ptrof fn, sizeof!(fn))
+    if (!status) {
+        raise ThreadError("Failed to launch thread")
     }
-    return Thread(handle)
+    return Thread(hdl, true)
 }

@@ -41,7 +41,7 @@ struct ArgumentFormat[T] {
 
     const func `str`(os: &OutputStream) {
         var tmp: [char, 256] = []
-        var count = snprintf(tmp, 256, "%g", value)
+        var count = snprintf(tmp, 256, "%g", value as f64)
         os << RedisType.String << count << "\r\n"
            << __string(tmp !: string, count)
     }
@@ -240,7 +240,7 @@ pub class RedisClient {
 
     func _send(cmd: RedisCommand, nrps: u32 = 1): !Response {
         var nsent = _sock.send(cmd.os, _timeout)
-        if nsent != cmd.os.size() {
+        if *nsent != cmd.os.size() {
             raise RedisError(f"send failed: {strerr()}")
         }
 
@@ -255,7 +255,8 @@ pub class RedisClient {
 
     func _receive(resp: &Response): !void {
         var prefix: [char, 1] = []
-        if _sock.receive(prefix, 1, _timeout) != 1 {
+        var nbytes = _sock.receive(prefix, 1, _timeout)
+        if nbytes && *nbytes != 1 {
             raise RedisError(f"recv failed: {strerr()}")
         }
 
@@ -275,7 +276,7 @@ pub class RedisClient {
                     var tmp = String()
                     tmp.reserve(size)
                     var nread = _sock.receive(tmp.data() !: ^void, size, _timeout)
-                    if nread != size {
+                    if nread && *nread != size {
                         raise RedisError(f"recv failed: {strerr()}")
                     }
                     tmp.resize(len)
@@ -315,13 +316,14 @@ pub class RedisClient {
                 buffer.reserve(cap)
                 p = ptrof buffer.data().[buffer.size()]
             }
-
-            if _sock.receive(ptroff!(p + bytes), 1, _timeout) != 1 {
+            var nbytes = _sock.receive(ptroff!(p + bytes), 1, _timeout)
+            if nbytes && *nbytes != 1 {
                 raise RedisError(f"receive failed: {strerr()}")
             }
             bytes += 1
             if p.[bytes - 1] == '\r' {
-                if _sock.receive(ptroff!(p + bytes), 1, _timeout) != 1 {
+                nbytes = _sock.receive(ptroff!(p + bytes), 1, _timeout)
+                if nbytes && *nbytes != 1 {
                     raise RedisError(f"receive failed: {strerr()}")
                 }
                 bytes += 1
@@ -619,16 +621,16 @@ pub class RedisTransaction {
 }
 
 class CachedClient: RedisClient {
-    type OnClose = lambda_of!(#func(_: &This) -> void)
-    _onClose: OnClose
+    type OnClose = func(_: &This) -> void
+    _onClose: OnClose = null
 
     alive: i64 = 0
     handle: ^void = null
     db: u64 = 0
 
-    func `init`(sock: Socket, timeout: i64, onClose: OnClose) {
+    func `init`(sock: Socket, timeout: i64, @escaping onClose: OnClose) {
         super(sock, timeout)
-        _onClose = onClose
+        _onClose = &&onClose
     }
 
     @override
@@ -792,7 +794,7 @@ pub class RedisDb {
                 var t = timestamp() + 500
                 var prunned = 0 as u64
                 while it != null {
-                    var client = &it.value
+                    var client = it.value()
                     if client.alive <= t {
                         _cache.erase(it)
                         it = _cache.begin()
@@ -811,7 +813,7 @@ pub class RedisDb {
 
                 if it != null {
                     // Ensure that the cleanup routine will be rescheduled after at least 3 seconds
-                    var expires = it.value.alive - t
+                    var expires = it.value().alive - t
                     var status = _notify.receive(expires)
                     if !!status && !*status {
                         // We we explicitly cancelled

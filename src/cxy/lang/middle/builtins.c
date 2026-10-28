@@ -86,76 +86,6 @@ static const BuiltinContract *findBuiltinContract(cstring name)
     return NULL;
 }
 
-bool checkBuiltinAttribute(Log *L, const AstNode *decl, bool isBuiltinModule)
-{
-    const AstNode *attr = findAttribute(decl, S_builtin);
-    if (attr == NULL && nodeIs(decl, GenericDecl))
-        attr = findAttribute(decl->genericDecl.decl, S_builtin);
-    if (attr == NULL)
-        return true;
-
-    if (!isBuiltinModule) {
-        logError(L, &attr->loc, "@builtin attribute is only allowed in the builtins module", NULL);
-        return false;
-    }
-
-    if (attr->attr.args != NULL) {
-        logError(L, &attr->loc, "@builtin attribute does not accept arguments", NULL);
-        return false;
-    }
-
-    cstring name = getDeclarationName(decl);
-    const BuiltinContract *contract = findBuiltinContract(name);
-    if (contract == NULL) {
-        logError(L, &decl->loc, "@builtin on '{s}', but '{s}' is not a known builtin contract",
-                 (FormatArg[]){{.s = name}, {.s = name}});
-        return false;
-    }
-
-    if (contract->kind == bckClass && !nodeIs(decl, ClassDecl)) {
-        logError(L, &decl->loc, "builtin contract '{s}' requires a class declaration",
-                 (FormatArg[]){{.s = name}});
-        return false;
-    }
-
-    if (contract->requiredBase != NULL) {
-        if (decl->classDecl.base == NULL ||
-            decl->classDecl.base->path.elements->pathElement.name != contract->requiredBase) {
-            logError(L, &decl->loc, "builtin class '{s}' must inherit from '{s}'",
-                     (FormatArg[]){{.s = name}, {.s = contract->requiredBase}});
-            return false;
-        }
-    }
-    else if (nodeIs(decl, ClassDecl) && decl->classDecl.base != NULL) {
-        logError(L, &decl->loc, "builtin class '{s}' must not have a base class",
-                 (FormatArg[]){{.s = name}});
-        return false;
-    }
-
-    return true;
-}
-
-bool validateBuiltinContracts(Log *L, const Type *module)
-{
-    if (module == NULL)
-        return false;
-    initBuiltinContracts();
-    for (size_t i = 0; i < sizeof(builtinContracts) / sizeof(builtinContracts[0]); ++i) {
-        const BuiltinContract *contract = &builtinContracts[i];
-        const NamedTypeMember *member = findModuleMember(module, contract->name);
-        if (member == NULL) {
-            if (contract->name != S_Exception)
-                continue;
-            logError(L, builtinLoc(), "missing required builtin contract '{s}'",
-                     (FormatArg[]){{.s = contract->name}});
-            return false;
-        }
-        if (contract->validate && !contract->validate(L, member->decl, member->type))
-            return false;
-    }
-    return true;
-}
-
 static struct {
     Log *L;
     MemPool *pool;
@@ -205,6 +135,77 @@ static inline AstNode *findBuiltinOverride(cstring name)
                         sizeof(BuiltinOverride),
                         comparePointers);
     return override ? override->node : NULL;
+}
+
+bool checkBuiltinAttribute(Log *L, const AstNode *decl, bool isBuiltinModule)
+{
+    const AstNode *attr = findAttribute(decl, S_builtin);
+    if (attr == NULL && nodeIs(decl, GenericDecl))
+        attr = findAttribute(decl->genericDecl.decl, S_builtin);
+    if (attr == NULL)
+        return true;
+
+    if (!isBuiltinModule) {
+        logError(L, &attr->loc, "@builtin attribute is only allowed in the builtins module", NULL);
+        return false;
+    }
+
+    if (attr->attr.args != NULL) {
+        logError(L, &attr->loc, "@builtin attribute does not accept arguments", NULL);
+        return false;
+    }
+
+    cstring name = getDeclarationName(decl);
+    const BuiltinContract *contract = findBuiltinContract(name);
+    if (contract == NULL) {
+        logError(L, &decl->loc, "@builtin on '{s}', but '{s}' is not a known builtin contract",
+                 (FormatArg[]){{.s = name}, {.s = name}});
+        return false;
+    }
+
+    if (contract->kind == bckClass && !nodeIs(decl, ClassDecl)) {
+        logError(L, &decl->loc, "builtin contract '{s}' requires a class declaration",
+                 (FormatArg[]){{.s = name}});
+        return false;
+    }
+
+    if (contract->requiredBase != NULL) {
+        if (decl->classDecl.base == NULL ||
+            decl->classDecl.base->path.elements->pathElement.name != contract->requiredBase) {
+            logError(L, &decl->loc, "builtin class '{s}' must inherit from '{s}'",
+                     (FormatArg[]){{.s = name}, {.s = contract->requiredBase}});
+            return false;
+        }
+    }
+    else if (nodeIs(decl, ClassDecl) && decl->classDecl.base != NULL) {
+        logError(L, &decl->loc, "builtin class '{s}' must not have a base class",
+                 (FormatArg[]){{.s = name}});
+        return false;
+    }
+
+    addBuiltinAlias(name, (AstNode *)decl, decl->type);
+    return true;
+}
+
+bool validateBuiltinContracts(Log *L, const Type *module)
+{
+    if (module == NULL)
+        return false;
+    initBuiltinContracts();
+    for (size_t i = 0; i < sizeof(builtinContracts) / sizeof(builtinContracts[0]); ++i) {
+        const BuiltinContract *contract = &builtinContracts[i];
+        const NamedTypeMember *member = findModuleMember(module, contract->name);
+        if (member == NULL) {
+            if (contract->name != S_Exception)
+                continue;
+            logError(L, builtinLoc(), "missing required builtin contract '{s}'",
+                     (FormatArg[]){{.s = contract->name}});
+            return false;
+        }
+        if (contract->validate && !contract->validate(L, member->decl, member->type))
+            return false;
+    }
+    return true;
 }
 
 static inline void addOverridableBuiltin(cstring name)
@@ -266,14 +267,14 @@ AstNode *findBuiltinDecl(cstring name)
 {
     AstNode *node = findBuiltinOverride(name);
     if (node == NULL) {
-        csAssert0(cxy_builtins.module);
-        const NamedTypeMember *member =
-            findModuleMember(cxy_builtins.module, name);
-        if (member)
-            node = (AstNode *)member->decl;
-        else {
-            const BuiltinAlias *alias = findBuiltinAlias(name);
-            node = alias ? alias->decl : NULL;
+        const BuiltinAlias *alias = findBuiltinAlias(name);
+        if (alias && alias->decl)
+            return alias->decl;
+        if (cxy_builtins.module) {
+            const NamedTypeMember *member =
+                findModuleMember(cxy_builtins.module, name);
+            if (member)
+                node = (AstNode *)member->decl;
         }
     }
     return node;
@@ -281,15 +282,30 @@ AstNode *findBuiltinDecl(cstring name)
 
 const Type *findBuiltinType(cstring name)
 {
+    AstNode *override = findBuiltinOverride(name);
+    if (override && override->type)
+        return override->type;
+
+    const BuiltinAlias *alias = findBuiltinAlias(name);
+    if (alias) {
+        if (alias->type)
+            return alias->type;
+        if (alias->decl && alias->decl->type)
+            return alias->decl->type;
+    }
+
     if (cxy_builtins.module) {
         const NamedTypeMember *member =
             findModuleMember(cxy_builtins.module, name);
         if (member)
             return member->type;
-        const BuiltinAlias *alias = findBuiltinAlias(name);
-        return alias ? alias->type : NULL;
     }
     return NULL;
+}
+
+bool hasBuiltinOverride(cstring name)
+{
+    return findBuiltinOverride(name) != NULL;
 }
 
 bool isBuiltinString(const Type *type)

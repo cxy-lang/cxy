@@ -66,6 +66,12 @@ void irVisitFallbackVisitAll(IrVisitor *visitor, IrNode *node)
         break;
     case irSwitch:
         irVisit(visitor, node->switchStmt.cond);
+        for (u64 i = 0; i < node->switchStmt.casesCount; i++) {
+            if (node->switchStmt.cases[i].valNode)
+                irVisit(visitor, node->switchStmt.cases[i].valNode);
+            if (node->switchStmt.cases[i].endNode)
+                irVisit(visitor, node->switchStmt.cases[i].endNode);
+        }
         break;
     case irReturn:
         irVisit(visitor, node->returnStmt.value);
@@ -129,6 +135,9 @@ void irVisitFallbackVisitAll(IrVisitor *visitor, IrNode *node)
     case irZeromem:
         irVisit(visitor, node->zeromem.target);
         break;
+    case irFieldConst:
+        irVisit(visitor, node->fieldConst.value);
+        break;
     case irStructConst:
         irVisitManyNodes(visitor, node->structConst.fields);
         break;
@@ -168,6 +177,12 @@ void irConstVisitFallbackVisitAll(ConstIrVisitor *visitor, const IrNode *node)
         break;
     case irSwitch:
         irConstVisit(visitor, node->switchStmt.cond);
+        for (u64 i = 0; i < node->switchStmt.casesCount; i++) {
+            if (node->switchStmt.cases[i].valNode)
+                irConstVisit(visitor, node->switchStmt.cases[i].valNode);
+            if (node->switchStmt.cases[i].endNode)
+                irConstVisit(visitor, node->switchStmt.cases[i].endNode);
+        }
         break;
     case irReturn:
         irConstVisit(visitor, node->returnStmt.value);
@@ -230,6 +245,9 @@ void irConstVisitFallbackVisitAll(ConstIrVisitor *visitor, const IrNode *node)
         break;
     case irZeromem:
         irConstVisit(visitor, node->zeromem.target);
+        break;
+    case irFieldConst:
+        irConstVisit(visitor, node->fieldConst.value);
         break;
     case irStructConst:
         irConstVisitManyNodes(visitor, node->structConst.fields);

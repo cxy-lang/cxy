@@ -382,6 +382,11 @@ void checkCallExpr(AstVisitor *visitor, AstNode *node)
 
     if (!typeIs(node->type, Error) && !explicitCatch) {
         checkCallExceptionBubbleUp(visitor, node);
+        if (isResultType(node->type)) {
+            node->type = isVoidResultType(node->type)
+                             ? makeVoidType(ctx->types)
+                             : getResultTargetType(node->type);
+        }
     }
 
     if (!typeIs(node->type, Error) && nodeIs(callee, MemberExpr) && callee->memberExpr.isOptional) {

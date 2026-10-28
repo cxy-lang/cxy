@@ -63,14 +63,14 @@ struct BoundedQueue {
 
 func condVarExample(): !void {
     println("╔════════════════════════════════════════╗")
-    println("║  ConditionVariable Example            ║")
-    println("║  Bounded Producer-Consumer Queue      ║")
+    println("║  ConditionVariable Example             ║")
+    println("║  Bounded Producer-Consumer Queue       ║")
     println("╚════════════════════════════════════════╝\n")
 
     var queue = BoundedQueue(3)  // Small capacity to trigger blocking
 
     // Producer
-    var t1 = launch {
+    var t1 = launch |&queue| {
         var chan = Channel[bool]()
         async {
             for i in 0..10 {
@@ -84,7 +84,7 @@ func condVarExample(): !void {
     }
 
     // Consumer
-    var t2 = launch {
+    var t2 = launch |&queue| {
         var chan = Channel[bool]()
         async {
             for _ in 0..10 {
@@ -132,8 +132,8 @@ struct ConnectionPool {
 
 func semaphoreExample(): !void {
     println("╔════════════════════════════════════════╗")
-    println("║  Semaphore Example                    ║")
-    println("║  Connection Pool (Max 3)              ║")
+    println("║  Semaphore Example                     ║")
+    println("║  Connection Pool (Max 3)               ║")
     println("╚════════════════════════════════════════╝\n")
 
     var pool = ConnectionPool(3)  // Max 3 concurrent connections
@@ -142,7 +142,7 @@ func semaphoreExample(): !void {
     var threads = Vector[Thread]()
 
     for i in 0..10 {
-        var t = launch {
+        var t = launch |&pool| {
             var chan = Channel[bool]()
             async {
                 println("Client ", i, " requesting connection...")
@@ -188,8 +188,8 @@ func worker(id: i32, wg: &WaitGroup, results: &Vector[i32], mutex: &Mutex) {
 
 func waitGroupExample(): !void {
     println("╔════════════════════════════════════════╗")
-    println("║  WaitGroup Example                    ║")
-    println("║  Coordinating Multiple Workers        ║")
+    println("║  WaitGroup Example                     ║")
+    println("║  Coordinating Multiple Workers         ║")
     println("╚════════════════════════════════════════╝\n")
 
     var wg = WaitGroup()
@@ -204,10 +204,10 @@ func waitGroupExample(): !void {
     // Launch workers in separate threads
     var threads = Vector[Thread]()
     for i in 0..workerCount {
-        var t = launch {
+        var t = launch |&wg, &results, &mutex| {
             var chan = Channel[bool]()
             async {
-                worker(i, &wg, &results, &mutex)
+                worker(i, wg, results, mutex)
                 chan.send(true)
             }
             chan.receive()

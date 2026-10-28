@@ -923,6 +923,38 @@ int aeGetFileEvents(aeEventLoop *eventLoop, int fd)
     return fe->mask;
 }
 
+#if defined(HAVE_KQUEUE)
+enum Status aeWaitPid(aeEventLoop *eventLoop, int pid, aeFileProc *proc, void *clientData, uint64_t timeout)
+{
+    aeApiState *state = eventLoop->apidata;
+    struct kevent ke;
+    EV_SET(&ke, pid, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, clientData);
+    if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1)
+        return AE_ERR;
+    return aeCreateFileEvent(eventLoop, pid, AE_READABLE, proc, clientData, timeout);
+}
+
+void aeCancelWaitPid(aeEventLoop *eventLoop, int pid)
+{
+    aeApiState *state = eventLoop->apidata;
+    struct kevent ke;
+    EV_SET(&ke, pid, EVFILT_PROC, EV_DELETE, NOTE_EXIT, 0, NULL);
+    kevent(state->kqfd, &ke, 1, NULL, 0, NULL);
+    aeDeleteFileEvent(eventLoop, pid, AE_READABLE);
+}
+#else
+enum Status aeWaitPid(aeEventLoop *eventLoop, int pid, aeFileProc *proc, void *clientData, uint64_t timeout)
+{
+    (void)eventLoop; (void)pid; (void)proc; (void)clientData; (void)timeout;
+    return AE_ERR;
+}
+
+void aeCancelWaitPid(aeEventLoop *eventLoop, int pid)
+{
+    (void)eventLoop; (void)pid;
+}
+#endif
+
 void aeGetTime(long *seconds, long *milliseconds)
 {
     struct timeval tv;

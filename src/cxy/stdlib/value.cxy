@@ -11,6 +11,7 @@ pub struct Null { }
 // Universal value type for JSON/YAML/TOML data
 pub struct Value {
     _value: Null | bool | i64 | f64 | String | Vector[Value] | HashMap[String, Value] = Null{}
+    _tag: String = null     // e.g. a YAML local tag, null when untagged
 
     // Constructors for different value types
     @inline
@@ -55,6 +56,18 @@ pub struct Value {
 
     @inline
     const func raw() => &_value
+
+    // The tag attached by the parser (YAML), null when untagged
+    const func tag(): &String? {
+        if _tag == null {
+            return null
+        }
+        return &_tag
+    }
+
+    func setTag(t: String): void {
+        _tag = &&t
+    }
 
     // Type checking methods
     @inline
@@ -116,56 +129,56 @@ pub struct Value {
     }
 
     // Safe type extraction (returns Optional)
-    func getBool(): Optional[bool] {
+    func getBool(): bool? {
         match (_value) {
             bool as b => return b
             ... => return null
         }
     }
 
-    const func getBool(): Optional[bool] {
+    const func getBool(): bool? {
         match (_value) {
             bool as b => return b
             ... => return null
         }
     }
 
-    func getInt(): Optional[i64] {
+    func getInt(): i64? {
         match (_value) {
             i64 as i => return i
             ... => return null
         }
     }
 
-    const func getInt(): Optional[i64] {
+    const func getInt(): i64? {
         match (_value) {
             i64 as i => return i
             ... => return null
         }
     }
 
-    func getFloat(): Optional[f64] {
+    func getFloat(): f64? {
         match (_value) {
             f64 as f => return f
             ... => return null
         }
     }
 
-    const func getFloat(): Optional[f64] {
+    const func getFloat(): f64? {
         match (_value) {
             f64 as f => return f
             ... => return null
         }
     }
 
-    func getString(): Optional[&String] {
+    func getString(): &String? {
         match (_value) {
             String as s => return &s
             ... => return null
         }
     }
 
-    const func getString(): Optional[&String] {
+    const func getString(): &String? {
         match (_value) {
             String as s => return &s
             ... => return null
@@ -204,6 +217,7 @@ pub struct Value {
     func asFloat(): !f64 {
         match (_value) {
             f64 as f => return f
+            i64 as i => return <f64>i
             ... => raise TypeError(f"Expected float, got {typeName()}")
         }
     }
@@ -230,14 +244,14 @@ pub struct Value {
     }
 
     // Object indexing (returns Optional like HashMap does)
-    func get(key: String): Optional[&Value] {
+    func get(key: String): &Value? {
         match (_value) {
             HashMap[String, Value] as obj => return obj.[key]
             ... => return null
         }
     }
 
-    const func get(key: String): Optional[&Value] {
+    const func get(key: String): &Value? {
         match (_value) {
             HashMap[String, Value] as obj => return obj.[key]
             ... => return null
@@ -245,17 +259,17 @@ pub struct Value {
     }
 
     @inline
-    func `[]`(key: String): Optional[&Value] {
+    func `[]`(key: String): &Value? {
         return get(key)
     }
 
     @inline
-    const func `[]`(key: String): Optional[&Value] {
+    const func `[]`(key: String): &Value? {
         return get(key)
     }
 
     // Array indexing (returns Optional like Vector does)
-    func get(idx: i32): Optional[&Value] {
+    func get(idx: i32): &Value? {
         match (_value) {
             Vector[Value] as arr => {
                 if (idx >= 0 && idx < arr.size()) {
@@ -267,7 +281,7 @@ pub struct Value {
         }
     }
 
-    const func get(idx: i32): Optional[&Value] {
+    const func get(idx: i32): &Value? {
         match (_value) {
             Vector[Value] as arr => {
                 if (idx >= 0 && idx < arr.size()) {
@@ -307,12 +321,12 @@ pub struct Value {
     }
 
     @inline
-    func `[]`(idx: i32): Optional[&Value] {
+    func `[]`(idx: i32): &Value? {
         return get(idx)
     }
 
     @inline
-    const func `[]`(idx: i32): Optional[&Value] {
+    const func `[]`(idx: i32): &Value? {
         return get(idx)
     }
 
@@ -375,7 +389,7 @@ pub struct Value {
         return this
     }
 
-    func pop(): Optional[Value] {
+    func pop(): Value? {
         match (_value) {
             Vector[Value] as arr => {
                 if (!arr.empty()) {
@@ -422,10 +436,10 @@ pub struct Value {
     const func `str`(os: &OutputStream): void {
         match (_value) {
             Null => os << "null"
-            bool as b => os << (b ? "true" : "false")
-            i64 as i => os << i
-            f64 as f => os << f
-            String as s => os << "\"" << s << "\""
+            bool as b => { os << (b ? "true" : "false") }
+            i64 as i => { os << i }
+            f64 as f => { os << f }
+            String as s => { os << "\"" << s << "\"" }
             Vector[Value] as arr => {
                 os << "["
                 for (item, index : arr) {
@@ -472,7 +486,7 @@ pub struct Value {
     // Cast function for converting Value to target types
     const func cast[Target](@unused b64: bool = true): !Target {
         #if (#Target == #Value) {
-            return <Target>(*this)
+            return <Target>(__copy!(*this))
         }
         else #if (#Target == #bool) {
             match (_value) {
@@ -496,8 +510,8 @@ pub struct Value {
         else #if (Target.isOptional) {
             #const M = Target.targetType;
             match (_value) {
-                Null => return None[M]()
-                ... => return Some(this.cast[M](b64))
+                Null => return null
+                ... => return this.cast[M](b64)
             }
         }
         else #if (Target.annotations.[:isVector]) {
@@ -570,13 +584,15 @@ pub struct Value {
                                     value.#{mk_ident!(member.name)} = val&.cast[M](b64)
                                 }
                                 else {
-                                    if (!!val)
+                                    if (!!val) {
                                         value.#{mk_ident!(member.name)} = val&.cast[M](b64)
+                                    }
                                 }
                             }
                             else {
-                                if (!!val && !val&.isNull())
+                                if (!!val && !val&.isNull()) {
                                     value.#{mk_ident!(member.name)} = val&.cast[M](b64)
+                                }
                             }
                         }}
                     }

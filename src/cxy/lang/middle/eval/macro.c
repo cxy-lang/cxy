@@ -305,45 +305,13 @@ static AstNode *makeExNode(AstVisitor *visitor,
         return NULL;
     }
 
-    if (typer->catcher.result == NULL) {
-        AstNode *lhs = typer->catcher.expr;
-        const Type *type = resolveUnThisUnwrapType(lhs->type);
-        typer->catcher.result = makeVarDecl(
-            ctx->pool,
-            &node->loc,
-            flgNone,
-            makeAnonymousVariable(ctx->strings, "_res"),
-            NULL,
-            isVoidResultType(type) ? lhs : shallowCloneAstNode(ctx->pool, lhs),
-            NULL,
-            type);
-        const Type *exType = findBuiltinType(S_Exception);
-        typer->catcher.ex =
-            makeVarDecl(ctx->pool,
-                        builtinLoc(),
-                        flgNone,
-                        makeAnonymousVariable(ctx->strings, "_ex"),
-                        NULL,
-                        NULL,
-                        NULL,
-                        exType);
-    }
-
-    if (typer->catcher.ex == NULL) {
-        logError(ctx->L,
-                 &node->loc,
-                 "`ex!` macro only allowed in catch blocks",
-                 NULL);
-        return NULL;
-    }
-
-    return makeResolvedPath(ctx->pool,
-                            &node->loc,
-                            typer->catcher.ex->_name,
-                            flgNone,
-                            typer->catcher.ex,
-                            NULL,
-                            typer->catcher.ex->type);
+    // Lowering resolves this to the exception of the enclosing catch
+    return makeBackendCallExpr(ctx->pool,
+                               &node->loc,
+                               flgNone,
+                               bfiCurrentException,
+                               NULL,
+                               findBuiltinType(S_Exception));
 }
 
 static AstNode *makeHasMemberNode(AstVisitor *visitor,

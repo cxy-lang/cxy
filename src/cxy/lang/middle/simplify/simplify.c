@@ -24,6 +24,8 @@ typedef struct SimplifyContext {
     AstModifier block;
     N2eContext n2e;
     AstNodeList init;
+    AstNodeList fini;  // drops of destructible module globals, reverse order
+    AstNodeList tfini; // same for @thread globals, run when a thread ends
     AstNodeList *startup;
     AstNode *returnVar;
     bool traceMemory;
@@ -64,10 +66,61 @@ static bool nodeNeedsTemporaryVar(const AstNode *node)
     if (nodeIsLeftValue(node) || isLiteralExprExt(node) || isSizeofExpr(node))
         return false;
 
+    // `ex!` is a borrow of the catch result, never an owned rvalue
+    if (nodeIs(node, BackendCall) &&
+        node->backendCallExpr.func == bfiCurrentException)
+        return false;
+
     if (nodeIs(node, UnaryExpr))
         return node->unaryExpr.op == opMove &&
                nodeNeedsTemporaryVar(node->unaryExpr.operand);
     return true;
+}
+
+static AstNode *makeTemporaryRef(SimplifyContext *ctx, AstNode *var)
+{
+    return makeResolvedIdentifier(ctx->pool,
+                                  &var->loc,
+                                  var->_namedNode.name,
+                                  0,
+                                  var,
+                                  NULL,
+                                  var->type);
+}
+
+// Declares a temporary variable of the given type initialised with `init`,
+// ahead of the current statement. `expr` is the expression it stands for.
+// Inside a while condition the variable is assigned again each time the
+// condition is evaluated.
+static AstNode *hoistToTemporary(SimplifyContext *ctx,
+                                 AstNode *expr,
+                                 AstNode *init,
+                                 const Type *type,
+                                 cstring prefix,
+                                 u64 flags,
+                                 bool reassignInWhile)
+{
+    AstNode *var = makeVarDecl(ctx->pool,
+                               &expr->loc,
+                               flags,
+                               makeAnonymousVariable(ctx->strings, prefix),
+                               NULL,
+                               init,
+                               NULL,
+                               type);
+    if (reassignInWhile && ctx->whileCond.visiting) {
+        insertAstNode(&ctx->whileCond.exprs,
+                      makeAssignExpr(ctx->pool,
+                                     &expr->loc,
+                                     flgNone,
+                                     makeTemporaryRef(ctx, var),
+                                     opAssign,
+                                     deepCloneAstNode(ctx->pool, expr),
+                                     NULL,
+                                     var->type));
+    }
+    astModifierAdd(&ctx->block, var);
+    return var;
 }
 
 static bool isVirtualDispatch(const AstNode *target, const AstNode *member)
@@ -310,15 +363,6 @@ bool isRedundantStatement(AstNode *node)
     return isRedundantExpression(expr);
 }
 
-static bool isDiscardedExpressionReturn(const AstNode *node)
-{
-    if (node == NULL)
-        return false;
-    const AstNode *parent = node->parentScope;
-    if (nodeIs(parent, GroupExpr))
-        return isDiscardedExpressionReturn(parent);
-    return nodeIs(parent, ExprStmt);
-}
 
 static void createModuleInit(AstVisitor *visitor, AstNode *program)
 {
@@ -363,6 +407,112 @@ static void createModuleInit(AstVisitor *visitor, AstNode *program)
     getLastAstNode(ext)->next = func;
 }
 
+// Teardown counterpart of createModuleInit: __fini_<module> (process exit) or
+// __tfini_<module> (thread exit). Detected by name in the backend.
+static void createModuleFini(AstVisitor *visitor,
+                             AstNode *program,
+                             cstring prefix,
+                             AstNodeList *stmts)
+{
+    SimplifyContext *ctx = getAstVisitorContext(visitor);
+    cstring name =
+        program->program.module
+            ? makeStringConcat(ctx->strings,
+                               prefix,
+                               "_",
+                               program->program.module->moduleDecl.name)
+            : prefix;
+    AstNode *func = makeFunctionDecl(
+        ctx->pool,
+        builtinLoc(),
+        name,
+        NULL,
+        makeVoidAstNode(
+            ctx->pool, builtinLoc(), flgNone, NULL, makeVoidType(ctx->types)),
+        makeBlockStmt(ctx->pool, builtinLoc(), stmts->first, NULL, NULL),
+        flgTopLevelDecl | flgPublic,
+        NULL,
+        NULL);
+
+    astVisit(visitor, func->funcDecl.body);
+
+    func->type = makeFuncType(
+        ctx->types,
+        &(Type){.tag = typFunc,
+                .name = name,
+                .func = {.retType = makeVoidType(ctx->types), .decl = func}});
+    func->parentScope = program;
+
+    AstNode *ext =
+        makeAstNode(ctx->pool,
+                    &func->loc,
+                    &(AstNode){.tag = astExternDecl,
+                               .type = func->type,
+                               .flags = func->flags | flgPublic,
+                               .next = program->program.decls,
+                               .externDecl.func = func});
+    program->program.decls = ext;
+    getLastAstNode(ext)->next = func;
+}
+
+static AstNode *makeGlobalRefNode(SimplifyContext *ctx, AstNode *var)
+{
+    return makeResolvedIdentifier(
+        ctx->pool, &var->loc, var->varDecl.name, 0, var, NULL, var->type);
+}
+
+// Records `drop(g); g = null` for a destructible module global. Prepended so
+// teardown runs in reverse order of declaration.
+static void recordGlobalFini(SimplifyContext *ctx, AstNode *node)
+{
+    if (hasFlag(node, Extern) || hasFlag(node, Comptime) || node->type == NULL)
+        return;
+    const Type *type = resolveUnThisUnwrapType(node->type);
+    if (type == NULL || isReferenceType(type) || !isDestructible(type))
+        return;
+
+    const Type *voidType = makeVoidType(ctx->types);
+    AstNode *first = makeExprStmt(
+        ctx->pool,
+        &node->loc,
+        flgNone,
+        makeBackendCallExpr(ctx->pool,
+                            &node->loc,
+                            flgForced,
+                            bfiDrop,
+                            makeGlobalRefNode(ctx, node),
+                            voidType),
+        NULL,
+        voidType);
+    AstNode *last = first;
+    if (isClassType(type)) {
+        // Idempotent: a second run (or a late use) sees null, not a freed object
+        last = makeExprStmt(
+            ctx->pool,
+            &node->loc,
+            flgNone,
+            makeAssignExpr(
+                ctx->pool,
+                &node->loc,
+                flgNone,
+                makeGlobalRefNode(ctx, node),
+                opAssign,
+                makeNullLiteral(ctx->pool, &node->loc, NULL, node->type),
+                NULL,
+                node->type),
+            NULL,
+            voidType);
+        first->next = last;
+    }
+
+    AstNodeList *list =
+        findAttribute(node, S_thread) != NULL ? &ctx->tfini : &ctx->fini;
+    last->next = list->first;
+    list->first = first;
+    if (list->last == NULL)
+        list->last = last;
+}
+
 static void visitProgram(AstVisitor *visitor, AstNode *node)
 {
     SimplifyContext *ctx = getAstVisitorContext(visitor);
@@ -404,6 +554,10 @@ static void visitProgram(AstVisitor *visitor, AstNode *node)
         // only create initializer when there is data to initialize
         createModuleInit(visitor, node);
     }
+    if (ctx->fini.first != NULL)
+        createModuleFini(visitor, node, "__fini", &ctx->fini);
+    if (ctx->tfini.first != NULL)
+        createModuleFini(visitor, node, "__tfini", &ctx->tfini);
 
     if (isBuiltinsInitialized()) {
         externals.last->next = node->program.decls;
@@ -516,37 +670,18 @@ static void visitIndexExpr(AstVisitor *visitor, AstNode *node)
     astVisit(visitor, target);
     astVisit(visitor, index);
     if (nodeNeedsTemporaryVar(index)) {
-        AstNode *var = makeVarDecl(ctx->pool,
-                                   &index->loc,
-                                   flgTemporary | (index->flags & flgConst),
-                                   makeAnonymousVariable(ctx->strings, "_idx"),
-                                   NULL,
-                                   deepCloneAstNode(ctx->pool, index),
-                                   NULL,
-                                   index->type);
-        if (ctx->whileCond.visiting) {
-            insertAstNode(
-                &ctx->whileCond.exprs,
-                makeAssignExpr(ctx->pool,
-                               &index->loc,
-                               flgNone,
-                               makeResolvedIdentifier(ctx->pool,
-                                                      &index->loc,
-                                                      var->varDecl.name,
-                                                      0,
-                                                      var,
-                                                      NULL,
-                                                      var->type),
-                               opAssign,
-                               deepCloneAstNode(ctx->pool, index),
-                               NULL,
-                               index->type));
-        }
+        AstNode *var =
+            hoistToTemporary(ctx,
+                             index,
+                             deepCloneAstNode(ctx->pool, index),
+                             index->type,
+                             "_idx",
+                             flgTemporary | (index->flags & flgConst),
+                             true);
         index->tag = astIdentifier;
         index->ident.value = var->_namedNode.name;
         index->ident.resolvesTo = var;
         index->flags |= flgMove;
-        astModifierAdd(&ctx->block, var);
     }
 }
 
@@ -557,6 +692,20 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
     if (isClosureType(callee->type)) {
         callee->parentScope = node;
         astVisit(visitor, callee);
+        if (nodeNeedsTemporaryVar(callee)) {
+            // `.fn` and `.env` are both read from the callee, evaluate it once
+            // a closure variable has the canonical closure type, like
+            // checkVarDecl, the lambda may be wrapped in a group `(...)()`
+            AstNode *value = resolveGroupExpr(callee);
+            const Type *type = nodeIs(value, ClosureValue) &&
+                                       value->closureValue.canonicalType
+                                   ? value->closureValue.canonicalType
+                                   : callee->type;
+            AstNode *var =
+                hoistToTemporary(ctx, callee, callee, type, "_c", flgNone, true);
+            node->callExpr.callee = makeTemporaryRef(ctx, var);
+            node->callExpr.callee->parentScope = node;
+        }
         astVisitManyNodes(visitor, args);
         return;
     }
@@ -567,23 +716,28 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
             *params = nodeIs(func, FuncDecl) ? func->funcDecl.signature->params
                                              : func->funcType.params,
             *param = params;
-    if (param && param->_name == S_this)
+    if (nodeIs(callee, MemberExpr) && param && param->_name == S_this)
         param = param->next;
-    for (u64 i = 0; arg && param; arg = arg->next, i++, param = param->next) {
-        if (hasFlag(param, Variadic))
+    for (; arg && param; arg = arg->next, param = param->next) {
+        if (hasFlag(param, Variadic)) {
             break;
-        if (typeIs(func->type->func.params[i], Auto))
+        }
+        const Type *paramType =
+            param->type ?: (param->funcParam.type ? param->funcParam.type->type : NULL);
+        if (paramType == NULL || typeIs(paramType, Auto))
             continue;
         astVisit(visitor, arg);
 
-        const Type *left = resolveUnThisUnwrapType(func->type->func.params[i]),
+        const Type *left = resolveUnThisUnwrapType(paramType),
                    *right = resolveUnThisUnwrapType(arg->type);
         if (left != right) {
             simplifyCastExpression(ctx, arg, left);
         }
     }
 
-    astVisitManyNodes(visitor, args);
+    for (; arg; arg = arg->next) {
+        astVisit(visitor, arg);
+    }
 
     csAssert0(func);
     AstNode *this = getMemberFunctionThis(func);
@@ -600,6 +754,11 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
     bool isOptional = callee->memberExpr.isOptional || node->callExpr.isOptional;
     AstNode *target = callee->memberExpr.target,
             *call = callee->memberExpr.member;
+
+    if (callee->memberExpr.isRedirect) {
+        callee->memberExpr.member = NULL;
+        target = callee;
+    }
 
     call->type = callee->type;
 
@@ -834,7 +993,7 @@ static void visitPathExpr(AstVisitor *visitor, AstNode *node)
 
     AstNode *elem = node->path.elements;
     AstNode *resolved = elem->pathElement.resolvesTo;
-    if (hasFlag(resolved, Extern) && nodeIs(resolved, ImportDecl))
+    if (resolved && (nodeIs(resolved, ImportDecl) || nodeIs(resolved, ModuleDecl)))
         elem = elem->next;
 
     AstNode *next = elem->next;
@@ -907,45 +1066,12 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
 
     AstNode *target = node->memberExpr.target;
     if (nodeNeedsTemporaryVar(target) && !nodeIs(target, TypeRef)) {
-        Flags flags = isDiscardedExpressionReturn(node->parentScope)
-                          ? flgNone
-                          : flgTemporary;
-        AstNode *var = makeVarDecl(ctx->pool,
-                                   &target->loc,
-                                   flgNone,
-                                   makeAnonymousVariable(ctx->strings, "_m"),
-                                   NULL,
-                                   target,
-                                   NULL,
-                                   target->type);
-        if (ctx->whileCond.visiting) {
-            // Add this not current while cond exprs
-            insertAstNode(
-                &ctx->whileCond.exprs,
-                makeAssignExpr(ctx->pool,
-                               &target->loc,
-                               flgNone,
-                               makeResolvedIdentifier(ctx->pool,
-                                                      &target->loc,
-                                                      var->_namedNode.name,
-                                                      0,
-                                                      var,
-                                                      NULL,
-                                                      var->type),
-                               opAssign,
-                               deepCloneAstNode(ctx->pool, target),
-                               NULL,
-                               var->type));
-        }
-        node->memberExpr.target = makeResolvedIdentifier(ctx->pool,
-                                                         &target->loc,
-                                                         var->_namedNode.name,
-                                                         0,
-                                                         var,
-                                                         NULL,
-                                                         target->type);
-        astModifierAdd(&ctx->block, var);
+        AstNode *var = hoistToTemporary(
+            ctx, target, target, target->type, "_m", flgNone, true);
+        node->memberExpr.target = makeTemporaryRef(ctx, var);
     }
+    if (nodeIs(node->memberExpr.member, Path))
+        astVisit(visitor, node->memberExpr.member);
 }
 
 static void visitReferenceOfExpr(AstVisitor *visitor, AstNode *node)
@@ -954,22 +1080,9 @@ static void visitReferenceOfExpr(AstVisitor *visitor, AstNode *node)
     astVisitFallbackVisitAll(visitor, node);
     AstNode *operand = node->unaryExpr.operand;
     if (nodeNeedsTemporaryVar(operand)) {
-        AstNode *var = makeVarDecl(ctx->pool,
-                                   &operand->loc,
-                                   flgTemporary,
-                                   makeAnonymousVariable(ctx->strings, "_r"),
-                                   NULL,
-                                   operand,
-                                   NULL,
-                                   operand->type);
-        node->unaryExpr.operand = makeResolvedIdentifier(ctx->pool,
-                                                         &operand->loc,
-                                                         var->_namedNode.name,
-                                                         0,
-                                                         var,
-                                                         NULL,
-                                                         operand->type);
-        astModifierAdd(&ctx->block, var);
+        AstNode *var = hoistToTemporary(
+            ctx, operand, operand, operand->type, "_r", flgTemporary, false);
+        node->unaryExpr.operand = makeTemporaryRef(ctx, var);
     }
 }
 
@@ -1239,6 +1352,8 @@ static void visitVarDecl(AstVisitor *visitor, AstNode *node)
         return;
     }
 
+    recordGlobalFini(ctx, node);
+
     if (init == NULL)
         return;
 
@@ -1411,7 +1526,7 @@ static void withSavedStack(Visitor func, AstVisitor *visitor, AstNode *node)
     if (node->type && node->type->retyped) {
         node->type = node->type->retyped;
     }
-
+    node->type = resolveAndUnThisType(node->type);
     func(visitor, node);
 
     ctx->stack = stack;

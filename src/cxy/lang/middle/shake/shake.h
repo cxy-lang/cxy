@@ -22,6 +22,8 @@ typedef struct {
     AstModifier root;
     u64 lastTestId;
     bool exceptionTrace;
+    // f-string that is only the receiver of a member access (borrowed, not moved)
+    AstNode *borrowedStringExpr;
     union {
         struct {
             bool inClassOrStruct;

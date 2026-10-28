@@ -145,6 +145,10 @@
         MODE##Visit(visitor, node->catchExpr.var);                             \
         MODE##Visit(visitor, node->catchExpr.body);                            \
         break;                                                                 \
+    case astLaunch:                                                            \
+        MODE##Visit(visitor, node->launch.name);                               \
+        MODE##Visit(visitor, node->launch.closure);                            \
+        break;                                                                 \
     case astXformExpr:                                                         \
         MODE##Visit(visitor, node->xFormExpr.target);                          \
         MODE##Visit(visitor, node->xFormExpr.arg);                             \

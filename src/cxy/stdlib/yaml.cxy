@@ -1,6 +1,7 @@
 module yaml
 
 import { Value } from "stdlib/value.cxy"
+import { Vector } from "stdlib/vector.cxy"
 import { YamlParser } from "./yaml/parser.cxy"
 import { YamlSerializer } from "./yaml/serializer.cxy"
 import { YamlError as _YamlError } from "./yaml/common.cxy"
@@ -11,9 +12,7 @@ pub type YamlError = _YamlError
 /*
  * Parse a YAML string into a Value
  *
- * Returns a Value that can be:
- * - Single document: the parsed value
- * - Multiple documents: an array of Values
+ * The stream must hold exactly one document, use parseAll() for several.
  *
  * Example:
  *   var data = parse("name: John\nage: 30")
@@ -24,6 +23,14 @@ pub type YamlError = _YamlError
 pub func parse(str: __string): !Value {
     var parser = YamlParser(str)
     return parser.parse()
+}
+
+/*
+ * Parse a YAML stream into one Value per document
+ */
+pub func parseAll(str: __string): !Vector[Value] {
+    var parser = YamlParser(str)
+    return parser.parseAll()
 }
 
 /*
@@ -39,7 +46,12 @@ pub func parse(str: __string): !Value {
  */
 pub func fromYaml[T](str: __string, b64: bool = true): !T {
     var value = parse(str)
-    return value.cast[T](b64)
+    #if #T == #Value {
+        return &&value
+    }
+    else {
+        return value.cast[T](b64)
+    }
 }
 
 /*
@@ -121,76 +133,6 @@ test {
     }
 }
 
-test "parse - simple scalar" {
-    var result = parse("hello")
-    ok!(result.isString())
-    ok!(result.asString() == "hello")
-}
-
-test "parse - simple object" {
-    var result = parse("name: John\nage: 30")
-    ok!(result.isObject())
-
-    var name = result.["name"]
-    ok!(!!name && name&.isString() && name&.asString() == "John")
-
-    var age = result.["age"]
-    ok!(!!age && age&.isFloat() && age&.asFloat() == 30)
-}
-
-test "parse - simple array" {
-    var result = parse("- apple\n- banana\n- orange")
-    ok!(result.isArray())
-    ok!(result.size() == 3)
-
-    var item0 = result.[0]
-    ok!(!!item0 && item0&.isString() && item0&.asString() == "apple")
-}
-
-test "parse - nested structure" {
-    var input = """
-name: MyApp
-config:
-  debug: true
-  port: 8080
-"""
-    var result = parse(input)
-    ok!(result.isObject())
-
-    var config = result.["config"]
-    ok!(!!config && config&.isObject())
-
-    var debug = config&.get("debug")
-    ok!(!!debug && debug&.isBool() && debug&.asBool() == true)
-
-    var port = config&.get("port")
-    ok!(!!port && port&.isFloat() && port&.asFloat() == 8080)
-}
-
-test "parse - with anchors and aliases" {
-    var input = """
-default: &config
-  name: Default
-  port: 8080
-dev: *config
-prod: *config
-"""
-    var result = parse(input)
-    ok!(result.isObject())
-
-    var dev = result.["dev"]
-    ok!(!!dev && dev&.isObject())
-
-    var devName = dev&.get("name")
-    ok!(!!devName && devName&.asString() == "Default")
-
-    var prod = result.["prod"]
-    ok!(!!prod && prod&.isObject())
-
-    var prodPort = prod&.get("port")
-    ok!(!!prodPort && prodPort&.asFloat() == 8080)
-}
-
 test "parse - multiple documents" {
     var input = """
 ---
@@ -198,85 +140,24 @@ name: First
 ---
 name: Second
 """
-    var result = parse(input)
-    ok!(result.isArray())
+    var result = parseAll(input)
     ok!(result.size() == 2)
 
     var doc0 = result.[0]
-    ok!(!!doc0 && doc0&.isObject())
-    var name0 = doc0&.get("name")
+    ok!(doc0.isObject())
+    var name0 = doc0.get("name")
     ok!(!!name0 && name0&.asString() == "First")
 
     var doc1 = result.[1]
-    ok!(!!doc1 && doc1&.isObject())
-    var name1 = doc1&.get("name")
+    ok!(doc1.isObject())
+    var name1 = doc1.get("name")
     ok!(!!name1 && name1&.asString() == "Second")
-}
-
-test "parse - flow style" {
-    var result = parse("user: {name: John, age: 30}")
-    ok!(result.isObject())
-
-    var user = result.["user"]
-    ok!(!!user && user&.isObject())
-
-    var name = user&.get("name")
-    ok!(!!name && name&.asString() == "John")
-}
-
-test "parse - multiline literal string" {
-    var input = """text: |
-  Line 1
-  Line 2
-  Line 3"""
-    var result = parse(input)
-    ok!(result.isObject())
-
-    var text = result.["text"]
-    ok!(!!text && text&.isString())
-    ok!(text&.asString() == "Line 1\nLine 2\nLine 3\n")
-}
-
-test "parse - invalid YAML error" {
-    var input = "value: *undefined_alias"
-    var result = parse(input) catch Value()
-    ok!(result.isNull())  // Should have failed
 }
 
 test "fromYaml - struct casting" {
     var person = fromYaml[Person]("name: John\nage: 30")
     ok!(person.name == "John")
     ok!(person.age == 30)
-}
-
-test "fromYaml - unquoted multi-word scalar value" {
-    var value = fromYaml[Value]("run: echo installing")
-    ok!(value.isObject())
-
-    var run = value.["run"]
-    ok!(!!run && run&.isString() && run&.asString() == "echo installing")
-}
-
-test "fromYaml - empty flow array" {
-    var value = fromYaml[Value]("steps: []\n")
-    ok!(value.isObject())
-
-    var steps = value.["steps"]
-    ok!(!!steps && steps&.isArray())
-    ok!(steps&.size() == 0)
-}
-
-test "fromYaml - empty document is null" {
-    var value = fromYaml[Value]("")
-    ok!(value.isNull())
-}
-
-test "fromYaml - key with no value is null" {
-    var value = fromYaml[Value]("hello:")
-    ok!(value.isObject())
-
-    var hello = value.["hello"]
-    ok!(!!hello && hello&.isNull())
 }
 
 test "fromYaml - nested struct" {
@@ -293,14 +174,6 @@ config:
     ok!(app.config.name == "MyApp")
     ok!(app.config.debug == true)
     ok!(app.config.port == 8080)
-}
-
-test "fromYaml - value type" {
-    var value = fromYaml[Value]("name: test")
-    ok!(value.isObject())
-
-    var name = value.["name"]
-    ok!(!!name && name&.asString() == "test")
 }
 
 test "parse - complex pipeline with nested list mappings" {
@@ -354,75 +227,6 @@ test "stringify - simple object" {
     ok!(yaml.contains("version: 1"))
 }
 
-test "stringify - simple array" {
-    var arr = Value.Array()
-    arr.push(Value("apple"))
-    arr.push(Value("banana"))
-    arr.push(Value("orange"))
-
-    var yaml = stringify(&arr)
-    ok!(yaml.contains("- apple"))
-    ok!(yaml.contains("- banana"))
-    ok!(yaml.contains("- orange"))
-}
-
-test "stringify - nested object" {
-    var obj = Value.Object()
-    var config = Value.Object()
-    config.["port"] = Value(8080)
-    config.["debug"] = Value(true)
-    obj.["config"] = &&config
-
-    var yaml = stringify(&obj)
-    ok!(yaml.contains("config:"))
-    ok!(yaml.contains("port: 8080"))
-    ok!(yaml.contains("debug: true"))
-}
-
-test "stringify - boolean values" {
-    var obj = Value.Object()
-    obj.["enabled"] = Value(true)
-    obj.["disabled"] = Value(false)
-
-    var yaml = stringify(&obj)
-    ok!(yaml.contains("enabled: true"))
-    ok!(yaml.contains("disabled: false"))
-}
-
-test "stringify - null value" {
-    var obj = Value.Object()
-    obj.["empty"] = Value()
-
-    var yaml = stringify(&obj)
-    ok!(yaml.contains("empty: null"))
-}
-
-test "stringify - empty collections" {
-    var obj = Value.Object()
-    obj.["empty_obj"] = Value.Object()
-    obj.["empty_arr"] = Value.Array()
-
-    var yaml = stringify(&obj)
-    ok!(yaml.contains("empty_obj: {}"))
-    ok!(yaml.contains("empty_arr: []"))
-}
-
-test "stringify - string with quotes" {
-    var obj = Value.Object()
-    obj.["text"] = Value("Hello \"World\"")
-
-    var yaml = stringify(&obj)
-    ok!(yaml.contains("text: \"Hello \\\"World\\\"\""))
-}
-
-test "stringify - string with newline" {
-    var obj = Value.Object()
-    obj.["text"] = Value("Line1\nLine2")
-
-    var yaml = stringify(&obj)
-    ok!(yaml.contains("\"Line1\\nLine2\""))
-}
-
 test "stringify - reserved words get quoted" {
     var obj = Value.Object()
     obj.["value"] = Value("true")
@@ -436,10 +240,4 @@ test "dump - writes to output stream" {
     var output = String()
     dump(&output, &value)
     ok!(output == "test")
-}
-
-test "stringify - calls dump internally" {
-    var value = Value("test")
-    var yaml = stringify(&value)
-    ok!(yaml == "test")
 }

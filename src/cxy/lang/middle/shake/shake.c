@@ -854,25 +854,16 @@ static void shakeGenericDecl(AstVisitor *visitor, AstNode *node)
 static FunctionSignature *makeTestFunctionSignature(ShakeAstContext *ctx,
                                                     const FileLoc *loc)
 {
-    return makeFunctionSignature(
+    AstNode *voidType =
+        makeVoidAstNode(ctx->pool, loc, flgNone, NULL, NULL);
+    AstNode *resultType = makeAstNode(
         ctx->pool,
-        &(FunctionSignature){
-            // Void|Exception
-            .ret = makeUnionDeclAst(
-                ctx->pool,
-                loc,
-                flgNone,
-                makeResolvedPath(
-                    ctx->pool,
-                    loc,
-                    S_Void,
-                    flgNone,
-                    NULL,
-                    makeResolvedPath(
-                        ctx->pool, loc, S_Exception, flgNone, NULL, NULL, NULL),
-                    NULL),
-                NULL,
-                NULL)});
+        loc,
+        &(AstNode){.tag = astResultType,
+                   .flags = flgTypeAst,
+                   .resultType = {.target = voidType}});
+    return makeFunctionSignature(
+        ctx->pool, &(FunctionSignature){.ret = resultType});
 }
 
 static void shakeTestDecl(AstVisitor *visitor, AstNode *node)
@@ -953,12 +944,14 @@ static void shakeTestDecl(AstVisitor *visitor, AstNode *node)
             NULL,
             NULL);
     }
-    else if (!findAttribute(node, S_disabled)) {
-        char buf[64];
-        snprintf(buf, 64, "%" PRIu64, idx);
-        cstring name = makeStringConcat(ctx->strings, "test", buf);
+    else {
+        char buf[128];
+        bool isDisabled = findAttribute(node, S_disabled) != NULL;
+        snprintf(buf, 128, "%" PRIu64, idx);
+        cstring prefix = isDisabled ? "DISABLED_" : "";
+        cstring name = makeStringConcat(ctx->strings, prefix, "test", buf);
         cstring testName = node->testDecl.name ?: name;
-
+        u32 flags = isDisabled ? 0x4 : 0;
         node->funcDecl.name = name;
         insertAstNode(
             &ctx->testCases,
@@ -976,7 +969,7 @@ static void shakeTestDecl(AstVisitor *visitor, AstNode *node)
                                       0,
                                       node,
                                       makeUnsignedIntegerLiteral(
-                                          ctx->pool, &node->loc, 0, NULL, NULL),
+                                          ctx->pool, &node->loc, flags, NULL, NULL),
                                       NULL),
                                   NULL),
                 NULL,
@@ -1146,15 +1139,28 @@ static void shakeStringExpr(AstVisitor *visitor, AstNode *node)
     var->next = makeExprStmt(ctx->pool, &node->loc, flgNone, sb, NULL, NULL);
     astModifierAdd(&ctx->block, var);
 
+    AstNode *path =
+        makePath(ctx->pool, &node->loc, var->varDecl.name, var->flags, NULL);
+    if (ctx->borrowedStringExpr == node) {
+        // Only a receiver (`f"..".s()`): keep ownership so the builder is dropped
+        ctx->borrowedStringExpr = NULL;
+        path->next = node->next;
+        *node = *path;
+        return;
+    }
+
     node->tag = astUnaryExpr;
     node->unaryExpr.isPrefix = true;
     node->unaryExpr.op = opMove;
-    node->unaryExpr.operand = makePath(
-        ctx->pool,
-        &node->loc,
-        var->varDecl.name,
-        var->flags,
-        NULL);
+    node->unaryExpr.operand = path;
+}
+
+static void shakeMemberExpr(AstVisitor *visitor, AstNode *node)
+{
+    ShakeAstContext *ctx = getAstVisitorContext(visitor);
+    if (nodeIs(node->memberExpr.target, StringExpr))
+        ctx->borrowedStringExpr = node->memberExpr.target;
+    astVisitFallbackVisitAll(visitor, node);
 }
 
 static void shakeClassOrStructDecl(AstVisitor *visitor, AstNode *node)
@@ -1253,6 +1259,7 @@ AstNode *shakeAstNode(CompilerDriver *driver, AstNode *node)
         [astException] = shakeExceptionDecl,
         [astBlockStmt] = shakeBlockStmt,
         [astStringExpr] = shakeStringExpr,
+        [astMemberExpr] = shakeMemberExpr,
         [astClosureExpr] = shakeClosureExpr,
         [astIteratorExpr] = shakeIteratorExpr,
         [astCallExpr] = shakeCallExpr,

@@ -187,8 +187,8 @@ pub class JSONRPCServer[T] {
             #for(const member: T.members, member.isFunction && member.attributes.["api"]) {
                 case #{hash!(member.name)} => {
                     if (method == __string(#{member.name})) {
-                        var result = this.#{mk_ident!(member.name)}(params) catch {
-                            if (var err = (ex!) as JsonRpcError) {
+                        var result = this.#{mk_ident!(member.name)}(params) catch as ex {
+                            if (var err = ex as JsonRpcError) {
                                 return RpcError(err.code, err.msg)
                             }
                             else {
@@ -328,7 +328,7 @@ pub class JSONRPCServer[T] {
             if (!sock)
                 continue;
 
-            async { handleConnection( sock.move() ) }
+            async { handleConnection( &&*sock ) }
         }
         DBG!("Server done")
     }

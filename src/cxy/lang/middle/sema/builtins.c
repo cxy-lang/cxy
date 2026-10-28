@@ -17,6 +17,29 @@ static inline bool hasMember(AstNode *node, cstring name)
 
 
 
+static AstNode *implementCallUnionCopy(TypingContext *ctx,
+                                       AstNode *member,
+                                       const FileLoc *loc)
+{
+    const Type *type = member->type;
+    const Type *copy_ = type->tUnion.copyFunc;
+    csAssert0(copy_);
+
+    return makeBackendCallExpr(
+        ctx->pool,
+        loc,
+        flgNone,
+        bfiCopy,
+        makeResolvedPath(ctx->pool,
+                         &member->loc,
+                         member->structField.name,
+                         member->flags | flgMember | flgAddThis,
+                         member,
+                         NULL,
+                         type),
+        member->type);
+}
+
 static AstNode *implementCallTupleCopy(TypingContext *ctx,
                                        AstNode *member,
                                        const FileLoc *loc)
@@ -239,6 +262,30 @@ static AstNode *implementZeroMemory(TypingContext *ctx,
                                     AstNode *member,
                                     const FileLoc *loc)
 {
+    if (isClassType(member->type) || isPointerType(member->type)) {
+        return makeExprStmt(
+            ctx->pool,
+            loc,
+            flgNone,
+            makeAssignExpr(
+                ctx->pool,
+                loc,
+                flgNone,
+                makeResolvedPath(ctx->pool,
+                                 loc,
+                                 member->_name,
+                                 flgMember | flgAddThis,
+                                 member,
+                                 NULL,
+                                 member->type),
+                opAssign,
+                makeNullLiteral(ctx->pool, loc, NULL, makeNullType(ctx->types)),
+                NULL,
+                member->type),
+            NULL,
+            makeVoidType(ctx->types));
+    }
+
     return makeExprStmt(
         ctx->pool,
         loc,
@@ -355,6 +402,17 @@ static void implementStructCopyFunction(AstVisitor *visitor,
                               member->structField.name,
                               member->flags,
                               implementCallTupleCopy(ctx, member, &copy->loc),
+                              member,
+                              NULL);
+            refMembers = true;
+        }
+        else if (isUnionType(type) && hasFlag(type, ReferenceMembers)) {
+            expr =
+                makeFieldExpr(ctx->pool,
+                              &copy->loc,
+                              member->structField.name,
+                              member->flags,
+                              implementCallUnionCopy(ctx, member, &copy->loc),
                               member,
                               NULL);
             refMembers = true;
@@ -586,6 +644,10 @@ static void implementDestructorFunction(AstVisitor *visitor,
         else if (isClosureType(type) && isDestructible(type)) {
             call = makeDropReferenceCall(ctx, member, &destructor->loc);
         }
+        else if (isOptionalType(type) && isDestructible(type)) {
+            // The backend emits `if (m.ok) drop(m.val)`
+            call = makeDropReferenceCall(ctx, member, &destructor->loc);
+        }
         else {
             continue;
         }
@@ -596,15 +658,12 @@ static void implementDestructorFunction(AstVisitor *visitor,
             return;
         }
         insertAstNode(&stmts, call);
-        const Type *memberType = member->type;
-        if (!isArrayType(memberType)) {
-            insertAstNode(&stmts,
-                          implementZeroMemory(ctx, member, &destructor->loc));
-        }
     }
 
     if (stmts.first) {
         node->flags |= flgReferenceMembers;
+        if (node->type)
+            ((Type *)node->type)->flags |= flgReferenceMembers;
         destructor->funcDecl.body = makeBlockStmt(ctx->pool,
                                                   &destructor->loc,
                                                   stmts.first,

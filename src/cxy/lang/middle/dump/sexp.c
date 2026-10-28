@@ -449,6 +449,20 @@ static void visitFuncType(ConstAstVisitor *visitor, const AstNode *node)
     }
 }
 
+static void visitLaunch(ConstAstVisitor *visitor, const AstNode *node)
+{
+    SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
+    emitMetadata(visitor, node);
+    if (node->launch.name) {
+        emitNewline(ctx);
+        astConstVisit(visitor, node->launch.name);
+    }
+    if (node->launch.closure) {
+        emitNewline(ctx);
+        astConstVisit(visitor, node->launch.closure);
+    }
+}
+
 static void visitOptionalType(ConstAstVisitor *visitor, const AstNode *node)
 {
     SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -888,6 +902,7 @@ AstNode *dumpAstToSexpState(CompilerDriver *driver,
         [astSliceExpr] = visitSliceExpr,
         [astIteratorExpr] = visitIteratorExpr,
         [astCatchExpr] = visitCatchExpr,
+        [astLaunch] = visitLaunch,
         [astCallExpr] = visitCallExpr,
         [astBinaryExpr] = visitBinaryExpr,
         [astAssignExpr] = visitAssignExpr,

@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "core/format.h"
 #include "typegraph.h"
 #include "lang/frontend/operator.h"
 #include "lang/frontend/strings.h"
@@ -18,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <ctype.h>
 
 static void getOutputPath(FormatState *cmd,
                           StrPool *strings,
@@ -109,6 +111,11 @@ static void emitCTypeName(FormatState *state, const IrType *type)
         return;
     }
 
+    if (type->category == irTypeCatEnum && type->name) {
+        format(state, "{s}", (FormatArg[]){{.s = type->name}});
+        return;
+    }
+
     switch (type->tag) {
     case irTypeVoid: format(state, "void", NULL); break;
     case irTypeBool: format(state, "bool", NULL); break;
@@ -176,7 +183,16 @@ static inline void emitLineDirective(CodegenContext *ctx, const FileLoc *loc)
 static void emitNullConst(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
-    format(&ctx->state, "nullptr", NULL);
+    if (node->type && (node->type->tag == irTypeStruct || node->type->tag == irTypeUntaggedUnion) && node->type->category != irTypeCatClass) {
+        format(&ctx->state, "(", NULL);
+        emitCTypeName(&ctx->state, node->type);
+        format(&ctx->state,
+               node->type->strct.count ? "){{0}" : "){{}",
+               NULL);
+    }
+    else {
+        format(&ctx->state, "nullptr", NULL);
+    }
 }
 
 static void emitBoolConst(ConstIrVisitor *visitor, const IrNode *node)
@@ -188,18 +204,48 @@ static void emitBoolConst(ConstIrVisitor *visitor, const IrNode *node)
 static void emitCharConst(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    u32 value = (u32)node->charConst.value;
+    if (value > 0x7F) {
+        // A C character literal holds one byte, write the code as a number
+        format(&ctx->state, "((", NULL);
+        if (node->type)
+            emitCTypeName(&ctx->state, node->type);
+        else
+            format(&ctx->state, "uint32_t", NULL);
+        format(&ctx->state, "){u32})", (FormatArg[]){{.u32 = value}});
+        return;
+    }
     format(&ctx->state, "'", NULL);
-    printEscapedChar(&ctx->state, (char)node->charConst.value);
+    printUtf8(&ctx->state, value, true);
     format(&ctx->state, "'", NULL);
 }
 
 static void emitIntConst(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    u128 value = node->intConst.value;
+    IrTypeTag tag = node->type ? node->type->tag : irTypeI32;
+
+    // INT64_MIN can't be written as a negated literal
+    if (tag == irTypeI64 && node->intConst.isNegative && value == ((u128)1 << 63)) {
+        format(&ctx->state, "(-9223372036854775807LL - 1)", NULL);
+        return;
+    }
+
+    cstring suffix = "";
+    switch (tag) {
+    case irTypeI64: suffix = "LL"; break;
+    case irTypeU64: suffix = "ULL"; break;
+    case irTypeU32: suffix = "U"; break;
+    default: break;
+    }
+
     if (node->intConst.isNegative)
-        format(&ctx->state, "(-{u128})", (FormatArg[]){{.u128 = node->intConst.value}});
+        format(&ctx->state,
+               "(-{u128}{s})",
+               (FormatArg[]){{.u128 = value}, {.s = suffix}});
     else
-        format(&ctx->state, "{u128}", (FormatArg[]){{.u128 = node->intConst.value}});
+        format(&ctx->state, "{u128}{s}", (FormatArg[]){{.u128 = value}, {.s = suffix}});
 }
 
 static void emitFloatConst(ConstIrVisitor *visitor, const IrNode *node)
@@ -211,10 +257,18 @@ static void emitFloatConst(ConstIrVisitor *visitor, const IrNode *node)
 static void emitStringConst(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
-    format(&ctx->state, "\"", NULL);
     cstring p = node->stringConst.value ?: "";
-    while (*p) {
-        printEscapedChar(&ctx->state, *p++);
+    format(&ctx->state, "\"", NULL);
+    while (*p != '\0') {
+        if (p[0] == '\\' && (p[1] == 'x' || p[1] == 'X' || isdigit(p[1]))) {
+            // Pre-existing hex/octal escape — pass through unescaped
+            printUtf8(&ctx->state, (u8)*p++, false);
+        }
+        else {
+            // Decode full UTF-8 code point before passing to printUtf8
+            uint32_t cp = decodeUtf8Char(&p);
+            printUtf8(&ctx->state, cp, true);
+        }
     }
     format(&ctx->state, "\"", NULL);
 }
@@ -230,6 +284,15 @@ static void emitArrayConst(ConstIrVisitor *visitor, const IrNode *node)
         irConstVisit(visitor, elem);
     }
     format(&ctx->state, "}", NULL);
+}
+
+static void emitFieldConst(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    if (node->fieldConst.name) {
+        format(&ctx->state, ".{s} = ", (FormatArg[]){{.s = node->fieldConst.name}});
+    }
+    irConstVisit(visitor, node->fieldConst.value);
 }
 
 static void emitStructConst(ConstIrVisitor *visitor, const IrNode *node)
@@ -341,9 +404,16 @@ static void emitCast(ConstIrVisitor *visitor, const IrNode *node)
 static void emitUnary(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
-    format(&ctx->state, "({s}(", (FormatArg[]){{.s = getUnaryOpString(node->unary.op)}});
-    irConstVisit(visitor, node->unary.operand);
-    format(&ctx->state, "))", NULL);
+    if (node->unary.op == opPostInc || node->unary.op == opPostDec) {
+        format(&ctx->state, "((", NULL);
+        irConstVisit(visitor, node->unary.operand);
+        format(&ctx->state, "){s})", (FormatArg[]){{.s = getUnaryOpString(node->unary.op)}});
+    }
+    else {
+        format(&ctx->state, "({s}(", (FormatArg[]){{.s = getUnaryOpString(node->unary.op)}});
+        irConstVisit(visitor, node->unary.operand);
+        format(&ctx->state, "))", NULL);
+    }
 }
 
 static void emitBinary(ConstIrVisitor *visitor, const IrNode *node)
@@ -387,6 +457,38 @@ static void emitDeref(ConstIrVisitor *visitor, const IrNode *node)
 static void emitMove(ConstIrVisitor *visitor, const IrNode *node)
 {
     irConstVisit(visitor, node->move.src);
+}
+
+static void emitAlloca(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    const IrType *type = node->alloca.elemType;
+    const IrType *st = isIrPointerType(type) ? type->pointer.pointee : type;
+    format(&ctx->state, "alloca(sizeof(", NULL);
+    emitCTypeName(&ctx->state, st);
+    format(&ctx->state, ")", NULL);
+    if (node->alloca.size) {
+        format(&ctx->state, " * (", NULL);
+        irConstVisit(visitor, node->alloca.size);
+        format(&ctx->state, ")", NULL);
+    }
+    format(&ctx->state, ")", NULL);
+}
+
+static void emitMalloc(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    const IrType *type = node->malloc.elemType;
+    const IrType *st = isIrPointerType(type) ? type->pointer.pointee : type;
+    format(&ctx->state, "malloc(sizeof(", NULL);
+    emitCTypeName(&ctx->state, st);
+    format(&ctx->state, ")", NULL);
+    if (node->malloc.size) {
+        format(&ctx->state, " * (", NULL);
+        irConstVisit(visitor, node->malloc.size);
+        format(&ctx->state, ")", NULL);
+    }
+    format(&ctx->state, ")", NULL);
 }
 
 static void emitSizeof(ConstIrVisitor *visitor, const IrNode *node)
@@ -506,29 +608,15 @@ static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
                     format(&ctx->state, ");\n", NULL);
                 }
             }
-            else if (elemType->category == irTypeCatStruct && elemType->name) {
-                format(&ctx->state, "{s}_op__destructor(&(", (FormatArg[]){{.s = elemType->name}});
-                irConstVisit(visitor, target);
-                if (isIrPointerType(target->type))
-                    format(&ctx->state, "->val));\n", NULL);
-                else
-                    format(&ctx->state, ".val));\n", NULL);
-            }
-            else if (elemType->category == irTypeCatTuple) {
-                format(&ctx->state, "__tuple_dctor_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)elemType->index}});
-                irConstVisit(visitor, target);
-                if (isIrPointerType(target->type))
-                    format(&ctx->state, "->val));\n", NULL);
-                else
-                    format(&ctx->state, ".val));\n", NULL);
-            }
-            else if (elemType->category == irTypeCatUnion) {
-                format(&ctx->state, "__union_dctor_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)elemType->index}});
-                irConstVisit(visitor, target);
-                if (isIrPointerType(target->type))
-                    format(&ctx->state, "->val));\n", NULL);
-                else
-                    format(&ctx->state, ".val));\n", NULL);
+            else if (elemType->category == irTypeCatTuple || elemType->category == irTypeCatUnion || elemType->category == irTypeCatStruct) {
+                if (elemType->strct.dctor) {
+                    format(&ctx->state, "{s}(&(", (FormatArg[]){{.s = elemType->strct.dctor->function.name}});
+                    irConstVisit(visitor, target);
+                    if (isIrPointerType(target->type))
+                        format(&ctx->state, "->val));\n", NULL);
+                    else
+                        format(&ctx->state, ".val));\n", NULL);
+                }
             }
         }
         break;
@@ -569,7 +657,7 @@ static void emitDrop(ConstIrVisitor *visitor, const IrNode *node)
         break;
     }
     default:
-        if (type->tag == irTypePointer) {
+        if (type->tag == irTypePointer && type->category == irTypeCatClass) {
             cstring dropFunc = ctx->memTraceEnabled ? "__smart_ptr_drop_trace" : "__smart_ptr_drop";
             format(&ctx->state, "{s}(", (FormatArg[]){{.s = dropFunc}});
             irConstVisit(visitor, target);
@@ -593,6 +681,9 @@ static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
         return;
 
     const IrType *type = src->type;
+    while (type && (type->category == irTypeCatReference || (type->tag == irTypePointer && type->category != irTypeCatClass))) {
+        type = type->pointer.pointee;
+    }
     switch (type->category) {
     case irTypeCatClass: {
         cstring getFunc = ctx->memTraceEnabled ? "__smart_ptr_get_trace" : "__smart_ptr_get";
@@ -693,23 +784,19 @@ static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
                     format(&ctx->state, ".val);\n", NULL);
                 }
             }
-            else if (elemType->category == irTypeCatStruct && elemType->name) {
-                irConstVisit(visitor, dst);
-                format(&ctx->state, ".val = {s}_op__copy(&(", (FormatArg[]){{.s = elemType->name}});
-                irConstVisit(visitor, src);
-                format(&ctx->state, ".val));\n", NULL);
-            }
-            else if (elemType->category == irTypeCatTuple) {
-                irConstVisit(visitor, dst);
-                format(&ctx->state, ".val = __tuple_copy_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)elemType->index}});
-                irConstVisit(visitor, src);
-                format(&ctx->state, ".val));\n", NULL);
-            }
-            else if (elemType->category == irTypeCatUnion) {
-                irConstVisit(visitor, dst);
-                format(&ctx->state, ".val = __union_copy_{u32}(&(", (FormatArg[]){{.u32 = (unsigned)elemType->index}});
-                irConstVisit(visitor, src);
-                format(&ctx->state, ".val));\n", NULL);
+            else if (elemType->category == irTypeCatTuple || elemType->category == irTypeCatUnion || elemType->category == irTypeCatStruct) {
+                if (elemType->strct.copy) {
+                    irConstVisit(visitor, dst);
+                    format(&ctx->state, ".val = {s}(&(", (FormatArg[]){{.s = elemType->strct.copy->function.name}});
+                    irConstVisit(visitor, src);
+                    format(&ctx->state, ".val));\n", NULL);
+                }
+                else if (elemType->category == irTypeCatStruct && elemType->name) {
+                    irConstVisit(visitor, dst);
+                    format(&ctx->state, ".val = {s}_op__copy(&(", (FormatArg[]){{.s = elemType->name}});
+                    irConstVisit(visitor, src);
+                    format(&ctx->state, ".val));\n", NULL);
+                }
             }
         }
         else {
@@ -727,9 +814,30 @@ static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
         if (type->strct.copy) {
             format(&ctx->state, "  ", NULL);
             irConstVisit(visitor, dst);
-            format(&ctx->state, " = {s}(&(", (FormatArg[]){{.s = type->strct.copy->function.name}});
-            irConstVisit(visitor, src);
-            format(&ctx->state, "));\n", NULL);
+            if (src->type->category == irTypeCatReference || (src->type->tag == irTypePointer && src->type->category != irTypeCatClass)) {
+                format(&ctx->state, " = {s}(", (FormatArg[]){{.s = type->strct.copy->function.name}});
+                irConstVisit(visitor, src);
+                format(&ctx->state, ");\n", NULL);
+            }
+            else {
+                format(&ctx->state, " = {s}(&(", (FormatArg[]){{.s = type->strct.copy->function.name}});
+                irConstVisit(visitor, src);
+                format(&ctx->state, "));\n", NULL);
+            }
+        }
+        else {
+            format(&ctx->state, "  ", NULL);
+            irConstVisit(visitor, dst);
+            format(&ctx->state, " = ", NULL);
+            if (src->type->category == irTypeCatReference || (src->type->tag == irTypePointer && src->type->category != irTypeCatClass)) {
+                format(&ctx->state, "*(", NULL);
+                irConstVisit(visitor, src);
+                format(&ctx->state, ");\n", NULL);
+            }
+            else {
+                irConstVisit(visitor, src);
+                format(&ctx->state, ";\n", NULL);
+            }
         }
         break;
     case irTypeCatClosure: {
@@ -746,7 +854,7 @@ static void emitCopy(ConstIrVisitor *visitor, const IrNode *node)
         break;
     }
     default:
-        if (type->tag == irTypePointer) {
+        if (type->tag == irTypePointer && type->category == irTypeCatClass) {
             cstring getFunc = ctx->memTraceEnabled ? "__smart_ptr_get_trace" : "__smart_ptr_get";
             format(&ctx->state, "  ", NULL);
             irConstVisit(visitor, dst);
@@ -905,7 +1013,8 @@ static void emitAssign(ConstIrVisitor *visitor, const IrNode *node)
             format(&ctx->state, "){{", NULL);
             u64 fi = 0;
             for (const IrNode *fld = rhs->structConst.fields; fld; fld = fld->next, fi++) {
-                if (fld->tag == irArrayConst)
+                const IrNode *val = (fld->tag == irFieldConst) ? fld->fieldConst.value : fld;
+                if (val && val->tag == irArrayConst)
                     continue;
                 if (fi > 0)
                     format(&ctx->state, ", ", NULL);
@@ -915,10 +1024,13 @@ static void emitAssign(ConstIrVisitor *visitor, const IrNode *node)
 
             fi = 0;
             for (const IrNode *fld = rhs->structConst.fields; fld; fld = fld->next, fi++) {
-                if (fld->tag == irArrayConst) {
-                    cstring fldName = (rhs->type && fi < rhs->type->strct.count) ? rhs->type->strct.fields[fi].name : NULL;
+                const IrNode *val = (fld->tag == irFieldConst) ? fld->fieldConst.value : fld;
+                if (val && val->tag == irArrayConst) {
+                    cstring fldName = (fld->tag == irFieldConst)
+                                          ? fld->fieldConst.name
+                                          : ((rhs->type && fi < rhs->type->strct.count) ? rhs->type->strct.fields[fi].name : NULL);
                     u64 idx = 0;
-                    for (const IrNode *elem = fld->arrayConst.elements; elem; elem = elem->next, idx++) {
+                    for (const IrNode *elem = val->arrayConst.elements; elem; elem = elem->next, idx++) {
                         format(&ctx->state, "  ", NULL);
                         irConstVisit(visitor, lhs);
                         if (fldName)
@@ -935,6 +1047,19 @@ static void emitAssign(ConstIrVisitor *visitor, const IrNode *node)
     }
 
     if (rhs && rhs->tag == irArrayConst) {
+        // `[]` and partial literals zero the remaining elements (an element
+        // being replaced is dropped later, so it must not be garbage)
+        u64 given = 0;
+        for (const IrNode *elem = rhs->arrayConst.elements; elem; elem = elem->next)
+            given++;
+        if (lhs && lhs->type && lhs->type->tag == irTypeArray &&
+            lhs->type->array.len != UINT64_MAX && given < lhs->type->array.len) {
+            format(&ctx->state, "  memset(", NULL);
+            irConstVisit(visitor, lhs);
+            format(&ctx->state, ", 0, sizeof(", NULL);
+            irConstVisit(visitor, lhs);
+            format(&ctx->state, "));\n", NULL);
+        }
         u64 idx = 0;
         for (const IrNode *elem = rhs->arrayConst.elements; elem; elem = elem->next, idx++) {
             format(&ctx->state, "  ", NULL);
@@ -954,6 +1079,19 @@ static void emitAssign(ConstIrVisitor *visitor, const IrNode *node)
         format(&ctx->state, ", sizeof(", NULL);
         irConstVisit(visitor, lhs);
         format(&ctx->state, "));\n", NULL);
+        return;
+    }
+
+    if (rhs && rhs->tag == irNullConst && lhs && lhs->type &&
+        (lhs->type->tag == irTypeStruct || lhs->type->tag == irTypeUntaggedUnion) &&
+        lhs->type->category != irTypeCatClass) {
+        format(&ctx->state, "  ", NULL);
+        irConstVisit(visitor, lhs);
+        format(&ctx->state, " = (", NULL);
+        emitCTypeName(&ctx->state, lhs->type);
+        format(&ctx->state,
+               lhs->type->strct.count ? "){{0};\n" : "){{};\n",
+               NULL);
         return;
     }
 
@@ -999,9 +1137,14 @@ static void emitSwitch(ConstIrVisitor *visitor, const IrNode *node)
     irConstVisit(visitor, node->switchStmt.cond);
     format(&ctx->state, ") {{\n", NULL);
     for (u64 i = 0; i < node->switchStmt.casesCount; i++) {
-        format(&ctx->state, "    case {u64}: goto {s};\n",
+        format(&ctx->state, "    case ", NULL);
+        irConstVisit(visitor, node->switchStmt.cases[i].valNode);
+        if (node->switchStmt.cases[i].endNode) {
+            format(&ctx->state, " ... ", NULL);
+            irConstVisit(visitor, node->switchStmt.cases[i].endNode);
+        }
+        format(&ctx->state, ": goto {s};\n",
                (FormatArg[]){
-                   {.u64 = node->switchStmt.cases[i].value},
                    {.s = node->switchStmt.cases[i].target ? node->switchStmt.cases[i].target->basicBlock.name : ""}});
     }
     if (node->switchStmt.defaultTarget) {
@@ -1009,6 +1152,95 @@ static void emitSwitch(ConstIrVisitor *visitor, const IrNode *node)
                (FormatArg[]){{.s = node->switchStmt.defaultTarget->basicBlock.name}});
     }
     format(&ctx->state, "  }\n", NULL);
+}
+
+static void emitInlineAsm(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    const AstNode *ast = node->ast;
+    if (node->inlineAsm.isVolatile)
+        format(&ctx->state, "  __asm__ __volatile__(\"", NULL);
+    else
+        format(&ctx->state, "  __asm__(\"", NULL);
+
+    cstring p = node->inlineAsm.text ?: (ast ? ast->inlineAssembly.text : "");
+    while (p && *p != '\0') {
+        switch (*p) {
+        case '$':
+            if (p[1] == '$') {
+                format(&ctx->state, "$", NULL);
+                p++;
+            }
+            else
+                format(&ctx->state, "%", NULL);
+            break;
+        case '%':
+            format(&ctx->state, "%%", NULL);
+            break;
+        default:
+            if (p[0] == '\\' && (p[1] == 'x' || p[1] == 'X' || isdigit(p[1]))) {
+                printUtf8(&ctx->state, (u8)*p, false);
+            }
+            else {
+                uint32_t cp = decodeUtf8Char(&p);
+                printUtf8(&ctx->state, cp, true);
+                continue;
+            }
+            break;
+        }
+        p++;
+    }
+    format(&ctx->state, "\"", NULL);
+
+    if (ast && ast->inlineAssembly.outputs) {
+        AstNode *output = ast->inlineAssembly.outputs;
+        format(&ctx->state, "\n  :", NULL);
+        for (; output; output = output->next) {
+            format(&ctx->state,
+                   "\"{s}\" (",
+                   (FormatArg[]){{.s = output->asmOperand.constraint}});
+            if (output->asmOperand.operand && output->asmOperand.operand->codegen)
+                irConstVisit(visitor, (IrNode *)output->asmOperand.operand->codegen);
+            format(&ctx->state, ")", NULL);
+            if (output->next)
+                format(&ctx->state, ", ", NULL);
+        }
+    }
+    else if (ast && (ast->inlineAssembly.inputs || ast->inlineAssembly.clobbers)) {
+        format(&ctx->state, " :", NULL);
+    }
+
+    if (ast && ast->inlineAssembly.inputs) {
+        AstNode *input = ast->inlineAssembly.inputs;
+        format(&ctx->state, "\n  :", NULL);
+        for (; input; input = input->next) {
+            format(&ctx->state,
+                   "\"{s}\" (",
+                   (FormatArg[]){{.s = input->asmOperand.constraint}});
+            if (input->asmOperand.operand && input->asmOperand.operand->codegen)
+                irConstVisit(visitor, (IrNode *)input->asmOperand.operand->codegen);
+            format(&ctx->state, ")", NULL);
+            if (input->next)
+                format(&ctx->state, ", ", NULL);
+        }
+    }
+    else if (ast && ast->inlineAssembly.clobbers) {
+        format(&ctx->state, " :", NULL);
+    }
+
+    if (ast && ast->inlineAssembly.clobbers) {
+        AstNode *clobber = ast->inlineAssembly.clobbers;
+        format(&ctx->state, "\n  :", NULL);
+        for (; clobber; clobber = clobber->next) {
+            if (clobber->codegen)
+                irConstVisit(visitor, (IrNode *)clobber->codegen);
+            else if (nodeIs(clobber, StringLit))
+                format(&ctx->state, "\"{s}\"", (FormatArg[]){{.s = clobber->stringLiteral.value}});
+            if (clobber->next)
+                format(&ctx->state, ", ", NULL);
+        }
+    }
+    format(&ctx->state, ");\n", NULL);
 }
 
 static void emitReturn(ConstIrVisitor *visitor, const IrNode *node)
@@ -1071,6 +1303,14 @@ static void emitCVarDecl(FormatState *state, const IrType *type, cstring name)
     }
 }
 
+static void emitFunctionLinkage(FormatState *state, const IrNode *func)
+{
+    if (hasFlag(func, ModuleInit) || (func->function.name && strstr(func->function.name, "___init")))
+        format(state, "__attribute__((constructor)) static ", NULL);
+    else
+        format(state, "static ", NULL);
+}
+
 static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
@@ -1078,12 +1318,7 @@ static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
         return;
 
     emitLineDirective(ctx, &node->loc);
-    if (hasFlag(node, ModuleInit) || (node->function.name && strstr(node->function.name, "___init"))) {
-        format(&ctx->state, "__attribute__((constructor)) static ", NULL);
-    }
-    else {
-        format(&ctx->state, "static ", NULL);
-    }
+    emitFunctionLinkage(&ctx->state, node);
     emitCTypeName(&ctx->state, node->type ? node->type->func.ret : NULL);
     format(&ctx->state, " {s}(", (FormatArg[]){{.s = node->function.name}});
     for (const IrNode *p = node->function.params; p; p = p->next) {
@@ -1108,11 +1343,23 @@ static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
     }
 
     format(&ctx->state, "}\n\n", NULL);
+
+    int finiKind = irModuleFiniKind(node);
+    if (finiKind != 0) {
+        format(&ctx->state,
+               "__attribute__((constructor)) static void {s}_reg(void) {{ {s}({s}); }\n\n",
+               (FormatArg[]){{.s = node->function.name},
+                             {.s = finiKind == 1 ? "__cxy_register_process_fini"
+                                                 : "__cxy_register_thread_fini"},
+                             {.s = node->function.name}});
+    }
 }
 
 static void emitGlobalVar(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    if (node->globalVar.isThreadLocal)
+        format(&ctx->state, "__thread ", NULL);
     if (node->type && node->type->tag == irTypeArray) {
         emitCTypeName(&ctx->state, node->type->array.elem);
         format(&ctx->state, " {s}[{u64}]", (FormatArg[]){{.s = node->globalVar.name}, {.u64 = node->type->array.len}});
@@ -1128,7 +1375,7 @@ static void emitGlobalVar(ConstIrVisitor *visitor, const IrNode *node)
     format(&ctx->state, ";\n", NULL);
 }
 
-static void emitCFieldDecl(FormatState *state, const IrType *type, cstring name)
+static void emitCFieldDecl(FormatState *state, const IrType *type, cstring name, u32 bits)
 {
     if (type && type->tag == irTypeArray) {
         emitCTypeName(state, type->array.elem);
@@ -1146,6 +1393,10 @@ static void emitCFieldDecl(FormatState *state, const IrType *type, cstring name)
             format(state, "void", NULL);
         format(state, ");\n", NULL);
     }
+    else if (bits > 0) {
+        emitCTypeName(state, type);
+        format(state, " {s}: {u32};\n", (FormatArg[]){{.s = name ?: "_f"}, {.u32 = bits}});
+    }
     else {
         emitCTypeName(state, type);
         format(state, " {s};\n", (FormatArg[]){{.s = name ?: "_f"}});
@@ -1162,10 +1413,45 @@ static void emitTypeGraphDefinitions(FormatState *state, const DynArray *modules
     }
     sortIrTypeGraph(g);
 
-    // Pass 1: Forward typedefs for all structs and unions
+    // Pass 1: Forward typedefs and defines for enums, structs, and unions
     dynArrayFor(it, const IrType *, &g->sorted) {
         const IrType *t = *it;
-        if (t->tag == irTypeStruct && t->name) {
+        if (t->category == irTypeCatEnum && t->name) {
+            format(state, "typedef ", NULL);
+            // Emit underlying primitive integer type
+            switch (t->tag) {
+            case irTypeI8: format(state, "int8_t", NULL); break;
+            case irTypeI16: format(state, "int16_t", NULL); break;
+            case irTypeI32: format(state, "int32_t", NULL); break;
+            case irTypeI64: format(state, "int64_t", NULL); break;
+            case irTypeU8: format(state, "uint8_t", NULL); break;
+            case irTypeU16: format(state, "uint16_t", NULL); break;
+            case irTypeU32: format(state, "uint32_t", NULL); break;
+            case irTypeU64: format(state, "uint64_t", NULL); break;
+            default: format(state, "int64_t", NULL); break;
+            }
+            format(state, " {s};\n", (FormatArg[]){{.s = t->name}});
+            bool isSigned = (t->tag == irTypeI8 || t->tag == irTypeI16 || t->tag == irTypeI32 || t->tag == irTypeI64);
+            for (u64 o = 0; o < t->enm.count; o++) {
+                if (isSigned) {
+                    format(state, "#define {s}_{s} (({s}){i64})\n",
+                           (FormatArg[]){
+                               {.s = t->name},
+                               {.s = t->enm.options[o].name},
+                               {.s = t->name},
+                               {.i64 = t->enm.options[o].value}});
+                }
+                else {
+                    format(state, "#define {s}_{s} (({s}){u64})\n",
+                           (FormatArg[]){
+                               {.s = t->name},
+                               {.s = t->enm.options[o].name},
+                               {.s = t->name},
+                               {.u64 = (u64)t->enm.options[o].value}});
+                }
+            }
+        }
+        else if (t->tag == irTypeStruct && t->name) {
             format(state, "typedef struct {s} {s};\n", (FormatArg[]){{.s = t->name}, {.s = t->name}});
         }
         else if (t->tag == irTypeUntaggedUnion && t->name) {
@@ -1178,10 +1464,15 @@ static void emitTypeGraphDefinitions(FormatState *state, const DynArray *modules
     dynArrayFor(it, const IrType *, &g->sorted) {
         const IrType *t = *it;
         if (t->tag == irTypeStruct && t->name) {
-            format(state, "struct {s} {{\n", (FormatArg[]){{.s = t->name}});
+            format(state, "struct ", NULL);
+            if (t->isPacked)
+                format(state, "__attribute__((packed)) ", NULL);
+            if (t->align > 8)
+                format(state, "__attribute__((aligned({u64}))) ", (FormatArg[]){{.u64 = t->align}});
+            format(state, "{s} {{\n", (FormatArg[]){{.s = t->name}});
             for (u64 f = 0; f < t->strct.count; f++) {
                 format(state, "  ", NULL);
-                emitCFieldDecl(state, t->strct.fields[f].type, t->strct.fields[f].name);
+                emitCFieldDecl(state, t->strct.fields[f].type, t->strct.fields[f].name, t->strct.fields[f].bits);
             }
             format(state, "};\n\n", NULL);
         }
@@ -1189,7 +1480,7 @@ static void emitTypeGraphDefinitions(FormatState *state, const DynArray *modules
             format(state, "union {s} {{\n", (FormatArg[]){{.s = t->name}});
             for (u64 f = 0; f < t->strct.count; f++) {
                 format(state, "  ", NULL);
-                emitCFieldDecl(state, t->strct.fields[f].type, t->strct.fields[f].name);
+                emitCFieldDecl(state, t->strct.fields[f].type, t->strct.fields[f].name, t->strct.fields[f].bits);
             }
             format(state, "};\n\n", NULL);
         }
@@ -1235,12 +1526,7 @@ static void emitFunctionPrototypes(FormatState *state, const IrModule *module)
             format(state, ");\n", NULL);
             continue;
         }
-        if (hasFlag(func, ModuleInit) || (func->function.name && strstr(func->function.name, "___init"))) {
-            format(state, "__attribute__((constructor)) static ", NULL);
-        }
-        else {
-            format(state, "static ", NULL);
-        }
+        emitFunctionLinkage(state, func);
         emitCTypeName(state, func->type ? func->type->func.ret : NULL);
         format(state, " {s}(", (FormatArg[]){{.s = func->function.name}});
         for (const IrNode *p = func->function.params; p; p = p->next) {
@@ -1321,6 +1607,7 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         [irBranch] = emitBranch,
         [irBranchIf] = emitBranchIf,
         [irSwitch] = emitSwitch,
+        [irInlineAsm] = emitInlineAsm,
         [irReturn] = emitReturn,
         [irUnreachable] = emitUnreachable,
         [irCall] = emitCall,
@@ -1331,6 +1618,7 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         [irFloatConst] = emitFloatConst,
         [irStringConst] = emitStringConst,
         [irArrayConst] = emitArrayConst,
+        [irFieldConst] = emitFieldConst,
         [irStructConst] = emitStructConst,
         [irVarRef] = emitVarRef,
         [irGlobalRef] = emitGlobalRef,
@@ -1342,6 +1630,8 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         [irAddrOf] = emitAddrOf,
         [irDeref] = emitDeref,
         [irAlloc] = emitAlloc,
+        [irAlloca] = emitAlloca,
+        [irMalloc] = emitMalloc,
         [irMove] = emitMove,
         [irCopy] = emitCopy,
         [irDrop] = emitDrop,
@@ -1362,23 +1652,71 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         }
     }
 
-    // Main entry point wrapper
+    // Main entry point wrapper or test runner wrapper
     const IrNode *mainFunc = NULL;
+    const IrNode *allTestCasesGlobal = NULL;
+    const IrNode *runTestsFunc = NULL;
     for (size_t i = 0; i < modules.size; i++) {
         const IrModule *mod = dynArrayAt(const IrNode **, &modules, i);
         if (mod) {
             for (const IrNode *func = mod->module.functions; func; func = func->next) {
                 if (hasFlag(func, Main) || func->function.display == S_main) {
                     mainFunc = func;
-                    break;
+                }
+                if (func->function.name == S_runTests ||
+                    (func->function.name && strstr(func->function.name, "runTests"))) {
+                    runTestsFunc = func;
                 }
             }
-            if (mainFunc)
-                break;
+            for (const IrNode *glob = mod->module.globals; glob; glob = glob->next) {
+                if (glob->globalVar.name == S_allTestCases ||
+                    (glob->globalVar.name && strstr(glob->globalVar.name, "allTestCases"))) {
+                    allTestCasesGlobal = glob;
+                }
+            }
         }
     }
 
-    if (!driver->options.buildPlugin && mainFunc) {
+    if (!driver->options.buildPlugin && (driver->options.cmd == cmdTest || (allTestCasesGlobal && mainFunc == NULL))) {
+        format(&ctx.state, "int main(int argc, char **argv) {{\n", NULL);
+        format(&ctx.state, "  __cxy_start_runtime();\n", NULL);
+
+        cstring argsSliceName = "Slice_string";
+        cstring testsSliceName = "Slice_ptr";
+        if (runTestsFunc && runTestsFunc->type && runTestsFunc->type->func.count >= 3) {
+            if (runTestsFunc->type->func.params[0] && runTestsFunc->type->func.params[0]->name)
+                argsSliceName = runTestsFunc->type->func.params[0]->name;
+            if (runTestsFunc->type->func.params[2] && runTestsFunc->type->func.params[2]->name)
+                testsSliceName = runTestsFunc->type->func.params[2]->name;
+        }
+
+        format(&ctx.state,
+               "  {s} _args = {{ (const char **)argv, (uint64_t)argc };\n",
+               (FormatArg[]){{.s = argsSliceName}});
+        cstring fileName = (rootModule && rootModule->loc.fileName)
+                               ? rootModule->loc.fileName
+                               : "test";
+        format(&ctx.state,
+               "  const char *_file = \"{s}\";\n",
+               (FormatArg[]){{.s = fileName}});
+        if (allTestCasesGlobal) {
+            cstring allTestsVar = allTestCasesGlobal->globalVar.name;
+            format(&ctx.state,
+                   "  {s} _tests = {{ (void *){s}, sizeof({s}) / sizeof({s}[0]) };\n",
+                   (FormatArg[]){{.s = testsSliceName},
+                                 {.s = allTestsVar},
+                                 {.s = allTestsVar},
+                                 {.s = allTestsVar}});
+        }
+        else {
+            format(&ctx.state,
+                   "  {s} _tests = {{ nullptr, 0 };\n",
+                   (FormatArg[]){{.s = testsSliceName}});
+        }
+        format(&ctx.state, "  return builtins_runTests(_args, _file, _tests);\n", NULL);
+        format(&ctx.state, "}\n", NULL);
+    }
+    else if (!driver->options.buildPlugin && mainFunc) {
         bool hasArgs = mainFunc->function.paramsCount > 0;
         cstring argsPass = hasArgs ? "_args" : "";
         format(&ctx.state, "int main(int argc, char **argv) {{\n", NULL);

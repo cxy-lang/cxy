@@ -549,7 +549,8 @@ Command(utils,
     f(wait_for_port)                                                        \
     f(find_free_port)                                                       \
     f(env_check)                                                            \
-    f(lock)
+    f(lock)                                                                 \
+    f(mem_trace)
 
 // Package subcommand option layouts
 #define PKG_CREATE_CMD_LAYOUT(f, ...)                                          \
@@ -673,6 +674,11 @@ Command(utils,
 
 #define UTL_LOCK_CMD_LAYOUT(f, ...)                                            \
     f(utils.lockTimeout, Local, Int, 0, ## __VA_ARGS__)
+
+#define UTL_MEM_CMD_LAYOUT(f, ...)                                             \
+    f(utils.memPid, Local, Int, 0, ## __VA_ARGS__)                             \
+    f(utils.memSocket, Local, String, 1, ## __VA_ARGS__)                       \
+    f(utils.memTimeout, Local, Int, 2, ## __VA_ARGS__)
 // clang-format on
 
 static void parseSpaceSeperatedList(DynArray *into,
@@ -1287,6 +1293,28 @@ static int parseUtilsCommand(
 
     lock.meta.name = "lock";
 
+    Command(
+        mem_trace,
+        "Query a running program built with memory tracing (summary, sites, "
+        "list, leaks, ring, mark, diff, difflist, help)",
+        Positionals(Use(cmdArrayArgument,
+                        Name("query"),
+                        Help("Query and arguments, e.g. `mark`, `sites 20`, "
+                             "`leaks nosym`"),
+                        Many())),
+        Int(Name("pid"),
+            Help("Process to query (default: the only traced process)"),
+            Def("0")),
+        Str(Name("socket"),
+            Help("Query socket path (default: $CXY_MEM_SOCKET or "
+                 "/tmp/cxy-mem-<pid>.sock)"),
+            Def("")),
+        Int(Name("timeout"),
+            Help("Reply timeout in milliseconds"),
+            Def("30000")));
+
+    mem_trace.meta.name = "mem";
+
     Parser("cxy utils",
            CXY_VERSION,
            UTILS_SUBCOMMANDS,
@@ -1363,6 +1391,13 @@ static int parseUtilsCommand(
             options->utils.cmd = getPositionalString(cmd, 1);
         }
         UnloadCmd(cmd, options, UTL_LOCK_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_mem_trace) {
+        options->utils.subcmd = utlSubMem;
+        if (hasPositional(cmd, 0)) {
+            options->utils.memArgs = getPositionalArray(cmd, 0);
+        }
+        UnloadCmd(cmd, options, UTL_MEM_CMD_LAYOUT);
     }
 
     return cmdUtils;
@@ -1473,7 +1508,11 @@ bool parseCommandLineOptions(
             Def("./plugins")),
         Str(Name("deps-dir"),
             Help("Directory containing installed package dependencies"),
-            Def(".cxy/packages")));
+            Def(".cxy/packages")),
+        Opt(Name("memory-trace"),
+            Help("Build with memory tracing (implies --debug, defines "
+                 "TRACE_MEMORY and links libcxy-trace from "
+                 "$CXY_MEMORY_TRACE_LIB_DIR, or the stdlib directory)")));
 
     P->ctx = options;
     P->strdup = cmdStrdup;
@@ -1563,6 +1602,7 @@ bool parseCommandLineOptions(
     options->libDir = getGlobalString(cmd, 20);
     options->pluginsDir = getGlobalString(cmd, 21);
     options->depsDir = getGlobalString(cmd, 22);
+    options->withMemoryTrace = getGlobalOption(cmd, 23);
 
     if (options->libDir == NULL) {
         options->libDir = makeString(strings, getenv("CXY_STDLIB_DIR"));
@@ -1570,6 +1610,27 @@ bool parseCommandLineOptions(
     cstring cxyRoot = getenv("CXY_ROOT");
     if (options->libDir == NULL && cxyRoot != NULL) {
         options->libDir = makeStringConcat(strings, cxyRoot, "/lib/cxy/std");
+    }
+
+    if (options->withMemoryTrace) {
+        options->debug = true;
+        cstring traceDir = getenv("CXY_MEMORY_TRACE_LIB_DIR");
+        if (traceDir == NULL || traceDir[0] == '\0')
+            traceDir = options->libDir;
+        if (traceDir != NULL && traceDir[0] != '\0') {
+            bool present = false;
+            for (u32 i = 0; i < options->librarySearchPaths.size; i++) {
+                cstring path = ((cstring *)options->librarySearchPaths.elems)[i];
+                if (strcmp(path, traceDir) == 0) {
+                    present = true;
+                    break;
+                }
+            }
+            if (!present) {
+                pushStringOnDynArray(&options->librarySearchPaths,
+                                     makeString(strings, traceDir));
+            }
+        }
     }
 
     if (options->pluginsDir == NULL) {

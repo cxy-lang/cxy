@@ -176,7 +176,8 @@ static bool nodeNeedsMemMgmt(const AstNode *node)
     (flgMove | flgTemporary | flgReference | flgTopLevelDecl | flgUnmanaged)
 
     const Type *type = resolveUnThisUnwrapType(node->type);
-    if (hasFlags(node, flgUnmanagedFlags) | hasFlag(type, Extern)) {
+    if (hasFlags(node, flgUnmanagedFlags) || hasFlag(type, Extern) ||
+        isReferenceType(type) || isPointerTypeExact(type)) {
         return false;
     }
     return isClassType(type) || isDestructible(type);

@@ -29,3 +29,20 @@ arena-based memory management, comprehensive diagnostic reporting, and a multi-p
 - Snapshot/lang tests use `tests/runner.sh` (see `tests/lang`, `tests/package`, and per-directory `run.cfg` behavior in
   `tests/runner.sh`).
 - On macOS, `tests/runner.sh` expects Bash >= 4 and `coreutils` (`gdate`), matching `tests/README.md`.
+
+# Output Style
+- No conversational filler, pleasantries, or polite introductions.
+- No step-by-step narration or explaining the obvious unless requested.
+- Skip confirmations. Execute the task directly.
+
+# Coding Style
+- Write pure code using best-effort logic; do not explain your implementation choices.
+- Rely strictly on your existing understanding, surrounding code blocks, or project code.
+- Minimize research; if an API is unclear, provide a SHORT summary of assumptions made.
+- Restrict all inline and block comments to a maximum of 2 lines.
+- Leave API accuracy and build validation entirely to the user.
+
+# Design & Research
+- Limit research summaries to short, punchy bullet points.
+- Maximize high-density data and minimize conversational framing.
+- Focus strictly on technical facts, omitting general background or obvious context.

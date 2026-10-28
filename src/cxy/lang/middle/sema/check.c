@@ -575,6 +575,43 @@ static void checkMacroCallExpr(AstVisitor *visitor, AstNode *node)
         node->type = ERROR_TYPE(ctx);
 }
 
+static void checkBackendCallExpr(AstVisitor *visitor, AstNode *node)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    for (AstNode *arg = node->backendCallExpr.args; arg; arg = arg->next) {
+        checkType(visitor, arg);
+    }
+    if (node->type == NULL) {
+        node->type = makeVoidType(ctx->types);
+    }
+}
+
+static void checkLaunch(AstVisitor *visitor, AstNode *node)
+{
+    TypingContext *ctx = getAstVisitorContext(visitor);
+    AstNode *launchFunc = findBuiltinDecl(S___Thread_launch);
+    if (launchFunc == NULL) {
+        logError(ctx->L,
+                 &node->loc,
+                 "'launch' requires '__Thread_launch' to be defined "
+                 "(import 'stdlib/thread.cxy')",
+                 NULL);
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
+
+    AstNode *closureArg = node->launch.closure;
+    FileLoc loc = node->loc;
+
+    clearAstBody(node);
+    node->tag = astCallExpr;
+    node->callExpr.callee = makeResolvedPath(
+        ctx->pool, &loc, S___Thread_launch, flgNone, launchFunc, NULL, launchFunc->type);
+    node->callExpr.args = closureArg;
+
+    checkCallExpr(visitor, node);
+}
+
 static void checkRef(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
@@ -888,8 +925,10 @@ AstNode *checkAst(CompilerDriver *driver, AstNode *node)
         [astGroupExpr] = checkGroupExpr,
         [astClosureExpr] = checkClosureExpr,
         [astArrayExpr] = checkArrayExpr,
+        [astBackendCall] = checkBackendCallExpr,
         [astMacroCallExpr] = checkMacroCallExpr,
         [astTernaryExpr] = checkTernaryExpr,
+        [astLaunch] = checkLaunch,
         [astRef] = checkRef
     }, .fallback = astVisitFallbackVisitAll, .dispatch = withSavedStack);
     // clang-format on
