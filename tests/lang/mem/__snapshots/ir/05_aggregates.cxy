@@ -130,7 +130,7 @@ _L_exit:
   return
 }
 
-func __tuple_copy_136(tup: ^(^Resource, i8)): (^Resource, i8) {
+func __tuple_copy_140(tup: ^(^Resource, i8)): (^Resource, i8) {
 _L_entry:
   scope.enter 0
   var __ret: (^Resource, i8)
@@ -143,7 +143,7 @@ _L_exit:
   return __ret
 }
 
-func __tuple_dctor_136(tup: ^(^Resource, i8)): void {
+func __tuple_dctor_140(tup: ^(^Resource, i8)): void {
 _L_entry:
   scope.enter 0
   drop tup.0
@@ -154,7 +154,7 @@ _L_exit:
   return
 }
 
-func __union_copy_140(u: ^^Resource | i32): ^Resource | i32 {
+func __union_copy_144(u: ^^Resource | i32): ^Resource | i32 {
 _L_entry:
   scope.enter 0
   var __ret: ^Resource | i32
@@ -166,11 +166,13 @@ _L_entry:
 _L_MATCH0_exit:
   goto _L_exit
 _L_MATCH0_case_0:
+  scope.enter 1
   var __t6: ^Resource
   copy u.val._0 -> __t6
   __ret = variant(0, __t6)
   goto _L_exit
 _L_MATCH0_case_1:
+  scope.enter 2
   __ret = variant(1, u.val._1)
   goto _L_exit
 _L_exit:
@@ -178,7 +180,7 @@ _L_exit:
   return __ret
 }
 
-func __union_dctor_140(u: ^^Resource | i32): void {
+func __union_dctor_144(u: ^^Resource | i32): void {
 _L_entry:
   scope.enter 0
   switch u.tag {
@@ -188,8 +190,10 @@ _L_entry:
 _L_MATCH0_exit:
   goto _L_exit
 _L_MATCH0_case_0:
+  scope.enter 1
   drop u.val._0
   u.val._0 = null
+  scope.exit 1
   goto _L_MATCH0_exit
 _L_exit:
   scope.exit 0

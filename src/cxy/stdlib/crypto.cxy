@@ -152,7 +152,7 @@ pub func SHA512(digest: &SHA512Digest, data: ^const void, len: u64): !void {
     }
 }
 
-pub func HMAC_256(digest: &SHA256Digest, key: __string, data: ^const void, len: u64): !void {
+pub func HMAC_256(digest: &SHA256Digest, key: strview, data: ^const void, len: u64): !void {
     var digestLen = SHA256_DIGEST_LENGTH!
 
     var mac = OpenSSLEVP.EVP_MAC_fetch(null, "HMAC", null)
@@ -184,7 +184,7 @@ pub func HMAC_256(digest: &SHA256Digest, key: __string, data: ^const void, len: 
     }
 }
 
-pub func HMAC_512(digest: &SHA512Digest, key: __string, data: ^const void, len: u64): !void {
+pub func HMAC_512(digest: &SHA512Digest, key: strview, data: ^const void, len: u64): !void {
     var mac: ^OpenSSLEVP.EVP_MAC = null
     var ctx: ^OpenSSLEVP.EVP_MAC_CTX = null
     var digestLen = SHA512_DIGEST_LENGTH!

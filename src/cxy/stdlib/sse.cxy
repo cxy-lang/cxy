@@ -34,7 +34,7 @@ pub struct SseEvent {
             os << "retry: " << retry << "\n"
         }
         if (data != null) {
-            var s = data.__str()
+            var s = data.s()
             var start = 0.u64
             var len = s.size()
             for (var i: 0.u64..len) {
@@ -78,7 +78,7 @@ pub class SseConnection[Context] {
         return !_sock.isConnected()
     }
 
-    func send(data: __string): !void {
+    func send(data: strview): !void {
         if isClosed() {
             return
         }
@@ -93,10 +93,10 @@ pub class SseConnection[Context] {
     }
 
     func send(data: String): !void {
-        send(data.__str())
+        send(data.s())
     }
 
-    func emit(event: __string, data: __string, id: __string = "".s): !void {
+    func emit(event: strview, data: strview, id: strview = "".s): !void {
         if isClosed() {
             return
         }
@@ -126,7 +126,7 @@ pub class SseConnection[Context] {
         }
     }
 
-    func comment(text: __string): !void {
+    func comment(text: strview): !void {
         if isClosed() {
             return
         }
@@ -233,13 +233,13 @@ pub class SseStream[Application] {
     }
 
     @static
-    func connect(url: __string, app: Application): !This {
+    func connect(url: strview, app: Application): !This {
         var engine = This(&&app)
         engine._connect(url)
         return &&engine
     }
 
-    func _connect(url: __string): !void {
+    func _connect(url: strview): !void {
         var sess = Session.create(url)
         var path = "/".s
         var idx = url.find("://")
@@ -271,21 +271,21 @@ pub class SseStream[Application] {
         }
     }
 
-    func _processChunk(chunk: __string): void {
+    func _processChunk(chunk: strview): void {
         for i in 0.u64..chunk.size() {
             var ch = chunk.[i]
             if ch == '\r'.char {
                 continue
             }
             if ch == '\n'.char {
-                var line = _lineBuf.__str()
+                var line = _lineBuf.s()
                 if line.empty() {
                     if !_curData.empty() || !_curEvent.empty() {
-                        #if (has_member!(#Application, "onEvent", #func(_: &SseClient, _: __string, _: __string, _: __string) -> void)) {
-                            _app.onEvent(&_client, _curEvent.__str(), _curData.__str(), _curId.__str())
+                        #if (has_member!(#Application, "onEvent", #func(_: &SseClient, _: strview, _: strview, _: strview) -> void)) {
+                            _app.onEvent(&_client, _curEvent.s(), _curData.s(), _curId.s())
                         }
-                        #if (has_member!(#Application, "onMessage", #func(_: &SseClient, _: __string) -> void)) {
-                            _app.onMessage(&_client, _curData.__str())
+                        #if (has_member!(#Application, "onMessage", #func(_: &SseClient, _: strview) -> void)) {
+                            _app.onMessage(&_client, _curData.s())
                         }
                         _curEvent.clear()
                         _curData.clear()
@@ -308,7 +308,7 @@ pub class SseStream[Application] {
                     _client._lastEventId = _curId.copy()
                 }
                 else if line.startswith(":".s) {
-                    #if (has_member!(#Application, "onComment", #func(_: &SseClient, _: __string) -> void)) {
+                    #if (has_member!(#Application, "onComment", #func(_: &SseClient, _: strview) -> void)) {
                         _app.onComment(&_client, line.substr(1))
                     }
                 }
@@ -331,7 +331,7 @@ pub class SseStream[Application] {
             if !n || *n == 0 {
                 break
             }
-            _processChunk(__string(rawBuf !: string, *n))
+            _processChunk(strview(rawBuf !: string, *n))
         }
 
         #if (has_member!(#Application, "onClose", #func(_: &SseClient) -> void)) {

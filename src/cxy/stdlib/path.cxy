@@ -35,11 +35,11 @@ pub struct Path {
     }
 
     @inline
-    func `init`(s: __string) {
+    func `init`(s: strview) {
         this.path = String(&&s)
     }
 
-    const func `/`(suffix: __string) {
+    const func `/`(suffix: strview) {
         var res = String(path.str());
         if (res.endswith(DIR_SEPARATOR!))
             res << suffix
@@ -50,10 +50,10 @@ pub struct Path {
     }
 
     @inline
-    const func `/`(suffix: string) => op__div(__string(suffix))
+    const func `/`(suffix: string) => op__div(strview(suffix))
 
     @inline
-    const func `/`(suffix: String) => op__div(suffix.__str())
+    const func `/`(suffix: String) => op__div(suffix.s())
 
     @inline
     const func `!!`() => !path.empty()
@@ -76,7 +76,7 @@ pub struct Path {
     const func str() => path.str()
 
     @inline
-    const func __str() => path.__str()
+    const func s() => path.s()
 
     @inline
     const func exists() {
@@ -90,41 +90,41 @@ pub struct Path {
     const func `==`(other: &const String) => path == &other
 
     @inline
-    const func `==`(other: __string) => path.__str() == other
+    const func `==`(other: strview) => path.s() == other
 
     @inline
-    const func `==`(other:  string) => path.__str() == __string(other)
+    const func `==`(other:  string) => path.s() == strview(other)
 
     @inline
     const func `!=`(other: &const String) => path != &other
 
     @inline
-    const func `!=`(other: __string) => path.__str() != other
+    const func `!=`(other: strview) => path.s() != other
 
     @inline
-    const func `!=`(other:  string) => path.__str() != __string(other)
+    const func `!=`(other:  string) => path.s() != strview(other)
 
     @inline
     const func size() => path.size()
 
     const func name() {
-        var sep = path.__str().rfind(DIR_SEPARATOR!)
+        var sep = path.s().rfind(DIR_SEPARATOR!)
         if (sep) {
             return path.substr(*sep + 1)
         }
-        return path.__str()
+        return path.s()
     }
 }
 
-pub type PathLike = string | __string | String | Path
+pub type PathLike = string | strview | String | Path
 
 pub func cast[T](path: &PathLike): T {
-    #if (#T == #__string) {
+    #if (#T == #strview) {
         match (path) {
-            case string as s => return __string(s)
-            case __string as s => return s
-            case String as s => return s.__str()
-            case Path as p => return p.__str()
+            case string as s => return strview(s)
+            case strview as s => return s
+            case String as s => return s.s()
+            case Path as p => return p.s()
         }
     }
     else #if (#T == #String) {
@@ -135,16 +135,16 @@ pub func cast[T](path: &PathLike): T {
     else #if (#T == #Path) {
         match (path) {
             case string as s => return <T> Path(s)
-            case __string as s => return <T> Path(s)
+            case strview as s => return <T> Path(s)
             case String as s => return <T> Path(s)
             case Path as p => return p
         }
     }
     else {
-        require!(#T == #string, "expecting type to be a string {t} {t}", #T, #__string)
+        require!(#T == #string, "expecting type to be a string {t} {t}", #T, #strview)
         match (path) {
             case string as s => return <T> s
-            case __string as s => return <T> s.str()
+            case strview as s => return <T> s.str()
             case String as s => return <T> s.str()
             case Path as p => return <T> p.str()
         }
@@ -162,13 +162,13 @@ pub func cwd(): Path {
 pub func homedir() {
     var dir = getenv("HOME") catch "".s
     if (dir.empty()) {
-        dir = __string(pwd.getpwuid(unistd.getuid()).pw_dir !: string)
+        dir = strview(pwd.getpwuid(unistd.getuid()).pw_dir !: string)
     }
     return Path(dir)
 }
 
 pub func expand(path: PathLike) {
-    var spath = cast[__string](&path);
+    var spath = cast[strview](&path);
     var ppath = cast[Path](&path);
     if (!spath.startswith("~"))
         return &&ppath
@@ -189,7 +189,7 @@ pub func expand(path: PathLike) {
 pub func current() => Path( file! )
 
 @inline
-pub func withNullTermination[T](s: &const __string, fn: func(p: ^const char) -> T ) {
+pub func withNullTermination[T](s: &const strview, fn: func(p: ^const char) -> T ) {
     if (!s.isnt()) {
         var p: [char, 1024] = [];
         s.copyto(p, sizeof!(p))
@@ -201,7 +201,7 @@ pub func withNullTermination[T](s: &const __string, fn: func(p: ^const char) -> 
 }
 
 pub func exists(path: PathLike) {
-    var spath = cast[__string](&path);
+    var spath = cast[strview](&path);
     if (spath.empty())
         return false
 
@@ -209,7 +209,7 @@ pub func exists(path: PathLike) {
 }
 
 pub func isfile(path: PathLike) {
-    var spath = cast[__string](&path);
+    var spath = cast[strview](&path);
     if (spath.empty())
         return false
 
@@ -232,7 +232,7 @@ pub func isfile(path: PathLike) {
 }
 
 pub func isdir(path: PathLike) {
-    var spath = cast[__string](&path);
+    var spath = cast[strview](&path);
     if (spath.empty())
         return false
 
@@ -255,7 +255,7 @@ pub func isdir(path: PathLike) {
 }
 
 pub func islink(path: PathLike) {
-    var spath = cast[__string](&path);
+    var spath = cast[strview](&path);
     if (spath.empty())
         return false
 
@@ -269,7 +269,7 @@ pub func islink(path: PathLike) {
 }
 
 pub func dirname(path: PathLike) : PathLike {
-    var spath = cast[__string](&path);
+    var spath = cast[strview](&path);
     var sep = spath.rfind(DIR_SEPARATOR!);
     if (sep) {
         spath = spath.substr(0, <i64>*sep)
@@ -279,7 +279,7 @@ pub func dirname(path: PathLike) : PathLike {
 }
 
 pub func basename(path: PathLike): PathLike {
-    var spath = cast[__string](&path);
+    var spath = cast[strview](&path);
     var sep = spath.rfind(DIR_SEPARATOR!);
     if (sep) {
         spath = spath.substr(*sep + 1)
@@ -289,7 +289,7 @@ pub func basename(path: PathLike): PathLike {
 }
 
 pub func mkdir(path: PathLike, mode: u16 = 0o777): !void {
-    var spath = cast[__string](&path);
+    var spath = cast[strview](&path);
     const status = withNullTermination[i32](
         &spath, (p: ^const char) => {
             return sysstat.mkdir(p, mode)
@@ -302,8 +302,8 @@ pub func mkdir(path: PathLike, mode: u16 = 0o777): !void {
 pub func mkdirs(path: PathLike, mode: u16 = 0o777): !void {
     if (!exists(path)) {
         var base = dirname(path);
-        var sbase = cast[__string](&base);
-        var spath = cast[__string](&path);
+        var sbase = cast[strview](&base);
+        var spath = cast[strview](&path);
 
         if (!sbase.empty() && spath != sbase)
             mkdirs(base, mode)
@@ -316,7 +316,7 @@ pub func ls(
     cb: func(path: PathLike) -> bool,
     recursive: bool = false
 ): !void {
-    var spath = cast[__string](&path)
+    var spath = cast[strview](&path)
     var d = withNullTermination[^dirent.DIR](&spath, (p: ^const char): ^dirent.DIR => dirent.opendir(p))
     if (d == null)
         raise IOError(f"opendir('{path}') failed: {strerr()}")
@@ -329,7 +329,7 @@ pub func ls(
             break
 
         /* ignore parent and current directory */
-        const name = __string(tmp.d_name !: string)
+        const name = strview(tmp.d_name !: string)
         if (name == ".".s || name == "..".s)
             continue;
 
@@ -348,7 +348,7 @@ pub func ls(
 }
 
 pub func isDirEmpty(path: PathLike): !bool {
-    var spath = cast[__string](&path);
+    var spath = cast[strview](&path);
     var d = withNullTermination[^dirent.DIR](&spath, (p: ^const char): ^dirent.DIR => dirent.opendir(p))
     if (d == null)
         raise IOError(f"opendir('{spath}') failed: {strerr()}")
@@ -366,7 +366,7 @@ pub func isDirEmpty(path: PathLike): !bool {
 }
 
 pub func remove(path: PathLike, recursive: bool = false): !void {
-    var spath = cast[__string](&path);
+    var spath = cast[strview](&path);
     if (isdir(spath)) {
         if (!isDirEmpty(spath)) {
             if (!recursive)
@@ -390,7 +390,7 @@ pub func remove(path: PathLike, recursive: bool = false): !void {
 }
 
 pub func getFileSize(path: PathLike): !u64 {
-    var spath = cast[__string](&path)
+    var spath = cast[strview](&path)
     var result = withNullTermination[bool|u64](&spath, (p: ^const char): bool|u64 => {
         var s = Stat{};
         if (stat(p !: string, ptrof s) != 0) {
@@ -405,7 +405,7 @@ pub func getFileSize(path: PathLike): !u64 {
 }
 
 pub func absolute(path: PathLike): !String {
-    var spath = cast[__string](&path)
+    var spath = cast[strview](&path)
     var result = withNullTermination[String](&spath, (p: ^const char): String => {
         var resolved: [char, 2048] = [];
         if (stdlib.realpath(p, resolved) == null) {

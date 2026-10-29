@@ -69,7 +69,7 @@ static Result_void level2Void(bool fail);
 static void testVoidBubbleUp();
 static void _main();
 
-builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 83ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
+builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 87ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
 
 static void builtins_Exception_op__init(builtins_Exception * this, char * name) {
 _L_entry:;
@@ -150,7 +150,7 @@ _L_exit:;
   return;
 }
 
-builtins_Exception_VTable VoidError_vTable = (builtins_Exception_VTable){.__tid = ((uint64_t)(136)), .what = ((char * (*)(builtins_Exception *))(VoidError_what))};
+builtins_Exception_VTable VoidError_vTable = (builtins_Exception_VTable){.__tid = ((uint64_t)(140)), .what = ((char * (*)(builtins_Exception *))(VoidError_what))};
 
 static void String_op__init(String * this, char * s) {
 _L_entry:;

@@ -507,7 +507,7 @@ println(updated)
 
 ## API Reference
 
-### `parse(str: __string): !Value`
+### `parse(str: strview): !Value`
 Parse a YAML string into a `Value`.
 
 **Returns:**
@@ -516,7 +516,7 @@ Parse a YAML string into a `Value`.
 
 **Throws:** `YamlError` on parse errors
 
-### `fromYaml[T](str: __string): !T`
+### `fromYaml[T](str: strview): !T`
 Parse YAML and cast to type `T`.
 
 **Returns:** Instance of type `T`

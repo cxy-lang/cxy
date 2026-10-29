@@ -41,7 +41,7 @@ enum TagKind {
 
 pub class YamlParser {
     _text: String               // normalized copy, only used when the input has CR
-    _src: __string              // the input (or a view of _text); must outlive the parser
+    _src: strview              // the input (or a view of _text); must outlive the parser
     _pos: u64 = 0
     _line: u64 = 1
     _col: u64 = 1
@@ -58,7 +58,7 @@ pub class YamlParser {
     _implicitPos: i64 = -1      // cache of _isImplicitKey()
     _implicitResult = false
 
-    func `init`(input: __string) {
+    func `init`(input: strview) {
         _text = String()
         _pendingTag = String()
         _noTag = String()
@@ -96,7 +96,7 @@ pub class YamlParser {
         }
 
         if copying {
-            _src = _text.__str()
+            _src = _text.s()
         } else {
             _src = input.substr(start)
         }
@@ -224,7 +224,7 @@ pub class YamlParser {
             var handle = _readWord()
             _skipSpaces()
             var prefix = _readWord()
-            var h = handle.__str()
+            var h = handle.s()
             if h.size() < 1 || h.[0] != '!' || h.[h.size() - 1] != '!' || prefix.size() == 0 {
                 raise YamlError("Invalid %TAG directive", _line, _col)
             }
@@ -232,7 +232,7 @@ pub class YamlParser {
         } else if name == "YAML" {
             _skipSpaces()
             var version = _readWord()
-            var v = version.__str()
+            var v = version.s()
             if v.size() < 2 || v.[0] != '1' || v.[1] != '.' {
                 raise YamlError(f"Unsupported YAML version '{version}'", _line, _col)
             }
@@ -575,8 +575,8 @@ pub class YamlParser {
             var expanded = _expandTag(tagToken)
         }
         if anchor.size() > 0 {
-            var name = String(anchor.__str())
-            _anchors.[&&name] = Value(String(key.__str()))
+            var name = String(anchor.s())
+            _anchors.[&&name] = Value(String(key.s()))
         }
     }
 
@@ -659,7 +659,7 @@ pub class YamlParser {
 
     // Expands `!x`, `!!x`, `!h!x` and `!<uri>` with the `%TAG` handles of the document
     func _expandTag(token: &const String): !String {
-        var t = token.__str()
+        var t = token.s()
         var out = String()
         if t.size() == 1 {
             out << t
@@ -694,7 +694,7 @@ pub class YamlParser {
         }
         var found = _tagHandles.[handle]
         if found {
-            out << (*found).__str()
+            out << (*found).s()
         } else if handleLen == 2 {
             out << #{CORE_TAG_PREFIX}
         } else if handleLen == 1 {
@@ -707,11 +707,11 @@ pub class YamlParser {
     }
 
     func _tagKind(tag: &const String): TagKind {
-        var t = tag.__str()
+        var t = tag.s()
         if t == "!" {
             return TagKind.NonSpecific
         }
-        var core = __string(#{CORE_TAG_PREFIX})
+        var core = strview(#{CORE_TAG_PREFIX})
         if !t.startswith(core) {
             return TagKind.Local
         }
@@ -743,7 +743,7 @@ pub class YamlParser {
     // Applies a tag to a scalar; `text` is the scalar content, `plain` tells
     // whether it was written unquoted (only then does it resolve by itself)
     func _taggedScalar(tag: &const String, text: &const String, plain: bool): !Value {
-        var s = text.__str()
+        var s = text.s()
         switch _tagKind(tag) {
             .Str, .NonSpecific => {
                 return Value(String(s))
@@ -806,7 +806,7 @@ pub class YamlParser {
         } else {
             v = Value(String(s))
         }
-        v.setTag(String(tag.__str()))
+        v.setTag(String(tag.s()))
         return &&v
     }
 
@@ -833,7 +833,7 @@ pub class YamlParser {
             }
             ... => {}
         }
-        value.setTag(String(tag.__str()))
+        value.setTag(String(tag.s()))
         return &&value
     }
 
@@ -1835,7 +1835,7 @@ pub class YamlParser {
 
     // ------------------------------------------------------------ scalar types
 
-    func _numberKind(s: __string): NumberKind {
+    func _numberKind(s: strview): NumberKind {
         var n = s.size()
         var i = 0`u64
         var c = s.[0]
@@ -1914,11 +1914,11 @@ pub class YamlParser {
         return isFloat ? NumberKind.Real : NumberKind.Integer
     }
 
-    func _isNullLiteral(s: __string): bool => s == "~" || s == "null" || s == "Null" || s == "NULL"
+    func _isNullLiteral(s: strview): bool => s == "~" || s == "null" || s == "Null" || s == "NULL"
 
-    func _isTrueLiteral(s: __string): bool => s == "true" || s == "True" || s == "TRUE"
+    func _isTrueLiteral(s: strview): bool => s == "true" || s == "True" || s == "TRUE"
 
-    func _isFalseLiteral(s: __string): bool => s == "false" || s == "False" || s == "FALSE"
+    func _isFalseLiteral(s: strview): bool => s == "false" || s == "False" || s == "FALSE"
 
     func _hexValue(c: char): i32 {
         if c >= '0' && c <= '9' {
@@ -1934,7 +1934,7 @@ pub class YamlParser {
     }
 
     // Integer digits of `s` from `start`; (false, 0) when the value overflows i64
-    func _parseInteger(s: __string, start: u64, base: u64, negative: bool): (bool, i64) {
+    func _parseInteger(s: strview, start: u64, base: u64, negative: bool): (bool, i64) {
         var acc = 0`u64
         var j = start
         while j < s.size() {
@@ -1963,7 +1963,7 @@ pub class YamlParser {
     // The value of a plain (unquoted) scalar, YAML 1.2 core schema. A string
     // result takes over `text` instead of copying it.
     func _resolvePlain(text: String): !Value {
-        var s = text.__str()
+        var s = text.s()
         if s.size() == 0 {
             return Value()
         }
@@ -1985,7 +1985,7 @@ pub class YamlParser {
     }
 
     // The value of a plain scalar of the given number kind, a string for NotNumber
-    func _numberValue(s: __string, kind: NumberKind): !Value {
+    func _numberValue(s: strview, kind: NumberKind): !Value {
         var zero = 0.0
         switch kind {
             .Integer => {

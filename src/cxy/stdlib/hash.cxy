@@ -166,7 +166,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
 
                 if (Cmp{}(&_nodes.[i].key, &item.key)) {
                     if (replace) {
-                        _nodes.[i] = &&item
+                        delete this._values.[i]
                         this._values.[i] = &&value
                     }
                     return false

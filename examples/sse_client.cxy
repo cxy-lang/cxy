@@ -15,9 +15,9 @@ class ClientApplication {
 
     func onEvent(
         client: &SseClient,
-        event: __string,
-        data: __string,
-        id: __string
+        event: strview,
+        data: strview,
+        id: strview
     ): void => {
         eventCount++
         println("[Cxy SSE Client] Event: '", event, "', id: '", id, "', data: '", data, "'")
@@ -29,7 +29,7 @@ class ClientApplication {
 
     func onMessage(
         @unused client: &SseClient,
-        data: __string
+        data: strview
     ): void => {
         println("[Cxy SSE Client] Message: ", data)
     }

@@ -26,7 +26,7 @@ func _hexCharToValue(c: char): i8 {
  *
  * Throws: InvalidArgumentError if invalid hex digit or not enough digits
  */
-pub func readHexEscape(s: __string, start: u64, digits: u32): !(u32, u64) {
+pub func readHexEscape(s: strview, start: u64, digits: u32): !(u32, u64) {
     var value: u32 = 0
     var end = start + digits
 
@@ -50,7 +50,7 @@ pub func readHexEscape(s: __string, start: u64, digits: u32): !(u32, u64) {
 
 
 
-func fromHex(hexStr: __string, data: ^void, len: u64): !void {
+func fromHex(hexStr: strview, data: ^void, len: u64): !void {
     var p = data !: ^u8
     var size = hexStr.size()
 
@@ -78,8 +78,8 @@ func fromHex(hexStr: __string, data: ^void, len: u64): !void {
     }
 }
 
-pub func split(s: __string, delims: __string): Vector[__string] {
-    var parts = Vector[__string]()
+pub func split(s: strview, delims: strview): Vector[strview] {
+    var parts = Vector[strview]()
     var start = 0 as i64
     var len = s.size() as i64
     for i: 0..len {
@@ -98,7 +98,7 @@ pub func split(s: __string, delims: __string): Vector[__string] {
     return parts
 }
 
-pub func toLower(s: __string): String {
+pub func toLower(s: strview): String {
     var result = String()
     for c, _ in s {
         if c >= 'A' && c <= 'Z' {
@@ -110,7 +110,7 @@ pub func toLower(s: __string): String {
     return &&result
 }
 
-pub func toUpper(s: __string): String {
+pub func toUpper(s: strview): String {
     var result = String()
     for c, _ in s {
         if c >= 'a' && c <= 'z' {
@@ -122,7 +122,7 @@ pub func toUpper(s: __string): String {
     return &&result
 }
 
-pub func escapeHtml(os: &OutputStream, s: __string) {
+pub func escapeHtml(os: &OutputStream, s: strview) {
     for i in 0..s.size() {
         var c = s.[i]
         switch (c) {

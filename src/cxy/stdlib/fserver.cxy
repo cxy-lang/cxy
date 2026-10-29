@@ -284,7 +284,7 @@ pub class FileServer {
             if inm {
                 var etag = String();
                 etag << '"' << cf.lastMod << '-' << cf.len << '"'
-                if inm&.__str() == etag.__str() {
+                if inm&.s() == etag.s() {
                     return Status.NotModified
                 }
             }
@@ -337,7 +337,7 @@ pub class FileServer {
             if (cf.useFd)
                 resp.chunk(SendFile(FileDescriptor(cf.fd), cf.len))
             else
-                resp.chunk(__string(cf.data !: string, cf.len))
+                resp.chunk(strview(cf.data !: string, cf.len))
             return Status.Ok
         }
     }
@@ -347,7 +347,7 @@ pub class FileServer {
         rng: &const String,
         cf: &CachedFile
     ) : Status {
-        var s = rng.__str();
+        var s = rng.s();
         var eq = s.indexOf('='`char);
         if (!eq) {
             TRC!("Range header does not contain '=' character: " << rng)
@@ -396,7 +396,7 @@ pub class FileServer {
             if (cf.useFd)
                 resp.chunk(SendFile(FileDescriptor(cf.fd), rng.0, rng.1))
             else
-                resp.chunk(__string(cf.data !: string, cf.len).substr(rng.0, rng.1))
+                resp.chunk(strview(cf.data !: string, cf.len).substr(rng.0, rng.1))
             // add the range header
             var header = String();
             header << "bytes " << rng.0 << '-' << rng.1 << '/' << cf.len
@@ -549,13 +549,13 @@ pub class FileServer {
 
     func fileExists(rel: &const String) : String? {
         // we want to ensure that the file is within the base directory
-        var b = wwwDir / rel.__str()
+        var b = wwwDir / rel.s()
         var absolute: [char, PATH_MAX!] = [];
         var p = stdlib.realpath(b.str() !: ^const char, absolute);
         if (p == null)
             return null
 
-        if (__string(absolute !: string, wwwDir.size()) != wwwDir.__str()) {
+        if (strview(absolute !: string, wwwDir.size()) != wwwDir.s()) {
             // path violation
             DBG!("requested path has back references: " << rel)
             return null

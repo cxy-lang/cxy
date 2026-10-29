@@ -4,7 +4,7 @@ extern func __smart_ptr_get(ptr: ^void): ^void
 
 extern func __smart_ptr_drop(ptr: ^void): bool
 
-func main.Handler.op__init(this: ^Handler, fn: Closure_126): void {
+func main.Handler.op__init(this: ^Handler, fn: Closure_130): void {
 _L_entry:
   scope.enter 0
   drop this.fn
@@ -30,7 +30,7 @@ func main.Handler.op__copy(this: ^Handler): Handler {
 _L_entry:
   scope.enter 0
   var __ret: Handler
-  var __copy0: Closure_126
+  var __copy0: Closure_130
   copy this.fn -> __copy0
   __ret = Handler {fn: __copy0}
   goto _L_exit
@@ -50,7 +50,7 @@ _L_exit:
   return
 }
 
-func main.Dispatcher.op__init(this: ^Dispatcher, fn: Closure_134): void {
+func main.Dispatcher.op__init(this: ^Dispatcher, fn: Closure_138): void {
 _L_entry:
   scope.enter 0
   drop this.fn
@@ -103,7 +103,7 @@ _L_exit:
   return __ret
 }
 
-func main.Handler.op__initCover(fn: Closure_126): Handler {
+func main.Handler.op__initCover(fn: Closure_130): Handler {
 _L_entry:
   scope.enter 0
   var __ret: Handler
@@ -126,7 +126,7 @@ _L_exit:
   return
 }
 
-func main.Dispatcher.op__initCover(fn: Closure_134): ^Dispatcher {
+func main.Dispatcher.op__initCover(fn: Closure_138): ^Dispatcher {
 _L_entry:
   scope.enter 0
   var __ret: ^Dispatcher
@@ -154,13 +154,13 @@ _L_entry:
   var __env2: ^__closure_env5
   __env2 = alloc(__closure_env5)
   *__env2 = __t1
-  var __t3: Closure_126
+  var __t3: Closure_130
   __t3 = ClosureValue(__env2, __closure_body6)
   h = Handler_op__initCover(__t3)
   var v: i32
   v = Handler_call(&h, <i32>(41))
   var d: ^Dispatcher
-  var __t4: Closure_134
+  var __t4: Closure_138
   __t4 = ClosureValue(null, __closure_body8)
   d = Dispatcher_op__initCover(__t4)
   Dispatcher_dispatch(<^Dispatcher>(d))

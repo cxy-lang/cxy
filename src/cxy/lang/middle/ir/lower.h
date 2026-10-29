@@ -10,10 +10,18 @@
 extern "C" {
 #endif
 
+// A catch body being lowered, innermost first
+typedef struct CatchCtx {
+    IrNode *err;
+    IrNode *res;
+    struct CatchCtx *prev;
+} CatchCtx;
+
 typedef struct LoopCtx {
     IrNode *condBlock;
     IrNode *exitBlock;
     u32 scopeId;
+    CatchCtx *catchCtx; // catch bodies enclosing the loop
     struct LoopCtx *prev;
 } LoopCtx;
 
@@ -53,6 +61,7 @@ typedef struct LowerContext {
     IrNode *catchMergeBB;
     IrNode *currentCatchErr;
     IrNode *currentCatchRes;
+    CatchCtx *catchCtx;
     IrNode *exceptionPushCallee;
     bool explicitCatch;
 } LowerContext;

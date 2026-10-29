@@ -20,7 +20,7 @@ pub type YamlError = _YamlError
  *
  * Throws YamlError on parse errors
  */
-pub func parse(str: __string): !Value {
+pub func parse(str: strview): !Value {
     var parser = YamlParser(str)
     return parser.parse()
 }
@@ -28,7 +28,7 @@ pub func parse(str: __string): !Value {
 /*
  * Parse a YAML stream into one Value per document
  */
-pub func parseAll(str: __string): !Vector[Value] {
+pub func parseAll(str: strview): !Vector[Value] {
     var parser = YamlParser(str)
     return parser.parseAll()
 }
@@ -44,7 +44,7 @@ pub func parseAll(str: __string): !Vector[Value] {
  *
  * Throws YamlError on parse errors or cast errors
  */
-pub func fromYaml[T](str: __string, b64: bool = true): !T {
+pub func fromYaml[T](str: strview, b64: bool = true): !T {
     var value = parse(str)
     #if #T == #Value {
         return &&value

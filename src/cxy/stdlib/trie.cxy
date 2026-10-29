@@ -57,7 +57,7 @@ pub class Trie[Data] {
     }
 
     @inline
-    func add(key: __string, data: Data) {
+    func add(key: strview, data: Data) {
         return add(key.str(), key.size(), &&data)
     }
 

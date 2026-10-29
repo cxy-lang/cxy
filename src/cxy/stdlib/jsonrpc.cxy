@@ -88,12 +88,12 @@ pub class JSONRPCClient[T] {
                                    f"Receiving response from server failed: {strerr()}")
             var count = *received;
             if (count > 0)
-                s << __string(buf !: string, count);
+                s << strview(buf !: string, count);
             if (count < sizeof!(buf))
                 break;
         }
 
-        var obj = json.parse[Value](s.__str());
+        var obj = json.parse[Value](s.s());
         if (!obj.isArray())
             raise JsonRpcError( CXY_JSON_RPC_INTERNAL_ERROR!,
                                 f"Unexpected response, expecting an array of responses: {s}" )
@@ -181,12 +181,12 @@ pub class JSONRPCServer[T] {
         this.api = &&api
     }
 
-    func handle(method: __string, params: &const Value): RpcError | Value {
+    func handle(method: strview, params: &const Value): RpcError | Value {
         var id = hash(&method)
         switch(id) {
             #for(const member: T.members, member.isFunction && member.attributes.["api"]) {
                 case #{hash!(member.name)} => {
-                    if (method == __string(#{member.name})) {
+                    if (method == strview(#{member.name})) {
                         var result = this.#{mk_ident!(member.name)}(params) catch as ex {
                             if (var err = ex as JsonRpcError) {
                                 return RpcError(err.code, err.msg)
@@ -268,7 +268,7 @@ pub class JSONRPCServer[T] {
                 TRC1!("receiving from connection " << sock.address() << " failed: " << strerr() )
                 return
             }
-            s << __string(buffer !: string, *len)
+            s << strview(buffer !: string, *len)
             if (s.size() > MAX_PAYLOAD_SIZE!) {
                 sock.close()
                 WRN!("receiving from connection " << sock.address() << " failed: payload too large" )
@@ -279,7 +279,7 @@ pub class JSONRPCServer[T] {
                 break
         }
 
-        var reqObj = json.parse[Value](s.__str()) catch {
+        var reqObj = json.parse[Value](s.s()) catch {
             var os = BufferedSocketOutputStream(sock)
             var resp = Response();
             resp.jsonrpc = String(CXY_JSON_RPC_VERSION!)

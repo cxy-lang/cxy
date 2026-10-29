@@ -21,7 +21,7 @@ enum Encoding {
     UrlEncode, MultipartForm, MultipartOther
 }
 
-func urlEncode(os: &OutputStream, url: __string) {
+func urlEncode(os: &OutputStream, url: strview) {
     const hex = "0123456789abcdef"
     var p = url.data() !: ^const u8;
     for (var i: 0..url.size()) {
@@ -44,10 +44,10 @@ const LOG_TAG = "HTTP_CLIENT";
 
 struct FileUpload {
     _name: String;
-    _contentType: __string;
+    _contentType: strview;
     _path: Path = null
 
-    func `init`(name: String, path: Path, contentType: __string = "".s) {
+    func `init`(name: String, path: Path, contentType: strview = "".s) {
         _name = &&name
         _path = &&path
         _contentType = &&contentType
@@ -64,7 +64,7 @@ struct FileUpload {
 
     @inline
     const func open(): !os.FileDescriptor {
-        return os.open(_path.__str())
+        return os.open(_path.s())
     }
 
     @inline
@@ -94,7 +94,7 @@ pub class Form {
     }
 
     @inline
-    func upload(name: String, path: Path, contentType: __string = "".s) {
+    func upload(name: String, path: Path, contentType: strview = "".s) {
         _uploads.push(FileUpload(&&name, &&path, contentType))
         _encoding = .MultipartForm
     }
@@ -230,7 +230,7 @@ pub class Request {
     - _body: String = null;
     - _sendFile: SendFile? = null;
     - _method = Method.Get;
-    - _resource = __string("");
+    - _resource = strview("");
 
     @inline
     - func `init`() {}
@@ -281,7 +281,7 @@ pub class Request {
             raise HttpError("Request body already set as a form")
         else if (_sendFile)
             raise HttpError("Request file already set")
-        var fd = os.open(path.__str())
+        var fd = os.open(path.s())
         var size = fd.size();
         _sendFile = SendFile(&&fd, size)
         setContentType(&&contentType)
@@ -293,10 +293,10 @@ pub class Request {
         _form = null
         _body = null
         _sendFile = null
-        _resource = __string();
+        _resource = strview();
     }
 
-    func reset(method: Method, resource: __string, clear: bool) {
+    func reset(method: Method, resource: strview, clear: bool) {
        if (clear || method != _method || _resource != resource) {
             cleanup()
             _resource = &&resource
@@ -335,9 +335,9 @@ pub class Request {
         for (const arg: _args) {
             if (!first)
                 os << '&'
-            urlEncode(os, arg.0.__str())
+            urlEncode(os, arg.0.s())
             os << '='
-            urlEncode(os, arg.1.__str())
+            urlEncode(os, arg.1.s())
             first = false
         }
     }
@@ -450,7 +450,7 @@ pub class Response {
             _body = String(buf, len)
         }
         else {
-            _body << __string(buf !: string, len)
+            _body << strview(buf !: string, len)
         }
         return 0
     }
@@ -518,7 +518,7 @@ func responseParserOnHeaderField(p: ^parser.llhttp_t, at: ^const char, len: u64)
         resp._s1 = String(at, len)
     }
     else {
-        resp._s1 << __string(at !: string, len)
+        resp._s1 << strview(at !: string, len)
     }
     return 0`i32
 }
@@ -530,7 +530,7 @@ func responseParserOnHeaderValue(p: ^parser.llhttp_t, at: ^const char, len: u64)
         resp._s2 = String(at, len)
     }
     else {
-        resp._s2 << __string(at !: string, len)
+        resp._s2 << strview(at !: string, len)
     }
     return 0`i32
 }
@@ -577,12 +577,12 @@ pub class Session {
     - _headers = HeaderMap();
     - _timeout = 20000`u64; /* 20 sec */
     - _addr = Address();
-    - _proto = __string("http");
+    - _proto = strview("http");
     - _sock: Socket = null;
     - _req: Request = null;
     - _hostname: String = null;
 
-    func `init`(proto: __string, host: String, port: u16, addr: Address, timeout: u64 = 20000`u64) {
+    func `init`(proto: strview, host: String, port: u16, addr: Address, timeout: u64 = 20000`u64) {
         _proto = &&proto
         _port = port
         _addr = &&addr
@@ -605,7 +605,7 @@ pub class Session {
 
     func perform(
         method: Method,
-        resource: __string,
+        resource: strview,
         builder: RequestBuilder = null,
         @escaping writer: WriterFn = null
     ): !Response {
@@ -657,7 +657,7 @@ pub class Session {
         connect(&hdrs)
     }
 
-    func head(resource: __string, hdrs: &const HeaderMap): !Response {
+    func head(resource: strview, hdrs: &const HeaderMap): !Response {
         return perform(Method.Head, &&resource, (req: &Request): !void => {
             for (const hdr: hdrs) {
                 req.header(hdr.0, hdr.1)
@@ -666,13 +666,13 @@ pub class Session {
     }
 
     @inline
-    func head(resource: __string): !Response {
+    func head(resource: strview): !Response {
         var hdrs: HeaderMap = null;
         return head(&&resource, &hdrs)
     }
 
     @static
-    func create(url: __string, timeout: u64 = 20000.u64): !Session {
+    func create(url: strview, timeout: u64 = 20000.u64): !Session {
         var idx = url.find("://")
         var host = url;
         var proto = "http".s
@@ -711,7 +711,7 @@ pub class Session {
     }
 }
 
-pub func fetch(url: __string, builder: RequestBuilder = null): !Response {
+pub func fetch(url: strview, builder: RequestBuilder = null): !Response {
     var method = Method.Get
     if (!url.empty() && url.[0] == '@'`char) {
         var methodName = url.substr(1)
@@ -753,9 +753,9 @@ test "Form URL encoding with simple values" {
     form.urlEncode(&output)
 
     // Should be key=value&key=value format
-    ok!(output.__str().contains("name=john"))
-    ok!(output.__str().contains("age=25"))
-    ok!(output.__str().contains("&"))
+    ok!(output.s().contains("name=john"))
+    ok!(output.s().contains("age=25"))
+    ok!(output.s().contains("&"))
 }
 
 test "Form URL encoding with special characters" {
@@ -767,10 +767,10 @@ test "Form URL encoding with special characters" {
     form.urlEncode(&output)
 
     // Space should be encoded as +
-    ok!(output.__str().contains("hello+world"))
+    ok!(output.s().contains("hello+world"))
     // = and & should be percent-encoded
-    ok!(output.__str().contains("%3D"))  // =
-    ok!(output.__str().contains("%26"))  // &
+    ok!(output.s().contains("%3D"))  // =
+    ok!(output.s().contains("%26"))  // &
 }
 
 test "Form URL encoded size calculation" {
@@ -796,8 +796,8 @@ test "Form URL encoding with multiple special characters" {
     ok!(size == output.size())
 
     // Verify special chars are encoded
-    ok!(!output.__str().contains("=def="))  // = should be encoded
-    ok!(!output.__str().contains(" & "))    // space and & should be encoded
+    ok!(!output.s().contains("=def="))  // = should be encoded
+    ok!(!output.s().contains(" & "))    // space and & should be encoded
 }
 
 test "Form empty form returns zero size" {
@@ -814,7 +814,7 @@ test "Form URL encoding exact output validation" {
     var output = String()
     form.urlEncode(&output)
 
-    ok!(output.__str() == "name=john")
+    ok!(output.s() == "name=john")
 }
 
 test "Form URL encoding exact output with special chars" {
@@ -825,7 +825,7 @@ test "Form URL encoding exact output with special chars" {
     form.urlEncode(&output)
 
     // Space should be encoded as +
-    ok!(output.__str() == "msg=a+b")
+    ok!(output.s() == "msg=a+b")
 }
 
 test "Form URL encoding exact output with equals and ampersand" {
@@ -836,7 +836,7 @@ test "Form URL encoding exact output with equals and ampersand" {
     form.urlEncode(&output)
 
     // = should be encoded as %3D
-    ok!(output.__str() == "data=x%3Dy")
+    ok!(output.s() == "data=x%3Dy")
 }
 
 test "Form URL encoding preserves unreserved chars" {
@@ -847,7 +847,7 @@ test "Form URL encoding preserves unreserved chars" {
     form.urlEncode(&output)
 
     // Unreserved chars (-_.~) should not be encoded
-    ok!(output.__str() == "key=a-b_c.d~e")
+    ok!(output.s() == "key=a-b_c.d~e")
 }
 
 test "Form multipart encoding mode activated on upload" {
@@ -857,7 +857,7 @@ test "Form multipart encoding mode activated on upload" {
     // Before upload, should use URL encoding
     var output1 = String()
     form.urlEncode(&output1)
-    ok!(output1.__str() == "field=value")
+    ok!(output1.s() == "field=value")
 
     // After adding upload, encoding mode changes
     // (We can't easily test multipart output without a socket,
@@ -882,7 +882,7 @@ test "Form with single field exact format" {
     var output = String()
     form.urlEncode(&output)
 
-    ok!(output.__str() == "x=1")
+    ok!(output.s() == "x=1")
     ok!(form.size() == 3)
 }
 
@@ -899,7 +899,7 @@ test "Form URL encoding multiple fields exact format" {
     ok!(size == output.size())
 
     // Output should have both fields with & separator
-    ok!(output.__str().contains("a=1"))
-    ok!(output.__str().contains("b=2"))
-    ok!(output.__str().contains("&"))
+    ok!(output.s().contains("a=1"))
+    ok!(output.s().contains("b=2"))
+    ok!(output.s().contains("&"))
 }

@@ -1,60 +1,13 @@
-class Awesome {
-    func `init`() {}
-    virtual func say(): string => "Hello"
+import {HashMap} from "stdlib/hash.cxy"
+import {Mayor} from "./hello.inc.cxy"
 
-    func `deinit`() {
-        printf("Awesome: deinitializing....\n")
-    }
+func raises(): !String {
+    raise Exception("Error")
 }
 
-class Container: Awesome {
-    func `init`() {
-    }
-
-    func `deinit`() {
-        printf("Container: deinitializing....\n")
-    }
-
-    func say(): string => "From Container"
-}
-
-func takeCopy(x: Awesome) {
-    printf("%s\n", x.say())
-    return (Awesome(), x.say())
-}
-
-func takeRef(x: &Awesome) {
-    printf("%s\n", x.say())
-}
-
-struct Help {
-    what: Awesome|i32
-}
-
-func cond() => true
+func say(s: u64) {}
 
 func main() {
-    var x: Awesome = Container()
-    takeCopy(x)
-    takeRef(&x)
-    var y: Awesome = null
-    if cond() {
-        y = x
-    }
-    printf("%s\n", y?.say() ?? "y is null")
-    var h = Help{what: x}
-    match h.what {
-        Awesome as a => printf("%s\n", a.say())
-        i32 as i => printf("%d\n", i)
-    }
-    var z: i32|bool|Help = 10.i32
-    match z {
-        Help as n => match n.what {
-            Awesome as a => printf("%s\n", a.say())
-            i32 as i => printf("%d\n", i)
-        }
-        i32 as i => printf("%d\n", i)
-        bool as b => printf("%d\n", b)
-    }
-    Awesome().say()
+    var p: [char, 1024]
+    say(sizeof!(p))
 }

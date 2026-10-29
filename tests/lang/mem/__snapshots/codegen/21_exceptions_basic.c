@@ -70,7 +70,7 @@ static int32_t testBubbleUpUnwind();
 static Result_i32 testReraise(int32_t x);
 static void _main();
 
-builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 83ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
+builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 87ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
 
 static void builtins_Exception_op__init(builtins_Exception * this, char * name) {
 _L_entry:;
@@ -151,7 +151,7 @@ _L_exit:;
   return;
 }
 
-builtins_Exception_VTable TestError_vTable = (builtins_Exception_VTable){.__tid = ((uint64_t)(130)), .what = ((char * (*)(builtins_Exception *))(TestError_what))};
+builtins_Exception_VTable TestError_vTable = (builtins_Exception_VTable){.__tid = ((uint64_t)(134)), .what = ((char * (*)(builtins_Exception *))(TestError_what))};
 
 static void Resource_op__init(Resource * this, int32_t id) {
 _L_entry:;

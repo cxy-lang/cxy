@@ -2,7 +2,7 @@ typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct Resource Resource;
 typedef struct Slice_Resource Slice_Resource;
-typedef struct __drop_flags___array_dctor_133_t __drop_flags___array_dctor_133_t;
+typedef struct __drop_flags___array_dctor_137_t __drop_flags___array_dctor_137_t;
 
 struct builtins_Exception {
   builtins_Exception_VTable * vtable;
@@ -24,7 +24,7 @@ struct Slice_Resource {
   uint64_t len;
 };
 
-struct __drop_flags___array_dctor_133_t {
+struct __drop_flags___array_dctor_137_t {
   uint64_t arr: 1;
 };
 
@@ -40,7 +40,7 @@ static void testArrayIndexOverwrite();
 static void testArrayMoveElement();
 static void testArraySliceBorrow();
 static void _main();
-static void __array_dctor_133(Slice_Resource arr);
+static void __array_dctor_137(Slice_Resource arr);
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
@@ -109,7 +109,7 @@ _L_entry:;
   arr[2] = Resource_op__initCover(((int32_t)(3)));
   goto _L_exit;
 _L_exit:;
-  __array_dctor_133((Slice_Resource){ .ptr = arr, .len = 3 });
+  __array_dctor_137((Slice_Resource){ .ptr = arr, .len = 3 });
   return;
 }
 
@@ -122,7 +122,7 @@ _L_entry:;
   arr[0] = Resource_op__initCover(((int32_t)(30)));
   goto _L_exit;
 _L_exit:;
-  __array_dctor_133((Slice_Resource){ .ptr = arr, .len = 2 });
+  __array_dctor_137((Slice_Resource){ .ptr = arr, .len = 2 });
   return;
 }
 
@@ -137,7 +137,7 @@ _L_entry:;
   goto _L_exit;
 _L_exit:;
   __smart_ptr_drop(r);
-  __array_dctor_133((Slice_Resource){ .ptr = arr, .len = 2 });
+  __array_dctor_137((Slice_Resource){ .ptr = arr, .len = 2 });
   return;
 }
 
@@ -154,7 +154,7 @@ _L_entry:;
   c.len = 2ULL;
   goto _L_exit;
 _L_exit:;
-      __array_dctor_133((Slice_Resource){ .ptr = a, .len = 2 });
+      __array_dctor_137((Slice_Resource){ .ptr = a, .len = 2 });
   return;
 }
 
@@ -169,11 +169,12 @@ _L_exit:;
   return;
 }
 
-static void __array_dctor_133(Slice_Resource arr) {
-  __drop_flags___array_dctor_133_t __drop_flags;
+static void __array_dctor_137(Slice_Resource arr) {
+  __drop_flags___array_dctor_137_t __drop_flags;
   uint64_t __i;
 _L_entry:;
-  memset(&(__drop_flags), 0, sizeof(__drop_flags___array_dctor_133_t));
+  memset(&(__drop_flags), 0, sizeof(__drop_flags___array_dctor_137_t));
+  __drop_flags.arr = 1ULL;
   __i = 0ULL;
   goto _L_FOR0_cond;
 _L_FOR0_cond:;

@@ -79,14 +79,14 @@ pub func setNonblocking(fd: i32, blocking: bool = false) {
 }
 
 @inline
-pub func getenv(name: string, def: string = null): !__string {
+pub func getenv(name: string, def: string = null): !strview {
     var value = stdlib.getenv(name !: ^const char) !: string
     if (value == null) {
         if (def == null)
             raise OSError(f"environment variable {name} does not exist")
         value = def
     }
-    return __string(value)
+    return strview(value)
 }
 
 @inline
@@ -162,7 +162,7 @@ pub struct FileDescriptor {
 }
 
 pub func open(
-    path: string|__string|String,
+    path: string|strview|String,
     nonBlocking: bool = true,
     flags: i32 = O_RDONLY!,
     mode: i32 = 0o666
@@ -170,7 +170,7 @@ pub func open(
     var spath:string = null;
     match (path) {
         case string as s => spath = s;
-        case __string as s => spath = s.str()
+        case strview as s => spath = s.str()
         case String as s => spath = s.str()
     }
 
@@ -219,7 +219,7 @@ pub struct TempFile {
 
 pub func mkstemp(
     prefix: string,
-    suffix: __string = __string(),
+    suffix: strview = strview(),
     nonBlocking: bool = true
 ): !TempFile {
     var path = String(prefix);
@@ -418,7 +418,7 @@ pub class FileInputStream: InputStream {
         var buf: [char, 4092] = []
         while {
             var tmp = read(buf, 4092)
-            if (*tmp < 0)
+            if (!tmp || *tmp < 0)
                 raise IOError(f"reading command output failed: {strerr()}")
             if (*tmp == 0)
                 return;
@@ -429,7 +429,7 @@ pub class FileInputStream: InputStream {
 }
 
 pub func readAll(
-    path: string|__string|String,
+    path: string|strview|String,
     nonBlocking: bool = false
 ): !String {
     var fd = open(path, nonBlocking)
@@ -652,7 +652,7 @@ pub func execvpe(cmd: string, argv: [string], env: [(string, string)]): !Process
     const sz = len!(argv)
     if (sz < 2 || argv.[sz-1] != null)
         raise IOError("arguments `argv` must be null terminated and argv[0] must be the command")
-    if (__string(cmd) != __string(argv.[0]))
+    if (strview(cmd) != strview(argv.[0]))
         raise IOError("first entry of `argv` must be the same as the command name")
 
     if (unistd.pipe(input) != 0)

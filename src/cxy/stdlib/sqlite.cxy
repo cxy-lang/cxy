@@ -229,7 +229,7 @@ pub class Database {
 
     @static
     func open(path: PathLike): !This {
-        var spath = cast[__string](&path);
+        var spath = cast[strview](&path);
         var res = withNullTermination[(i32, Handle)](
             &spath,
             (p: ^const char) =>  {

@@ -19,7 +19,7 @@ class WsApplication {
         return true
     }
 
-    func onMessage(ws: &WebSocket[WsContext], msg: __string): void => {
+    func onMessage(ws: &WebSocket[WsContext], msg: strview): void => {
         ws.context().count++
         println("[WSS Server] onMessage: count = ", ws.context().count, ", msg = ", msg)
         ws.send(msg) catch {
@@ -27,7 +27,7 @@ class WsApplication {
         }
     }
 
-    func onClose(ws: &WebSocket[WsContext], code: u16, reason: __string): void => {
+    func onClose(ws: &WebSocket[WsContext], code: u16, reason: strview): void => {
         println("[WSS Server] onClose: count = ", ws.context().count, ", code = ", code, ", reason = ", reason)
     }
 }

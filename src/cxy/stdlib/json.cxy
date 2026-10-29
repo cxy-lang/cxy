@@ -34,13 +34,13 @@ exception JsonError(msg: String) => msg != null ? msg.str() : "JSON error"
 
 // JSON Lexer
 class JsonLexer {
-    - _input: __string;
+    - _input: strview;
     - _position = 0 as u64;
     - _line = 1 as u64;
     - _column = 1 as u64;
     - _tokenValue = String()
 
-    func `init`(input: __string) {
+    func `init`(input: strview) {
         _input = input
     }
 
@@ -325,7 +325,7 @@ class JsonParser {
     - _depth = 0 as u32;
     - _maxDepth = 1000 as u32;
 
-    func `init`(input: __string) {
+    func `init`(input: strview) {
         _lexer = JsonLexer(input)
         this.advance()
     }
@@ -456,7 +456,7 @@ class JsonParser {
     - func parseNumber(): !Value {
         var numStr = &&_tokenValue
         this.advance()
-        var s = numStr.__str()
+        var s = numStr.s()
 
         var integral = true
         for (i: 0..s.size()) {
@@ -614,7 +614,7 @@ func fieldFromJSON[T](
     parser: &JsonParser,
     pos: (u64, u64),
     @unused obj: &T,
-    key: __string,
+    key: strview,
     partialAllowed: bool
 ): !void {
     #for (const member: T.members, member.isField) {
@@ -681,10 +681,10 @@ pub func fromJSON[T](parser: &JsonParser): !T {
             var numStr = parser.moveTokenValue()
             parser.advance()
             #if (T.isInteger) {
-                return <T>numStr.__str().toi[i64]()
+                return <T>numStr.s().toi[i64]()
             }
             else {
-                return <T>numStr.__str().tof[f64]()
+                return <T>numStr.s().tof[f64]()
             }
         } else {
             raise JsonError("Expected number")
@@ -707,9 +707,9 @@ pub func fromJSON[T](parser: &JsonParser): !T {
         #const M = T.targetType;
         if (parser.currentToken() == JsonToken.Null) {
             parser.advance()
-            return None[M]()
+            return null
         } else {
-            return Some(fromJSON[M](parser))
+            return fromJSON[M](parser)
         }
     }
     else #if (T.isStruct || T.isClass) {
@@ -727,7 +727,7 @@ pub func fromJSON[T](parser: &JsonParser): !T {
 
             while (parser.currentToken() != JsonToken.RightBrace) {
                 var pos = parser.tag()
-                var key = parser.expectString().__str()
+                var key = parser.expectString().s()
                 parser.expectToken(JsonToken.Colon)
                 parser.advance()
                 #if (pa)
@@ -768,7 +768,7 @@ pub func fromJSON[T](parser: &JsonParser): !T {
                     parser.expectToken(JsonToken.Comma)
                     parser.advance()
                 }
-                var key = parser.expectString().__str()
+                var key = parser.expectString().s()
                 parser.expectToken(JsonToken.Colon)
                 parser.advance()
                 tmp.[String(key)] = fromJSON[T.ValueType](parser)
@@ -789,7 +789,7 @@ pub func fromJSON[T](parser: &JsonParser): !T {
 }
 
 // Convenience function that creates parser from string
-pub func parse[T](str: __string): !T {
+pub func parse[T](str: strview): !T {
     var parser = JsonParser(str)
     var result = fromJSON[T](&parser)
     if (parser.currentToken() != JsonToken.EOF) {
@@ -805,7 +805,7 @@ func getIndent(os: &OutputStream, level: u32) {
     }
 }
 
-func escapeJsonString(os: &OutputStream, s: __string) {
+func escapeJsonString(os: &OutputStream, s: strview) {
     for i: 0..s.size() {
         var c = s.[i as u32]
         switch (c) {
@@ -820,7 +820,7 @@ func escapeJsonString(os: &OutputStream, s: __string) {
                 var code = c as u8
                 if (code < 0x20) {
                     // the other control characters are written as \u00XX
-                    var hex = __string("0123456789abcdef")
+                    var hex = strview("0123456789abcdef")
                     os << "\\u00" << hex.[(code >> 4) as u32] << hex.[(code & 0x0F) as u32]
                 } else {
                     os << c
@@ -851,7 +851,7 @@ func serializeValue(
         }
         String as s => {
             os << "\""
-            escapeJsonString(os, s.__str())
+            escapeJsonString(os, s.s())
             os << "\""
         }
         Vector[Value] as arr => {
@@ -900,7 +900,7 @@ func serializeValue(
                 }
 
                 os << "\""
-                escapeJsonString(os, key.__str())
+                escapeJsonString(os, key.s())
                 os << "\":"
                 if (pretty) {
                     os << " "
@@ -1065,7 +1065,7 @@ pub class JsonString {
         _str = &&s
     }
 
-    func `init`(s: __string) {
+    func `init`(s: strview) {
         _str = String(s)
     }
 
@@ -1185,6 +1185,6 @@ test "Map encoding" {
 
 test "Map decoding" {
     var m = parse[HashMap[String, String]]("{\"a\": \"b\", \"c\": \"d\"}")
-    ok!(m.["a"]&.__str() == "b")
-    ok!(m.["c"]&.__str() == "d")
+    ok!(m.["a"]&.s() == "b")
+    ok!(m.["c"]&.s() == "d")
 }

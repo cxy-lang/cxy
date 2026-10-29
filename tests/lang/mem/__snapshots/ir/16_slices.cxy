@@ -190,10 +190,11 @@ _L_exit:
   return
 }
 
-func __array_dctor_148(arr: [^Resource]): void {
+func __array_dctor_152(arr: [^Resource]): void {
 _L_entry:
-  var __drop_flags: __drop_flags___array_dctor_148_t
+  var __drop_flags: __drop_flags___array_dctor_152_t
   zeromem __drop_flags
+  __drop_flags.arr = 1
   scope.enter 0
   var __i: u64
   __i = 0

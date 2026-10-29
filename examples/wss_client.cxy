@@ -21,7 +21,7 @@ class ClientApplication {
         return true
     }
 
-    func onMessage(msg: __string): void => {
+    func onMessage(msg: strview): void => {
         println("[Cxy WS Client] Received: ", msg)
         count++
         if (count < 10) {
@@ -32,7 +32,7 @@ class ClientApplication {
         }
     }
 
-    func onClose(code: u16, reason: __string): void => {
+    func onClose(code: u16, reason: strview): void => {
         println("[Cxy WS Client] Closed: code = ", code, " reason = ", reason)
     }
 }

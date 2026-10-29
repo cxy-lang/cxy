@@ -10,9 +10,9 @@ exception ParseError(msg: String) => msg != null? msg.str() : ""
 
 pub exception ValidationError(msg: String) => msg != null? msg.str() : ""
 
-// Only __string values are accumulated for repeatable flags (both the
+// Only strview values are accumulated for repeatable flags (both the
 // list form used today, and a possible future "key=value" map form).
-pub type FlagValue = __string | bool | i64 | Vector[__string] | HashMap[__string, __string]
+pub type FlagValue = strview | bool | i64 | Vector[strview] | HashMap[strview, strview]
 
 // Flag group types
 pub enum FlagGroupType {
@@ -22,12 +22,12 @@ pub enum FlagGroupType {
 
 // Flag group for validation
 pub struct FlagGroup {
-    name: __string
-    flags = Vector[__string]()
+    name: strview
+    flags = Vector[strview]()
     groupType: FlagGroupType = .MutuallyExclusive
     required: bool = false
 
-    func `init`(name: __string, groupType: FlagGroupType) {
+    func `init`(name: strview, groupType: FlagGroupType) {
         this.name = name
         this.groupType = groupType
     }
@@ -35,7 +35,7 @@ pub struct FlagGroup {
     func `str`(@unused os: &OutputStream) { }
 
     @static
-    func mutuallyExclusive(name: __string, a: __string, b: __string, ...args: __string): This {
+    func mutuallyExclusive(name: strview, a: strview, b: strview, ...args: strview): This {
         var group = This(name, FlagGroupType.MutuallyExclusive)
         group.flags.push(a)
         group.flags.push(b)
@@ -48,12 +48,12 @@ pub struct FlagGroup {
 
 // Simple flag definition
 pub struct Flag {
-    name: __string
+    name: strview
     shorthand: char = '\0'
-    usage: __string
+    usage: strview
     defaultValue: FlagValue
     required = false
-    envVar = __string()
+    envVar = strview()
     // Terminal flags (like --help) short-circuit validation (flag groups,
     // positional args, required subcommand) and signal the caller should
     // handle the request itself instead of executing the command's action.
@@ -69,55 +69,27 @@ pub struct Flag {
     // with FlagValues.getMap instead of getString.
     isMap = false
 
-    func `init`(name: __string, usage: __string, defaultValue: __string = "".s) {
+    func `init`(name: strview, usage: strview, defaultValue: strview = "".s) {
         this.name = name
         this.usage = usage
         this.defaultValue = defaultValue
     }
 
-    func `init`(name: __string, usage: __string, defaultValue: __string, envVar: __string) {
-        this.name = name
-        this.usage = usage
-        this.defaultValue = defaultValue
-        this.envVar = envVar
-    }
-
-    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: __string = "".s) {
-        this.name = name
-        this.shorthand = shorthand
-        this.usage = usage
-        this.defaultValue = defaultValue
-    }
-
-    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: __string, envVar: __string) {
-        this.name = name
-        this.shorthand = shorthand
-        this.usage = usage
-        this.defaultValue = defaultValue
-        this.envVar = envVar
-    }
-
-    func `init`(name: __string, usage: __string, defaultValue: bool = false) {
-        this.name = name
-        this.usage = usage
-        this.defaultValue = defaultValue
-    }
-
-    func `init`(name: __string, usage: __string, defaultValue: bool, envVar: __string) {
+    func `init`(name: strview, usage: strview, defaultValue: strview, envVar: strview) {
         this.name = name
         this.usage = usage
         this.defaultValue = defaultValue
         this.envVar = envVar
     }
 
-    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: bool = false) {
+    func `init`(name: strview, shorthand: char, usage: strview, defaultValue: strview = "".s) {
         this.name = name
         this.shorthand = shorthand
         this.usage = usage
         this.defaultValue = defaultValue
     }
 
-    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: bool, envVar: __string) {
+    func `init`(name: strview, shorthand: char, usage: strview, defaultValue: strview, envVar: strview) {
         this.name = name
         this.shorthand = shorthand
         this.usage = usage
@@ -125,27 +97,55 @@ pub struct Flag {
         this.envVar = envVar
     }
 
-    func `init`(name: __string, usage: __string, defaultValue: i64 = 0) {
+    func `init`(name: strview, usage: strview, defaultValue: bool = false) {
         this.name = name
         this.usage = usage
         this.defaultValue = defaultValue
     }
 
-    func `init`(name: __string, usage: __string, defaultValue: i64, envVar: __string) {
+    func `init`(name: strview, usage: strview, defaultValue: bool, envVar: strview) {
         this.name = name
         this.usage = usage
         this.defaultValue = defaultValue
         this.envVar = envVar
     }
 
-    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: i64 = 0) {
+    func `init`(name: strview, shorthand: char, usage: strview, defaultValue: bool = false) {
         this.name = name
         this.shorthand = shorthand
         this.usage = usage
         this.defaultValue = defaultValue
     }
 
-    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: i64, envVar: __string) {
+    func `init`(name: strview, shorthand: char, usage: strview, defaultValue: bool, envVar: strview) {
+        this.name = name
+        this.shorthand = shorthand
+        this.usage = usage
+        this.defaultValue = defaultValue
+        this.envVar = envVar
+    }
+
+    func `init`(name: strview, usage: strview, defaultValue: i64 = 0) {
+        this.name = name
+        this.usage = usage
+        this.defaultValue = defaultValue
+    }
+
+    func `init`(name: strview, usage: strview, defaultValue: i64, envVar: strview) {
+        this.name = name
+        this.usage = usage
+        this.defaultValue = defaultValue
+        this.envVar = envVar
+    }
+
+    func `init`(name: strview, shorthand: char, usage: strview, defaultValue: i64 = 0) {
+        this.name = name
+        this.shorthand = shorthand
+        this.usage = usage
+        this.defaultValue = defaultValue
+    }
+
+    func `init`(name: strview, shorthand: char, usage: strview, defaultValue: i64, envVar: strview) {
         this.name = name
         this.shorthand = shorthand
         this.usage = usage
@@ -154,21 +154,21 @@ pub struct Flag {
     }
 
     @private
-    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: FlagValue) {
+    func `init`(name: strview, shorthand: char, usage: strview, defaultValue: FlagValue) {
         this.name = name
         this.shorthand = shorthand
         this.usage = usage
         this.defaultValue = &&defaultValue
     }
 
-    @static func map(name: __string, usage: __string): This {
-        var flag = This(name, '\0', usage, HashMap[__string, __string]())
+    @static func map(name: strview, usage: strview): This {
+        var flag = This(name, '\0', usage, HashMap[strview, strview]())
         flag.isMap = true
         return &&flag
     }
 
-    @static func list(name: __string, usage: __string): This {
-        var flag = This(name, '\0', usage, Vector[__string]())
+    @static func list(name: strview, usage: strview): This {
+        var flag = This(name, '\0', usage, Vector[strview]())
         flag.multiple = true
         return &&flag
     }
@@ -176,13 +176,13 @@ pub struct Flag {
 
 // Declared positional argument (validated after parsing, shown in help)
 pub struct PositionalArg {
-    name: __string
-    usage: __string
+    name: strview
+    usage: strview
     required: bool = true
     variadic: bool = false
-    defaultValue = __string()
+    defaultValue = strview()
 
-    func `init`(name: __string, usage: __string, required: bool = true, variadic: bool = false) {
+    func `init`(name: strview, usage: strview, required: bool = true, variadic: bool = false) {
         this.name = name
         this.usage = usage
         this.required = required
@@ -190,7 +190,7 @@ pub struct PositionalArg {
     }
 
     // Declaring a default value implies the argument is optional
-    func `init`(name: __string, usage: __string, defaultValue: __string) {
+    func `init`(name: strview, usage: strview, defaultValue: strview) {
         this.name = name
         this.usage = usage
         this.required = false
@@ -200,35 +200,35 @@ pub struct PositionalArg {
 
 // Storage for parsed flag values
 pub struct FlagValues {
-    values = HashMap[__string, FlagValue]()
-    func set(name: __string, value: FlagValue): void {
+    values = HashMap[strview, FlagValue]()
+    func set(name: strview, value: FlagValue): void {
         values.[name] = &&value
     }
 
     // Append a value for a repeatable flag instead of overwriting it.
-    func append(name: __string, value: __string): void {
+    func append(name: strview, value: strview): void {
         var existing = values.[name]
         if existing {
             match (*existing) {
-                Vector[__string] as list => list.push(value)
+                Vector[strview] as list => list.push(value)
                 ... => {}
             }
         } else {
-            var list = Vector[__string]()
+            var list = Vector[strview]()
             list.push(value)
             values.[__copy!(name)] = &&list
         }
     }
 
     @inline
-    func has(name: __string) => values.contains(name)
+    func has(name: strview) => values.contains(name)
 
     // Number of values recorded for a repeatable flag (0 if never set).
-    func count(name: __string): u64 {
+    func count(name: strview): u64 {
         var val = values.[name]
         if val {
             match (*val) {
-                Vector[__string] as list => return list.size()
+                Vector[strview] as list => return list.size()
                 ... => {}
             }
         }
@@ -237,11 +237,11 @@ pub struct FlagValues {
 
     // Read back all values recorded for a repeatable flag, or null if the
     // flag was never set.
-    func getList(name: __string): Vector[__string] {
+    func getList(name: strview): Vector[strview] {
         var val = values.[name]
         if val {
             match (*val) {
-                Vector[__string] as list => return list
+                Vector[strview] as list => return list
                 ... => {}
             }
         }
@@ -250,15 +250,15 @@ pub struct FlagValues {
 
     // Set an entry for a map-valued flag instead of overwriting the whole
     // flag value.
-    func set(name: __string, key: __string, value: __string): void {
+    func set(name: strview, key: strview, value: strview): void {
         var existing = values.[name]
         if existing {
             match (*existing) {
-                HashMap[__string, __string] as m => m.[key] = value
+                HashMap[strview, strview] as m => m.[key] = value
                 ... => {}
             }
         } else {
-            var m = HashMap[__string, __string]()
+            var m = HashMap[strview, strview]()
             m.[key] = value
             values.[__copy!(name)] = &&m
         }
@@ -266,29 +266,29 @@ pub struct FlagValues {
 
     // Read back all entries recorded for a map-valued flag, or null if the
     // flag was never set.
-    func getMap(name: __string): HashMap[__string, __string] {
+    func getMap(name: strview): HashMap[strview, strview] {
         var val = values.[name]
         if val {
             match (*val) {
-                HashMap[__string, __string] as m => return m
+                HashMap[strview, strview] as m => return m
                 ... => {}
             }
         }
         return null
     }
 
-    func getString(name: __string): __string {
+    func getString(name: strview): strview {
         var val = values.[name]
         if (val) {
             match (*val) {
-                __string as s => return s
-                ... => return __string()
+                strview as s => return s
+                ... => return strview()
             }
         }
-        return __string()
+        return strview()
     }
 
-    func getBool(name: __string): bool {
+    func getBool(name: strview): bool {
         var val = values.[name]
         if (val) {
             match (*val) {
@@ -299,7 +299,7 @@ pub struct FlagValues {
         return false
     }
 
-    func getInt(name: __string): i64 {
+    func getInt(name: strview): i64 {
         var val = values.[name]
         if (val) {
             match (*val) {
@@ -313,22 +313,22 @@ pub struct FlagValues {
 
 // Simple command definition
 pub class Command {
-    name: __string
-    description: __string
-    version = __string()
-    flags = HashMap[__string, Flag]()
-    flagsByShorthand = HashMap[char, __string]()
+    name: strview
+    description: strview
+    version = strview()
+    flags = HashMap[strview, Flag]()
+    flagsByShorthand = HashMap[char, strview]()
     flagValues = FlagValues{}
-    args = Vector[__string]()
+    args = Vector[strview]()
     positionalArgs = Vector[PositionalArg]()
 
     // Hierarchical command structure
     parent: &This? = null
-    commands = HashMap[__string, Command]()
+    commands = HashMap[strview, Command]()
 
     // Persistent flags (inherited by subcommands)
-    persistentFlags = HashMap[__string, Flag]()
-    persistentFlagsByShorthand = HashMap[char, __string]()
+    persistentFlags = HashMap[strview, Flag]()
+    persistentFlagsByShorthand = HashMap[char, strview]()
 
     // Flag groups for validation
     flagGroups = Vector[FlagGroup]()
@@ -336,7 +336,7 @@ pub class Command {
     // Action handler for this command
     action: Handler = null
 
-    func `init`(name: __string, description: __string) {
+    func `init`(name: strview, description: strview) {
         this.name = name
         this.description = description
     }
@@ -364,13 +364,13 @@ pub class Command {
         }
         if flag.multiple {
             match (flag.defaultValue) {
-                Vector[__string] as _ => {}
+                Vector[strview] as _ => {}
                 ... => raise ParseError(f"flag '{flag.name}' is marked multiple but only list flags support that")
             }
         }
         if flag.isMap {
             match (flag.defaultValue) {
-                HashMap[__string, __string] as _ => {}
+                HashMap[strview, strview] as _ => {}
                 ... => raise ParseError(f"flag '{flag.name}' is marked map but only map flags support that")
             }
         }
@@ -392,24 +392,24 @@ pub class Command {
     }
 
     @inline
-    func addFlag(name: __string, shorthand: char, def: __string, help: __string): !void {
+    func addFlag(name: strview, shorthand: char, def: strview, help: strview): !void {
         addFlag(Flag(name, shorthand, def, help))
     }
 
     @inline
-    func addFlag(name: __string, shorthand: char, def: __string, help: __string, envVar: __string): !void {
+    func addFlag(name: strview, shorthand: char, def: strview, help: strview, envVar: strview): !void {
         addFlag(Flag(name, shorthand, def, help, envVar))
     }
 
     @inline
-    func add[T, Opts](name: __string, help: __string, def: __string, @unused opts: Opts): !void {
+    func add[T, Opts](name: strview, help: strview, def: strview, @unused opts: Opts): !void {
         require!(T.isStruct, "conf must be a struct")
         #if #T == #Flag {
             var flag = Flag(name, '\0', help, def)
-            #if (has_member!(#Opts, "shorthand", #__string)) {
+            #if (has_member!(#Opts, "shorthand", #strview)) {
                 flag.shorthand = opts.shorthand
             }
-            #if (has_member!(#Opts, "env", #__string)) {
+            #if (has_member!(#Opts, "env", #strview)) {
                 flag.envVar = opts.env
             }
             #if (has_member!(#Opts, "required", #bool)) {
@@ -471,7 +471,7 @@ pub class Command {
     // Add a persistent, terminal "--version" flag. Like --help, this bypasses
     // validation (flag groups, positional args, required subcommand) so the
     // caller can print the version and exit instead of running any action.
-    func addVersionFlag(version: __string, shorthand: char = '\0'): !void {
+    func addVersionFlag(version: strview, shorthand: char = '\0'): !void {
         this.version = version
         var flag = Flag("version", shorthand, "Show version information", false)
         flag.terminal = true
@@ -533,7 +533,7 @@ pub class Command {
 
     // Find subcommand by name
     @private
-    func findCommand(name: __string): This {
+    func findCommand(name: strview): This {
         var cmd = commands.[name]
         if cmd {
             var tmp = *cmd
@@ -563,13 +563,13 @@ pub class Command {
 
     // Check if string looks like a boolean value
     @private
-    func isBooleanValue(s: __string): bool {
+    func isBooleanValue(s: strview): bool {
         return s == "true" || s == "false" || s == "1" || s == "0"
     }
 
     // Parse integer from string
     @private
-    func parseInt(s: __string): i64? {
+    func parseInt(s: strview): i64? {
         if s.empty() { return null }
 
         var result = 0`i64
@@ -597,7 +597,7 @@ pub class Command {
     func parse(argv: [string]): !(This, bool) {
         var i = 0 as i64
         while (i < len!(argv)) {
-            var arg = __string(argv.[i]);
+            var arg = strview(argv.[i]);
 
             // Check for subcommands before treating as positional args
             if !arg.startswith("-") {
@@ -679,7 +679,7 @@ pub class Command {
     // Parse long flag arguments
     @private
     func parseLongFlagArg(argv: [string], index: i64): !i64 {
-        var arg = __string(argv.[index]);
+        var arg = strview(argv.[index]);
 
         // Parse --flag=value format
         var eqPos = arg.indexOf('=')
@@ -692,12 +692,12 @@ pub class Command {
 
         // Parse --flag format (value might be next arg)
         var flagName = arg.substr(2)
-        var flagValue = __string()
+        var flagValue = strview()
         var hasValue = false
 
         // Check if next arg is the value (not another flag)
         if (index + 1 < len!(argv)) {
-            var nextArg = __string(argv.[index + 1])
+            var nextArg = strview(argv.[index + 1])
             if !nextArg.startswith("-") {
                 // Only treat as value if this flag type requires a value.
                 // Look up by the base name, stripping any ":key" suffix
@@ -749,7 +749,7 @@ pub class Command {
     // Parse short flag arguments
     @private
     func parseShortFlagArg(argv: [string], index: i64): !i64 {
-        var arg = __string(argv.[index])
+        var arg = strview(argv.[index])
         var flags_str = arg.substr(1) // Skip the -
 
         // Handle single short flag with potential attached value: -fvalue
@@ -793,12 +793,12 @@ pub class Command {
     // Parse individual short flag
     @private
     func parseShortFlag(argv: [string], index: i64, flag: &Flag): !i64 {
-        var flagValue = __string()
+        var flagValue = strview()
         var hasValue = false
 
         // Check if next arg is the value (not another flag)
         if (index + 1 < len!(argv)) {
-            var nextArg = __string(argv.[index + 1])
+            var nextArg = strview(argv.[index + 1])
             if !nextArg.startswith("-") {
                 match (flag.defaultValue) {
                     bool as _ => {
@@ -834,7 +834,7 @@ pub class Command {
     // e.g. "params:a" -> "params". Returns the name unchanged if there's
     // no colon.
     @private
-    func baseFlagName(flagName: __string): __string {
+    func baseFlagName(flagName: strview): strview {
         var colonPos = flagName.indexOf(':')
         if colonPos {
             return flagName.substr(0, <i64>*colonPos)
@@ -843,7 +843,7 @@ pub class Command {
     }
 
     @private
-    func parseLongFlag(flagName: __string, flagValue: __string, hasValue: bool): !void {
+    func parseLongFlag(flagName: strview, flagValue: strview, hasValue: bool): !void {
         // Map entry syntax: --name:key (value) / --name:key=value
         var colonPos = flagName.indexOf(':')
         if colonPos {
@@ -897,7 +897,7 @@ pub class Command {
                 }
                 flagValues.set(flagName, *intVal)
             }
-            __string as _ => {
+            strview as _ => {
                 if !hasValue {
                     raise ParseError(f"flag --{flagName} requires a value")
                 }
@@ -907,7 +907,7 @@ pub class Command {
                     flagValues.set(flagName, flagValue)
                 }
             }
-            Vector[__string] as _ => {
+            Vector[strview] as _ => {
                 if !hasValue {
                     raise ParseError(f"flag --{flagName} requires a value")
                 }
@@ -1061,7 +1061,7 @@ pub class Command {
     @private
     func validateFlagGroups(): !void {
         for group, _ : flagGroups {
-            var setFlags = Vector[__string]()
+            var setFlags = Vector[strview]()
 
             // Find which flags in this group are set
             for flagName, _ : group.flags {
@@ -1078,7 +1078,7 @@ pub class Command {
                 }
                 .RequiredTogether => {
                     if setFlags.size() > 0 && setFlags.size() != group.flags.size() {
-                        var missing = Vector[__string]()
+                        var missing = Vector[strview]()
                         for flagName, _ : group.flags {
                             if !flagValues.has(flagName.str()) {
                                 missing.push(flagName.str())
@@ -1126,7 +1126,7 @@ pub class Command {
         match (flag.defaultValue) {
             bool as b => flagValues.set(flag.name, b)
             i64 as iv => flagValues.set(flag.name, iv)
-            __string as s => flagValues.set(flag.name, s)
+            strview as s => flagValues.set(flag.name, s)
             ... => {}
         }
     }
@@ -1188,7 +1188,7 @@ pub class Command {
         // Check local flags
         for (const _, flag: flags) {
             if !flag.envVar.empty() && !flagValues.has(flag.name) {
-                var envValue = getenv(flag.envVar.str(), "") catch __string()
+                var envValue = getenv(flag.envVar.str(), "") catch strview()
                 if !envValue.empty() {
                     parseEnvValue(flag, envValue) catch discard
                 }
@@ -1198,7 +1198,7 @@ pub class Command {
         // Check persistent flags
         for (const _, flag: persistentFlags) {
             if !flag.envVar.empty() && !flagValues.has(flag.name) {
-                var envValue = getenv(flag.envVar.str(), "") catch __string()
+                var envValue = getenv(flag.envVar.str(), "") catch strview()
                 if !envValue.empty() {
                     parseEnvValue(flag, envValue) catch discard
                 }
@@ -1208,7 +1208,7 @@ pub class Command {
 
     // Parse environment variable value according to flag type
     @private
-    func parseEnvValue(flag: Flag, envValue: __string): !void {
+    func parseEnvValue(flag: Flag, envValue: strview): !void {
         match (flag.defaultValue) {
             bool as _ => {
                 if envValue == "true" || envValue == "1" || envValue == "yes" {
@@ -1226,7 +1226,7 @@ pub class Command {
                 }
                 flagValues.set(flag.name, *intVal)
             }
-            __string as _ => flagValues.set(flag.name, envValue)
+            strview as _ => flagValues.set(flag.name, envValue)
         }
     }
 }
@@ -1255,7 +1255,7 @@ test "FlagValues type safety" {
     ok!(values.getInt("int") == 42)
 
     // Type mismatches return defaults
-    ok!(values.getString("bool") == __string())
+    ok!(values.getString("bool") == strview())
     ok!(values.getBool("str") == false)
     ok!(values.getInt("str") == 0)
 }
@@ -1708,7 +1708,7 @@ test "--version flag bypasses the required-subcommand check" {
 
     var versionOutput = String()
     finalCmd.printVersion(&versionOutput)
-    ok!(!!versionOutput.__str().find("1.2.3"))
+    ok!(!!versionOutput.s().find("1.2.3"))
 }
 
 test "Custom terminal flag bypasses validation" {
@@ -2067,7 +2067,7 @@ pub func createHelpCommand(rootCmd: &Command): void {
 }
 
 // Factory function to create a root command with automatic help setup
-pub func RootCommand(name: __string, description: __string): Command {
+pub func RootCommand(name: strview, description: strview): Command {
     var cmd = Command(name, description)
 
     // Add persistent help flag that all subcommands inherit
@@ -2094,7 +2094,7 @@ test "Help generation validation" {
     // Test root command help
     var helpOutput = String()
     rootCmd.help(&helpOutput)
-    var s = helpOutput.__str()
+    var s = helpOutput.s()
 
 
 
@@ -2117,7 +2117,7 @@ test "Help output includes positional arguments" {
 
     var helpOutput = String()
     cmd.help(&helpOutput)
-    var s = helpOutput.__str()
+    var s = helpOutput.s()
 
     ok!(!!s.find("Usage: cp [flags] <src> [dst]"))
     ok!(!!s.find("Arguments:"))

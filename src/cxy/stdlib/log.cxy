@@ -16,9 +16,9 @@ pub enum Level {
 }
 
 struct FixedWidth {
-    - s: __string
+    - s: strview
     - count: u64
-    func `init`(s: __string, count: u64) {
+    func `init`(s: strview, count: u64) {
         this.s = s
         this.count = count
     }

@@ -1083,7 +1083,7 @@ static bool isIrPureValueExpr(const IrNode *node)
     return false;
 }
 
-// `borrowed` consumers only read the value, so an owned call result must be
+// `borrowed` consumers only read the value, so an owned rvalue must be
 // tracked (and dropped) as a regular local instead of an unowned temporary.
 static IrNode *lowerFlattenedOperandEx(AstVisitor *visitor, AstNode *node, bool borrowed)
 {
@@ -1102,7 +1102,7 @@ static IrNode *lowerFlattenedOperandEx(AstVisitor *visitor, AstNode *node, bool 
     Flags flags = flgTemporary;
     if (isIrTypeDestructible(val->type))
         flags |= flgReferenceMembers;
-    if (borrowed && val->tag == irCall && node->type) {
+    if (borrowed && node->type) {
         const Type *astType = resolveUnThisUnwrapType(node->type);
         if (astType && !isReferenceType(astType) && !isPointerType(astType) &&
             isDestructible(astType))
@@ -1569,6 +1569,10 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
 
     if (nodeIsMemberFunctionReference(node) && nodeIs(mem, Identifier)) {
         const AstNode *resolvesTo = mem->ident.resolvesTo;
+        // Simplify wraps functions of other modules in an ExternDecl
+        if (resolvesTo && nodeIs(resolvesTo, ExternDecl) &&
+            resolvesTo->externDecl.func != NULL)
+            resolvesTo = resolvesTo->externDecl.func;
         if (resolvesTo == NULL) {
             logError(ctx->driver->L,
                      &node->loc,
@@ -1605,7 +1609,7 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
         return;
     }
 
-    IrNode *target = lowerFlattenedOperand(visitor, node->memberExpr.target);
+    IrNode *target = lowerBorrowedOperand(visitor, node->memberExpr.target);
     const Type *targetAstType = node->memberExpr.target->type;
     if (node->memberExpr.isRedirect && isOptionalType(targetAstType)) {
         const IrType *valType = target->type->strct.fields[1].type;
@@ -3518,7 +3522,7 @@ static void visitWhileStmt(AstVisitor *visitor, AstNode *node)
     LoopCtx loop = {.condBlock = condBB,
                     .exitBlock = exitBB,
                     .scopeId = ctx->currentScopeId,
-                    .prev = ctx->loopCtx};
+                    .catchCtx = ctx->catchCtx, .prev = ctx->loopCtx};
     ctx->loopCtx = &loop;
     astVisit(visitor, node->whileStmt.body);
     ctx->loopCtx = loop.prev;
@@ -3592,7 +3596,7 @@ static void visitForStmt(AstVisitor *visitor, AstNode *node)
         LoopCtx loop = {.condBlock = updateBB,
                         .exitBlock = exitBB,
                         .scopeId = ctx->currentScopeId,
-                        .prev = ctx->loopCtx};
+                        .catchCtx = ctx->catchCtx, .prev = ctx->loopCtx};
         ctx->loopCtx = &loop;
         astVisit(visitor, node->forStmt.body);
         ctx->loopCtx = loop.prev;
@@ -3641,7 +3645,7 @@ static void visitForStmt(AstVisitor *visitor, AstNode *node)
     LoopCtx loop = {.condBlock = updateBB,
                     .exitBlock = exitBB,
                     .scopeId = ctx->currentScopeId,
-                    .prev = ctx->loopCtx};
+                    .catchCtx = ctx->catchCtx, .prev = ctx->loopCtx};
     ctx->loopCtx = &loop;
     astVisit(visitor, node->forStmt.body);
     ctx->loopCtx = loop.prev;
@@ -3653,10 +3657,38 @@ static void visitForStmt(AstVisitor *visitor, AstNode *node)
     setBlock(ctx, exitBB);
 }
 
+// Drops a caught exception and defuses its result so it is not dropped twice
+static void emitReleaseCaught(LowerContext *ctx,
+                              const FileLoc *loc,
+                              const CatchCtx *c)
+{
+    const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
+    emitStmt(ctx, makeIrDrop(ctx->pool, loc, cloneIrNode(ctx->pool, c->err)));
+    IrNode *tagSlot = makeIrMember(
+        ctx->pool, loc, cloneIrNode(ctx->pool, c->res), 0, S_tag, u32Type);
+    IrNode *defuse = makeIrAssign(
+        ctx->pool,
+        loc,
+        tagSlot,
+        makeIrIntConst(ctx->pool, loc, 0, false, u32Type));
+    defuse->flags |= flgUnmanaged;
+    emitStmt(ctx, defuse);
+}
+
+// Releases the catch bodies entered since `outer`, innermost first
+static void emitReleaseCaughtUntil(LowerContext *ctx,
+                                   const FileLoc *loc,
+                                   const CatchCtx *outer)
+{
+    for (const CatchCtx *c = ctx->catchCtx; c != outer; c = c->prev)
+        emitReleaseCaught(ctx, loc, c);
+}
+
 static void visitBreakStmt(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     if (ctx->loopCtx && ctx->loopCtx->exitBlock) {
+        emitReleaseCaughtUntil(ctx, &node->loc, ctx->loopCtx->catchCtx);
         for (u32 s = ctx->currentScopeId; s > ctx->loopCtx->scopeId; s--) {
             emitStmt(ctx, makeIrScopeExit(ctx->pool, &node->loc, s));
         }
@@ -3669,6 +3701,7 @@ static void visitContinueStmt(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     if (ctx->loopCtx && ctx->loopCtx->condBlock) {
+        emitReleaseCaughtUntil(ctx, &node->loc, ctx->loopCtx->catchCtx);
         for (u32 s = ctx->currentScopeId; s > ctx->loopCtx->scopeId; s--) {
             emitStmt(ctx, makeIrScopeExit(ctx->pool, &node->loc, s));
         }
@@ -3846,6 +3879,8 @@ static void visitCatchExpr(AstVisitor *visitor, AstNode *node)
         IrNode *prevCatchRes = ctx->currentCatchRes;
         ctx->currentCatchErr = errVal;
         ctx->currentCatchRes = res;
+        CatchCtx catchCtx = {.err = errVal, .res = res, .prev = ctx->catchCtx};
+        ctx->catchCtx = &catchCtx;
 
         if (nodeIs(body, BlockStmt)) {
             IrNode *prevCatchTarget = ctx->catchTargetVar;
@@ -3908,6 +3943,7 @@ static void visitCatchExpr(AstVisitor *visitor, AstNode *node)
             emitBranchIfNotTerminated(ctx, mergeBB);
         }
 
+        ctx->catchCtx = catchCtx.prev;
         ctx->currentCatchErr = prevCatchErr;
         ctx->currentCatchRes = prevCatchRes;
     }
@@ -4029,6 +4065,9 @@ static void visitReturnStmt(AstVisitor *visitor, AstNode *node)
             emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, tagSlot, makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type)));
         }
     }
+    // `raise` moves the caught exception, any other return leaves it owned
+    if (!node->returnStmt.isRaise)
+        emitReleaseCaughtUntil(ctx, &node->loc, NULL);
     IrNode *targetBB =
         getOrCreateScopeReturnBlock(ctx, ctx->currentScopeId, &node->loc);
     emitStmt(ctx, makeIrBranch(ctx->pool, &node->loc, targetBB));
@@ -4103,7 +4142,7 @@ static void visitSwitchStmt(AstVisitor *visitor, AstNode *node)
             IrNode *savedBlock = ctx->currentBlock;
             setBlock(ctx, caseBB);
             LoopCtx loop = {
-                .condBlock = NULL, .exitBlock = exitBB, .prev = ctx->loopCtx};
+                .condBlock = NULL, .exitBlock = exitBB, .catchCtx = ctx->catchCtx, .prev = ctx->loopCtx};
             ctx->loopCtx = &loop;
             astVisit(visitor, c->caseStmt.body);
             ctx->loopCtx = loop.prev;

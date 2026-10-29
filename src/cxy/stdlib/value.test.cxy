@@ -42,7 +42,7 @@ pub func valuesEqual(a: &const Value, b: &const Value): bool {
         }
         var x = a.getString()
         var y = b.getString()
-        return (*x).__str() == (*y).__str()
+        return (*x).s() == (*y).s()
     }
     if a.isArray() || b.isArray() {
         if !(a.isArray() && b.isArray()) {

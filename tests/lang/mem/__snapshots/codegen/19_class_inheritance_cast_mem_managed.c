@@ -66,8 +66,8 @@ _L_exit:;
   return;
 }
 
-BaseResource_VTable BaseResource_vTable = (BaseResource_VTable){.__tid = 124ULL, .op__deinit = ((void (*)(BaseResource *))(BaseResource_op__deinit)), .getId = ((int32_t (*)(BaseResource *))(BaseResource_getId))};
-BaseResource_VTable DerivedResource_vTable = (BaseResource_VTable){.__tid = ((uint64_t)(136)), .op__deinit = ((void (*)(BaseResource *))(DerivedResource_op__deinit)), .getId = ((int32_t (*)(BaseResource *))(DerivedResource_getId))};
+BaseResource_VTable BaseResource_vTable = (BaseResource_VTable){.__tid = 128ULL, .op__deinit = ((void (*)(BaseResource *))(BaseResource_op__deinit)), .getId = ((int32_t (*)(BaseResource *))(BaseResource_getId))};
+BaseResource_VTable DerivedResource_vTable = (BaseResource_VTable){.__tid = ((uint64_t)(140)), .op__deinit = ((void (*)(BaseResource *))(DerivedResource_op__deinit)), .getId = ((int32_t (*)(BaseResource *))(DerivedResource_getId))};
 
 static void BaseResource_op__init(BaseResource * this, int32_t id) {
 _L_entry:;

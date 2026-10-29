@@ -74,7 +74,7 @@ pub struct Jwt {
     @inline
     const func payload() => &_payload
 
-    func encode(secret: __string): !String {
+    func encode(secret: strview): !String {
         var os = String()
         var tmp = String()
 
@@ -102,7 +102,7 @@ pub struct Jwt {
     }
 }
 
-pub func verify(token: __string, secret: __string): !bool {
+pub func verify(token: strview, secret: strview): !bool {
     var pos = token.rIndexOf('.')
     if !pos {
         raise JwtError("Invalid JWT")
@@ -112,10 +112,10 @@ pub func verify(token: __string, secret: __string): !bool {
     var digest = SHA256Digest{}
     HMAC_256(&digest, secret, data.data(), data.size())
     var signature = digest.b64()
-    return signature.__str() == token.substr(<i64>*pos + 1)
+    return signature.s() == token.substr(<i64>*pos + 1)
 }
 
-pub func decode(jwt: &Jwt, token: __string, secret: __string): !bool {
+pub func decode(jwt: &Jwt, token: strview, secret: strview): !bool {
     var pos = token.rIndexOf('.')
     if !pos {
         raise JwtError("Invalid JWT")
@@ -129,7 +129,7 @@ pub func decode(jwt: &Jwt, token: __string, secret: __string): !bool {
     var digest = SHA256Digest{}
     HMAC_256(&digest, secret, data.data(), data.size())
     var signature = digest.b64()
-    if signature.__str() != parts.[2] {
+    if signature.s() != parts.[2] {
         return false
     }
 
@@ -138,8 +138,8 @@ pub func decode(jwt: &Jwt, token: __string, secret: __string): !bool {
 
     base64.urlDecode(&header, &parts.[0])
     base64.urlDecode(&payload, &parts.[1])
-    jwt._header = parse[Header](header.__str())
-    jwt._payload = parse[Payload](payload.__str())
+    jwt._header = parse[Header](header.s())
+    jwt._payload = parse[Payload](payload.s())
 
     return true
 }
@@ -161,7 +161,7 @@ test "Jwt::encode valid" {
     jwt.claim("role", Value("user"))
 
     var token = jwt.encode("secret");
-    var parts = split(token.__str(), ".");
+    var parts = split(token.s(), ".");
     ok!(parts.size() == 3)  // header.payload.signature
 }
 
@@ -171,7 +171,7 @@ test "Jwt::verify correct secret" {
     var secret = "test-secret";
 
     var token = jwt.encode(secret);
-    ok!(verify(token.__str(), secret))
+    ok!(verify(token.s(), secret))
 }
 
 test "Jwt::verify incorrect secret" {
@@ -179,7 +179,7 @@ test "Jwt::verify incorrect secret" {
     jwt.payload().sub = "test-user".S
 
     var token = jwt.encode("correct-secret");
-    ok!(!verify(token.__str(), "wrong-secret"))
+    ok!(!verify(token.s(), "wrong-secret"))
 }
 
 test "Jwt::decode valid secret" {
@@ -192,7 +192,7 @@ test "Jwt::decode valid secret" {
     var token = originalJwt.encode(secret);
 
     var decodedJwt = Jwt();
-    var result = decode(&decodedJwt, token.__str(), secret);
+    var result = decode(&decodedJwt, token.s(), secret);
 
     ok!(result)
     ok!(decodedJwt.payload().iss == "test-issuer")
@@ -211,7 +211,7 @@ test "Jwt::decode invalid signature" {
 
     var token = originalJwt.encode("correct-secret");
     var decodedJwt = Jwt();
-    var result = decode(&decodedJwt, token.__str(), "wrong-secret");
+    var result = decode(&decodedJwt, token.s(), "wrong-secret");
 
     ok!(!result)
 }
@@ -229,7 +229,7 @@ test "Jwt::encode/decode claims" {
     var token = originalJwt.encode(secret);
 
     var decodedJwt = Jwt();
-    var success = decode(&decodedJwt, token.__str(), secret);
+    var success = decode(&decodedJwt, token.s(), secret);
 
     ok!(success)
     ok!(decodedJwt.payload().iss == "api.test.com")

@@ -526,6 +526,8 @@ static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks
     }
 }
 
+static IrNode *makeDropFlagAssign(MemMgmtContext *ctx, const FileLoc *loc, TrackedVar *var, bool value);
+
 static void synthesizeDropFlags(MemMgmtContext *ctx, IrNode *func)
 {
     u64 flagCount = ctx->dropFlagVars.size;
@@ -555,6 +557,20 @@ static void synthesizeDropFlags(MemMgmtContext *ctx, IrNode *func)
         IrNode *zeromem = makeIrZeromem(ctx->pool, &func->loc, makeIrVarRef(ctx->pool, &func->loc, dropFlagsDecl));
         zeromem->next = dropFlagsDecl->next;
         dropFlagsDecl->next = zeromem;
+
+        // Parameters are owned on entry, nothing else would raise their flag
+        IrNode *last = zeromem;
+        for (u64 i = 0; i < flagCount; i++) {
+            TrackedVar *var = ((TrackedVar **)ctx->dropFlagVars.elems)[i];
+            if (var->decl == NULL || var->decl->tag != irFuncParam)
+                continue;
+            IrNode *setFlag = makeDropFlagAssign(ctx, &func->loc, var, true);
+            if (setFlag == NULL)
+                continue;
+            setFlag->next = last->next;
+            last->next = setFlag;
+            last = setFlag;
+        }
     }
 }
 
@@ -576,6 +592,15 @@ static IrNode *makeDropFlagAccess(MemMgmtContext *ctx, const FileLoc *loc, Track
     const IrType *u64Type = getIrPrimitiveType(ctx->types, irTypeU64);
     IrNode *flagsRef = makeIrVarRef(ctx->pool, loc, ctx->dropFlagsDecl);
     return makeIrMember(ctx->pool, loc, flagsRef, var->dropFlagIndex, var->name, u64Type);
+}
+
+// A member of a call result temporary holds nothing else on success, so its
+// ownership moves to the consumer instead of being copied
+static bool isUnwrappedCallResult(const IrNode *src)
+{
+    IrNode *decl = findVarDeclInNode(src);
+    return decl && hasFlag(decl, Temporary) && decl->type &&
+           decl->type->category == irTypeCatResult;
 }
 
 static void processPayloadItem(MemMgmtContext *ctx,
@@ -736,7 +761,7 @@ static void processPayloadItem(MemMgmtContext *ctx,
             needsCopy = inner->varRef.target && !hasFlag(inner->varRef.target, Temporary) && !hasFlag(inner->varRef.target, Returned);
         }
         else if (inner && (inner->tag == irMember || inner->tag == irIndex)) {
-            needsCopy = true;
+            needsCopy = !isUnwrappedCallResult(inner);
         }
 
         if (needsCopy) {

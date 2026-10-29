@@ -101,7 +101,7 @@ pub enum Status : i32 {
 @inline
 func toupper(c: wchar) => <char>(<u32>ctype.toupper(<i32>c))
 
-pub func methodFromString(method: __string) {
+pub func methodFromString(method: strview) {
     var x = toupper(method.[0]);
     var maybe = (Method.Unknown, "");
 
@@ -123,7 +123,7 @@ pub func methodFromString(method: __string) {
         default  => return (Method.Unknown, 0`u64)
     }
 
-    var str = __string(maybe.1);
+    var str = strview(maybe.1);
     if (method.size() < str.size())
         return (Method.Unknown, 0`u64)
 
@@ -250,7 +250,7 @@ pub func methodName(method: Method) {
 
 pub type HeaderMap = HashMap[String, String, HashCase, EqualsCase];
 pub var CONTENT_LENGTH_S = String("Content-Length");
-pub var CONTENT_LENGTH_CS = __string("Content-Length");
+pub var CONTENT_LENGTH_CS = strview("Content-Length");
 pub var DATE_S = String("Date");
 pub var SERVER_S = String("Server");
 pub var CONNECTION_S = String("Connection");
@@ -288,7 +288,7 @@ pub struct SendTempFile {
     func size() => count
 }
 
-pub type ResponseChunk = string | __string | String | SendTempFile | SendFile
+pub type ResponseChunk = string | strview | String | SendTempFile | SendFile
 
 pub class Upgrade {
     virtual func start(sock: TcpSocket): !void
@@ -348,7 +348,7 @@ pub class Response {
             for (var chunk, _: _chunks) {
                 match (chunk) {
                     case string as s => sos << s
-                    case __string as s => sos << s
+                    case strview as s => sos << s
                     case String as s => sos << s
                     case SendFile as sf {
                         // send the file
@@ -375,7 +375,7 @@ pub class Response {
         for (const chunk, _: _chunks) {
             match (chunk) {
                 case string as s => sz += len!(s)
-                case __string as s => sz += s.size()
+                case strview as s => sz += s.size()
                 case String as s => sz += s.size()
                 case SendFile as sf => sz += sf.count
                 case SendTempFile as st => sz += st.size()
@@ -400,7 +400,7 @@ pub class Response {
     }
 
     @inline
-    func redirect(location: __string, status: Status = .Found) {
+    func redirect(location: strview, status: Status = .Found) {
         _headers.[String("Location")] = String(location)
         end(status)
     }
@@ -453,9 +453,9 @@ pub class Request {
     - LOG_TAG = "HTTP_REQUEST";
 
     _headers = HeaderMap();
-    _params = HashMap[__string, __string]();
-    _cookies = HashMap[__string, __string]();
-    _qparams = HashMap[__string, __string]();
+    _params = HashMap[strview, strview]();
+    _cookies = HashMap[strview, strview]();
+    _qparams = HashMap[strview, strview]();
     _path: String = null;
     _uri: String = null;
     _body: String = null;
@@ -491,7 +491,7 @@ pub class Request {
     }
 
     @inline
-    func param(name: __string, value: __string) {
+    func param(name: strview, value: strview) {
         _params.[name] = value
     }
 
@@ -504,7 +504,7 @@ pub class Request {
     }
 
     @inline
-    const func param(name: __string) => _params.[name]
+    const func param(name: strview) => _params.[name]
 
     @[prop, inline]
     const func path() => &_path
@@ -544,7 +544,7 @@ pub class Request {
     const func isComplete() => _isComplete
 
     @[prop, inline]
-    const func body() => (_body == null)? "".s : _body.__str()
+    const func body() => (_body == null)? "".s : _body.s()
 
     @[prop, inline]
     const func header(name: String) => _headers.[name]
@@ -611,7 +611,7 @@ pub class Request {
             return false
         }
 
-        var cookieStr = cookie&.__str()
+        var cookieStr = cookie&.s()
         var pos = 0`i64
         var len = cookieStr.size() as i64
 
@@ -630,7 +630,7 @@ pub class Request {
                 var value = pair.substr(*eqPos + 1).trim()
                 _cookies.[key] = value
             } else {
-                _cookies.[pair.trim()] = __string()
+                _cookies.[pair.trim()] = strview()
             }
 
             // Move to next pair (skip semicolon)
@@ -648,7 +648,7 @@ pub class Request {
     }
 
     @inline
-    const func cookie(name: __string) => _cookies.[name]
+    const func cookie(name: strview) => _cookies.[name]
 
     func parseQParams() {
         if _qparamsParsed {
@@ -704,7 +704,7 @@ pub class Request {
                 percentDecode(&_decodedParams, &keyPart)
                 var key = _decodedParams.substr(start)
 
-                _qparams.[key] = __string()
+                _qparams.[key] = strview()
 
                 pos += <i64>(*ampPos + 1)
             } else {
@@ -713,7 +713,7 @@ pub class Request {
                 percentDecode(&_decodedParams, &remaining)
                 var key = _decodedParams.substr(start)
 
-                _qparams.[key] = __string()
+                _qparams.[key] = strview()
                 break
             }
         }
@@ -723,10 +723,10 @@ pub class Request {
     }
 
     @inline
-    const func qparam(name: __string) => _qparams.[name]
+    const func qparam(name: strview) => _qparams.[name]
 
     @inline
-    const func qparam(name: __string, def: __string) {
+    const func qparam(name: strview, def: strview) {
         var q = _qparams.[name]
         if !q {
             return def
@@ -758,7 +758,7 @@ func requestParserOnUrl(p: ^parser.llhttp_t, at: ^const char, len: u64) {
         req._path = String(at, len)
     }
     else {
-        req._path << __string(at !: string, len)
+        req._path << strview(at !: string, len)
     }
     return 0`i32
 }
@@ -775,7 +775,7 @@ func requestParserOnHeaderField(p: ^parser.llhttp_t, at: ^const char, len: u64) 
         req._s1 = String(at, len)
     }
     else {
-        req._s1 << __string(at !: string, len)
+        req._s1 << strview(at !: string, len)
     }
     return 0`i32
 }
@@ -787,7 +787,7 @@ func requestParserOnHeaderValue(p: ^parser.llhttp_t, at: ^const char, len: u64) 
         req._s2 = String(at, len)
     }
     else {
-        req._s2 << __string(at !: string, len)
+        req._s2 << strview(at !: string, len)
     }
     return 0`i32
 }
@@ -809,7 +809,7 @@ func requestParserOnBody(p: ^parser.llhttp_t, at: ^const char, len: u64) {
         req._body = String(at, len)
     }
     else {
-        req._body << __string(at !: string, len)
+        req._body << strview(at !: string, len)
     }
     return 0
 }
@@ -847,9 +847,9 @@ enum SegmentType {
 
 struct RouteSegment {
     kind: SegmentType
-    value: __string
+    value: strview
 
-    func `init`(kind: SegmentType, value: __string) {
+    func `init`(kind: SegmentType, value: strview) {
         this.kind = kind
         this.value = value
     }
@@ -868,7 +868,7 @@ class RouteLeaf {
     }
 
     @private
-    func matchPattern(remainingPath: __string, pattern: &Vector[RouteSegment], req: &Request, isStatic: bool = false) {
+    func matchPattern(remainingPath: strview, pattern: &Vector[RouteSegment], req: &Request, isStatic: bool = false) {
         var pos = 0`i64
         var len = remainingPath.size() as i64
 
@@ -908,7 +908,7 @@ class RouteLeaf {
         return pos == len || (pos < len && remainingPath.[pos] == '?') || isStatic
     }
 
-    func find(method: Method, remainingPath: __string, req: &Request): &Route? {
+    func find(method: Method, remainingPath: strview, req: &Request): &Route? {
         // Try to find matching route - prioritize exact matches (fewer dynamic segments)
         var bestMatch: &Route
         var found = false
@@ -946,7 +946,7 @@ class RouteLeaf {
 }
 
 pub class Route {
-    prefix: __string
+    prefix: strview
     handler: HandlerFn
     pattern: Vector[RouteSegment]
     _methods: u32
@@ -956,7 +956,7 @@ pub class Route {
     func `init`(
         id: u64,
         methods: u32,
-        prefix: __string,
+        prefix: strview,
         @escaping fn: HandlerFn,
         pattern: Vector[RouteSegment],
     ) {
@@ -1021,7 +1021,7 @@ class Router {
         if path.[i] == '{' {
             i--;
         }
-        var prefix = __string(path, i).substr(idx);
+        var prefix = strview(path, i).substr(idx);
         var pattern = Vector[RouteSegment]();
         parsePattern(&pattern, path, i)
         var route = Route(_idGenerator++, methods, prefix, &&fn, &&pattern);
@@ -1056,7 +1056,7 @@ class Router {
         return add(1 << methods, path, idx, &&fn)
     }
 
-    func handle(path: __string, req: &Request, resp: &Response) {
+    func handle(path: strview, req: &Request, resp: &Response) {
         var found = routes.find(path.str(), path.size());
         if (!found) {
             TRC!("Route not found: " << path)
@@ -1090,7 +1090,7 @@ class Router {
     }
 
     func find(req: &Request, resp: &Response): &Route? {
-        var path = req.path().__str();
+        var path = req.path().s();
         var found = routes.find(path.str(), path.size())
         if (!found) {
             TRC!("Route not found - path: " << req.path())
@@ -1117,7 +1117,7 @@ class Router {
 
     @private
     func parsePattern(pattern: &Vector[RouteSegment], path: string, idx: i64) : void {
-        var s = __string(path)
+        var s = strview(path)
         var pathLen = s.size()
 
         while idx < pathLen && path.[idx] != '\0' {
@@ -1336,7 +1336,7 @@ class Connection[Middlewares] {
     @private
     func sendResponse() : void {
         var sos = BufferedSocketOutputStream(sock);
-        var line0 = __string(statusText(resp.status()));
+        var line0 = strview(statusText(resp.status()));
         sos << line0 << "\r\n"
         if (resp.status() != .Ok && resp.empty() && resp.status() != .NoContent && resp.status() != .SwitchingProtocols) {
             resp.body() << line0.substr(9)
@@ -1556,7 +1556,7 @@ pub class Cors {
             var requestMethod = req.header("Access-Control-Request-Method");
             if (requestMethod) {
                 var method = *requestMethod;
-                var corsMethod = methodFromString(method.__str());
+                var corsMethod = methodFromString(method.s());
                 if (corsMethod.0 == .Unknown) {
                     TRC!("bad request: unknown method " << method )
                     res.end(Status.BadRequest)
@@ -1636,20 +1636,20 @@ test "Route pattern matching with different parameter counts" {
     req1._path = String("/home/a/b")
     req1._parser.method = 1`u8  // GET
     var resp1 = Response()
-    router.handle(req1._path.__str(), &req1, &resp1)
+    router.handle(req1._path.s(), &req1, &resp1)
     ok!(state.called == 2)
 
     var req2 = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
     req2._path = String("/home/x/y/z")
     req2._parser.method = 1`u8  // GET
     var resp2 = Response()
-    router.handle(req2._path.__str(), &req2, &resp2)
+    router.handle(req2._path.s(), &req2, &resp2)
     ok!(state.called == 3)
 }
 
 test "Route pattern matching with middle parameters" {
     var router = Router()
-    var params = {id: __string()}
+    var params = {id: strview()}
 
     router.add("GET /home/{id}/edit", |&params|(req: &const Request, @unused res: &Response) => {
         var val = req.param("id")
@@ -1663,13 +1663,13 @@ test "Route pattern matching with middle parameters" {
     req._path = String("/home/123/edit")
     req._parser.method = 1`u8  // GET
     var resp = Response()
-    router.handle(req._path.__str(), &req, &resp)
+    router.handle(req._path.s(), &req, &resp)
     ok!(params.id == "123")
 }
 
 test "Route pattern matching with different HTTP methods" {
     var router = Router()
-    var params = {method: __string()}
+    var params = {method: strview()}
 
     router.add("GET /home", |&params|(@unused req: &const Request, @unused res: &Response) => {
         params.method = "GET".s
@@ -1683,20 +1683,20 @@ test "Route pattern matching with different HTTP methods" {
     req1._path = String("/home")
     req1._parser.method = 1`u8  // GET
     var resp1 = Response()
-    router.handle(req1._path.__str(), &req1, &resp1)
+    router.handle(req1._path.s(), &req1, &resp1)
     ok!(params.method == "GET")
 
     var req2 = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
     req2._path = String("/home")
     req2._parser.method = 3`u8  // POST
     var resp2 = Response()
-    router.handle(req2._path.__str(), &req2, &resp2)
+    router.handle(req2._path.s(), &req2, &resp2)
     ok!(params.method == "POST")
 }
 
 test "Route pattern matching with multiple middle parameters" {
     var router = Router()
-    var params = {id: __string(), commentId: __string()}
+    var params = {id: strview(), commentId: strview()}
 
     router.add("GET /home/{id}/comments/{commentId}", |&params|(req: &const Request, @unused res: &Response) => {
         var val1 = req.param("id")
@@ -1714,14 +1714,14 @@ test "Route pattern matching with multiple middle parameters" {
     req._path = String("/home/user123/comments/comment456")
     req._parser.method = 1`u8  // GET
     var resp = Response()
-    router.handle(req._path.__str(), &req, &resp)
+    router.handle(req._path.s(), &req, &resp)
     ok!(params.id == "user123")
     ok!(params.commentId == "comment456")
 }
 
 test "Route pattern matching with extension suffix" {
     var router = Router()
-    var matchedProject = { namespace: __string(), name: __string() }
+    var matchedProject = { namespace: strview(), name: strview() }
 
     router.add("GET /projects/{namespace}/{name}/badge.svg", |&matchedProject|(req: &const Request, @unused res: &Response) => {
         var ns = req.param("namespace")
@@ -1739,7 +1739,7 @@ test "Route pattern matching with extension suffix" {
     req._path = String("/projects/acme/tagged/badge.svg")
     req._parser.method = 1`u8  // GET
     var resp = Response()
-    router.handle(req._path.__str(), &req, &resp)
+    router.handle(req._path.s(), &req, &resp)
     ok!(matchedProject.namespace == "acme")
     ok!(matchedProject.name == "tagged")
 }
@@ -1797,7 +1797,7 @@ test "Cookie parsing without values" {
 
 test "Route pattern matching with common prefix at different levels" {
     var router = Router()
-    var state = {route: __string()}
+    var state = {route: strview()}
 
     router.add("GET /admin", |&state|(@unused req: &const Request, @unused res: &Response) => {
         state.route = "admin".s
@@ -1816,7 +1816,7 @@ test "Route pattern matching with common prefix at different levels" {
     req1._path = String("/admin")
     req1._parser.method = 1`u8  // GET
     var resp1 = Response()
-    router.handle(req1._path.__str(), &req1, &resp1)
+    router.handle(req1._path.s(), &req1, &resp1)
     ok!(state.route == "admin")
 
     // Test /admin/tokens
@@ -1824,7 +1824,7 @@ test "Route pattern matching with common prefix at different levels" {
     req2._path = String("/admin/tokens")
     req2._parser.method = 1`u8  // GET
     var resp2 = Response()
-    router.handle(req2._path.__str(), &req2, &resp2)
+    router.handle(req2._path.s(), &req2, &resp2)
     ok!(state.route == "admin/tokens")
 
     // Test /admin/packages
@@ -1832,6 +1832,6 @@ test "Route pattern matching with common prefix at different levels" {
     req3._path = String("/admin/packages")
     req3._parser.method = 1`u8  // GET
     var resp3 = Response()
-    router.handle(req3._path.__str(), &req3, &resp3)
+    router.handle(req3._path.s(), &req3, &resp3)
     ok!(state.route == "admin/packages")
 }

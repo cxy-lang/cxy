@@ -139,6 +139,9 @@ pub func Some[T](value: T) => Optional[T]{ ok: true, val: &&value }
 @inline
 pub func None[T]() => Optional[T]()
 
+@hint extern func __cxy_call_trace_has(st: ^void, i: i64): bool
+@hint extern func __cxy_call_trace_get(st: ^void, i: i64, mod: ^string, cls: ^string, fun: ^string, path: ^string, line: ^u64): bool
+
 @builtin
 pub class Exception {
     name: string
@@ -1248,79 +1251,33 @@ pub func update[Lhs, Rhs](@unused lhs: &Lhs, @unused rhs: Rhs) {
     }
 }
 
-struct CallTrace {
-    mod: string
-    cls: string
-    fun: string
-    path: string
-    line: u64
 
-    const func `str`(os: &OutputStream) {
-        if (mod)
-            os << mod << "::"
-        if (cls)
-            os << cls << "::"
-        if (fun)
-            os << fun
-        os << " ("
-        if (path)
-            os << path
-        else
-            os << "<builtin>"
-        os << ":" << line << ")"
-    }
-}
+pub func StreamException(ex: &Exception, os: &OutputStream) {
+    os << ex.name << ": " << ex.what() << "\n"
+    var i = 0.i64
+    while __cxy_call_trace_has(ex.stackTrace, i) {
+        var mod: string = null
+        var cls: string = null
+        var fun: string = null
+        var path: string = null
+        var line: u64 = 0
+        __cxy_call_trace_get(ex.stackTrace, i, ptrof mod, ptrof cls, ptrof fun, ptrof path, ptrof line)
 
-struct StackTrace {
-    - calls: ^CallTrace = null;
-    - size = 0`u64;
-    - capacity = 0`u64;
-
-    - func grow() {
-        if (size >= capacity) {
-            if (capacity == 0)
-                capacity = 8
-            else
-                capacity <<= 1
-            var newPtr = realloc(calls !: ^void, sizeof!(*calls) * capacity);
-            if (newPtr == null) {
-                // Handle OOM (e.g., panic or return error)
-                panic!("Out of memory")
-            }
-            calls = newPtr !: ^CallTrace
+        if i != 0 { os << '\n' }
+        os << "  [" << i << "] "
+        if mod != null {
+            os << mod << '.'
         }
-    }
-
-    func `init`() {
-        grow()
-    }
-
-    func push(mod: string, cls: string, fun: string, path: string, line: u64) {
-        grow()
-        calls.[size] = CallTrace{mod: mod, cls: cls, fun: fun, path: path, line: line }
-        size++
-    }
-
-    const func dump(os: &OutputStream, s: i64 = 0, tabs: u64 = 0) {
-        const sp = Repeat(' ', tabs)
-        for (const i: s..size) {
-            os << "\n " << sp << calls.[i]
+        if cls != null {
+            os << cls << '.'
         }
-    }
-
-    const func `str`(os: &OutputStream) {
-        for (const i: 0..size) {
-            os << "\n " << calls.[i]
-        }
-    }
-
-    func `destructor`() {
-        if (calls != null) {
-            free(calls !: ^void)
-            calls = null
-            capacity = 0
-            size = 0
-        }
+        if fun != null { os << fun }
+        else { os << "unknown" }
+        os << ':'
+        if path != null { os << path }
+        else { os << "unknown" }
+        os << ':' << line
+        i++
     }
 }
 

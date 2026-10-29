@@ -213,7 +213,7 @@ _L_exit:
   return
 }
 
-func __union_copy_137(u: ^^ResourceA | ^ResourceB | i32): ^ResourceA | ^ResourceB | i32 {
+func __union_copy_141(u: ^^ResourceA | ^ResourceB | i32): ^ResourceA | ^ResourceB | i32 {
 _L_entry:
   scope.enter 0
   var __ret: ^ResourceA | ^ResourceB | i32
@@ -226,16 +226,19 @@ _L_entry:
 _L_MATCH0_exit:
   goto _L_exit
 _L_MATCH0_case_0:
+  scope.enter 1
   var __t10: ^ResourceA
   copy u.val._0 -> __t10
   __ret = variant(0, __t10)
   goto _L_exit
 _L_MATCH0_case_1:
+  scope.enter 2
   var __t11: ^ResourceB
   copy u.val._1 -> __t11
   __ret = variant(1, __t11)
   goto _L_exit
 _L_MATCH0_case_2:
+  scope.enter 3
   __ret = variant(2, u.val._2)
   goto _L_exit
 _L_exit:
@@ -243,7 +246,7 @@ _L_exit:
   return __ret
 }
 
-func __union_dctor_137(u: ^^ResourceA | ^ResourceB | i32): void {
+func __union_dctor_141(u: ^^ResourceA | ^ResourceB | i32): void {
 _L_entry:
   scope.enter 0
   switch u.tag {
@@ -254,12 +257,16 @@ _L_entry:
 _L_MATCH0_exit:
   goto _L_exit
 _L_MATCH0_case_0:
+  scope.enter 1
   drop u.val._0
   u.val._0 = null
+  scope.exit 1
   goto _L_MATCH0_exit
 _L_MATCH0_case_1:
+  scope.enter 2
   drop u.val._1
   u.val._1 = null
+  scope.exit 2
   goto _L_MATCH0_exit
 _L_exit:
   scope.exit 0

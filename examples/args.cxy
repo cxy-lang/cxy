@@ -69,7 +69,7 @@ func main(argv: [string]): i32 {
         // Help was requested, show it
         var output = String()
         finalCmd.help(&output)
-        stdout << output.__str()
+        stdout << output.s()
         return 0
     }
 

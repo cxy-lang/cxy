@@ -491,11 +491,24 @@ static void emitMalloc(ConstIrVisitor *visitor, const IrNode *node)
     format(&ctx->state, ")", NULL);
 }
 
+static inline bool isSizedInlineArray(const IrType *type)
+{
+    return type && type->tag == irTypeArray && type->name == NULL &&
+           type->array.len != UINT64_MAX;
+}
+
 static void emitSizeof(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    const IrType *type = node->sizeofVal.targetType;
     format(&ctx->state, "sizeof(", NULL);
-    emitCTypeName(&ctx->state, node->sizeofVal.targetType);
+    // An array must keep its extent, `elem *` would be the size of a pointer
+    const IrType *base = type;
+    while (isSizedInlineArray(base))
+        base = base->array.elem;
+    emitCTypeName(&ctx->state, base);
+    for (const IrType *t = type; isSizedInlineArray(t); t = t->array.elem)
+        format(&ctx->state, "[{u64}]", (FormatArg[]){{.u64 = t->array.len}});
     format(&ctx->state, ")", NULL);
 }
 
@@ -1912,14 +1925,7 @@ bool compilerBackendMakeExecutable(CompilerDriver *driver)
     }
 
     if (opts->withMemoryTrace) {
-        if (opts->buildDir) {
-            format(&cmd,
-                   " -L{s}/install/lib -L{s}/lib -lcxy-trace",
-                   (FormatArg[]){{.s = opts->buildDir}, {.s = opts->buildDir}});
-        }
-        else {
-            format(&cmd, " -lcxy-trace", NULL);
-        }
+        format(&cmd, " -lcxy-trace", NULL);
     }
 
     appendString(&cmd, " -o ");

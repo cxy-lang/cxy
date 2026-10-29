@@ -5,6 +5,7 @@
 #include "../eval/eval.h"
 #include "check.h"
 
+#include "lang/frontend/ast.h"
 #include "lang/frontend/flag.h"
 #include "lang/frontend/strings.h"
 
@@ -93,7 +94,7 @@ static void castLiteral(TypingContext *ctx, AstNode *node)
             replaceAstNodeWith(node, expr);
         }
         else if (isFloatType(node->type)) {
-            if (isLiteralExpr(expr)) {
+            if (isEnumLiteral(expr)) {
                 expr->floatLiteral.value = getEnumLiteralValue(expr);
                 expr->tag = astFloatLit;
             }

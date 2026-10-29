@@ -11,7 +11,7 @@ import test { valuesEqual } from "stdlib/value.test.cxy"
 
 test {
     // Parses `yaml` and compares the result with the JSON document `expected`
-    pub func yamlEquals(yaml: __string, expected: __string): bool {
+    pub func yamlEquals(yaml: strview, expected: strview): bool {
         var parser = YamlParser(yaml)
         var actual = parser.parse() catch as ex {
             println("  parse failed: ", ex.what())
@@ -33,7 +33,7 @@ test {
     }
 
     // Parses a stream and compares its documents with the JSON array `expected`
-    pub func yamlAllEquals(yaml: __string, expected: __string): bool {
+    pub func yamlAllEquals(yaml: strview, expected: strview): bool {
         var parser = YamlParser(yaml)
         var docs = parser.parseAll() catch as ex {
             println("  parseAll failed: ", ex!.what())
@@ -61,12 +61,12 @@ test {
     }
 
     // Parsing must fail and the error message must point at `line`:`column`
-    pub func yamlFailsAt(yaml: __string, line: u64, column: u64): bool {
+    pub func yamlFailsAt(yaml: strview, line: u64, column: u64): bool {
         var parser = YamlParser(yaml)
         var result = parser.parse() catch as ex {
             var msg = f"{ex!.what()}"
             var at = f"at line {line}, column {column}"
-            if msg.contains(at.__str()) {
+            if msg.contains(at.s()) {
                 return true
             }
             println("  input:    ", yaml)
@@ -79,7 +79,7 @@ test {
     }
 
     // The document is invalid and parsing must fail
-    pub func yamlFails(yaml: __string): bool {
+    pub func yamlFails(yaml: strview): bool {
         var parser = YamlParser(yaml)
         var result = parser.parse() catch {
             return true

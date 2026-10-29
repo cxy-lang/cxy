@@ -1,12 +1,20 @@
+module hello
 
-task!("hello", (@unused ctx: &Context): !void => {
-    // build main.cxy application named app
-    cxy(cxy, "main", "main.cxy" )
-})
+pub struct Mayor {
+    _name: String|f64
 
-task!("run", (@unused ctx: &Context): !void => {
-    // build main.cxy application named app
-    system("./main")
-})
+    func getString(): strview {
+        match (_name) {
+            case String as val => return val == null ? "".s : val.s()
+            ...            => return "".s
+        }
+    }
 
-defaults!("hello", "run")
+    @inline
+    const func text() => _name is #String ? "Str".s : "".s
+
+    @[static, inline]
+    func text(s: strview) {
+        return s
+    }
+}

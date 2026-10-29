@@ -1309,6 +1309,15 @@ void visitMatchStmt(AstVisitor *visitor, AstNode *node)
     //     }
     //     astVisit(visitor, esac);
     // }
+    SimplifyContext *ctx = getAstVisitorContext(visitor);
+    // Hoisted statements must land inside the case, where its alias is in scope
+    for (AstNode *esac = node->matchStmt.cases; esac; esac = esac->next) {
+        AstNode *body = esac->caseStmt.body;
+        if (body && !nodeIs(body, BlockStmt)) {
+            esac->caseStmt.body = makeBlockStmt(
+                ctx->pool, &body->loc, body, NULL, makeVoidType(ctx->types));
+        }
+    }
     astVisitFallbackVisitAll(visitor, node);
 }
 

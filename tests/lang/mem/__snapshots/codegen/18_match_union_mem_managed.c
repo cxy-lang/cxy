@@ -57,7 +57,7 @@ static ResourceB * ResourceB_op__initCover(char * tag);
 static void testMatchUnion(Union_ResourceA_ResourceB_i32 u);
 static void testUnionReassignment();
 static void _main();
-static void __union_dctor_137(Union_ResourceA_ResourceB_i32 * u);
+static void __union_dctor_141(Union_ResourceA_ResourceB_i32 * u);
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
@@ -196,7 +196,7 @@ _L_MATCH0_case_2:;
   __drop_flags.local_2 = 0ULL;
   goto _L_exit;
 _L_exit:;
-  __union_dctor_137(&(u));
+  __union_dctor_141(&(u));
   return;
 }
 
@@ -210,19 +210,19 @@ _L_entry:;
   u.tag = 0;
   u.val._0 = __t2;
   __t3 = ResourceB_op__initCover("hello");
-  __union_dctor_137(&(u));
+  __union_dctor_141(&(u));
   u.tag = 1;
   u.val._1 = __t3;
-  __union_dctor_137(&(u));
+  __union_dctor_141(&(u));
   u.tag = 2;
   u.val._2 = 42;
   __t4 = ResourceA_op__initCover(((int32_t)(100)));
-  __union_dctor_137(&(u));
+  __union_dctor_141(&(u));
   u.tag = 0;
   u.val._0 = __t4;
   goto _L_exit;
 _L_exit:;
-  __union_dctor_137(&(u));
+  __union_dctor_141(&(u));
   return;
 }
 
@@ -250,7 +250,7 @@ _L_exit:;
   return;
 }
 
-static void __union_dctor_137(Union_ResourceA_ResourceB_i32 * u) {
+static void __union_dctor_141(Union_ResourceA_ResourceB_i32 * u) {
 _L_entry:;
   switch (u->tag) {
     case 0U: goto _L_MATCH0_case_0;

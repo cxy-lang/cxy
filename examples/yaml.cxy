@@ -12,6 +12,6 @@ func main(): !void {
     var s = String()
     var x = User{name: "The world".S, age: 42}
     json.toJSON(s, &x)
-    var y = json.parse[User](s.__str())
+    var y = json.parse[User](s.s())
     println(s, " Serialized: ", y)
 }

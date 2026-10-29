@@ -16,7 +16,7 @@ _L_exit:
 func testSimple(): void {
 _L_entry:
   scope.enter 0
-  var c: Closure_127
+  var c: Closure_131
   c = ClosureValue(null, __closure_body3)
   c.fn(c.env)
   goto _L_exit
@@ -40,7 +40,7 @@ func testParamsAndRet(): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  var add: Closure_131
+  var add: Closure_135
   add = ClosureValue(null, __closure_body4)
   __ret = add.fn(add.env, 10, 20)
   goto _L_exit

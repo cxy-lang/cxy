@@ -1615,8 +1615,10 @@ bool parseCommandLineOptions(
     if (options->withMemoryTrace) {
         options->debug = true;
         cstring traceDir = getenv("CXY_MEMORY_TRACE_LIB_DIR");
-        if (traceDir == NULL || traceDir[0] == '\0')
-            traceDir = options->libDir;
+        if (traceDir == NULL || traceDir[0] == '\0' && cxyRoot != NULL) {
+            traceDir = makeStringConcat(strings, cxyRoot, "/lib");
+        }
+
         if (traceDir != NULL && traceDir[0] != '\0') {
             bool present = false;
             for (u32 i = 0; i < options->librarySearchPaths.size; i++) {

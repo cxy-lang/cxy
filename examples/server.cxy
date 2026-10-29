@@ -7,7 +7,7 @@ func handleConnection(sock: TcpSocket) {
     while (sock) {
         var len = sock.receive(buffer, 512);
         if (len) {
-            println(__string(buffer !: string, *len))
+            println(strview(buffer !: string, *len))
             const str = """[{
                 "jsonrpc": "2.0",
                 "result": 200,

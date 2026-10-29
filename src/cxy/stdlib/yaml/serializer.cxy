@@ -31,7 +31,7 @@ pub class YamlSerializer {
             if !str {
                 _output << "null"
             } else {
-                _serializeScalar(str&.__str())
+                _serializeScalar(str&.s())
             }
         }
         else if value.isArray() {
@@ -60,9 +60,9 @@ pub class YamlSerializer {
             _writeIndent()
 
             // Write key
-            if _needsQuoting(it.0.__str()) {
+            if _needsQuoting(it.0.s()) {
                 _output << '"'
-                _escapeString(it.0.__str())
+                _escapeString(it.0.s())
                 _output << '"'
             } else {
                 _output << it.0
@@ -124,7 +124,7 @@ pub class YamlSerializer {
         }
     }
 
-    func _serializeScalar(str: __string): void {
+    func _serializeScalar(str: strview): void {
         if _needsQuoting(str) {
             _output << '"'
             _escapeString(str)
@@ -150,7 +150,7 @@ pub class YamlSerializer {
         }
     }
 
-    func _needsQuoting(str: __string): bool {
+    func _needsQuoting(str: strview): bool {
         if str.size() == 0 {
             return true
         }
@@ -188,7 +188,7 @@ pub class YamlSerializer {
         return false
     }
 
-    func _escapeString(str: __string): void {
+    func _escapeString(str: strview): void {
         for c, _ in str {
             switch c {
                 '\n' => _output << "\\n"
@@ -260,7 +260,7 @@ pub class YamlSerializer {
                     _output << "null"
                 } else {
                     #if T.isClass {
-                        _serializeScalar(it.__str())
+                        _serializeScalar(it.s())
                     }
                     else {
                         _serializeScalar(it)
@@ -359,7 +359,7 @@ pub class YamlSerializer {
                 _writeIndent()
 
                 #if (K.isClass) {
-                    _serializeScalar(key.__str())
+                    _serializeScalar(key.s())
                 }
                 else {
                     _serializeScalar(key)
@@ -421,7 +421,7 @@ test {
     }
 
     struct Labels {
-        tags = HashMap[__string, __string]()
+        tags = HashMap[strview, strview]()
     }
 
     func toYaml[T](os: &OutputStream, it: &const T, @unused item: bool = false): !void {
@@ -601,7 +601,7 @@ test "toYaml - map field" {
 }
 
 test "toYaml - map root" {
-    var tags = HashMap[__string, __string]()
+    var tags = HashMap[strview, strview]()
     tags.["env"] = "prod".s
     tags.["region"] = "us-east".s
 

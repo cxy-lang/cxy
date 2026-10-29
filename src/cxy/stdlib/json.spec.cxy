@@ -9,7 +9,7 @@ import test { valuesEqual } from "stdlib/value.test.cxy"
 
 test {
     // Parses `text` and compares the result with the JSON document `expected`
-    pub func jsonEquals(text: __string, expected: __string): bool {
+    pub func jsonEquals(text: strview, expected: strview): bool {
         var actual = json.parse[Value](text) catch as ex {
             println("  parse failed: ", ex.what())
             println("  input:    ", text)
@@ -30,7 +30,7 @@ test {
     }
 
     // `text` is a JSON string literal whose content must be `expected`
-    pub func jsonString(text: __string, expected: __string): bool {
+    pub func jsonString(text: strview, expected: strview): bool {
         var actual = json.parse[Value](text) catch as ex {
             println("  parse failed: ", ex.what())
             println("  input:    ", text)
@@ -52,7 +52,7 @@ test {
     }
 
     // The document is invalid and parsing must fail
-    pub func jsonFails(text: __string): bool {
+    pub func jsonFails(text: strview): bool {
         var result = json.parse[Value](text) catch {
             return true
         }
@@ -198,7 +198,7 @@ test "Spec - ints are serialized without a fraction" {
     var value = json.parse[Value]("[1, -2, 3.5]")
     var out = String()
     json.toJSON(&out, &value)
-    ok!(out.__str() == "[1,-2,3.5]")
+    ok!(out.s() == "[1,-2,3.5]")
 }
 
 // ----------------------------------------------------------------- strings
@@ -242,7 +242,7 @@ test "Spec - invalid escapes" {
     // literal reaches the C code as an escape sequence
     var hex = String()
     hex << "\"" << '\\' << "x41\""
-    ok!(jsonFails(hex.__str()))
+    ok!(jsonFails(hex.s()))
     ok!(jsonFails("\"\\a\""))
     ok!(jsonFails("\"\\'\""))
     ok!(jsonFails("\"\\u12\""))
@@ -356,12 +356,12 @@ test "Spec - undefined values are not allowed" {
 
 test "Spec - deep nesting is accepted" {
     var text = nested(100)
-    ok!(jsonEquals(text.__str(), text.__str()))
+    ok!(jsonEquals(text.s(), text.s()))
 }
 
 test "Spec - excessive nesting is an error, not a crash" {
     var text = nested(100000)
-    ok!(jsonFails(text.__str()))
+    ok!(jsonFails(text.s()))
 }
 
 // ------------------------------------------------------------ serialization
@@ -378,12 +378,12 @@ test "Spec - serialized strings are escaped" {
     var value = Value("quote \" backslash \\ newline \n tab \t")
     var out = String()
     json.toJSON(&out, &value)
-    ok!(jsonString(out.__str(), "quote \" backslash \\ newline \n tab \t"))
+    ok!(jsonString(out.s(), "quote \" backslash \\ newline \n tab \t"))
 }
 
 test "Spec - control characters are escaped when serialized" {
     var value = Value("a\x01z")
     var out = String()
     json.toJSON(&out, &value)
-    ok!(out.__str() == "\"a\\u0001z\"")
+    ok!(out.s() == "\"a\\u0001z\"")
 }

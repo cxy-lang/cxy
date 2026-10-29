@@ -1,7 +1,7 @@
 typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
-typedef struct Closure_127 Closure_127;
 typedef struct Closure_131 Closure_131;
+typedef struct Closure_135 Closure_135;
 
 struct builtins_Exception {
   builtins_Exception_VTable * vtable;
@@ -14,13 +14,13 @@ struct builtins_Exception_VTable {
   char * (*what)(builtins_Exception *);
 };
 
-struct Closure_127 {
+struct Closure_131 {
   void * env;
   void (*fn)(void *);
   void (*dtor)(void *);
 };
 
-struct Closure_131 {
+struct Closure_135 {
   void * env;
   int32_t (*fn)(void *, int32_t, int32_t);
   void (*dtor)(void *);
@@ -55,9 +55,9 @@ _L_exit:;
 }
 
 static void testSimple() {
-  Closure_127 c;
+  Closure_131 c;
 _L_entry:;
-  c = (Closure_127){ .env = nullptr, .fn = __closure_body3, .dtor = nullptr };
+  c = (Closure_131){ .env = nullptr, .fn = __closure_body3, .dtor = nullptr };
   c.fn(c.env);
   goto _L_exit;
 _L_exit:;
@@ -75,9 +75,9 @@ _L_exit:;
 
 static int32_t testParamsAndRet() {
   int32_t __ret;
-  Closure_131 add;
+  Closure_135 add;
 _L_entry:;
-  add = (Closure_131){ .env = nullptr, .fn = __closure_body4, .dtor = nullptr };
+  add = (Closure_135){ .env = nullptr, .fn = __closure_body4, .dtor = nullptr };
   __ret = add.fn(add.env, 10, 20);
   goto _L_exit;
 _L_exit:;

@@ -21,7 +21,7 @@ _L_entry:
   var __ret: i32
   var a: i8
   a = 10
-  var c: Closure_132
+  var c: Closure_136
   var __t0: __closure_env3
   __t0 = __closure_env3 {a: a}
   var __env1: __closure_env3
@@ -51,7 +51,7 @@ _L_entry:
   var __ret: i32
   var a: i8
   a = 10
-  var c: Closure_132
+  var c: Closure_136
   var __t2: __closure_env5
   __t2 = __closure_env5 {a: &a}
   var __env3: __closure_env5
@@ -81,7 +81,7 @@ _L_entry:
   var __ret: i32
   var a: i8
   a = 10
-  var c: Closure_132
+  var c: Closure_136
   var __t4: __closure_env7
   __t4 = __closure_env7 {a: a}
   var __env5: __closure_env7
@@ -113,7 +113,7 @@ _L_entry:
   a = 10
   var b: i8
   b = 20
-  var c: Closure_132
+  var c: Closure_136
   var __t6: __closure_env9
   __t6 = __closure_env9 {a: &a, b: &b}
   var __env7: __closure_env9
@@ -145,7 +145,7 @@ _L_entry:
   a = 10
   var b: i8
   b = 20
-  var c: Closure_132
+  var c: Closure_136
   var __t8: __closure_env11
   __t8 = __closure_env11 {a: a, b: b}
   var __env9: __closure_env11
@@ -179,7 +179,7 @@ _L_entry:
   b = 20
   var c: i8
   c = 30
-  var fn: Closure_132
+  var fn: Closure_136
   var __t10: __closure_env13
   __t10 = __closure_env13 {a: a, b: &b, c: c}
   var __env11: __closure_env13
@@ -213,7 +213,7 @@ _L_entry:
   b = 20
   var c: i8
   c = 30
-  var fn: Closure_132
+  var fn: Closure_136
   var __t12: __closure_env15
   __t12 = __closure_env15 {a: a, b: &b, c: &c}
   var __env13: __closure_env15
@@ -247,7 +247,7 @@ _L_entry:
   b = 20
   var c: i8
   c = 30
-  var fn: Closure_132
+  var fn: Closure_136
   var __t14: __closure_env17
   __t14 = __closure_env17 {a: &a, b: b, c: c}
   var __env15: __closure_env17

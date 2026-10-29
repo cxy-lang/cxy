@@ -4,7 +4,7 @@ extern func __smart_ptr_get(ptr: ^void): ^void
 
 extern func __smart_ptr_drop(ptr: ^void): bool
 
-func main.Storage.op__init(this: ^Storage, cb: Closure_126): void {
+func main.Storage.op__init(this: ^Storage, cb: Closure_130): void {
 _L_entry:
   scope.enter 0
   drop this.cb
@@ -36,7 +36,7 @@ _L_exit:
   return
 }
 
-func main.Storage.op__initCover(cb: Closure_126): ^Storage {
+func main.Storage.op__initCover(cb: Closure_130): ^Storage {
 _L_entry:
   scope.enter 0
   var __ret: ^Storage
@@ -53,7 +53,7 @@ _L_exit:
   return __ret
 }
 
-func storeCallback(cb: Closure_126): ^Storage {
+func storeCallback(cb: Closure_130): ^Storage {
 _L_entry:
   scope.enter 0
   var __ret: ^Storage
@@ -79,7 +79,7 @@ _L_entry:
   var x: i8
   x = 100
   var s: ^Storage
-  var __t1: Closure_126
+  var __t1: Closure_130
   __t1 = ClosureValue(null, __closure_body4)
   s = storeCallback(__t1)
   goto _L_exit

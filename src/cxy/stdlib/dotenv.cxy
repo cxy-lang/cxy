@@ -12,7 +12,7 @@ pub class DotEnv {
 
     func `init`() {}
 
-    func load(str: __string): !void {
+    func load(str: strview): !void {
         var len = str.size()
         var lineNum = 1
         var idx = 0`u64
@@ -38,7 +38,7 @@ pub class DotEnv {
         }
     }
 
-    - func parseLine(line: __string, lineNum: i32): !void {
+    - func parseLine(line: strview, lineNum: i32): !void {
         var len = line.size()
         var idx = 0`u64
 
@@ -86,7 +86,7 @@ pub class DotEnv {
         vars.insert(String(key), &&finalValue)
     }
 
-    func _expandVariables(value: __string): String {
+    func _expandVariables(value: strview): String {
         var result = String()
         var i = 0`u64
         var len = value.size()
@@ -168,16 +168,16 @@ pub class DotEnv {
         return &&result
     }
 
-    func _lookupVariable(name: __string): __string {
+    func _lookupVariable(name: strview): strview {
         // First check in current vars
         var key = String(name)
         var varValue = vars.[key]
         if !!varValue {
-            return varValue&.__str()
+            return varValue&.s()
         }
 
         // Then check environment
-        return getenv(key.str(), null) catch __string()
+        return getenv(key.str(), null) catch strview()
     }
 
     func get[T](key: string): T? {
@@ -193,20 +193,20 @@ pub class DotEnv {
                 return value&.str()
             }
             else #if T.isStruct {
-                return value&.__str()
+                return value&.s()
             }
             else {
                 return __copy!(*value)
             }
         }
         else #if T.isBoolean {
-            return value&.__str().tob()
+            return value&.s().tob()
         }
         else #if T.isInteger {
-            return value&.__str().toi[i64]() as T
+            return value&.s().toi[i64]() as T
         }
         else #if T.isFloat {
-            return value&.__str().tof[f64]() as T
+            return value&.s().tof[f64]() as T
         }
         else {
             error!("Unsupported type for dotenv get: {t}", #T)
@@ -244,12 +244,12 @@ pub class DotEnv {
 
         // Create instance and parse
         var env = DotEnv()
-        env.load(buffer.__str())
+        env.load(buffer.s())
         return &&env
     }
 
     @[static]
-    func fromString(str: __string): !DotEnv {
+    func fromString(str: strview): !DotEnv {
         var env = DotEnv()
         env.load(str)
         return &&env
@@ -263,7 +263,7 @@ pub class DotEnv {
         }
 
         // 1. Check DOT_ENV environment variable (highest priority)
-        var dotEnv = getenv("DOT_ENV", null) catch __string()
+        var dotEnv = getenv("DOT_ENV", null) catch strview()
         if !dotEnv.empty() {
             return String(dotEnv)
         }
@@ -298,11 +298,11 @@ test "DotEnv basic parsing" {
     ok!(env.has("KEY1"))
     ok!(env.has("KEY2"))
 
-    var val1 = env.get[__string]("KEY1")
+    var val1 = env.get[strview]("KEY1")
     ok!(!!val1)
     ok!(*val1 == "value1")
 
-    var val2 = env.get[__string]("KEY2")
+    var val2 = env.get[strview]("KEY2")
     ok!(!!val2)
     ok!(*val2 == "value2")
 }
@@ -337,11 +337,11 @@ test "DotEnv handles quoted values" {
         return
     }
 
-    var single = env.get[__string]("SINGLE")
+    var single = env.get[strview]("SINGLE")
     ok!(!!single)
     ok!(*single == "single quoted")
 
-    var dbl = env.get[__string]("DOUBLE")
+    var dbl = env.get[strview]("DOUBLE")
     ok!(!!dbl)
     ok!(*dbl == "double quoted")
 }
@@ -353,7 +353,7 @@ test "DotEnv variable expansion" {
         return
     }
 
-    var url = env.get[__string]("URL")
+    var url = env.get[strview]("URL")
     ok!(!!url)
     ok!(*url == "http://localhost:5432")
 }
@@ -365,11 +365,11 @@ test "DotEnv expansion with defaults" {
         return
     }
 
-    var port = env.get[__string]("PORT")
+    var port = env.get[strview]("PORT")
     ok!(!!port)
     ok!(*port == "3000")
 
-    var host = env.get[__string]("HOST")
+    var host = env.get[strview]("HOST")
     ok!(!!host)
     ok!(*host == "0.0.0.0")
 }
@@ -381,7 +381,7 @@ test "DotEnv single quotes prevent expansion" {
         return
     }
 
-    var literal = env.get[__string]("LITERAL")
+    var literal = env.get[strview]("LITERAL")
     ok!(!!literal)
     ok!(*literal == "${VAR}")
 }
@@ -404,7 +404,7 @@ test "DotEnv explicit empty with quotes" {
         return
     }
 
-    var empty = env.get[__string]("EMPTY")
+    var empty = env.get[strview]("EMPTY")
     ok!(!!empty)
     ok!((*empty).size() == 0)
 
@@ -429,7 +429,7 @@ test "DotEnv handles whitespace around equals" {
         return
     }
 
-    var val = env.get[__string]("KEY")
+    var val = env.get[strview]("KEY")
     ok!(!!val)
     ok!(*val == "value")
 }
@@ -441,7 +441,7 @@ test "DotEnv complex expansion" {
         return
     }
 
-    var dbUrl = env.get[__string]("DATABASE_URL")
+    var dbUrl = env.get[strview]("DATABASE_URL")
     ok!(!!dbUrl)
     ok!(*dbUrl == "postgres://admin@localhost:5432/myapp")
 }
