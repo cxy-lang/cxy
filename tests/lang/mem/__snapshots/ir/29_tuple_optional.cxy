@@ -1,0 +1,134 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/29_tuple_optional.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func main.Resource.op__init(this: ^Resource, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__deinit(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__destructor(<^Resource>(<^Resource>(ptr)))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__initCover(id: i32): ^Resource {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Resource
+  var __obj3: ^Resource
+  var __t0: ^Resource
+  __t0 = alloc(^Resource)
+  __obj3 = <^Resource>(__t0)
+  zeromem __obj3
+  Resource_op__init(<^Resource>(__obj3), id)
+  __ret = __obj3
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  var a: (^char, i64?)
+  a = Tuple_ptr_char_Optional_i64 {"", None}
+  var b: (^char, i64?)
+  b = Tuple_ptr_char_Optional_i64 {"", Some(5)}
+  var c: (^char, (i64?, ^char))
+  c = Tuple_ptr_char_Tuple_Optional_i64_ptr_char {"", Tuple_Optional_i64_ptr_char {None, "x"}}
+  var d: (^Resource?, i32)
+  d = Tuple_Optional_Resource_i32 {None, 1}
+  var e: (^Resource?, i32)
+  var __t1: ^Resource
+  __t1 = Resource_op__initCover(<i32>(1))
+  var __t2: ^Resource?
+  __t2 = Some(__t1)
+  e = Tuple_Optional_Resource_i32 {__t2, 2}
+  goto _L_exit
+_L_exit:
+  drop e
+  drop d
+  scope.exit 0
+  return
+}
+
+func __tuple_copy_144(tup: ^(^Resource?, i32)): (^Resource?, i32) {
+_L_entry:
+  scope.enter 0
+  var __ret: (^Resource?, i32)
+  var __t3: ^Resource?
+  copy tup.0 -> __t3
+  __ret = Tuple_Optional_Resource_i32 {__t3, tup.1}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func __tuple_dctor_144(tup: ^(^Resource?, i32)): void {
+_L_entry:
+  scope.enter 0
+  drop tup.0
+  zeromem tup.0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func __tuple_copy_150(tup: ^(^Resource, i8)): (^Resource, i8) {
+_L_entry:
+  scope.enter 0
+  var __ret: (^Resource, i8)
+  var __t4: ^Resource
+  copy tup.0 -> __t4
+  __ret = Tuple_Resource_i8 {__t4, tup.1}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func __tuple_dctor_150(tup: ^(^Resource, i8)): void {
+_L_entry:
+  scope.enter 0
+  drop tup.0
+  tup.0 = null
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}

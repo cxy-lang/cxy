@@ -23,7 +23,7 @@ static int __cxy_thread_entry(void *arg) {
 
 bool __cxy_thread_launch(thrd_t *hdl, void *closure_struct, unsigned long size) {
     void *mem = malloc(size);
-    if (!mem) return -1;
+    if (!mem) return false;
     memcpy(mem, closure_struct, size);
     int status = thrd_create(hdl, __cxy_thread_entry, mem);
     if (status != thrd_success) {

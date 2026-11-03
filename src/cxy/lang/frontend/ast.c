@@ -2620,6 +2620,21 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
     return clone;
 }
 
+// A substitute must not register itself again as the builtin override
+static AstNode *copyAttributesWithoutOverride(MemPool *pool,
+                                              const AstNode *attrs)
+{
+    AstNodeList list = {};
+    for (const AstNode *attr = attrs; attr; attr = attr->next) {
+        if (attr->attr.name == S___override_builtin)
+            continue;
+        AstNode *copy = copyAstNode(pool, attr);
+        copy->next = NULL;
+        insertAstNode(&list, copy);
+    }
+    return list.first;
+}
+
 AstNode *cloneGenericDeclaration(MemPool *pool, const AstNode *node)
 {
     AstNode *param = node->genericDecl.params;
@@ -2659,7 +2674,7 @@ AstNode *cloneGenericDeclaration(MemPool *pool, const AstNode *node)
         decl = cloneAstNode(&config, decl);
     }
     setGenericDeclarationParams(decl, params);
-    decl->attrs = node->attrs;
+    decl->attrs = copyAttributesWithoutOverride(pool, node->attrs);
     decl->parentScope = node->parentScope;
     deinitCloneAstNodeConfig(&config);
     return decl;

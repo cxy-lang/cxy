@@ -16,6 +16,9 @@ typedef struct {
     MemPool *pool;
     struct StrPool *strings;
     AstNodeList testCases;
+    // `_task_f` wrappers of `@task` functions, appended to the enclosing
+    // program or class once its members have been visited
+    AstNodeList taskWrappers;
     AstNode *testSetup;
     AstNode *testCleanup;
     AstModifier block;
@@ -27,6 +30,7 @@ typedef struct {
     union {
         struct {
             bool inClassOrStruct;
+            bool inFunction;
             AstNode *currentClsOrStruct;
             AstNode *catchLhs;
             AstNode *catchRhs;
@@ -37,6 +41,7 @@ typedef struct {
         };
         struct {
             bool inClassOrStruct;
+            bool inFunction;
             AstNode *currentClsOrStruct;
             AstNode *catchLhs;
             AstNode *catchRhs;

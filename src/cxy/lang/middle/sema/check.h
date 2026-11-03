@@ -28,6 +28,10 @@ typedef struct {
     bool returnState;
     bool jumpState;
     bool exceptionTrace;
+    // `var __current_task` injected by `currentTask!()` in the function being
+    // checked, reset per function (not part of `stack`, which is restored per
+    // visited node)
+    AstNode *currentTaskVar;
     union {
         struct {
             AstNode *currentCall;
@@ -169,6 +173,7 @@ const Type *transformToInitCoverCallExpr(AstVisitor *visitor,
                                          const Type *target);
 
 void implementTupleTypeCopyAndDestructor(AstVisitor *visitor, AstNode *node);
+void coerceTupleExpr(AstNode *expr, const Type *target);
 
 const Type *matchOverloadedFunctionPerfectMatch(Log *L,
                                                 const Type *callee,

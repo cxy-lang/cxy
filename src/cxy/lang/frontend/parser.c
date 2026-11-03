@@ -61,6 +61,7 @@ static AstNode *parseTypeImpl(Parser *P, bool allowOptional);
 static AstNode *parseUnionType(Parser *P);
 
 static AstNode *primary(Parser *P, bool allowStructs);
+static AstNode *primaryWithoutStructs(Parser *P, bool allowStructs);
 static AstNode *postfixCast(Parser *P, AstNode *expr, bool allowStructs);
 static AstNode *macroExpression(Parser *P, AstNode *callee);
 static AstNode *launchExpression(Parser *P);
@@ -768,7 +769,8 @@ static inline AstNode *expressionWithStructs(Parser *P)
 static AstNode *member(Parser *P,
                        const Token *begin,
                        AstNode *operand,
-                       bool isOptional)
+                       bool isOptional,
+                       bool isRedirect)
 {
     AstNode *member;
     u64 flags = flgNone;
@@ -784,7 +786,7 @@ static AstNode *member(Parser *P,
     }
     else {
         member = parsePath(P, true);
-        // a?.b.c => (a?.b).c
+        // a?.b.c => (a?.b).c, a&.b.c => (a&.b).c
         while (!isEoF(P) && match(P, tokDot, tokOptionalDot)) {
             bool currentOptional = previous(P)->tag == tokOptionalDot;
             operand = newAstNode(
@@ -794,8 +796,10 @@ static AstNode *member(Parser *P,
                            .flags = flags,
                            .memberExpr = {.target = operand,
                                           .member = member,
-                                          .isOptional = isOptional}});
+                                          .isOptional = isOptional,
+                                          .isRedirect = isRedirect}});
             isOptional = currentOptional;
+            isRedirect = false;
             member = parsePath(P, true);
         }
     }
@@ -805,7 +809,8 @@ static AstNode *member(Parser *P,
                                  .flags = flags,
                                  .memberExpr = {.target = operand,
                                                 .member = member,
-                                                .isOptional = isOptional}});
+                                                .isOptional = isOptional,
+                                                .isRedirect = isRedirect}});
 }
 
 static AstNode *indexExpr(Parser *P, AstNode *operand)
@@ -937,15 +942,15 @@ static AstNode *postfix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
         case tokDot: {
             const Token tok = *advance(P);
             bool isBuiltin = match(P, tokHash) != NULL;
-            operand = member(P, &tok, operand, tok.tag == tokOptionalDot);
+            operand =
+                member(P, &tok, operand, tok.tag == tokOptionalDot, false);
             operand->flags |= (isBuiltin ? flgBuiltin : flgNone);
             continue;
         }
         case tokBAndDot: {
             const Token tok = *advance(P);
             bool isBuiltin = match(P, tokHash) != NULL;
-            operand = member(P, &tok, operand, false);
-            operand->memberExpr.isRedirect = true;
+            operand = member(P, &tok, operand, false, true);
             operand->flags |= (isBuiltin ? flgBuiltin : flgNone);
             continue;
         }
@@ -1367,7 +1372,8 @@ static AstNode *implicitCast(Parser *P)
     Token tok = *consume0(P, tokLess);
     AstNode *to = parseType(P);
     consume0(P, tokGreater);
-    expr = expressionWithoutStructs(P);
+    // binds like a prefix operator: `<T>a + b` is `(<T>a) + b`
+    expr = prefix(P, primaryWithoutStructs);
 
     return makeAstNode(
         P->memPool,
@@ -1544,6 +1550,69 @@ static AstNode *async(Parser *P)
                        .callee = makeIdentifier(
                            P->memPool, &tok.fileLoc, S___async, 0, NULL, NULL),
                        .args = body}});
+}
+
+// `f(..)`, `x.f(..)` and `T.f(..)` run the wrapper `_task_f`, see shake
+static bool renameTaskCallee(Parser *P, AstNode *callee)
+{
+    AstNode *path = callee;
+    if (nodeIs(callee, MemberExpr)) {
+        if (callee->memberExpr.isOptional || callee->memberExpr.isRedirect)
+            return false;
+        path = callee->memberExpr.member;
+    }
+    if (!nodeIs(path, Path))
+        return false;
+
+    AstNode *elem = getLastAstNode(path->path.elements);
+    if (elem->pathElement.args != NULL)
+        return false;
+    elem->pathElement.name = makeStringf(
+        P->strPool, CXY_TASK_WRAPPER_PREFIX "%s", elem->pathElement.name);
+    // Marks the element as a generated `@async` wrapper reference
+    elem->flags |= flgAsync;
+    return true;
+}
+
+// `@async ["name"] call` spawns a task. The macro receives a clone of the
+// callee (for its type and attributes), the call renamed to its `_task_`
+// wrapper and the name.
+static AstNode *asyncTask(Parser *P)
+{
+    Token tok = *consume0(P, tokAt);
+    consume0(P, tokAsync);
+    AstNode *name = NULL;
+    if (check(P, tokStringLiteral))
+        name = parseString(P);
+    else
+        name = makeNullLiteral(P->memPool, &tok.fileLoc, NULL, NULL);
+
+    AstNode *call = expression(P, true);
+    if (!nodeIs(call, CallExpr)) {
+        parserError(P, &call->loc, "`@async` expects a function call", NULL);
+        return call;
+    }
+    AstNode *callee = call->callExpr.callee;
+    AstNode *calleeType = deepCloneAstNode(P->memPool, callee);
+    calleeType->next = NULL;
+    if (!renameTaskCallee(P, callee)) {
+        parserError(P,
+                    &callee->loc,
+                    "`@async` callee must be a function or a member function",
+                    NULL);
+        return call;
+    }
+    calleeType->next = call;
+    call->next = name;
+
+    return newAstNode(
+        P,
+        &tok,
+        &(AstNode){.tag = astMacroCallExpr,
+                   .macroCallExpr = {
+                       .callee = makeIdentifier(
+                           P->memPool, &tok.fileLoc, S___async_task, 0, NULL, NULL),
+                       .args = calleeType}});
 }
 
 static AstNode *tuple(
@@ -2355,6 +2424,12 @@ static AstNode *primary_(Parser *P, bool allowStructs)
         return range(P);
     case tokAsync:
         return async(P);
+    case tokAt:
+        // `@async call`, assignments and operands do not go through expression()
+        if (checkPeek(P, 1, tokAsync))
+            return asyncTask(P);
+        reportUnexpectedToken(P, "a primary expression");
+        break;
     case tokBOr:
         return closureWithCaptures(P);
     default:
@@ -2407,6 +2482,9 @@ static AstNode *primaryWithoutStructs(Parser *P, bool allowStructs)
 
 static AstNode *expression(Parser *P, bool allowStructs)
 {
+    if (check(P, tokAt) && checkPeek(P, 1, tokAsync))
+        return asyncTask(P);
+
     AstNode *attrs = NULL;
     if (check(P, tokAt))
         attrs = attributes(P);
@@ -3405,7 +3483,8 @@ static AstNode *statement(Parser *P, bool exprOnly)
 {
     AstNode *attrs = NULL;
     u64 flags = flgNone;
-    if (check(P, tokAt))
+    // `@async` is an expression, not an attribute
+    if (check(P, tokAt) && !checkPeek(P, 1, tokAsync))
         attrs = attributes(P);
 
     bool isComptime = match(P, tokHash) != NULL;

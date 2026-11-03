@@ -48,7 +48,7 @@ extern int isdigit(int c);
 extern int isalpha(int c);
 extern int isalnum(int c);
 extern int iscntrl(int c);
-extern long sysconf(int name);
+extern int64_t sysconf(int name);
 
 #if defined(__clang__)
 #pragma clang diagnostic push

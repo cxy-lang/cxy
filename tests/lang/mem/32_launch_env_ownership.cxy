@@ -1,0 +1,26 @@
+// @TEST_ARGS: ~--without-builtins
+import "stdlib/thread.cxy"
+
+struct User {
+    name: String
+    age: i32
+}
+
+func detached(user: User): !void {
+    // The thread owns the closure env, it must outlive this function
+    launch {
+        println(user.age)
+    }
+}
+
+func joined(user: User): !void {
+    var t = launch {
+        println(user.age)
+    }
+    t.join()
+}
+
+func main(): !void {
+    detached(User{name: "a".S, age: 1})
+    joined(User{name: "b".S, age: 2})
+}

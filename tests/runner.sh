@@ -271,6 +271,41 @@ __read_cfg() {
     echo "$default"
 }
 
+# Applies `// @TEST_ARGS: +<arg> ~<arg>` of a test file to the suite's run args.
+# `+arg` appends a token, `~arg` removes every token equal to arg.
+__apply_test_args() {
+  local run_args="$1"
+  local test_path="$2"
+  local line
+  line=$(grep -m 1 -E "^//[[:blank:]]*@TEST_ARGS:" "$test_path")
+  if [ -z "${line}" ]; then
+    echo "${run_args}"
+    return 0
+  fi
+
+  line="${line#*@TEST_ARGS:}"
+  local adds=""
+  local removes=()
+  local tok
+  for tok in ${line}; do
+    case "${tok}" in
+      +*) adds="${adds} ${tok#+}" ;;
+      ~*) removes+=("${tok#\~}") ;;
+    esac
+  done
+
+  local result=""
+  local arg rm skip
+  for arg in ${run_args}; do
+    skip=0
+    for rm in "${removes[@]}"; do
+      [ "${arg}" == "${rm}" ] && skip=1
+    done
+    [ ${skip} -eq 0 ] && result="${result} ${arg}"
+  done
+  echo "${result# }${adds}"
+}
+
 __exec_binary() {
   local bin="$1"
   local exec_args="$2"
@@ -315,6 +350,8 @@ run_test () {
   if [ -n "${CXY_STDLIB}" ] && [ "$(basename "${run_cmd%% *}")" == "cxy" ]; then
     run_args="${run_args} --stdlib ${CXY_STDLIB}"
   fi
+
+  run_args=$(__apply_test_args "${run_args}" "${test_path}")
 
   local display_name="${test_case}"
   if [ -n "${suite_name}" ]; then

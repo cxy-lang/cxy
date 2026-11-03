@@ -228,12 +228,20 @@ _L_exit:;
 
 static void testManagedArraySlice() {
   Resource * arr[4];
+  Resource * __t4;
+  Resource * __t5;
+  Resource * __t6;
+  Resource * __t7;
   Slice_Resource s;
 _L_entry:;
-  arr[0] = Resource_op__initCover(((int32_t)(1)));
-  arr[1] = Resource_op__initCover(((int32_t)(2)));
-  arr[2] = Resource_op__initCover(((int32_t)(3)));
-  arr[3] = Resource_op__initCover(((int32_t)(4)));
+  __t4 = Resource_op__initCover(((int32_t)(1)));
+  __t5 = Resource_op__initCover(((int32_t)(2)));
+  __t6 = Resource_op__initCover(((int32_t)(3)));
+  __t7 = Resource_op__initCover(((int32_t)(4)));
+  arr[0] = __t4;
+  arr[1] = __t5;
+  arr[2] = __t6;
+  arr[3] = __t7;
   s = (Slice_Resource){&arr[1], 2ULL};
   goto _L_exit;
 _L_exit:;

@@ -103,6 +103,13 @@ typedef struct IrCase {
     IrNode *target;
 } IrCase;
 
+// Attributes of functions defined in C, forwarded to the extern prototype
+typedef enum {
+    irFuncAttrNaked = BIT(0),
+    irFuncAttrNoReturn = BIT(1),
+    irFuncAttrReturnsTwice = BIT(2),
+} IrFuncAttr;
+
 struct IrNode {
     CXY_IR_NODE_HEAD
     union {
@@ -143,7 +150,7 @@ struct IrNode {
         struct { IrNode *target; } zeromem;
 
         // Statements
-        struct { cstring name; cstring display; u32 scopeId; } varDecl;
+        struct { cstring name; cstring display; u32 scopeId; cstring reg; } varDecl;
         struct { IrNode *lhs; IrNode *rhs; } assign;
         struct { u32 scopeId; } scopeEnter;
         struct { u32 scopeId; } scopeExit;
@@ -171,6 +178,7 @@ struct IrNode {
             IrNode *lastBlock;
             u32 nextScopeId;
             bool isHint;
+            u8 attrs;
         } function;
         struct { cstring name; IrNode *init; bool isThreadLocal; } globalVar;
         struct {

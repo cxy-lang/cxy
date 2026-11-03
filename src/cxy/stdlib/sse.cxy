@@ -3,6 +3,7 @@ module sse
 import { TcpSocket } from "./tcp.cxy"
 import { Socket, getRemoteAddress } from "./net.cxy"
 import { Session } from "./fetch.cxy"
+import { HashMap } from "./hash.cxy"
 import { Upgrade, Request, Response, Status, Method } from "./http.cxy"
 import "./log.cxy"
 
@@ -227,6 +228,8 @@ pub class SseStream[Application] {
     _curEvent = String()
     _curData = String()
     _curId = String()
+    // Events that arrived in the same read as the response headers
+    _pending: String = null
 
     func `init`(app: Application) {
         _app = &&app
@@ -251,6 +254,13 @@ pub class SseStream[Application] {
             }
         }
 
+        // Extra request headers from the application, if it provides any
+        #if (has_member!(#Application, "headers", #func() -> &HashMap[String, String])) {
+            for h in _app.headers() {
+                sess.header(__copy!(h.0), __copy!(h.1))
+            }
+        }
+
         sess.header("Accept".S, "text/event-stream".S)
         sess.header("Cache-Control".S, "no-cache".S)
         sess.header("Connection".S, "keep-alive".S)
@@ -260,8 +270,9 @@ pub class SseStream[Application] {
             raise SseError(f"SSE connection failed: {resp.statusCode()}")
         }
 
-        var sock = sess.takeSocket()
-        _client = SseClient(&&sock)
+        var taken = sess.takeSocketAndPending()
+        _pending = &&taken.1
+        _client = SseClient(&&taken.0)
 
         #if (has_member!(#Application, "onOpen", #func(_: &SseClient) -> bool)) {
             if !_app.onOpen(&_client) {
@@ -325,6 +336,13 @@ pub class SseStream[Application] {
             return
         }
         var rawBuf: [char, 4096] = []
+
+        // Deliver what came with the headers before reading the socket
+        if (_pending != null) {
+            var early = &&_pending
+            _pending = null
+            _processChunk(early.s())
+        }
 
         while !_client.isClosed() {
             var n = _client.socket().receive(rawBuf !: string, 4096)

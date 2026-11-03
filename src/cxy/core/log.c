@@ -1,4 +1,5 @@
 #include "core/log.h"
+#include "core/alloc.h"
 #include "core/hash.h"
 #include "core/utils.h"
 
@@ -108,6 +109,7 @@ Log newLog(MemPool *pool, DiagnosticHandler handler, void *ctx)
                   .handler = handler,
                   .handlerCtx = ctx,
                   .maxErrors = SIZE_MAX,
+                  .maxFrameNotes = LOG_DEFAULT_MAX_FRAME_NOTES,
                   .enabledWarnings.num = wrnDefault};
     if (handler == printDiagnosticToConsole) {
         L.handlerCtx = NULL;
@@ -124,6 +126,8 @@ void freeLog(Log *log)
         fclose(entry->file);
     }
     freeHashTable(&log->fileCache);
+    free(log->frames.items);
+    log->frames = (__typeof(log->frames)){};
 }
 
 static bool compareFileEntries(const void *left, const void *right)
@@ -370,12 +374,60 @@ static void printMessage(Log *log,
     }
 }
 
+void logPushFrame(Log *log, const FileLoc *loc, cstring fmt, FormatArg arg)
+{
+    if (log->frames.count == log->frames.capacity) {
+        log->frames.capacity =
+            log->frames.capacity ? log->frames.capacity * 2 : 16;
+        log->frames.items = reallocOrDie(
+            log->frames.items, sizeof(LogFrame) * log->frames.capacity);
+    }
+    log->frames.items[log->frames.count++] =
+        (LogFrame){.loc = *loc, .fmt = fmt, .arg = arg};
+}
+
+void logPopFrame(Log *log)
+{
+    csAssert0(log->frames.count > 0);
+    log->frames.count--;
+}
+
+// Frames are reported innermost first, the middle ones are elided when deep
+static void printFrameNotes(Log *log)
+{
+    u32 total = 0;
+    for (u32 i = 0; i < log->frames.count; i++)
+        total += log->frames.items[i].loc.fileName != NULL;
+
+    u32 limit = log->maxFrameNotes;
+    bool elide = limit && total > limit;
+    u32 head = (limit + 1) / 2, tail = limit / 2, shown = 0;
+    for (u32 i = log->frames.count; i-- > 0;) {
+        const LogFrame *frame = &log->frames.items[i];
+        if (!frame->loc.fileName)
+            continue;
+
+        u32 idx = shown++;
+        if (elide && idx >= head && idx < total - tail) {
+            if (idx == head)
+                printMessage(log,
+                             dkNote,
+                             NULL,
+                             "... {u32} more instantiations skipped",
+                             (FormatArg[]){{.u32 = total - limit}});
+            continue;
+        }
+        printMessage(log, dkNote, &frame->loc, frame->fmt, &frame->arg);
+    }
+}
+
 void logError(Log *log,
               const FileLoc *fileLoc,
               const char *format_str,
               const FormatArg *args)
 {
     printMessage(log, dkError, fileLoc, format_str, args);
+    printFrameNotes(log);
 }
 
 void logWarning(Log *log,

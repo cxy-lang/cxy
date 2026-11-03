@@ -64,7 +64,13 @@ func testArrayRAII(): void {
 _L_entry:
   scope.enter 0
   var arr: [^Resource, 3]
-  arr = [Resource_op__initCover(<i32>(1)), Resource_op__initCover(<i32>(2)), Resource_op__initCover(<i32>(3))]
+  var __t1: ^Resource
+  __t1 = Resource_op__initCover(<i32>(1))
+  var __t2: ^Resource
+  __t2 = Resource_op__initCover(<i32>(2))
+  var __t3: ^Resource
+  __t3 = Resource_op__initCover(<i32>(3))
+  arr = [__t1, __t2, __t3]
   goto _L_exit
 _L_exit:
   drop arr
@@ -76,7 +82,11 @@ func testArrayIndexOverwrite(): void {
 _L_entry:
   scope.enter 0
   var arr: [^Resource, 2]
-  arr = [Resource_op__initCover(<i32>(10)), Resource_op__initCover(<i32>(20))]
+  var __t4: ^Resource
+  __t4 = Resource_op__initCover(<i32>(10))
+  var __t5: ^Resource
+  __t5 = Resource_op__initCover(<i32>(20))
+  arr = [__t4, __t5]
   drop arr[0]
   arr[0] = Resource_op__initCover(<i32>(30))
   goto _L_exit
@@ -90,7 +100,11 @@ func testArrayMoveElement(): void {
 _L_entry:
   scope.enter 0
   var arr: [^Resource, 2]
-  arr = [Resource_op__initCover(<i32>(100)), Resource_op__initCover(<i32>(200))]
+  var __t6: ^Resource
+  __t6 = Resource_op__initCover(<i32>(100))
+  var __t7: ^Resource
+  __t7 = Resource_op__initCover(<i32>(200))
+  arr = [__t6, __t7]
   var r: ^Resource
   r = arr[1]
   arr[1] = null
@@ -106,7 +120,11 @@ func testArraySliceBorrow(): void {
 _L_entry:
   scope.enter 0
   var a: [^Resource, 2]
-  a = [Resource_op__initCover(<i32>(1)), Resource_op__initCover(<i32>(2))]
+  var __t8: ^Resource
+  __t8 = Resource_op__initCover(<i32>(1))
+  var __t9: ^Resource
+  __t9 = Resource_op__initCover(<i32>(2))
+  a = [__t8, __t9]
   var b: [^Resource]
   copy a -> b.ptr
   b.len = 2

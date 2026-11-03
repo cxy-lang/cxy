@@ -1,0 +1,29 @@
+class Resource {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+// Instantiations with different optional types must get different symbols,
+// they used to share one mangled name.
+func tag[T](it: &const T): i32 {
+    #if T.isOptional {
+        return 1
+    }
+    else {
+        return 2
+    }
+}
+
+struct Holder {
+    res: Resource?
+    count: i32?
+}
+
+func main(): void {
+    var h = Holder{res: Resource(1), count: 2}
+    tag[Resource?](&h.res)
+    tag[i32?](&h.count)
+    var r = Resource(3)
+    tag[Resource](r)
+}

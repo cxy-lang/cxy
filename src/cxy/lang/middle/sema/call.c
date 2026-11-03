@@ -209,6 +209,21 @@ static void checkFunctionCallEpilogue(AstVisitor *visitor,
         return;
     }
 
+    const AstNode *calleeDecl = callee_->func.decl;
+    if (calleeDecl && !hasFlag(node, Async) &&
+        findAttribute(calleeDecl, S_task)) {
+        logError(ctx->L,
+                 &callee->loc,
+                 "'{s}' is an `@task` function, it must be launched with `@async`",
+                 (FormatArg[]){{.s = callee_->name}});
+        logNote(ctx->L,
+                &calleeDecl->loc,
+                "'{s}' declared here",
+                (FormatArg[]){{.s = callee_->name}});
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
+
     u64 paramsCount = callee_->func.paramsCount;
     arg = node->callExpr.args;
     argsCount = countAstNodes(arg);

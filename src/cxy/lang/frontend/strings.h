@@ -136,6 +136,8 @@ extern "C" {
     f(__union_dctor)            \
     f(__union_copy)             \
     f(__async)                  \
+    f(__async_task)             \
+    f(task)                     \
     f(__CxyPluginAction)        \
     f(__tid)                    \
     f(CXY__main)                \
@@ -145,6 +147,11 @@ extern "C" {
     f(clib)                     \
     f(src)                      \
     f(hint)                     \
+    f(naked)                    \
+    f(nodiscard)                \
+    f(noreturn)                 \
+    f(returns_twice)            \
+    f(register)                 \
     f(mm)                       \
     f(valid)                    \
     f(setup)                    \
@@ -183,6 +190,10 @@ extern "C" {
     ff(AsmOutputPrefix,     "\"=r\"")            \
     ff(underscore,          "_")
 
+// Prefix of the wrapper synthesized for `@task` functions
+#define CXY_TASK_WRAPPER_PREFIX "$task_"
+#define CXY_TASK_WRAPPER_PREFIX_LEN (sizeof(CXY_TASK_WRAPPER_PREFIX) - 1)
+
 #define OVERRIDABLE_BUILTINS(f)    \
     f(__scheduler)                 \
     f(__Thread_launch)             \
@@ -194,7 +205,8 @@ extern "C" {
     f(timeout)                     \
     f(pidWait)                     \
     f(__smart_ptr_alloc)           \
-    f(__smart_ptr_alloc_trace)
+    f(__smart_ptr_alloc_trace)     \
+    f(__currentTask)
 
 // clang-format on
 #ifdef CXY_PLUGIN_LIB

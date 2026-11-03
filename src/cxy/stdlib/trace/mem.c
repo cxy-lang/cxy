@@ -11,8 +11,13 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <dlfcn.h>
 #include <execinfo.h>
+
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+#endif
 
 /*
  * Memory tracing runtime. The generated program (prologue.h) only calls the
@@ -46,6 +51,7 @@ typedef struct {
     const char *path;
     uint64_t line;
     uint64_t gen; // allocation order, for most-recent-first reports
+    bool raw;     // a plain buffer (container storage), only used by the graph
 } LiveEntry;
 
 typedef struct {
@@ -62,7 +68,8 @@ static uint32_t ringIdx = 0;
 
 static LiveEntry *live = NULL;
 static size_t liveCap = 0;   // power of two
-static size_t liveCount = 0; // live entries
+static size_t liveCount = 0; // live smart pointer entries
+static size_t liveRawCount = 0; // live buffer entries
 static size_t liveUsed = 0;  // live entries + tombstones
 static uint64_t liveGen = 0;
 static uint64_t liveBytes = 0;
@@ -173,7 +180,7 @@ static void liveRehash(size_t newCap)
         return;
     }
     liveCap = newCap;
-    liveUsed = liveCount;
+    liveUsed = liveCount + liveRawCount;
     for (size_t i = 0; i < oldCap; i++) {
         if (old[i].ptr == NULL || old[i].ptr == LIVE_TOMBSTONE)
             continue;
@@ -185,7 +192,7 @@ static void liveRehash(size_t newCap)
     free(old);
 }
 
-static void liveInsert(void *ptr, uint64_t size, const char *path, uint64_t line)
+static void liveInsert(void *ptr, uint64_t size, const char *path, uint64_t line, bool raw)
 {
     if ((liveUsed + 1) * 4 >= liveCap * 3)
         liveRehash(liveCap ? liveCap * 2 : 1024);
@@ -197,9 +204,20 @@ static void liveInsert(void *ptr, uint64_t size, const char *path, uint64_t line
         idx = (idx + 1) & (liveCap - 1);
     if (live[idx].ptr == NULL)
         liveUsed++;
-    live[idx] = (LiveEntry){.ptr = ptr, .size = size, .path = path, .line = line, .gen = ++liveGen};
-    liveCount++;
-    liveBytes += size;
+    // Buffers don't take part in generations, `mark` and `diff` only see objects
+    live[idx] = (LiveEntry){.ptr = ptr,
+                            .size = size,
+                            .path = path,
+                            .line = line,
+                            .gen = raw ? 0 : ++liveGen,
+                            .raw = raw};
+    if (raw) {
+        liveRawCount++;
+    }
+    else {
+        liveCount++;
+        liveBytes += size;
+    }
 }
 
 static void liveRemove(void *ptr)
@@ -210,8 +228,13 @@ static void liveRemove(void *ptr)
     while (live[idx].ptr != NULL) {
         if (live[idx].ptr == ptr) {
             live[idx].ptr = LIVE_TOMBSTONE;
-            liveCount--;
-            liveBytes -= live[idx].size;
+            if (live[idx].raw) {
+                liveRawCount--;
+            }
+            else {
+                liveCount--;
+                liveBytes -= live[idx].size;
+            }
             return;
         }
         idx = (idx + 1) & (liveCap - 1);
@@ -233,7 +256,8 @@ static LiveEntry *liveSnapshot(uint64_t minGen, size_t *count)
     size_t j = 0;
     if (snap != NULL) {
         for (size_t i = 0; i < liveCap && j < n; i++) {
-            if (live[i].ptr != NULL && live[i].ptr != LIVE_TOMBSTONE && live[i].gen > minGen)
+            if (live[i].ptr != NULL && live[i].ptr != LIVE_TOMBSTONE && !live[i].raw &&
+                live[i].gen > minGen)
                 snap[j++] = live[i];
         }
     }
@@ -467,7 +491,13 @@ static void helpFd(int fd)
             "  ring <ptr>           lifecycle timeline of one pointer\n"
             "  mark                 remember the current allocation generation\n"
             "  diff [n]             sites of allocations made since `mark` still alive\n"
-            "  difflist [n]         like `list`, but only allocations since `mark`\n",
+            "  difflist [n]         like `list`, but only allocations since `mark`\n"
+            "containment (scans a forked copy of the process):\n"
+            "  holders <ptr>        who points at this object\n"
+            "  path <ptr>           shortest chain of holders from a root to this object\n"
+            "  contains <y> <x>     is x held, directly or indirectly, by y\n"
+            "  retained [n]         roots ranked by what only they keep alive\n"
+            "  tree <ptr> [depth]   what this object holds (default depth 3)\n",
             CXY_QUERY_DEFAULT_LIMIT,
             CXY_QUERY_DEFAULT_LIMIT);
 }
@@ -479,6 +509,795 @@ static size_t parseLimit(const char *arg)
     char *end = NULL;
     unsigned long long n = strtoull(arg, &end, 10);
     return (end == arg) ? CXY_QUERY_DEFAULT_LIMIT : (size_t)n;
+}
+
+/* ------------------------------------------------------ containment graph */
+
+/*
+ * Who holds what. Every live allocation is a node. An aligned word inside a
+ * node that points at (or into) another node is an edge. Nothing is recorded
+ * while the program runs: the graph is built from a forked copy of the process
+ * when a command asks for it, so the program is never stalled and the child
+ * reads a consistent snapshot.
+ *
+ * Container storage (vector and map buffers) is plain malloc memory. It takes
+ * part when registered through __cxy_mem_trace_raw_*, and on macOS any heap
+ * block found by following a pointer is added with its malloc_size().
+ *
+ * The scan is conservative: an integer that looks like an address is a false
+ * edge, and references held only on a stack or in globals are not seen, such
+ * objects show up as roots.
+ */
+
+#define GRAPH_NONE UINT32_MAX
+#define GRAPH_MULTI UINT32_MAX
+
+typedef struct {
+    uintptr_t start;
+    uint64_t size;
+    const char *path;
+    uint64_t line;
+    bool raw; // a buffer, not a smart pointer allocation
+} GraphNode;
+
+typedef struct {
+    uint32_t from, to;
+    uint32_t off; // byte offset in `from` where the pointer is stored
+} GraphEdge;
+
+typedef struct {
+    uintptr_t start;
+    uint32_t id;
+} GraphKey;
+
+typedef struct {
+    GraphNode *nodes;
+    size_t count, cap;
+    GraphKey *keys; // registered nodes ordered by address
+    size_t keyCount;
+    uint32_t *found; // nodes discovered by malloc_size, id + 1, 0 = empty
+    size_t foundCap, foundCount;
+    GraphEdge *edges;
+    size_t edgeCount, edgeCap;
+    uint32_t *outStart, *outEdge;
+    uint32_t *inStart, *inEdge;
+    uint64_t scanned, scanLimit;
+    bool truncated;
+} Graph;
+
+static int graphFd = -1;
+static const Graph *sortGraph = NULL;
+
+static int compareGraphKey(const void *lhs, const void *rhs)
+{
+    uintptr_t l = ((const GraphKey *)lhs)->start, r = ((const GraphKey *)rhs)->start;
+    return l < r ? -1 : (l > r ? 1 : 0);
+}
+
+static uint32_t graphAddNode(Graph *g, GraphNode node)
+{
+    if (g->count == g->cap) {
+        size_t cap = g->cap ? g->cap * 2 : 4096;
+        GraphNode *nodes = realloc(g->nodes, cap * sizeof(GraphNode));
+        if (nodes == NULL)
+            return GRAPH_NONE;
+        g->nodes = nodes;
+        g->cap = cap;
+    }
+    g->nodes[g->count] = node;
+    return (uint32_t)g->count++;
+}
+
+static uint32_t graphFoundLookup(const Graph *g, uintptr_t addr)
+{
+    if (g->foundCap == 0)
+        return GRAPH_NONE;
+    size_t idx = liveHash((const void *)addr) & (g->foundCap - 1);
+    while (g->found[idx] != 0) {
+        uint32_t id = g->found[idx] - 1;
+        if (g->nodes[id].start == addr)
+            return id;
+        idx = (idx + 1) & (g->foundCap - 1);
+    }
+    return GRAPH_NONE;
+}
+
+static bool graphFoundInsert(Graph *g, uintptr_t addr, uint32_t id)
+{
+    if ((g->foundCount + 1) * 2 >= g->foundCap) {
+        size_t cap = g->foundCap ? g->foundCap * 2 : 1024;
+        uint32_t *table = calloc(cap, sizeof(uint32_t));
+        if (table == NULL)
+            return false;
+        for (size_t i = 0; i < g->foundCap; i++) {
+            if (g->found[i] == 0)
+                continue;
+            size_t idx = liveHash((const void *)g->nodes[g->found[i] - 1].start) & (cap - 1);
+            while (table[idx] != 0)
+                idx = (idx + 1) & (cap - 1);
+            table[idx] = g->found[i];
+        }
+        free(g->found);
+        g->found = table;
+        g->foundCap = cap;
+    }
+    size_t idx = liveHash((const void *)addr) & (g->foundCap - 1);
+    while (g->found[idx] != 0)
+        idx = (idx + 1) & (g->foundCap - 1);
+    g->found[idx] = id + 1;
+    g->foundCount++;
+    return true;
+}
+
+// The node holding `addr`, which may point inside it, or GRAPH_NONE
+static uint32_t graphFind(Graph *g, uintptr_t addr)
+{
+    size_t lo = 0, hi = g->keyCount;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (g->keys[mid].start <= addr)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    if (lo > 0) {
+        const GraphNode *n = &g->nodes[g->keys[lo - 1].id];
+        if (addr - n->start < n->size)
+            return g->keys[lo - 1].id;
+    }
+
+    uint32_t id = graphFoundLookup(g, addr);
+    if (id != GRAPH_NONE)
+        return id;
+
+#if defined(__APPLE__)
+    // Heap blocks are 16 byte aligned and malloc_size() is 0 for anything else
+    if ((addr & 15) == 0 && addr >= 4096 && addr < ((uintptr_t)1 << 47)) {
+        size_t size = malloc_size((const void *)addr);
+        if (size > 0) {
+            id = graphAddNode(g, (GraphNode){.start = addr, .size = size, .raw = true});
+            if (id != GRAPH_NONE)
+                graphFoundInsert(g, addr, id);
+            return id;
+        }
+    }
+#endif
+    return GRAPH_NONE;
+}
+
+static bool graphAddEdge(Graph *g, uint32_t from, uint32_t to, uint32_t off)
+{
+    if (g->edgeCount == g->edgeCap) {
+        size_t cap = g->edgeCap ? g->edgeCap * 2 : 4096;
+        GraphEdge *edges = realloc(g->edges, cap * sizeof(GraphEdge));
+        if (edges == NULL)
+            return false;
+        g->edges = edges;
+        g->edgeCap = cap;
+    }
+    g->edges[g->edgeCount++] = (GraphEdge){.from = from, .to = to, .off = off};
+    return true;
+}
+
+static bool graphScan(Graph *g, uint32_t id)
+{
+    const GraphNode n = g->nodes[id]; // the node array can move while scanning
+    if ((n.start & (sizeof(uintptr_t) - 1)) != 0)
+        return true;
+    const uintptr_t *words = (const uintptr_t *)n.start;
+    size_t count = (size_t)(n.size / sizeof(uintptr_t));
+    g->scanned += n.size;
+    for (size_t i = 0; i < count; i++) {
+        uintptr_t w = words[i];
+        if (w < 4096)
+            continue;
+        uint32_t to = graphFind(g, w);
+        if (to == GRAPH_NONE || to == id)
+            continue;
+        if (!graphAddEdge(g, id, to, (uint32_t)(i * sizeof(uintptr_t))))
+            return false;
+    }
+    return true;
+}
+
+static bool graphIndex(Graph *g)
+{
+    size_t n = g->count, m = g->edgeCount;
+    g->outStart = calloc(n + 1, sizeof(uint32_t));
+    g->inStart = calloc(n + 1, sizeof(uint32_t));
+    g->outEdge = malloc((m ? m : 1) * sizeof(uint32_t));
+    g->inEdge = malloc((m ? m : 1) * sizeof(uint32_t));
+    uint32_t *oc = malloc((n ? n : 1) * sizeof(uint32_t));
+    uint32_t *ic = malloc((n ? n : 1) * sizeof(uint32_t));
+    if (!g->outStart || !g->inStart || !g->outEdge || !g->inEdge || !oc || !ic) {
+        free(oc);
+        free(ic);
+        return false;
+    }
+
+    for (size_t e = 0; e < m; e++) {
+        g->outStart[g->edges[e].from + 1]++;
+        g->inStart[g->edges[e].to + 1]++;
+    }
+    for (size_t v = 0; v < n; v++) {
+        g->outStart[v + 1] += g->outStart[v];
+        g->inStart[v + 1] += g->inStart[v];
+        oc[v] = g->outStart[v];
+        ic[v] = g->inStart[v];
+    }
+    for (size_t e = 0; e < m; e++) {
+        g->outEdge[oc[g->edges[e].from]++] = (uint32_t)e;
+        g->inEdge[ic[g->edges[e].to]++] = (uint32_t)e;
+    }
+    free(oc);
+    free(ic);
+    return true;
+}
+
+// Runs in the forked child: the live table is a private copy, no lock needed
+static bool graphBuild(Graph *g)
+{
+    const char *env = getenv("CXY_MEM_SCAN_LIMIT_MB");
+    g->scanLimit = (env != NULL ? strtoull(env, NULL, 10) : 2048ull) << 20;
+
+    for (size_t i = 0; i < liveCap; i++) {
+        const LiveEntry *e = &live[i];
+        if (e->ptr == NULL || e->ptr == LIVE_TOMBSTONE)
+            continue;
+        GraphNode node = {.start = (uintptr_t)e->ptr,
+                          .size = e->size,
+                          .path = e->path,
+                          .line = e->line,
+                          .raw = e->raw};
+        if (graphAddNode(g, node) == GRAPH_NONE)
+            return false;
+    }
+
+    g->keys = malloc((g->count ? g->count : 1) * sizeof(GraphKey));
+    if (g->keys == NULL)
+        return false;
+    for (size_t i = 0; i < g->count; i++)
+        g->keys[i] = (GraphKey){.start = g->nodes[i].start, .id = (uint32_t)i};
+    g->keyCount = g->count;
+    qsort(g->keys, g->keyCount, sizeof(GraphKey), compareGraphKey);
+
+    // Nodes found while scanning are appended and scanned in turn
+    for (size_t id = 0; id < g->count; id++) {
+        if (g->scanned >= g->scanLimit) {
+            g->truncated = true;
+            break;
+        }
+        if (!graphScan(g, (uint32_t)id))
+            return false;
+    }
+    return graphIndex(g);
+}
+
+static void printGraphNode(int fd, const Graph *g, uint32_t id)
+{
+    const GraphNode *n = &g->nodes[id];
+    if (!n->raw) {
+        uint32_t refs = __cxy_mem_header_refs ? __cxy_mem_header_refs((void *)n->start) : 0;
+        dprintf(fd,
+                "%p size=%llu refs=%u @ %s:%llu",
+                (void *)n->start,
+                (unsigned long long)n->size,
+                (unsigned)refs,
+                n->path ? n->path : "<unknown>",
+                (unsigned long long)n->line);
+    }
+    else if (n->path != NULL) {
+        dprintf(fd,
+                "%p size=%llu buffer @ %s:%llu",
+                (void *)n->start,
+                (unsigned long long)n->size,
+                n->path,
+                (unsigned long long)n->line);
+    }
+    else {
+        dprintf(fd, "%p size=%llu buffer", (void *)n->start, (unsigned long long)n->size);
+    }
+}
+
+// One node per line, each indented one level deeper than the holder
+static void printChain(int fd, const Graph *g, const uint32_t *ids, const uint32_t *offs, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        dprintf(fd, "%*s", (int)(2 + i * 2), "");
+        if (i > 0)
+            dprintf(fd, "+%u -> ", (unsigned)offs[i]);
+        printGraphNode(fd, g, ids[i]);
+        dprintf(fd, "\n");
+    }
+}
+
+static uint32_t graphResolve(int fd, Graph *g, const char *arg)
+{
+    if (arg == NULL) {
+        dprintf(fd, "usage: <command> <ptr>\n");
+        return GRAPH_NONE;
+    }
+    uintptr_t addr = (uintptr_t)strtoull(arg, NULL, 0);
+    uint32_t id = graphFind(g, addr);
+    if (id == GRAPH_NONE)
+        dprintf(fd, "%s is not inside a live allocation\n", arg);
+    else if (g->nodes[id].start != addr)
+        dprintf(fd, "note: %s is inside the allocation at %p\n", arg, (void *)g->nodes[id].start);
+    return id;
+}
+
+static void graphHolders(int fd, const Graph *g, uint32_t id)
+{
+    printGraphNode(fd, g, id);
+    dprintf(fd, "\n");
+    size_t holders = 0;
+    for (uint32_t k = g->inStart[id]; k < g->inStart[id + 1]; k++) {
+        const GraphEdge *e = &g->edges[g->inEdge[k]];
+        if (holders++ < 50) {
+            dprintf(fd, "  held by ");
+            printGraphNode(fd, g, e->from);
+            dprintf(fd, " at +%u\n", (unsigned)e->off);
+        }
+    }
+    if (holders > 50)
+        dprintf(fd, "  ... %llu more\n", (unsigned long long)(holders - 50));
+    if (holders == 0)
+        dprintf(fd, "  not held by any tracked memory (stack, global or untracked buffer)\n");
+
+    const GraphNode *n = &g->nodes[id];
+    uint32_t refs = (!n->raw && __cxy_mem_header_refs) ? __cxy_mem_header_refs((void *)n->start) : 0;
+    if (refs > holders)
+        dprintf(fd,
+                "  %llu of %u reference(s) are held outside tracked memory\n",
+                (unsigned long long)(refs - holders),
+                (unsigned)refs);
+}
+
+// Shortest chain from a node nothing tracked points at, down to `target`
+static void graphPath(int fd, const Graph *g, uint32_t target)
+{
+    size_t n = g->count;
+    uint32_t *queue = malloc(n * sizeof(uint32_t)), *prev = malloc(n * sizeof(uint32_t));
+    uint32_t *ids = malloc(n * sizeof(uint32_t)), *offs = malloc(n * sizeof(uint32_t));
+    uint8_t *seen = calloc(n, 1);
+    if (!queue || !prev || !ids || !offs || !seen) {
+        dprintf(fd, "error: out of memory\n");
+        goto done;
+    }
+
+    size_t head = 0, tail = 0;
+    uint32_t root = GRAPH_NONE;
+    queue[tail++] = target;
+    seen[target] = 1;
+    while (head < tail) {
+        uint32_t v = queue[head++];
+        if (g->inStart[v] == g->inStart[v + 1]) {
+            root = v;
+            break;
+        }
+        for (uint32_t k = g->inStart[v]; k < g->inStart[v + 1]; k++) {
+            uint32_t e = g->inEdge[k], u = g->edges[e].from;
+            if (!seen[u]) {
+                seen[u] = 1;
+                prev[u] = e;
+                queue[tail++] = u;
+            }
+        }
+    }
+
+    if (root == GRAPH_NONE) {
+        dprintf(fd,
+                "no root: every chain of holders ends in a cycle, or is held from memory "
+                "the scan cannot see\n");
+        goto done;
+    }
+
+    size_t len = 0;
+    uint32_t v = root;
+    ids[len] = v;
+    offs[len++] = 0;
+    while (v != target) {
+        const GraphEdge *e = &g->edges[prev[v]];
+        v = e->to;
+        offs[len] = e->off;
+        ids[len++] = v;
+    }
+    dprintf(fd, "retention path (%llu holders deep):\n", (unsigned long long)(len - 1));
+    printChain(fd, g, ids, offs, len);
+
+done:
+    free(queue);
+    free(prev);
+    free(ids);
+    free(offs);
+    free(seen);
+}
+
+// Is `inner` held, directly or through other objects and buffers, by `outer`
+static void graphContains(int fd, const Graph *g, uint32_t outer, uint32_t inner)
+{
+    if (outer == inner) {
+        dprintf(fd, "same allocation\n");
+        return;
+    }
+    size_t n = g->count;
+    uint32_t *queue = malloc(n * sizeof(uint32_t)), *prev = malloc(n * sizeof(uint32_t));
+    uint32_t *ids = malloc(n * sizeof(uint32_t)), *offs = malloc(n * sizeof(uint32_t));
+    uint8_t *seen = calloc(n, 1);
+    if (!queue || !prev || !ids || !offs || !seen) {
+        dprintf(fd, "error: out of memory\n");
+        goto done;
+    }
+
+    size_t head = 0, tail = 0;
+    bool found = false;
+    queue[tail++] = outer;
+    seen[outer] = 1;
+    while (head < tail && !found) {
+        uint32_t v = queue[head++];
+        for (uint32_t k = g->outStart[v]; k < g->outStart[v + 1]; k++) {
+            uint32_t e = g->outEdge[k], w = g->edges[e].to;
+            if (seen[w])
+                continue;
+            seen[w] = 1;
+            prev[w] = e;
+            queue[tail++] = w;
+            if (w == inner) {
+                found = true;
+                break;
+            }
+        }
+    }
+
+    if (!found) {
+        dprintf(fd, "no, %p does not hold %p\n", (void *)g->nodes[outer].start, (void *)g->nodes[inner].start);
+        goto done;
+    }
+
+    // Walk back from `inner`, then print from `outer` down
+    size_t len = 0;
+    for (uint32_t v = inner; v != outer; v = g->edges[prev[v]].from)
+        ids[len++] = v;
+    dprintf(fd, "yes, held through %llu step(s):\n", (unsigned long long)len);
+    uint32_t *chain = queue, *chainOffs = offs; // queue is no longer needed
+    chain[0] = outer;
+    chainOffs[0] = 0;
+    for (size_t i = 0; i < len; i++) {
+        uint32_t v = ids[len - 1 - i];
+        chain[i + 1] = v;
+        chainOffs[i + 1] = g->edges[prev[v]].off;
+    }
+    printChain(fd, g, chain, chainOffs, len + 1);
+
+done:
+    free(queue);
+    free(prev);
+    free(ids);
+    free(offs);
+    free(seen);
+}
+
+static void graphTreeNode(int fd,
+                          const Graph *g,
+                          uint32_t id,
+                          uint32_t off,
+                          int depth,
+                          int maxDepth,
+                          uint8_t *seen)
+{
+    dprintf(fd, "%*s", 2 + depth * 2, "");
+    if (depth > 0)
+        dprintf(fd, "+%u -> ", (unsigned)off);
+    printGraphNode(fd, g, id);
+    uint32_t children = g->outStart[id + 1] - g->outStart[id];
+    if (seen[id]) {
+        dprintf(fd, " (shown above)\n");
+        return;
+    }
+    seen[id] = 1;
+    if (depth >= maxDepth) {
+        dprintf(fd, children ? " ...\n" : "\n");
+        return;
+    }
+    dprintf(fd, "\n");
+
+    uint32_t shown = 0;
+    for (uint32_t k = g->outStart[id]; k < g->outStart[id + 1]; k++) {
+        if (shown++ == 20) {
+            dprintf(fd, "%*s... %u more\n", 4 + depth * 2, "", children - 20);
+            break;
+        }
+        const GraphEdge *e = &g->edges[g->outEdge[k]];
+        graphTreeNode(fd, g, e->to, e->off, depth + 1, maxDepth, seen);
+    }
+}
+
+static int compareNodeSite(const void *lhs, const void *rhs)
+{
+    const GraphNode *l = &sortGraph->nodes[*(const uint32_t *)lhs];
+    const GraphNode *r = &sortGraph->nodes[*(const uint32_t *)rhs];
+    int c = strcmp(l->path ? l->path : "", r->path ? r->path : "");
+    if (c != 0)
+        return c;
+    return l->line < r->line ? -1 : (l->line > r->line ? 1 : 0);
+}
+
+// The sites that account for most of `ids` (reorders it)
+static void printTopSites(int fd, const Graph *g, uint32_t *ids, size_t count, size_t top)
+{
+    typedef struct {
+        const char *path;
+        uint64_t line, objs, bytes;
+    } Site;
+    Site best[8] = {{0}};
+    if (top > 8)
+        top = 8;
+
+    sortGraph = g;
+    qsort(ids, count, sizeof(uint32_t), compareNodeSite);
+    for (size_t i = 0; i < count;) {
+        const GraphNode *first = &g->nodes[ids[i]];
+        Site s = {.path = first->path, .line = first->line};
+        for (; i < count && compareNodeSite(&ids[i], &(uint32_t){(uint32_t)(first - g->nodes)}) == 0; i++) {
+            s.objs++;
+            s.bytes += g->nodes[ids[i]].size;
+        }
+        for (size_t j = 0; j < top; j++) {
+            if (s.bytes > best[j].bytes) {
+                for (size_t k = top - 1; k > j; k--)
+                    best[k] = best[k - 1];
+                best[j] = s;
+                break;
+            }
+        }
+    }
+    for (size_t j = 0; j < top && best[j].objs > 0; j++) {
+        if (best[j].path != NULL)
+            dprintf(fd,
+                    "      %12llu bytes %8llu objs  %s:%llu\n",
+                    (unsigned long long)best[j].bytes,
+                    (unsigned long long)best[j].objs,
+                    best[j].path,
+                    (unsigned long long)best[j].line);
+        else
+            dprintf(fd,
+                    "      %12llu bytes %8llu objs  (buffers)\n",
+                    (unsigned long long)best[j].bytes,
+                    (unsigned long long)best[j].objs);
+    }
+}
+
+typedef struct {
+    uint32_t id, slot;
+    uint64_t objs, bytes, exObjs, exBytes;
+} RootInfo;
+
+static int compareRootInfo(const void *lhs, const void *rhs)
+{
+    const RootInfo *l = lhs, *r = rhs;
+    if (l->exBytes != r->exBytes)
+        return l->exBytes < r->exBytes ? 1 : -1;
+    if (l->bytes != r->bytes)
+        return l->bytes < r->bytes ? 1 : -1;
+    return 0;
+}
+
+/*
+ * Roots are objects nothing tracked points at. For each, `excl` is what only
+ * that root keeps alive (freed if it goes away), `reach` also counts objects
+ * other roots hold too. A cache is a root with a large `excl`.
+ */
+static void graphRetained(int fd, const Graph *g, size_t limit)
+{
+    size_t n = g->count;
+    if (n == 0) {
+        dprintf(fd, "no live allocations\n");
+        return;
+    }
+    uint32_t *claim = calloc(n, sizeof(uint32_t)), *stamp = calloc(n, sizeof(uint32_t));
+    uint32_t *stack = malloc(n * sizeof(uint32_t)), *ids = malloc(n * sizeof(uint32_t));
+    RootInfo *roots = malloc(n * sizeof(RootInfo));
+    if (!claim || !stamp || !stack || !ids || !roots) {
+        dprintf(fd, "error: out of memory\n");
+        goto done;
+    }
+
+    size_t rootCount = 0;
+    for (uint32_t r = 0; r < n; r++) {
+        if (g->inStart[r] != g->inStart[r + 1])
+            continue;
+        uint32_t slot = (uint32_t)rootCount + 1;
+        RootInfo *info = &roots[rootCount++];
+        *info = (RootInfo){.id = r, .slot = slot};
+
+        size_t sp = 0;
+        stack[sp++] = r;
+        stamp[r] = slot;
+        while (sp > 0) {
+            uint32_t v = stack[--sp];
+            info->objs++;
+            info->bytes += g->nodes[v].size;
+            if (claim[v] == 0)
+                claim[v] = slot;
+            else if (claim[v] != slot)
+                claim[v] = GRAPH_MULTI;
+            for (uint32_t k = g->outStart[v]; k < g->outStart[v + 1]; k++) {
+                uint32_t w = g->edges[g->outEdge[k]].to;
+                if (stamp[w] != slot) {
+                    stamp[w] = slot;
+                    stack[sp++] = w;
+                }
+            }
+        }
+    }
+
+    size_t unrooted = 0;
+    uint64_t unrootedBytes = 0;
+    for (uint32_t v = 0; v < n; v++) {
+        if (claim[v] == 0) {
+            unrooted++;
+            unrootedBytes += g->nodes[v].size;
+        }
+        else if (claim[v] != GRAPH_MULTI) {
+            roots[claim[v] - 1].exObjs++;
+            roots[claim[v] - 1].exBytes += g->nodes[v].size;
+        }
+    }
+
+    qsort(roots, rootCount, sizeof(RootInfo), compareRootInfo);
+    dprintf(fd, "%12s %10s %12s %10s  %s\n", "excl.bytes", "excl.objs", "reach.bytes", "reach.objs", "root");
+    size_t shown = 0, holding = 0;
+    for (size_t i = 0; i < rootCount; i++) {
+        const RootInfo *info = &roots[i];
+        if (info->objs < 2)
+            continue; // holds nothing
+        holding++;
+        if (shown >= limit)
+            continue;
+        shown++;
+        dprintf(fd,
+                "%12llu %10llu %12llu %10llu  ",
+                (unsigned long long)info->exBytes,
+                (unsigned long long)info->exObjs,
+                (unsigned long long)info->bytes,
+                (unsigned long long)info->objs);
+        printGraphNode(fd, g, info->id);
+        dprintf(fd, "\n");
+
+        size_t count = 0;
+        for (uint32_t v = 0; v < n; v++) {
+            if (claim[v] == info->slot)
+                ids[count++] = v;
+        }
+        printTopSites(fd, g, ids, count, 3);
+    }
+    dprintf(fd,
+            "Total: %llu objects, %llu edges, %llu roots (%llu hold other objects)%s\n",
+            (unsigned long long)n,
+            (unsigned long long)g->edgeCount,
+            (unsigned long long)rootCount,
+            (unsigned long long)holding,
+            holding > shown ? ", showing the largest" : "");
+
+    if (unrooted > 0) {
+        dprintf(fd,
+                "\nunrooted: %llu objects, %llu bytes only held through cycles, or from "
+                "memory the scan cannot see\n",
+                (unsigned long long)unrooted,
+                (unsigned long long)unrootedBytes);
+        size_t count = 0;
+        for (uint32_t v = 0; v < n; v++) {
+            if (claim[v] == 0)
+                ids[count++] = v;
+        }
+        printTopSites(fd, g, ids, count, 3);
+    }
+
+done:
+    free(claim);
+    free(stamp);
+    free(stack);
+    free(ids);
+    free(roots);
+}
+
+// Runs in the forked child
+static void runGraphCommand(int fd, const char *cmd, const char *arg1, const char *arg2)
+{
+    Graph g = {0};
+    if (!graphBuild(&g)) {
+        dprintf(fd, "error: out of memory while scanning\n");
+        return;
+    }
+
+    if (strcmp(cmd, "retained") == 0) {
+        graphRetained(fd, &g, parseLimit(arg1));
+    }
+    else {
+        uint32_t id = graphResolve(fd, &g, arg1);
+        if (id != GRAPH_NONE) {
+            if (strcmp(cmd, "holders") == 0) {
+                graphHolders(fd, &g, id);
+            }
+            else if (strcmp(cmd, "path") == 0) {
+                graphPath(fd, &g, id);
+            }
+            else if (strcmp(cmd, "contains") == 0) {
+                uint32_t inner = graphResolve(fd, &g, arg2);
+                if (inner != GRAPH_NONE)
+                    graphContains(fd, &g, id, inner);
+            }
+            else {
+                int depth = arg2 ? atoi(arg2) : 3;
+                uint8_t *seen = calloc(g.count, 1);
+                if (seen != NULL) {
+                    graphTreeNode(fd, &g, id, 0, 0, depth < 0 ? 0 : (depth > 8 ? 8 : depth), seen);
+                    free(seen);
+                }
+            }
+        }
+    }
+
+    if (g.truncated)
+        dprintf(fd,
+                "warning: scan stopped after %llu MB (CXY_MEM_SCAN_LIMIT_MB), results are partial\n",
+                (unsigned long long)(g.scanLimit >> 20));
+}
+
+static void graphCrashHandler(int sig)
+{
+    static const char msg[] = "error: the scan crashed while reading memory\n";
+    (void)!write(graphFd, msg, sizeof(msg) - 1);
+    _exit(128 + sig);
+}
+
+/*
+ * Graph commands run in a forked child so the program keeps running and the
+ * scan sees a stable copy. The table lock is held across the fork so the copy
+ * is consistent. The child never takes it again and leaves with _exit() so
+ * none of the program's exit handlers run.
+ */
+static void graphCommand(int fd, const char *cmd, const char *arg1, const char *arg2)
+{
+    pthread_mutex_lock(&liveLock);
+    pid_t pid = fork();
+    if (pid == 0) {
+        graphFd = fd;
+        struct sigaction sa = {.sa_handler = graphCrashHandler};
+        sigemptyset(&sa.sa_mask);
+        sigaction(SIGSEGV, &sa, NULL);
+        sigaction(SIGBUS, &sa, NULL);
+        sigset_t unblock;
+        sigemptyset(&unblock);
+        sigaddset(&unblock, SIGSEGV);
+        sigaddset(&unblock, SIGBUS);
+        pthread_sigmask(SIG_UNBLOCK, &unblock, NULL);
+        runGraphCommand(fd, cmd, arg1, arg2);
+        _exit(0);
+    }
+    pthread_mutex_unlock(&liveLock);
+    if (pid < 0) {
+        dprintf(fd, "error: fork failed: %s\n", strerror(errno));
+        return;
+    }
+
+    const char *env = getenv("CXY_MEM_SCAN_SECONDS");
+    long limitMs = (env != NULL ? atol(env) : 120) * 1000;
+    int status = 0;
+    for (long waited = 0;; waited += 10) {
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r == pid)
+            break;
+        if (r < 0 && errno != EINTR)
+            break; // reaped by the program (SIGCHLD ignored)
+        if (waited >= limitMs) {
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            dprintf(fd, "error: scan timed out (CXY_MEM_SCAN_SECONDS)\n");
+            return;
+        }
+        usleep(10000);
+    }
 }
 
 static void handleCommand(int fd, char *line)
@@ -525,6 +1344,10 @@ static void handleCommand(int fd, char *line)
         sitesReportFd(fd, mark, parseLimit(args[1]));
     else if (strcmp(cmd, "difflist") == 0)
         liveReportFd(fd, mark, parseLimit(args[1]), sym, false);
+    else if (strcmp(cmd, "holders") == 0 || strcmp(cmd, "path") == 0 ||
+             strcmp(cmd, "contains") == 0 || strcmp(cmd, "retained") == 0 ||
+             strcmp(cmd, "tree") == 0)
+        graphCommand(fd, cmd, args[1], args[2]);
     else
         dprintf(fd, "unknown command '%s', try 'help'\n", cmd);
 }
@@ -633,7 +1456,42 @@ void __cxy_mem_trace_alloc(void *ptr, uint64_t size, const char *path, uint64_t 
 
     pthread_mutex_lock(&liveLock);
 
-    liveInsert(ptr, size, path, line);
+    liveInsert(ptr, size, path, line, false);
+    pthread_mutex_unlock(&liveLock);
+}
+
+/*
+ * Buffers (container storage) are not smart pointer allocations. Registering
+ * them lets the containment graph see through a vector or map to its elements.
+ * They never show up in leak reports. Call the hook before the buffer is freed.
+ */
+void __cxy_mem_trace_raw_alloc(void *ptr, uint64_t size, const char *path, uint64_t line)
+{
+    if (ptr == NULL || !__atomic_load_n(&started, __ATOMIC_ACQUIRE))
+        return;
+    pthread_mutex_lock(&liveLock);
+    liveInsert(ptr, size, path, line, true);
+    pthread_mutex_unlock(&liveLock);
+}
+
+void __cxy_mem_trace_raw_realloc(void *old, void *ptr, uint64_t size, const char *path, uint64_t line)
+{
+    if (!__atomic_load_n(&started, __ATOMIC_ACQUIRE))
+        return;
+    pthread_mutex_lock(&liveLock);
+    if (old != NULL)
+        liveRemove(old);
+    if (ptr != NULL)
+        liveInsert(ptr, size, path, line, true);
+    pthread_mutex_unlock(&liveLock);
+}
+
+void __cxy_mem_trace_raw_free(void *ptr)
+{
+    if (ptr == NULL)
+        return;
+    pthread_mutex_lock(&liveLock);
+    liveRemove(ptr);
     pthread_mutex_unlock(&liveLock);
 }
 

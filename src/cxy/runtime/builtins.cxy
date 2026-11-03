@@ -753,6 +753,11 @@ pub class String : OutputStream {
     }
 
     @inline
+    func `init`(str: &const __string) {
+        super.appendString(str)
+    }
+
+    @inline
     func `deinit`() {
         clear()
     }

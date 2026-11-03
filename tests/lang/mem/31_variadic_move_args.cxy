@@ -1,0 +1,28 @@
+class Resource {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+struct Hello {
+    _active: bool = true
+
+    func say(...args: auto) {
+    }
+
+    // A moved variadic value must clear its drop flag even when a later
+    // variadic argument is a reference
+    func sayer(name: Resource, ...args: auto): !void {
+        if !_active {
+            raise Exception("not active")
+        }
+        say(name, ...&&args)
+    }
+}
+
+func main(): !void {
+    var h = Hello{}
+    var r = Resource(3)
+    h.sayer(Resource(1), Resource(2), &r)
+    h.sayer(Resource(4), Resource(5), Resource(6))
+}

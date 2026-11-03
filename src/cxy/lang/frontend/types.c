@@ -177,6 +177,9 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
     if (isSliceType(to) && isArrayType(from)) {
         const Type *toElem = getSliceTargetType(to);
         const Type *fromElem = from->array.elementType;
+        // `[]` is `[auto, 0]` and fits any slice
+        if (typeIs(fromElem, Auto) && from->array.len == 0)
+            return true;
         return unwrapType(toElem, NULL) == unwrapType(fromElem, NULL);
     }
     u64 flags = flgNone;
@@ -793,6 +796,8 @@ bool isReferable(const Type *type)
     case typUnion:
     case typThis:
         return !hasFlag(type, Extern);
+    case typOptional:
+        return true;
     case typArray:
         // Fixed-size arrays can be copied, so they can be referred; slices stay views
         return type->array.len != UINT64_MAX && !hasFlag(type, Slice);
@@ -834,10 +839,18 @@ bool isClassType(const Type *type)
            (typeIs(type, This) && typeIs(type->_this.that, Class));
 }
 
-bool isOptionalType(const Type *type)
+// `&T?` is an optional seen through a reference
+static const Type *resolveOptionalType(const Type *type)
 {
     type = resolveUnThisUnwrapType(type);
-    return typeIs(type, Optional);
+    if (typeIs(type, Reference))
+        type = resolveUnThisUnwrapType(stripReference(type));
+    return type;
+}
+
+bool isOptionalType(const Type *type)
+{
+    return typeIs(resolveOptionalType(type), Optional);
 }
 
 bool isComplexType(const Type *type)
@@ -1363,7 +1376,7 @@ const EnumOptionDecl *findEnumOption(const Type *type, cstring option)
 bool isTruthyType(const Type *type)
 {
     return isIntegralType(type) || isFloatType(type) || typeIs(type, Pointer) ||
-           typeIs(type, Optional) || typeIs(type, String) ||
+           isOptionalType(type) || typeIs(type, String) ||
            typeIs(type, Closure) ||
            (isClassOrStructType(type) &&
             findStructMemberType(type, S_Truthy) != NULL);
@@ -1378,7 +1391,7 @@ const Type *getPointedType(const Type *type)
 
 const Type *getOptionalTargetType(const Type *type)
 {
-    type = resolveUnThisUnwrapType(type);
+    type = resolveOptionalType(type);
     if (!typeIs(type, Optional))
         return NULL;
 

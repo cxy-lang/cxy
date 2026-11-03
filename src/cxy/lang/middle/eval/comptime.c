@@ -291,8 +291,15 @@ static AstNode *getAttributes(EvalContext *ctx,
                               attr(unused) AstNode *args)
 {
     AstNode *decl = node;
-    if (nodeIs(decl, GenericParam))
+    if (nodeIs(decl, GenericParam)) {
         decl = getTypeDecl(decl->type);
+    }
+    else if (decl->attrs == NULL && decl->type) {
+        // `typeof!(f)` is a type reference, the attributes live on `f`
+        const Type *type = resolveType(decl->type);
+        if (typeIs(type, Func) && type->func.decl)
+            decl = type->func.decl;
+    }
     if (decl == NULL)
         return NULL;
 
@@ -483,7 +490,7 @@ static AstNode *getTargetType(EvalContext *ctx,
     case typOptional:
         type = getOptionalTargetType(type);
         break;
-    case typUnion:
+    case typResult:
         if (isResultType(type)) {
             type = getResultTargetType(type);
             break;

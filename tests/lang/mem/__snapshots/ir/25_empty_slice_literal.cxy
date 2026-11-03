@@ -1,0 +1,86 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/25_empty_slice_literal.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func main.Resource.op__init(this: ^Resource, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__deinit(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__destructor(<^Resource>(<^Resource>(ptr)))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func takeInts(items: [i32]): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func takeResources(items: [^Resource]): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  drop items
+  scope.exit 0
+  return
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  var __t0: [i32]
+  __t0 = null
+  takeInts(__t0)
+  var __t1: [^Resource]
+  __t1 = null
+  takeResources(__t1)
+  var ints: [i32]
+  ints = null
+  var resources: [^Resource]
+  resources = null
+  takeInts(ints)
+  var __copy0: [^Resource]
+  copy resources -> __copy0
+  takeResources(__copy0)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}

@@ -1,0 +1,457 @@
+module coro_spec
+
+// Task: spawn, join, park/wake, cancel. Workers reach their task through
+// `__currentTask` until an ambient `currentTask()` exists.
+
+import test "stdlib/coro.cxy"
+
+##if (defined __CXY_THREADS_ENABLED__) {
+    import { Atomic } from "stdlib/atomic.cxy"
+    import "stdlib/thread.cxy"
+}
+
+
+class Ctx {
+    count = 0
+    exited = false
+    got = false
+    ch = coro.Channel[i32](1)
+    wg = coro.CoWaitGroup("spec")
+    func `init`() {}
+}
+
+func finishNow(s: Ctx) {
+    s.exited = true
+}
+
+func yielder(s: Ctx) {
+    coro.yld()
+    coro.yld()
+    s.count = 2
+    s.exited = true
+}
+
+func compute(): i32 => 42
+
+func parkLoop(s: Ctx) {
+    var task = coro.__currentTask[void]()
+    while task.park() {
+        s.count++
+    }
+    s.exited = true
+}
+
+func yieldThenPark(s: Ctx) {
+    var task = coro.__currentTask[void]()
+    coro.yld()
+    s.got = task.park()
+    s.exited = true
+}
+
+func parkTimed(s: Ctx) {
+    var task = coro.__currentTask[void]()
+    s.got = task.park(5)
+    s.exited = true
+}
+
+func sleeper(s: Ctx) {
+    sleepAsync(5000)
+    s.exited = true
+}
+
+func receiver(s: Ctx) {
+    var v = s.ch.receive()
+    s.got = !!v
+    s.exited = true
+}
+
+func waiter(s: Ctx) {
+    s.wg.wait()
+    s.exited = true
+}
+
+// `@task` functions, started with `@async`
+@task
+func taskVoid(s: Ctx): void {
+    s.exited = true
+}
+
+@task
+func taskValue(): i32 {
+    return 42
+}
+
+@task
+func taskRaises(): !i32 {
+    raise Exception("boom")
+}
+
+@task
+func taskRaisesVoid(): !void {
+    raise Exception("boom")
+}
+
+@task
+func taskParkLoop(s: Ctx): !void {
+    var task = currentTask!()
+    while task.park() {
+        s.count++
+    }
+    s.exited = true
+}
+
+@task
+func taskSleeper(s: Ctx): !void {
+    sleepAsync(5000)
+    s.exited = true
+}
+
+@task
+func taskYielder(s: Ctx): void {
+    var task = currentTask!()
+    while task.yld() {
+        s.count++
+    }
+    s.exited = true
+}
+
+@task
+func taskReceiver(s: Ctx): void {
+    var v = s.ch.receive()
+    s.got = !!v
+    s.exited = true
+}
+
+class Worker {
+    id: i32
+
+    func `init`(id: i32) {
+        this.id = id
+    }
+
+    @task
+    func run(s: Ctx): i32 {
+        s.count++
+        return id
+    }
+}
+
+test "Task - join after the task finished" {
+    var s = Ctx()
+    var t = __task_spawn!(#void, finishNow(s), "finishNow")
+    ok!(t.done())
+    ok!(s.exited)
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+}
+
+test "Task - join before the task finished" {
+    var s = Ctx()
+    var t = __task_spawn!(#void, yielder(s), "yielder")
+    ok!(!t.done())
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(t.done())
+    ok!(s.count == 2)
+}
+
+test "Task - join returns the value" {
+    var t = __task_spawn!(#i32, coro.__currentTask[i32]()._set(compute()), "compute")
+    var v = t.join() catch {
+        ok!(false, "join raised")
+        return
+    }
+    ok!(v == 42)
+}
+
+test "Task - recorded error is raised on join" {
+    var t = coro.Task[i32]()
+    t.throw(Exception("boom"))
+    t._set(0)
+    t._finish()
+    ok!(t.done())
+    var raised = false
+    t.join() catch {
+        raised = true
+    }
+    ok!(raised)
+}
+
+test "Task - cancel while parked" {
+    var s = Ctx()
+    var t = __task_spawn!(#void, parkLoop(s), "parkLoop")
+    ok!(!t.done())
+    t.cancel()
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(t.cancelled())
+    ok!(s.exited)
+}
+
+test "Task - wake resumes a parked task" {
+    var s = Ctx()
+    var t = __task_spawn!(#void, parkLoop(s), "parkLoop")
+    t.wake(true)
+    ok!(s.count == 1)
+    t.cancel()
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(s.exited)
+}
+
+test "Task - wake before park is not lost" {
+    var s = Ctx()
+    var t = __task_spawn!(#void, yieldThenPark(s), "yieldThenPark")
+    t.wake()
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(s.got)
+    ok!(s.exited)
+}
+
+test "Task - timed park returns true on timeout" {
+    var s = Ctx()
+    var t = __task_spawn!(#void, parkTimed(s), "parkTimed")
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(s.got)
+}
+
+test "Task - cancel interrupts sleep" {
+    var s = Ctx()
+    var t = __task_spawn!(#void, sleeper(s), "sleeper")
+    t.cancel()
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(s.exited)
+}
+
+test "Task - cancel interrupts Channel.receive" {
+    var s = Ctx()
+    var t = __task_spawn!(#void, receiver(s), "receiver")
+    t.cancel()
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(s.exited)
+    ok!(!s.got)
+}
+
+test "Task - cancel does not interrupt a non interruptible wait" {
+    var s = Ctx()
+    s.wg.add()
+    var t = __task_spawn!(#void, waiter(s), "waiter")
+    t.cancel()
+    ok!(t.cancelled())
+    ok!(!s.exited)
+    s.wg.done()
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(s.exited)
+}
+
+test "@async - void task" {
+    var s = Ctx()
+    var t = @async taskVoid(s)
+    ok!(t.done())
+    ok!(s.exited)
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+}
+
+test "@async - named task" {
+    var s = Ctx()
+    var t = @async "named" taskVoid(s)
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(s.exited)
+}
+
+test "@async - task value" {
+    var t = @async taskValue()
+    var v = t.join() catch {
+        ok!(false, "join raised")
+        return
+    }
+    ok!(v == 42)
+}
+
+test "@async - raised error is raised on join" {
+    var t = @async taskRaises()
+    var raised = false
+    t.join() catch {
+        raised = true
+    }
+    ok!(raised)
+}
+
+test "@async - raised error of a void task is raised on join" {
+    var t = @async taskRaisesVoid()
+    var raised = false
+    t.join() catch {
+        raised = true
+    }
+    ok!(raised)
+}
+
+test "@async - member function task" {
+    var s = Ctx()
+    var w = Worker(7)
+    var t = @async w.run(s)
+    var v = t.join() catch {
+        ok!(false, "join raised")
+        return
+    }
+    ok!(v == 7)
+    ok!(s.count == 1)
+}
+
+test "@async - currentTask park and cancel" {
+    var s = Ctx()
+    var t = @async taskParkLoop(s)
+    ok!(!t.done())
+    t.wake(true)
+    ok!(s.count == 1)
+    t.cancel()
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(t.cancelled())
+    ok!(s.exited)
+}
+
+test "@async - cancel interrupts sleep" {
+    var s = Ctx()
+    var t = @async taskSleeper(s)
+    t.cancel()
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(s.exited)
+}
+
+test "@async - cancel interrupts Channel.receive" {
+    var s = Ctx()
+    var t = @async taskReceiver(s)
+    t.cancel()
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(s.exited)
+    ok!(!s.got)
+}
+
+test "@async - Task.yld returns false once cancelled" {
+    var s = Ctx()
+    var t = @async taskYielder(s)
+    ok!(!t.done())
+    t.cancel()
+    t.join() catch {
+        ok!(false, "join raised")
+    }
+    ok!(s.exited)
+    ok!(s.count == 0)
+}
+
+// Cross thread use of a Task handle. Each thread has its own scheduler, the
+// task always runs on the thread that spawned it.
+
+#if (defined __CXY_THREADS_ENABLED__) {
+    class Shared {
+        ctx = Ctx()
+        task: coro.Task[void]
+        ready = Atomic[bool]()
+        func `init`() {}
+    }
+
+    func cancelFromThread(sh: &Shared) {
+        sh.task.cancel()
+    }
+
+    func wakeThenCancel(sh: &Shared) {
+        sh.task.wake()
+        sh.task.cancel()
+    }
+
+    func wakeMany(sh: &Shared) {
+        for (const i: 0..200) {
+            sh.task.wake()
+        }
+    }
+
+    // Owns the task: spawns it, publishes it and runs its scheduler by joining
+    func ownTask(sh: &Shared) {
+        sh.task = @async taskParkLoop(sh.ctx)
+        sh.ready.store(true)
+        sh.task.join() catch discard
+    }
+
+    test "Task threads - cancel from another thread" {
+        var sh = Shared()
+        sh.task = @async taskSleeper(sh.ctx)
+        var th = launch cancelFromThread(sh)
+        sh.task.join() catch {
+            ok!(false, "join raised")
+        }
+        th.join()
+        ok!(sh.ctx.exited)
+        ok!(sh.task.cancelled())
+    }
+
+    test "Task threads - wake and cancel from another thread" {
+        var sh = Shared()
+        sh.task = @async taskParkLoop(sh.ctx)
+        var th = launch wakeThenCancel(sh)
+        sh.task.join() catch {
+            ok!(false, "join raised")
+        }
+        th.join()
+        ok!(sh.ctx.exited)
+        ok!(sh.ctx.count <= 1)
+    }
+
+    test "Task threads - concurrent wakes from several threads" {
+        var sh = Shared()
+        sh.task = @async taskParkLoop(sh.ctx)
+        var a = launch wakeMany(sh)
+        var b = launch wakeMany(sh)
+        var c = launch wakeMany(sh)
+        a.join()
+        b.join()
+        c.join()
+        sh.task.cancel()
+        sh.task.join() catch {
+            ok!(false, "join raised")
+        }
+        ok!(sh.ctx.exited)
+    }
+
+    test "Task threads - wake, cancel and join a task owned by another thread" {
+        var sh = Shared()
+        var th = launch ownTask(sh)
+        var spins = 0.i32
+        while !sh.ready.load() && spins < 5000 {
+            sleepAsync(1)
+            spins++
+        }
+        ok!(sh.ready.load())
+        sh.task.wake()
+        sh.task.cancel()
+        sh.task.join() catch {
+            ok!(false, "join raised")
+        }
+        th.join()
+        ok!(sh.ctx.exited)
+        ok!(sh.task.done())
+    }
+}

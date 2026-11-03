@@ -18,6 +18,7 @@ typedef struct {
     StrPool *strings;
     Env *env;
     AstModifier root;
+    FileLoc lastTaskRefError;
     union {
         struct {
             bool isComptimeContext;

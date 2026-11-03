@@ -380,6 +380,8 @@ pub class Request {
 type WriterFn = func(buf: ^const char, size: u64) -> bool
 
 pub class Response {
+    @static
+    _empty = String();
     - _status: Status;
     - _headers = HeaderMap();
     - _writer: lambda_of!(#WriterFn);
@@ -389,6 +391,9 @@ pub class Response {
     - _s2: String = null;
     - _isComplete = false;
     - _headersComplete = false;
+    // Bytes that followed the headers of an event stream or upgrade, they belong
+    // to the stream and are not parsed as a body
+    - _rest: String = null;
 
     @inline
     func `init`(settings: ^const parser.llhttp_settings_t) {
@@ -432,6 +437,13 @@ pub class Response {
 
     @[inline, prop]
     const func headersComplete() => _headersComplete
+
+    // Takes the bytes read after the headers of an event stream, null if none
+    - func takeRest(): String {
+        var rest = &&_rest
+        _rest = null
+        return &&rest
+    }
 
     func isEventStream(): bool {
         var ct = _headers.[String("Content-Type")]
@@ -477,6 +489,11 @@ pub class Response {
         const ret = parser.llhttp_execute(_parser, buf !: ^const char, len)
         if (ret == parser.llhttp_errno.HPE_PAUSED_UPGRADE || ret == parser.llhttp_errno.HPE_PAUSED) {
             _isComplete = true
+            // The parser stops after the headers, keep what came with them
+            const pos = parser.llhttp_get_error_pos(_parser)
+            const consumed = (pos !: u64) - (buf !: u64)
+            if (consumed < len)
+                _rest = String(pos, len - consumed)
             return true
         }
         if (ret != parser.llhttp_errno.HPE_OK) {
@@ -581,6 +598,8 @@ pub class Session {
     - _sock: Socket = null;
     - _req: Request = null;
     - _hostname: String = null;
+    // Bytes of the last response that followed its headers, see takeSocketAndPending
+    - _pending: String = null;
 
     func `init`(proto: strview, host: String, port: u16, addr: Address, timeout: u64 = 20000`u64) {
         _proto = &&proto
@@ -609,6 +628,7 @@ pub class Session {
         builder: RequestBuilder = null,
         @escaping writer: WriterFn = null
     ): !Response {
+        _pending = null
         if (_req == null)
             _req = Request()
         _req.reset(method, &&resource, false)
@@ -632,6 +652,7 @@ pub class Session {
         _req.submit(_sock, _timeout)
         var resp: Response = Response(ptrof HTTP_PARSER_SETTINGS, &&writer);
         resp.receive(&_sock, _timeout)
+        _pending = resp.takeRest()
         return &&resp
     }
 
@@ -697,13 +718,27 @@ pub class Session {
         return This(proto, hostStr, port, &&addr, timeout)
     }
 
+    // Note: bytes that arrived with the response headers (events of an event
+    // stream) are dropped, use takeSocketAndPending() to get them
     func takeSocket(): Socket {
         var sock = &&_sock
         _sock = null
+        _pending = null
         return &&sock
     }
 
+    // Like takeSocket(), also returns the bytes read after the response headers,
+    // they have to be processed before reading from the socket. Null if none.
+    func takeSocketAndPending(): (Socket, String) {
+        var pending = &&_pending
+        _pending = null
+        var sock = &&_sock
+        _sock = null
+        return (&&sock, &&pending)
+    }
+
     func resetConnection() {
+        _pending = null
         if (_sock != null) {
             _sock.close()
             _sock = null

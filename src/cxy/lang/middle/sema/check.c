@@ -105,6 +105,8 @@ static void checkIdentifier(attr(unused) AstVisitor *visitor, AstNode *node)
     node->type = node->ident.resolvesTo->type;
 }
 
+static void checkDiscardedResult(TypingContext *ctx, AstNode *node);
+
 static void checkBlockStmt(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
@@ -118,6 +120,11 @@ static void checkBlockStmt(AstVisitor *visitor, AstNode *node)
             node->type = ERROR_TYPE(ctx);
             goto restoreBlock;
         }
+
+        // the last statement of a value block is its value, not discarded
+        if (nodeIs(stmt, ExprStmt) &&
+            !(hasFlag(node, BlockReturns) && stmt->next == NULL))
+            checkDiscardedResult(ctx, stmt);
 
         if (nodeIs(stmt, ReturnStmt)) {
             bool isIncompatible = node->type && !typeIs(node->type, Void) &&
@@ -545,6 +552,39 @@ static void checkSpreadExpr(AstVisitor *visitor, AstNode *node)
     *node = *parts;
     if (variable != expr)
         astModifierAdd(&ctx->blockModifier, variable);
+}
+
+// `@nodiscard` on a function or a type: the result of the statement is unused
+static void checkDiscardedResult(TypingContext *ctx, AstNode *node)
+{
+    AstNode *expr = node->exprStmt.expr;
+    const Type *callee = nodeIs(expr, CallExpr) ? expr->callExpr.callee->type
+                                                : NULL;
+    const AstNode *decl = (callee && typeIs(callee, Func)) ? callee->func.decl
+                                                           : NULL;
+    if (decl && findAttribute(decl, S_nodiscard)) {
+        logError(ctx->L,
+                 &expr->loc,
+                 "the result of '{s}' must be used",
+                 (FormatArg[]){{.s = getDeclarationName(decl)}});
+        logNote(ctx->L, &decl->loc, "declared `@nodiscard` here", NULL);
+        return;
+    }
+
+    // an assignment has the type of its target but nothing is discarded
+    const Type *type = node->type;
+    if (nodeIs(expr, AssignExpr) || type == NULL ||
+        !isClassOrStructType(type) || isReferenceType(type) ||
+        isPointerType(type))
+        return;
+    const AstNode *typeDecl = getTypeDecl(type);
+    if (typeDecl && findAttribute(typeDecl, S_nodiscard)) {
+        logError(ctx->L,
+                 &expr->loc,
+                 "the result of type '{t}' must be used",
+                 (FormatArg[]){{.t = type}});
+        logNote(ctx->L, &typeDecl->loc, "declared `@nodiscard` here", NULL);
+    }
 }
 
 static void checkExprStmt(AstVisitor *visitor, AstNode *node)

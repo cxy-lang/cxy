@@ -203,7 +203,20 @@ void checkBinaryExpr(AstVisitor *visitor, AstNode *node)
             node->type = ERROR_TYPE(ctx);
             return;
         }
-        node->type = type;
+        // `T? ?? v` is a `T` (`v` is converted to it), `x ?? v` for a plain
+        // nullable `x` is the type of `v`. An optional `v` keeps the chain
+        // optional, and a `null` carries no type of its own.
+        bool rhsIsNull = nodeIs(rhs, NullLit) || typeIs(type, Null) ||
+                         (typeIs(type, Pointer) &&
+                          typeIs(type->pointer.pointed, Null));
+        if (isOptionalType(type))
+            node->type = type;
+        else if (isOptionalType(left))
+            node->type = target;
+        else
+            node->type = rhsIsNull ? left : type;
+        if (rhsIsNull)
+            rhs->type = node->type;
         return;
     }
 

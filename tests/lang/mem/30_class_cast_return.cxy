@@ -1,0 +1,25 @@
+class Base {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+class Derived : Base {
+    func `init`(id: i32) { super(id) }
+}
+
+// Returning a cast of a local must copy it, the local is dropped at exit
+func upcast(): Base {
+    var d = Derived(1)
+    return d as Base
+}
+
+func plain(): Base {
+    var b = Base(2)
+    return b
+}
+
+func main(): void {
+    var a = upcast()
+    var b = plain()
+}

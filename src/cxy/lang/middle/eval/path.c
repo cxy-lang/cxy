@@ -152,7 +152,13 @@ void evalPathEpilogue(AstVisitor *visitor,
             node->type = type;
             return;
         default:
-            csAssert0(false);
+            logError(ctx->L,
+                     &node->loc,
+                     "typeinfo not supported for type '{t}'",
+                     (FormatArg[]){{.t = type}});
+            node->tag = astError;
+            node->type = ERROR_TYPE(ctx);
+            return;
         }
     }
     else if (nodeIs(symbol, FuncParamDecl)) {

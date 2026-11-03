@@ -120,10 +120,44 @@ static AstNode *captureSymbol(BindContext *ctx,
     return captured;
 }
 
+// `@async f()` calls the wrapper `_task_f` that is only generated for `@task`
+// functions, report the real problem instead of the missing wrapper
+static bool reportMissingTaskWrapper(BindContext *ctx, const AstNode *root)
+{
+    cstring name = root->pathElement.alt ?: root->pathElement.name;
+    if (!(root->flags & flgAsync) || findSymbolOnly(ctx->env, name) != NULL)
+        return false;
+
+
+    // The macro expands the call once per branch, report each site once
+    if (ctx->lastTaskRefError.fileName == root->loc.fileName &&
+        ctx->lastTaskRefError.begin.byteOffset == root->loc.begin.byteOffset)
+        return true;
+    ctx->lastTaskRefError = root->loc;
+
+    cstring original =
+        makeString(ctx->strings, name + CXY_TASK_WRAPPER_PREFIX_LEN);
+    AstNode *func = findSymbolOnly(ctx->env, original);
+    if (func == NULL) {
+        // not declared at all, report it as any other undefined symbol
+        findSymbol(ctx->env, ctx->L, original, &root->loc);
+        return true;
+    }
+
+    logError(ctx->L,
+             &root->loc,
+             "'{s}' is not a `@task` function, `@async` requires one",
+             (FormatArg[]){{.s = original}});
+    logNote(ctx->L, &func->loc, "'{s}' declared here", (FormatArg[]){{.s = original}});
+    return true;
+}
+
 static AstNode *resolvePathBaseUpChain(AstVisitor *visitor, AstNode *path)
 {
     BindContext *ctx = getAstVisitorContext(visitor);
     AstNode *root = path->path.elements;
+    if (reportMissingTaskWrapper(ctx, root))
+        return NULL;
     AstNode *parent = findEnclosingClassOrStruct(ctx->env, NULL, NULL, NULL);
     bool hasResolvableBase = !nodeIs(parent, ClassDecl) ||
                              parent->classDecl.base == NULL ||
@@ -952,7 +986,10 @@ void withParentScope(Visitor func, AstVisitor *visitor, AstNode *node)
 
 void bindAstPhase2(CompilerDriver *driver, Env *env, AstNode *node)
 {
-    BindContext context = {.env = env, .L = driver->L, .pool = driver->pool};
+    BindContext context = {.env = env,
+                           .L = driver->L,
+                           .pool = driver->pool,
+                           .strings = driver->strings};
 
     // clang-format off
     AstVisitor visitor = makeAstVisitor(&context, {

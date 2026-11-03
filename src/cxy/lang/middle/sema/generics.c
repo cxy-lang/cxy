@@ -458,6 +458,11 @@ const Type *resolveGenericDecl(AstVisitor *visitor,
         }
     }
 
+    // errors inside the substitution point back at the instantiating code
+    logPushFrame(ctx->L,
+                 &node->loc,
+                 "in instantiation of '{t}' requested here",
+                 (FormatArg){.t = type});
     if (nodeIs(substitute, FuncDecl)) {
         if (hasFlag(generic, Variadic)) {
             addVariadicParamsToSubstitute(
@@ -488,6 +493,7 @@ const Type *resolveGenericDecl(AstVisitor *visitor,
         node->type = checkType(visitor, substitute);
         substitute->flags |= flgVisited;
     }
+    logPopFrame(ctx->L);
 
     astModifierAdd(&ctx->root, substitute);
 

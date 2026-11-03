@@ -105,6 +105,10 @@ static void mangleType(FormatState *state, const Type *type)
         mangleType(state, type->func.retType);
         append(state, "_", 1);
         break;
+    case typOptional:
+        append(state, "O", 1);
+        mangleType(state, type->optional.target);
+        break;
     case typPointer:
         append(state, "P", 1);
         mangleType(state, type->pointer.pointed);

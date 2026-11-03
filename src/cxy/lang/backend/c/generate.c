@@ -394,6 +394,18 @@ static void emitCast(ConstIrVisitor *visitor, const IrNode *node)
         format(&ctx->state, "))", NULL);
         return;
     }
+    // `null` coerced to a struct is the zero value of that struct
+    if (node->cast.expr && node->cast.expr->tag == irNullConst && node->type &&
+        (node->type->tag == irTypeStruct ||
+         node->type->tag == irTypeUntaggedUnion) &&
+        node->type->category != irTypeCatClass) {
+        format(&ctx->state, "(", NULL);
+        emitCTypeName(&ctx->state, node->type);
+        format(&ctx->state,
+               node->type->strct.count ? "){{0}" : "){{}",
+               NULL);
+        return;
+    }
     format(&ctx->state, "((", NULL);
     emitCTypeName(&ctx->state, node->type);
     format(&ctx->state, ")(", NULL);
@@ -1316,6 +1328,58 @@ static void emitCVarDecl(FormatState *state, const IrType *type, cstring name)
     }
 }
 
+// A parameter, function pointers need a declarator (`ret (*name)(args)`)
+static void emitCParam(FormatState *state, const IrType *type, cstring name)
+{
+    if (type && type->tag == irTypeFunc && type->name == NULL) {
+        emitCTypeName(state, type->func.ret);
+        format(state, " (*{s})(", (FormatArg[]){{.s = name}});
+        for (u64 i = 0; i < type->func.count; i++) {
+            if (i > 0)
+                format(state, ", ", NULL);
+            emitCTypeName(state, type->func.params[i]);
+        }
+        if (type->func.count == 0)
+            format(state, "void", NULL);
+        format(state, ")", NULL);
+        return;
+    }
+    emitCTypeName(state, type);
+    format(state, " {s}", (FormatArg[]){{.s = name}});
+}
+
+// Only guaranteed to hold the register as an operand of an inline asm
+static void emitCRegisterVarDecl(FormatState *state, const IrNode *var)
+{
+    format(state, "register ", NULL);
+    emitCTypeName(state, var->type);
+    format(state,
+           " {s} asm(\"{s}\");\n",
+           (FormatArg[]){{.s = var->varDecl.name}, {.s = var->varDecl.reg}});
+}
+
+static void emitExternFunctionAttrs(FormatState *state, const IrNode *func)
+{
+    static const struct {
+        IrFuncAttr attr;
+        cstring name;
+    } attrs[] = {{irFuncAttrNaked, "naked"},
+                 {irFuncAttrNoReturn, "noreturn"},
+                 {irFuncAttrReturnsTwice, "returns_twice"}};
+
+    bool first = true;
+    for (u32 i = 0; i < sizeof(attrs) / sizeof(attrs[0]); i++) {
+        if (!(func->function.attrs & attrs[i].attr))
+            continue;
+        format(state,
+               first ? "__attribute__(({s}" : ", {s}",
+               (FormatArg[]){{.s = attrs[i].name}});
+        first = false;
+    }
+    if (!first)
+        format(state, ")) ", NULL);
+}
+
 static void emitFunctionLinkage(FormatState *state, const IrNode *func)
 {
     if (hasFlag(func, ModuleInit) || (func->function.name && strstr(func->function.name, "___init")))
@@ -1335,8 +1399,7 @@ static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
     emitCTypeName(&ctx->state, node->type ? node->type->func.ret : NULL);
     format(&ctx->state, " {s}(", (FormatArg[]){{.s = node->function.name}});
     for (const IrNode *p = node->function.params; p; p = p->next) {
-        emitCTypeName(&ctx->state, p->type);
-        format(&ctx->state, " {s}", (FormatArg[]){{.s = p->funcParam.name}});
+        emitCParam(&ctx->state, p->type, p->funcParam.name);
         if (p->next)
             format(&ctx->state, ", ", NULL);
     }
@@ -1346,7 +1409,10 @@ static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
         for (const IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
             if (stmt->tag == irVarDecl) {
                 format(&ctx->state, "  ", NULL);
-                emitCVarDecl(&ctx->state, stmt->type, stmt->varDecl.name ?: "__v");
+                if (stmt->varDecl.reg)
+                    emitCRegisterVarDecl(&ctx->state, stmt);
+                else
+                    emitCVarDecl(&ctx->state, stmt->type, stmt->varDecl.name ?: "__v");
             }
         }
     }
@@ -1381,7 +1447,8 @@ static void emitGlobalVar(ConstIrVisitor *visitor, const IrNode *node)
         emitCTypeName(&ctx->state, node->type);
         format(&ctx->state, " {s}", (FormatArg[]){{.s = node->globalVar.name}});
     }
-    if (node->globalVar.init) {
+    // `null` is zero and globals are zero initialized, whatever the type
+    if (node->globalVar.init && node->globalVar.init->tag != irNullConst) {
         format(&ctx->state, " = ", NULL);
         irConstVisit(visitor, node->globalVar.init);
     }
@@ -1517,6 +1584,7 @@ static void emitFunctionPrototypes(FormatState *state, const IrModule *module)
             if (func->function.isHint)
                 continue;
             format(state, "extern ", NULL);
+            emitExternFunctionAttrs(state, func);
             emitCTypeName(state, func->type ? func->type->func.ret : NULL);
             format(state, " {s}(", (FormatArg[]){{.s = func->function.name}});
             if (func->function.params == NULL && !hasFlag(func, Variadic)) {
@@ -1543,8 +1611,7 @@ static void emitFunctionPrototypes(FormatState *state, const IrModule *module)
         emitCTypeName(state, func->type ? func->type->func.ret : NULL);
         format(state, " {s}(", (FormatArg[]){{.s = func->function.name}});
         for (const IrNode *p = func->function.params; p; p = p->next) {
-            emitCTypeName(state, p->type);
-            format(state, " {s}", (FormatArg[]){{.s = p->funcParam.name}});
+            emitCParam(state, p->type, p->funcParam.name);
             if (p->next)
                 format(state, ", ", NULL);
         }

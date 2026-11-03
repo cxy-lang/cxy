@@ -1,0 +1,16 @@
+var calls = 0
+
+@pure
+func hit(s: string): void {
+    calls++
+}
+
+// A `@pure` function takes a plain function pointer, not a closure
+@pure
+func sayer(h: func(_: string) -> void, s: string): void {
+    h(s)
+}
+
+func main(): void {
+    sayer(hit, "hello")
+}

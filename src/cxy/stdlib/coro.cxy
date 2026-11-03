@@ -83,7 +83,7 @@ else #if (defined __aarch64__) {
     macro CXY_CTX_SIZE 22
 
     macro __cxy_coro_setjmp(ctx) =({
-        @volatile var ret: i64 = 0;
+        @[volatile, register("x0")] var ret: i64 = 0
         @volatile asm("""
             adr x17, LJMPRET$=
             mov $0, #0
@@ -366,6 +366,10 @@ pub struct Coroutine {
     file: string = null
     line: u64 = 0
     schedId: i32 = -1
+    /* Owning task, null when spawned without one */
+    task: ^void = null
+    /* Set only while blocked in a wait that cancel() may interrupt */
+    interruptible: bool = false
     #if (defined __CXY_THREADS_ENABLED__) {
         tid: u64 = 0;
     }
@@ -390,7 +394,12 @@ pub struct Coroutine {
     @inline
     func __trace_coro_fwd(tag: string, cr: ^Coroutine, path: string, line: u64) {
         if (cr != null) {
-            (TRACE_CORO!)(tag, path, line, cr.name, cr.id, cr.schedId, cr !: ^void, cr.file, cr.line, cr.tid)
+            // `tid` only exists when threads are enabled
+            var tid = 0`u64
+            #if (defined __CXY_THREADS_ENABLED__) {
+                tid = cr.tid
+            }
+            (TRACE_CORO!)(tag, path, line, cr.name, cr.id, cr.schedId, cr !: ^void, cr.file, cr.line, tid)
         } else {
             (TRACE_CORO!)(tag, path, line, null, -1, -1, null, null, 0`u64, 0`u64)
         }
@@ -438,7 +447,7 @@ class CoroutineScheduler {
     /* Counter used in rescheduling coroutines */
     - counter : i32 = 0;
     /* Event loop for handling IO events */
-    - eventLoop : ^ae.aeEventLoop = null;
+    eventLoop : ^ae.aeEventLoop = null;
     #if (defined __CXY_THREADS_ENABLED__) {
         threadId: u64 = 0;
     }
@@ -581,25 +590,48 @@ class CoroutineScheduler {
         return 0;
     }
 
+    /* Like suspend() but a cancel may resume the coroutine early */
+    func suspendInterruptible(): i32 {
+        var cr = running
+        cr.interruptible = true
+        var result = suspend()
+        cr.interruptible = false
+        return result
+    }
+
     func resume(cr: ^Coroutine, res: i32): void {
         #if (defined __CXY_THREADS_ENABLED__) {
             assert!((cr.scheduler !: ^void) == (this !: ^void))
         }
+        // already queued, a second push would corrupt the ready list
+        if (cr.ready)
+            return
         __TRACE_CORO!("resume", cr, file!, line!)
         cr.ready = true;
         cr.result = res
         ready.push(cr)
     }
 
+    /* A queued coroutine keeps its place, only its result is replaced */
+    func resumeCancel(cr: ^Coroutine): void {
+        if (cr.ready) {
+            cr.result = <i32>ae.Status.AE_CANCELLED
+            return
+        }
+        resume(cr, <i32>ae.Status.AE_CANCELLED)
+    }
+
     #if (defined __CXY_THREADS_ENABLED__) {
         func resumeAndWake(cr: ^Coroutine, res: i32): void {
             __TRACE_CORO!("wake", cr, file!, line!)
-            cr.ready = true;
-            cr.result = res
 
-            // Add to pending queue (thread-safe)
+            // Add to pending queue (thread-safe), once
             tinyThread.mtx_lock(ptrof pendingMtx)
-            pending.push(cr)
+            if (!cr.ready) {
+                cr.ready = true;
+                cr.result = res
+                pending.push(cr)
+            }
             tinyThread.mtx_unlock(ptrof pendingMtx)
 
             // Wake up the event loop
@@ -620,6 +652,8 @@ class CoroutineScheduler {
         cr.schedId = this.id
         cr.id = idGenerator++
         cr.ready = false;
+        cr.task = null
+        cr.interruptible = false
         cr.name = name
         cr.file = file
         cr.line = line
@@ -653,7 +687,7 @@ class CoroutineScheduler {
         );
         if (status == ae.Status.AE_OK) {
             // suspend the current coroutine
-            var result = suspend();
+            var result = suspendInterruptible();
             ae.aeDeleteFileEvent(eventLoop, fd, ae.State.AE_WRITABLE)
             return result
         }
@@ -671,27 +705,21 @@ class CoroutineScheduler {
         );
         if (status == .AE_OK) {
             // suspend the current coroutine
-            var result = suspend();
+            var result = suspendInterruptible();
             ae.aeDeleteFileEvent(eventLoop, fd, ae.State.AE_READABLE)
             return result
         }
         return status
     }
 
+    // Waits for `pid` to exit through an fd that turns readable on exit
     func pidWait(pid: i32, timeout: u64 = 0) {
-        var status = ae.aeWaitPid(
-            eventLoop,
-            pid,
-            eventLoopCallback,
-            running !: ^void,
-            timeout
-        );
-        if (status == .AE_OK) {
-            var result = suspend();
-            ae.aeCancelWaitPid(eventLoop, pid)
-            return result
-        }
-        return status
+        var fd = ae.aeOpenPidFd(pid)
+        if (fd < 0)
+            return ae.Status.AE_ERR
+        var result = fdWaitRead(fd, timeout)
+        unistd.close(fd)
+        return result
     }
 
     func sleep(ms: i64) {
@@ -704,11 +732,14 @@ class CoroutineScheduler {
                 null
             );
             assert!(status != .AE_ERR)
-            suspend()
+            suspendInterruptible()
+            // an early wake must not leave the timer armed
+            ae.aeDeleteTimeEvent(eventLoop, status)
         }
     }
 
-    func timeout(ms: i64) {
+    /* `interruptible` must be false while queued on a waiter list */
+    func timeout(ms: i64, interruptible: bool = true) {
         if (ms > 0) {
             @unused var status = ae.aeCreateTimeEvent(
                 eventLoop,
@@ -718,12 +749,18 @@ class CoroutineScheduler {
                 null
             );
             assert!(status != .AE_ERR)
-            var by = suspend();
+            var by = interruptible ? suspendInterruptible() : suspend()
             ae.aeDeleteTimeEvent(eventLoop, status)
+            if (by == <i32>ae.Status.AE_CANCELLED)
+                return false
             return by == status
         }
         else {
-            suspend()
+            if (interruptible) {
+                suspendInterruptible()
+            } else {
+                suspend()
+            }
             return false
         }
     }
@@ -752,10 +789,37 @@ pub func resume(co:  ^Coroutine, res: i32) { __get_scheduler().resume(co, res) }
 @inline
 pub func yld() { __get_scheduler().yld() }
 @inline
+pub func suspendInterruptible() => __get_scheduler().suspendInterruptible()
+
+/* True when the wait that just returned was interrupted by cancel */
+@inline
+pub func wasCancelled() => __get_scheduler().running.result == (<i32>ae.Status.AE_CANCELLED)
+
+/* Interrupts `cr` if it is blocked in a cancel-safe wait, otherwise a no-op */
+pub func cancelCoroutine(cr: ^Coroutine) {
+    if (cr == null || !cr.interruptible)
+        return
+    #if (defined __CXY_THREADS_ENABLED__) {
+        var owner = &(cr.scheduler !: CoroutineScheduler)
+        if (owner.id != __get_scheduler().id) {
+            owner.resumeAndWake(cr, <i32>ae.Status.AE_CANCELLED)
+            return
+        }
+    }
+    __get_scheduler().resumeCancel(cr)
+}
+@inline
 pub func running() => __get_scheduler().running
 
 @inline
 pub func id() => __get_scheduler().running.id
+
+// Exits the running coroutine. Called as a plain argument-less call by the
+// spawn macros so no compiler temporary of the spawning function is used after
+// the stack switch, the spawning function may have returned by then.
+pub func __coro_exit(): void {
+    __get_scheduler().epilogue()
+}
 
 macro __async(CALL, NAME) {
     // Only create the scheduler when it's needed
@@ -764,7 +828,7 @@ macro __async(CALL, NAME) {
         var cr = __sched.prologue(NAME!, file!, line!);
         __cxy_coro_setsp!(cr !: ^void)
         CALL!
-        module.__get_scheduler().epilogue()
+        module.__coro_exit()
     }
 }
 
@@ -786,6 +850,296 @@ func __sleep(ms: i64) { __get_scheduler().sleep(ms) }
 @[inline, __override_builtin("timeout")]
 func __timeout(ms: i64) => __get_scheduler().timeout(ms)
 
+// Resume `cr` on the scheduler that owns it
+func resumeCoroutine(cr: ^Coroutine, res: i32) {
+    #if (defined __CXY_THREADS_ENABLED__) {
+        var owner = &(cr.scheduler !: CoroutineScheduler)
+        if (owner.id != __get_scheduler().id) {
+            owner.resumeAndWake(cr, res)
+            return
+        }
+    }
+    __get_scheduler().resume(cr, res)
+}
+
+/*
+ * Handle of a coroutine started with `__async_task*`. Members prefixed with `_`
+ * are used by the spawn macros. The coroutine keeps the task alive through
+ * `_self` until it finishes.
+ */
+@nodiscard
+pub class Task[T] {
+    _cr: ^Coroutine = null
+    _self: This = null
+    _cancelled = false
+    _permit = false
+    _parked = false
+    _done = false
+    _joiners = List[Coroutine]{}
+    _error: Exception = null
+    #if (#T != #void) {
+        _value: T? = null
+    }
+    // Guards the fields above and the joiners against other threads. Never held
+    // while suspending.
+    #if (defined __CXY_THREADS_ENABLED__) {
+        _mtx = tinyThread.mtx_t{}
+    }
+
+    func `init`() {
+        #if (defined __CXY_THREADS_ENABLED__) {
+            tinyThread.mtx_init(ptrof _mtx, mtx_plain!)
+        }
+    }
+
+    #if (defined __CXY_THREADS_ENABLED__) {
+        func `deinit`() {
+            tinyThread.mtx_destroy(ptrof _mtx)
+        }
+    }
+
+    @inline
+    - func lock() {
+        #if (defined __CXY_THREADS_ENABLED__) {
+            tinyThread.mtx_lock(ptrof _mtx)
+        }
+    }
+
+    @inline
+    - func unlock() {
+        #if (defined __CXY_THREADS_ENABLED__) {
+            tinyThread.mtx_unlock(ptrof _mtx)
+        }
+    }
+
+    // false => cancelled. `ms == 0` parks until woken or cancelled
+    func park(ms: i64 = 0): bool {
+        lock()
+        if (_cancelled) {
+            unlock()
+            return false
+        }
+        if (_permit) {
+            _permit = false
+            unlock()
+            return true
+        }
+        _parked = true
+        unlock()
+
+        // the timer claims `_parked` like wake and cancel do
+        var loop = __get_scheduler().eventLoop
+        var timer = ae.Status.AE_ERR
+        if (ms > 0) {
+            timer = ae.aeCreateTimeEvent(
+                loop, ms, _parkTimeout, this !: ^void, null)
+        }
+        suspendInterruptible()
+        if (ms > 0)
+            ae.aeDeleteTimeEvent(loop, timer)
+
+        lock()
+        _parked = false
+        var stop = _cancelled
+        unlock()
+        return !stop
+    }
+
+    // Resume a parked task, or remember the wake for the next park(). With
+    // `yieldNow` the caller also yields when it resumed a task that belongs to
+    // its own scheduler, so the woken task runs promptly. Never yields otherwise
+    // (permit, other thread), so it must only be set from a coroutine.
+    func wake(yieldNow: bool = false) {
+        var sameScheduler = false
+        lock()
+        if (_done) {
+            unlock()
+            return
+        }
+        if (!_parked || _cr == null) {
+            _permit = true
+        } else {
+            // resumed under the lock, `_finish` can't recycle `_cr` meanwhile
+            _parked = false
+            sameScheduler = (_cr.scheduler !: ^void) ==
+                (__get_scheduler() !: ^void)
+            resumeCoroutine(_cr, 0)
+        }
+        unlock()
+
+        if (yieldNow && sameScheduler)
+            module.yld()
+    }
+
+    // Yields like the module level yld(), returns false once cancelled. A cancel
+    // that arrives while the task is queued only sets the flag, seen here.
+    func yld(): bool {
+        if (this.cancelled())
+            return false
+        module.yld()
+        return !this.cancelled()
+    }
+
+    // Cooperative: sets the flag and interrupts a cancel-safe wait
+    func cancel() {
+        lock()
+        _cancelled = true
+        if (_cr != null) {
+            if (_parked) {
+                _parked = false
+                resumeCoroutine(_cr, <i32>ae.Status.AE_CANCELLED)
+            } else {
+                cancelCoroutine(_cr)
+            }
+        }
+        unlock()
+    }
+
+    // Park timeout, runs in the event loop of the task's thread
+    @static
+    func _parkTimeout(loop: ^ae.aeEventLoop, id: i64, arg: ^void): ae.Status {
+        var t = &(arg !: This)
+        t.lock()
+        if (t._parked && t._cr != null) {
+            t._parked = false
+            resumeCoroutine(t._cr, <i32>id)
+        }
+        t.unlock()
+        return ae.Status.AE_NO_MORE
+    }
+
+    func done(): bool {
+        lock()
+        var res = _done
+        unlock()
+        return res
+    }
+
+    func cancelled(): bool {
+        lock()
+        var res = _cancelled
+        unlock()
+        return res
+    }
+
+    - func wait() {
+        lock()
+        if (_done) {
+            unlock()
+            return
+        }
+        _joiners.push(running())
+        unlock()
+        suspend()
+    }
+
+    #if (#T != #void) {
+        func join(): !T {
+            this.wait()
+            if (this._error != null)
+                raise this._error
+            return &&*this._value
+        }
+
+        // Records the value, the spawn macro calls _finish() afterwards
+        func _set(value: T) {
+            this._value = &&value
+        }
+    } else {
+        func join(): !void {
+            this.wait()
+            if (this._error != null)
+                raise this._error
+        }
+    }
+
+    // Records the error join() raises, the first one wins. The task keeps
+    // running until its function returns.
+    func throw(ex: Exception) {
+        if (_error == null)
+            _error = &&ex
+    }
+
+    // Called on the spawning side right after prologue()
+    func _attach(cr: ^Coroutine) {
+        _cr = cr
+        cr.task = (this !: ^void)
+        _self = __copy!(this)
+    }
+
+    // Runs once on the child stack, after the task function and its wrapper
+    // returned and before epilogue() returns the stack to the pool
+    func _finish(): void {
+        lock()
+        _done = true
+        if (_cr != null) {
+            _cr.task = null
+            _cr = null
+        }
+        var joiners = List[Coroutine]{}
+        while !_joiners.empty() {
+            joiners.push(_joiners.pop())
+        }
+        unlock()
+
+        while !joiners.empty() {
+            resumeCoroutine(joiners.pop(), 0)
+        }
+        // may destroy the task, nothing may touch `this` afterwards
+        _self = null
+    }
+}
+
+@[inline, __override_builtin("__currentTask")]
+pub func __currentTask[T](): &Task[T] => &(__get_scheduler().running.task !: Task[T])
+
+/*
+ * Runs on the child stack once the task body is done. The spawning function may
+ * have returned by now (a task can outlive it), so nothing after the body in
+ * the spawn macro may use its locals or compiler temporaries: the stack frame
+ * is gone and stores to it corrupt whatever lives there now. This is a plain
+ * call with no arguments for that reason.
+ */
+pub func __task_done[T](): void {
+    __currentTask[T]()._finish()
+    __get_scheduler().epilogue()
+}
+
+/*
+ * Runs `BODY` on a new coroutine and returns its `Task[R]`. `BODY` records the
+ * outcome on the running task (`_set`, `throw`), `_finish()` runs after it.
+ * `__task` is created before setjmp: a value assigned between setjmp and the
+ * second return may be a stale register copy. The child reaches its task
+ * through the coroutine header, never through locals of the parent.
+ */
+macro __task_spawn(R, BODY, NAME) =({
+    var __task = module.Task[R!]()
+    var __sched = module.__get_scheduler()
+    if (__cxy_coro_setjmp!(ptrof __sched.running.ctx) == 0) {
+        var cr = __sched.prologue(NAME!, file!, line!)
+        __task._attach(cr)
+        __cxy_coro_setsp!(cr !: ^void)
+        BODY!
+        module.__task_done[R!]()
+    }
+    &&__task
+})
+
+/*
+ * `@async f(args)`: the parser passes a clone of the callee (`_CALLEE`), the call
+ * to the synthesized wrapper `_task_f(args)` and the optional name. `R` is the
+ * unwrapped return type of `f`.
+ */
+macro __async_task(_CALLEE, CALL, NAME) =({
+    #const Callee = typeof!(_CALLEE!)
+    require!(!!Callee.attributes.[:task], "@async requires a function marked @task")
+    #if (Callee.returnType.isResultType) {
+        module.__task_spawn!(Callee.returnType.targetType, CALL!, NAME!)
+    } else {
+        module.__task_spawn!(Callee.returnType, CALL!, NAME!)
+    }
+})
+
 pub struct Channel[T] {
     _buffer: CircularBuffer[T]
     _in: ^Coroutine = null
@@ -804,6 +1158,10 @@ pub struct Channel[T] {
                 return
             }
             _in = null
+            // cancelled while waiting: the buffer is still full
+            if wasCancelled() {
+                return
+            }
         }
 
         _buffer.push(&&x) catch discard  // We will get here if there is room
@@ -824,6 +1182,9 @@ pub struct Channel[T] {
                 return null
             }
             _out = null
+            if wasCancelled() {
+                return null
+            }
         }
 
         if _in != null {
@@ -978,7 +1339,7 @@ pub struct CoWaitGroup {
             tinyThread.mtx_unlock(ptrof _osMutex)
 
             mutex.unlock()
-            var timedOut = timeout(ms)
+            var timedOut = __get_scheduler().timeout(ms, false)
 
             // Note: If timeout occurs, waiter remains in list but won't be resumed
             // This is acceptable as notify() will wake a potentially timed-out waiter
@@ -1150,6 +1511,10 @@ pub struct CoWaitGroup {
                 }
                 tinyThread.mtx_lock(ptrof _mtx)
                 _in = null
+                if wasCancelled() {
+                    tinyThread.mtx_unlock(ptrof _mtx)
+                    return false
+                }
             }
 
             _buffer.push(&&x) catch discard
@@ -1176,6 +1541,10 @@ pub struct CoWaitGroup {
                 }
                 tinyThread.mtx_lock(ptrof _mtx)
                 _out = null
+                if wasCancelled() {
+                    tinyThread.mtx_unlock(ptrof _mtx)
+                    return null
+                }
             }
 
             var val = _buffer.pop() catch {
@@ -1189,7 +1558,7 @@ pub struct CoWaitGroup {
             if waiter != null {
                 resumeWaiter(waiter)
             }
-            return Some(&&val)
+            return &&val
         }
     }
 }

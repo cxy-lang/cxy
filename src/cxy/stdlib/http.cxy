@@ -1243,7 +1243,14 @@ class Connection[Middlewares] {
             return;
         }
 
-        TRC!( (methodName(req.method())) << " " << req.path() )
+        var start = timestamp()
+        dispatch()
+        TRC!( (methodName(req.method())) << " " << req.path() << " (" << (timestamp() - start) << "ms)" )
+    }
+
+    // Routes the request and sends the response
+    @private
+    func dispatch(): void {
         var route = (*router).find(&req, &resp);
 
         if !route {

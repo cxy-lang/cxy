@@ -944,7 +944,7 @@ func toJSONB64[T](os: &OutputStream, it: &const T) : void {
     }
 }
 
-// Generic serialization to OutputStream (exact copy from json.cxy)
+// Generic serialization tos OutputStream (exact copy from json.cxy)
 pub func toJSON[T](os: &OutputStream, it: &const T) : void {
     #if #T == #Value {
         serializeValue(os, it, 0, false)
@@ -962,12 +962,21 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
                 return
             }
         }
-        os << '"' << it << '"'
+        os << '"'
+        #if T.isClass {
+            escapeJsonString(os, it.s())
+        }
+        else #if T.isStruct {
+            escapeJsonString(os, it)
+        }
+        else {
+            escapeJsonString(os, strview(it))
+        }
+        os << '"'
     }
     else #if (T.isOptional) {
         if (it) {
-            const value = *it;
-            toJSON[#{typeof!(value)}](os, &value)
+            toJSON[#{T.targetType}](os, &*it)
         }
         else {
             os << "null"

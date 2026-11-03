@@ -544,10 +544,221 @@ static void shakeFieldDecl(AstVisitor *visitor, AstNode *node)
     astVisitFallbackVisitAll(visitor, node);
 }
 
+// The unwrapped return type of a `@task` function, `raises` tells if it is `!T`
+static AstNode *getTaskReturnType(ShakeAstContext *ctx,
+                                  const AstNode *node,
+                                  bool *raises)
+{
+    const AstNode *ret = node->funcDecl.signature->ret;
+    *raises = ret && nodeIs(ret, ResultType);
+    if (*raises)
+        ret = ret->resultType.target;
+    if (ret == NULL)
+        return makeVoidAstNode(ctx->pool, &node->loc, flgNone, NULL, NULL);
+    return deepCloneAstNode(ctx->pool, ret);
+}
+
+// `__currentTask[R]().<method>(arg)`, `current` is the builtin `__currentTask`
+static AstNode *makeTaskCall(ShakeAstContext *ctx,
+                             const FileLoc *loc,
+                             AstNode *current,
+                             const AstNode *ret,
+                             cstring method,
+                             AstNode *arg)
+{
+    AstNode *path = makeResolvedPathWithArgs(ctx->pool,
+                                             loc,
+                                             S___currentTask,
+                                             flgNone,
+                                             current,
+                                             deepCloneAstNode(ctx->pool, ret),
+                                             NULL);
+    AstNode *task =
+        makeCallExpr(ctx->pool, loc, path, NULL, flgNone, NULL, NULL);
+    AstNode *callee = makeMemberExpr(
+        ctx->pool,
+        loc,
+        flgNone,
+        task,
+        makeIdentifier(ctx->pool, loc, method, 0, NULL, NULL),
+        NULL,
+        NULL);
+    return makeCallExpr(ctx->pool, loc, callee, arg, flgNone, NULL, NULL);
+}
+
+/*
+ * `@task f(...)` gets a sibling `_task_f(...): void` that runs `f` as the body
+ * of a task and records the outcome on the running task. The form depends on
+ * the declared return type `R` of `f`:
+ *   f(...)                                     R is void
+ *   __currentTask[R]()._set(f(...))            R is a value
+ *   f(...) catch as ex { __currentTask[R]().throw(&&ex); return } !void
+ *   var v = f(...) catch as ex { ...; return }; _set(&&v)         !R
+ * `__currentTask` is the builtin registered by `stdlib/coro.cxy`.
+ */
+static AstNode *makeTaskWrapper(ShakeAstContext *ctx, AstNode *node)
+{
+    MemPool *pool = ctx->pool;
+    const FileLoc *loc = &node->loc;
+    cstring name = getDeclarationName(node);
+    AstNode *current = findBuiltinDecl(S___currentTask);
+    if (current == NULL) {
+        logError(ctx->L,
+                 loc,
+                 "`@task` requires '__currentTask' to be defined (import "
+                 "'stdlib/coro.cxy')",
+                 NULL);
+        return NULL;
+    }
+    bool raises = false;
+    AstNode *ret = getTaskReturnType(ctx, node, &raises);
+    bool isVoid = nodeIs(ret, VoidType);
+    cstring setName = makeString(ctx->strings, "_set");
+
+    AstNode *params =
+        deepCloneManyAstNode(pool, node->funcDecl.signature->params);
+    AstNodeList args = {};
+    for (AstNode *param = params; param; param = param->next)
+        insertAstNode(&args,
+                      makePath(pool, loc, param->funcParam.name, flgNone, NULL));
+    AstNode *call = makeCallExpr(pool,
+                                 loc,
+                                 makePath(pool, loc, name, flgNone, NULL),
+                                 args.first,
+                                 flgAsync, // the only call allowed on a `@task`
+                                 NULL,
+                                 NULL);
+
+    AstNodeList stmts = {};
+    if (!raises) {
+        insertAstNode(
+            &stmts,
+            makeExprStmt(pool,
+                         loc,
+                         flgNone,
+                         isVoid ? call
+                                : makeTaskCall(ctx, loc, current, ret, setName, call),
+                         NULL,
+                         NULL));
+    }
+    else {
+        AstNodeList handler = {};
+        insertAstNode(
+            &handler,
+            makeExprStmt(
+                pool,
+                loc,
+                flgNone,
+                makeTaskCall(ctx,
+                             loc,
+                             current,
+                             ret,
+                             makeString(ctx->strings, "throw"),
+                             makeUnaryExpr(pool,
+                                           loc,
+                                           flgNone,
+                                           true,
+                                           opMove,
+                                           makePath(pool, loc, S_ex, flgNone, NULL),
+                                           NULL,
+                                           NULL)),
+                NULL,
+                NULL));
+        insertAstNode(
+            &handler, makeReturnAstNode(pool, loc, flgNone, NULL, NULL, NULL));
+        AstNode *var = makeAstNode(
+            pool,
+            loc,
+            &(AstNode){.tag = astAliasExpr,
+                       .aliasExpr = {.name = S_ex, .expr = NULL}});
+        AstNode *caught = makeCatchExpr(
+            pool,
+            loc,
+            flgNone,
+            call,
+            var,
+            makeBlockStmt(pool, loc, handler.first, NULL, NULL),
+            NULL,
+            NULL);
+        if (isVoid) {
+            insertAstNode(&stmts,
+                          makeExprStmt(pool, loc, flgNone, caught, NULL, NULL));
+        }
+        else {
+            cstring value = makeString(ctx->strings, "__task_value");
+            insertAstNode(
+                &stmts, makeVarDecl(pool, loc, flgNone, value, NULL, caught, NULL, NULL));
+            AstNode *moved = makeUnaryExpr(pool,
+                                           loc,
+                                           flgNone,
+                                           true,
+                                           opMove,
+                                           makePath(pool, loc, value, flgNone, NULL),
+                                           NULL,
+                                           NULL);
+            insertAstNode(
+                &stmts,
+                makeExprStmt(pool,
+                             loc,
+                             flgNone,
+                             makeTaskCall(ctx, loc, current, ret, setName, moved),
+                             NULL,
+                             NULL));
+        }
+    }
+
+    AstNode *wrapper = makeFunctionDecl(
+        pool,
+        loc,
+        makeStringf(ctx->strings, CXY_TASK_WRAPPER_PREFIX "%s", name),
+        params,
+        makeVoidAstNode(pool, loc, flgNone, NULL, NULL),
+        makeBlockStmt(pool, loc, stmts.first, NULL, NULL),
+        node->flags & (flgPublic | flgStatic | flgConst | flgTestContext),
+        NULL,
+        NULL);
+    if (node->funcDecl.this_)
+        wrapper->funcDecl.this_ = deepCloneAstNode(pool, node->funcDecl.this_);
+    return wrapper;
+}
+
+static bool validateTaskFunction(ShakeAstContext *ctx, const AstNode *node)
+{
+    const char *problem = NULL;
+    const AstNode *ret = node->funcDecl.signature->ret;
+    if (ctx->inFunction)
+        problem = "local functions cannot be tasks";
+    else if (hasFlag(node, Extern) || node->funcDecl.body == NULL)
+        problem = "a task function needs a body";
+    else if (node->funcDecl.operatorOverload != opInvalid)
+        problem = "operator overloads cannot be tasks";
+    else if (ret == NULL || nodeIs(ret, AutoType))
+        problem = "a task function needs an explicit return type";
+    else {
+        for (const AstNode *p = node->funcDecl.signature->params; p;
+             p = p->next) {
+            if (hasFlag(p, Variadic)) {
+                problem = "variadic functions cannot be tasks";
+                break;
+            }
+        }
+    }
+    if (problem == NULL)
+        return true;
+    logError(ctx->L,
+             &node->loc,
+             "invalid `@task` function, {s}",
+             (FormatArg[]){{.s = problem}});
+    return false;
+}
+
 static void shakeFuncDecl(AstVisitor *visitor, AstNode *node)
 {
     ShakeAstContext *ctx = getAstVisitorContext(visitor);
     u16 required = 0, total = 0;
+    bool isTask = findAttribute(node, S_task) != NULL;
+    if (isTask && !validateTaskFunction(ctx, node))
+        return;
     node->flags |= findAttribute(node, S_pure) == NULL ? flgNone : flgPure;
     node->flags |= findAttribute(node, S_static) == NULL ? flgNone : flgStatic;
 
@@ -621,6 +832,7 @@ static void shakeFuncDecl(AstVisitor *visitor, AstNode *node)
                         &(AstNode){.tag = astReturnStmt,
                                    .returnStmt.expr = node->funcDecl.body})}});
     }
+    ctx->inFunction = true;
     astVisit(visitor, node->funcDecl.body);
 
     if (isVariadic) {
@@ -631,6 +843,28 @@ static void shakeFuncDecl(AstVisitor *visitor, AstNode *node)
             node->flags |= flgVariadic;
         }
     }
+
+    if (isTask) {
+        AstNode *wrapper = makeTaskWrapper(ctx, node);
+        if (wrapper)
+            insertAstNode(&ctx->taskWrappers, wrapper);
+    }
+}
+
+// Shakes the collected `_task_f` wrappers and returns them as one list
+static AstNode *takeTaskWrappers(AstVisitor *visitor)
+{
+    ShakeAstContext *ctx = getAstVisitorContext(visitor);
+    AstNodeList wrappers = ctx->taskWrappers;
+    ctx->taskWrappers = (AstNodeList){};
+    for (AstNode *it = wrappers.first; it;) {
+        AstNode *next = it->next;
+        it->next = NULL;
+        astVisit(visitor, it);
+        it->next = next;
+        it = next;
+    }
+    return wrappers.first;
 }
 
 static void shakeUnionDecl(AstVisitor *visitor, AstNode *node)
@@ -781,6 +1015,13 @@ static void shakeGenericDecl(AstVisitor *visitor, AstNode *node)
     ShakeAstContext *ctx = getAstVisitorContext(visitor);
     AstNode *decl = node->genericDecl.decl, *gparams = node->genericDecl.params,
             *gparam = gparams;
+    if (findAttribute(node, S_task) || findAttribute(decl, S_task)) {
+        logError(ctx->L,
+                 &node->loc,
+                 "invalid `@task` function, generic functions cannot be tasks",
+                 NULL);
+        return;
+    }
     node->genericDecl.paramsCount = countAstNodes(gparams);
     node->genericDecl.name = getDeclarationName(node->genericDecl.decl);
     if (findAttribute(node, S_pure))
@@ -1168,7 +1409,17 @@ static void shakeClassOrStructDecl(AstVisitor *visitor, AstNode *node)
     ShakeAstContext *ctx = getAstVisitorContext(visitor);
     ctx->cls = getDeclarationName(node);
     ctx->stack.currentClsOrStruct = node;
+    AstNodeList outerWrappers = ctx->taskWrappers;
+    ctx->taskWrappers = (AstNodeList){};
     astVisitFallbackVisitAll(visitor, node);
+    AstNode *wrappers = takeTaskWrappers(visitor);
+    if (wrappers) {
+        if (node->structDecl.members)
+            getLastAstNode(node->structDecl.members)->next = wrappers;
+        else
+            node->structDecl.members = wrappers;
+    }
+    ctx->taskWrappers = outerWrappers;
     ctx->stack.currentClsOrStruct = NULL;
     AstNode *builtins = createClassOrStructBuiltins(ctx->pool, node);
     if (node->structDecl.members) {
@@ -1190,6 +1441,14 @@ static void shakeProgram(AstVisitor *visitor, AstNode *node)
     for (; decl; decl = decl->next) {
         astModifierNext(&ctx->root, decl);
         astVisit(visitor, decl);
+    }
+
+    AstNode *wrappers = takeTaskWrappers(visitor);
+    if (wrappers) {
+        if (node->program.decls)
+            getLastAstNode(node->program.decls)->next = wrappers;
+        else
+            node->program.decls = wrappers;
     }
 }
 

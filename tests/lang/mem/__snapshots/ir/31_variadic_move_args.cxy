@@ -1,0 +1,220 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/31_variadic_move_args.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func main.Resource.op__init(this: ^Resource, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__deinit(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor(this: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Resource_op__destructor(<^Resource>(<^Resource>(ptr)))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Resource.op__initCover(id: i32): ^Resource {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Resource
+  var __obj3: ^Resource
+  var __t0: ^Resource
+  __t0 = alloc(^Resource)
+  __obj3 = <^Resource>(__t0)
+  zeromem __obj3
+  Resource_op__init(<^Resource>(__obj3), id)
+  __ret = __obj3
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Exception.op__initCover(name: ^char): ^Exception {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Exception
+  var __obj4: ^Exception
+  var __t1: ^Exception
+  __t1 = alloc(^Exception)
+  __obj4 = <^Exception>(__t1)
+  zeromem __obj4
+  builtins_Exception___defaults_init(<^Exception>(__obj4))
+  builtins_Exception_op__init(<^Exception>(__obj4), name)
+  __ret = __obj4
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Hello.sayI_ZResource_ZResource_RZResource_E(this: ^Hello, args: ^Resource, args1: ^Resource, args2: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  drop args1
+  drop args
+  scope.exit 0
+  return
+}
+
+func main.Hello.sayerI_ZResource_RZResource_E(this: ^Hello, name: ^Resource, args: ^Resource, args1: ^Resource): !void {
+_L_entry:
+  var __drop_flags: __drop_flags_Hello_sayerI_ZResource_RZResource_E_t
+  zeromem __drop_flags
+  __drop_flags.args = 1
+  scope.enter 0
+  var __ret: !void
+  if !this._active goto _L_IF0_then else goto _L_IF0_end
+_L_IF0_then:
+  scope.enter 1
+  var __t2: ^Exception
+  __t2 = builtins_Exception_op__initCover("not active")
+  builtins_Exception_push(__t2, "main", "Hello", "main.Hello.sayerI_ZResource_RZResource_E", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/31_variadic_move_args.cxy", 17)
+  __ret.tag = 1
+  __ret.val = __t2
+  goto _L_UNWIND1_return
+_L_IF0_end:
+  var __copy0: ^Resource
+  copy name -> __copy0
+  __drop_flags.args = 0
+  Hello_sayI_ZResource_ZResource_RZResource_E(this, __copy0, args, args1)
+  __ret.tag = 0
+  goto _L_exit
+_L_UNWIND1_return:
+  scope.exit 1
+  goto _L_exit
+_L_exit:
+  drop-if args, __drop_flags.args
+  __drop_flags.args = 0
+  drop name
+  scope.exit 0
+  return __ret
+}
+
+func main.Hello.sayI_ZResource_ZResource_ZResource_E(this: ^Hello, args: ^Resource, args1: ^Resource, args2: ^Resource): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  drop args2
+  drop args1
+  drop args
+  scope.exit 0
+  return
+}
+
+func main.Hello.sayerI_ZResource_ZResource_E(this: ^Hello, name: ^Resource, args: ^Resource, args1: ^Resource): !void {
+_L_entry:
+  var __drop_flags: __drop_flags_Hello_sayerI_ZResource_ZResource_E_t
+  zeromem __drop_flags
+  __drop_flags.args = 1
+  __drop_flags.args1 = 1
+  scope.enter 0
+  var __ret: !void
+  if !this._active goto _L_IF0_then else goto _L_IF0_end
+_L_IF0_then:
+  scope.enter 1
+  var __t3: ^Exception
+  __t3 = builtins_Exception_op__initCover("not active")
+  builtins_Exception_push(__t3, "main", "Hello", "main.Hello.sayerI_ZResource_ZResource_E", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/31_variadic_move_args.cxy", 17)
+  __ret.tag = 1
+  __ret.val = __t3
+  goto _L_UNWIND1_return
+_L_IF0_end:
+  var __copy1: ^Resource
+  copy name -> __copy1
+  __drop_flags.args = 0
+  __drop_flags.args1 = 0
+  Hello_sayI_ZResource_ZResource_ZResource_E(this, __copy1, args, args1)
+  __ret.tag = 0
+  goto _L_exit
+_L_UNWIND1_return:
+  scope.exit 1
+  goto _L_exit
+_L_exit:
+  drop-if args1, __drop_flags.args1
+  __drop_flags.args1 = 0
+  drop-if args, __drop_flags.args
+  __drop_flags.args = 0
+  drop name
+  scope.exit 0
+  return __ret
+}
+
+func main(): !void {
+_L_entry:
+  scope.enter 0
+  var __ret: !void
+  var h: Hello
+  h = Hello {_active: true}
+  var r: ^Resource
+  r = Resource_op__initCover(<i32>(3))
+  var __t4: ^Resource
+  __t4 = Resource_op__initCover(<i32>(1))
+  var __t5: ^Resource
+  __t5 = Resource_op__initCover(<i32>(2))
+  var __call_res_6: !void
+  __call_res_6 = Hello_sayerI_ZResource_RZResource_E(&h, __t4, __t5, <^Resource>(r))
+  if __call_res_6.tag == 1 goto _L_call_err_0 else goto _L_call_cont_1
+_L_call_err_0:
+  __ret.tag = 1
+  builtins_Exception_push(__call_res_6.val, "main", "", "main", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/31_variadic_move_args.cxy", 26)
+  __ret.val = __call_res_6.val
+  __call_res_6.tag = 0
+  goto _L_exit
+_L_call_cont_1:
+  var __t7: ^Resource
+  __t7 = Resource_op__initCover(<i32>(4))
+  var __t8: ^Resource
+  __t8 = Resource_op__initCover(<i32>(5))
+  var __t9: ^Resource
+  __t9 = Resource_op__initCover(<i32>(6))
+  var __call_res_10: !void
+  __call_res_10 = Hello_sayerI_ZResource_ZResource_E(&h, __t7, __t8, __t9)
+  if __call_res_10.tag == 1 goto _L_call_err_1 else goto _L_call_cont_2
+_L_call_err_1:
+  __ret.tag = 1
+  builtins_Exception_push(__call_res_10.val, "main", "", "main", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/31_variadic_move_args.cxy", 27)
+  __ret.val = __call_res_10.val
+  __call_res_10.tag = 0
+  goto _L_exit
+_L_call_cont_2:
+  __ret.tag = 0
+  goto _L_exit
+_L_exit:
+  drop r
+  scope.exit 0
+  return __ret
+}

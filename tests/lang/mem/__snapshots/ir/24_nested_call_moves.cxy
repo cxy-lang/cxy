@@ -1,0 +1,393 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/24_nested_call_moves.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func main.Keys.op__init(this: ^Keys, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Keys.op__deinit(this: ^Keys): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Keys.op__destructor(this: ^Keys): void {
+_L_entry:
+  scope.enter 0
+  Keys_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Keys.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Keys_op__destructor(<^Keys>(<^Keys>(ptr)))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Page.op__init(this: ^Page, k: ^Keys): void {
+_L_entry:
+  scope.enter 0
+  drop this.keys
+  this.keys = k
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Page.op__deinit(this: ^Page): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Page.op__destructor(this: ^Page): void {
+_L_entry:
+  scope.enter 0
+  Page_op__deinit(this)
+  drop this.keys
+  this.keys = null
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Page.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Page_op__destructor(<^Page>(<^Page>(ptr)))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Props.op__copy(this: ^Props): Props {
+_L_entry:
+  scope.enter 0
+  var __ret: Props
+  var __t0: ^Page
+  copy this.page -> __t0
+  __ret = Props {page: __t0, tag: this.tag}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Props.op__destructor(this: ^Props): void {
+_L_entry:
+  scope.enter 0
+  drop this.page
+  this.page = null
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Keys.op__initCover(id: i32): ^Keys {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Keys
+  var __obj3: ^Keys
+  var __t1: ^Keys
+  __t1 = alloc(^Keys)
+  __obj3 = <^Keys>(__t1)
+  zeromem __obj3
+  Keys_op__init(<^Keys>(__obj3), id)
+  __ret = __obj3
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Page.op__initCover(k: ^Keys): ^Page {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Page
+  var __obj4: ^Page
+  var __t2: ^Page
+  __t2 = alloc(^Page)
+  __obj4 = <^Page>(__t2)
+  zeromem __obj4
+  Page_op__init(<^Page>(__obj4), k)
+  __ret = __obj4
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func testStructField(): void {
+_L_entry:
+  scope.enter 0
+  var keys: ^Keys
+  keys = Keys_op__initCover(<i32>(1))
+  var props: Props
+  var __t3: ^Page
+  __t3 = Page_op__initCover(keys)
+  props = Props {page: __t3, tag: 1}
+  goto _L_exit
+_L_exit:
+  drop props
+  scope.exit 0
+  return
+}
+
+func main.Outer.op__copy(this: ^Outer): Outer {
+_L_entry:
+  scope.enter 0
+  var __ret: Outer
+  var __t4: Props
+  copy this.props -> __t4
+  __ret = Outer {props: __t4}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Outer.op__destructor(this: ^Outer): void {
+_L_entry:
+  scope.enter 0
+  drop this.props
+  zeromem this.props
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func testNestedLiteral(): void {
+_L_entry:
+  scope.enter 0
+  var keys: ^Keys
+  keys = Keys_op__initCover(<i32>(5))
+  var outer: Outer
+  var __t5: ^Page
+  __t5 = Page_op__initCover(keys)
+  var __t6: Props
+  __t6 = Props {page: __t5, tag: 5}
+  outer = Outer {props: __t6}
+  goto _L_exit
+_L_exit:
+  drop outer
+  scope.exit 0
+  return
+}
+
+func main.Inner.op__copy(this: ^Inner): Inner {
+_L_entry:
+  scope.enter 0
+  var __ret: Inner
+  var __copy0: ^Keys?
+  copy this.keys -> __copy0
+  __ret = Inner {keys: __copy0}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Inner.op__destructor(this: ^Inner): void {
+_L_entry:
+  scope.enter 0
+  drop this.keys
+  zeromem this.keys
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Wrapper.op__copy(this: ^Wrapper): Wrapper {
+_L_entry:
+  scope.enter 0
+  var __ret: Wrapper
+  var __t7: Inner
+  copy this.inner -> __t7
+  __ret = Wrapper {inner: __t7}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Wrapper.op__destructor(this: ^Wrapper): void {
+_L_entry:
+  scope.enter 0
+  drop this.inner
+  zeromem this.inner
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func testOptionalField(): void {
+_L_entry:
+  scope.enter 0
+  var keys: ^Keys
+  keys = Keys_op__initCover(<i32>(6))
+  var w: Wrapper
+  var __t8: ^Keys?
+  __t8 = Some(keys)
+  var __t9: Inner
+  __t9 = Inner {keys: __t8}
+  w = Wrapper {inner: __t9}
+  goto _L_exit
+_L_exit:
+  drop w
+  scope.exit 0
+  return
+}
+
+func testTupleElement(): void {
+_L_entry:
+  scope.enter 0
+  var keys: ^Keys
+  keys = Keys_op__initCover(<i32>(2))
+  var tup: (^Page, i8)
+  var __t10: ^Page
+  __t10 = Page_op__initCover(keys)
+  tup = Tuple_Page_i8 {__t10, 2}
+  goto _L_exit
+_L_exit:
+  drop tup
+  scope.exit 0
+  return
+}
+
+func testArrayElement(): void {
+_L_entry:
+  scope.enter 0
+  var keys: ^Keys
+  keys = Keys_op__initCover(<i32>(3))
+  var arr: [^Page, 1]
+  var __t11: ^Page
+  __t11 = Page_op__initCover(keys)
+  arr = [__t11]
+  goto _L_exit
+_L_exit:
+  drop arr
+  scope.exit 0
+  return
+}
+
+func testConditional(cond: bool): void {
+_L_entry:
+  var __drop_flags: __drop_flags_testConditional_t
+  zeromem __drop_flags
+  scope.enter 0
+  var keys: ^Keys
+  keys = Keys_op__initCover(<i32>(4))
+  __drop_flags.keys = 1
+  if cond goto _L_IF0_then else goto _L_IF0_end
+_L_IF0_then:
+  scope.enter 1
+  var props: Props
+  var __t12: ^Page
+  __drop_flags.keys = 0
+  __t12 = Page_op__initCover(keys)
+  props = Props {page: __t12, tag: 4}
+  __drop_flags.props = 1
+  drop props
+  __drop_flags.props = 0
+  scope.exit 1
+  goto _L_IF0_end
+_L_IF0_end:
+  goto _L_exit
+_L_exit:
+  drop-if keys, __drop_flags.keys
+  __drop_flags.keys = 0
+  scope.exit 0
+  return
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  testStructField()
+  testNestedLiteral()
+  testOptionalField()
+  testTupleElement()
+  testArrayElement()
+  testConditional(true)
+  testConditional(false)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func __tuple_copy_163(tup: ^(^Page, i8)): (^Page, i8) {
+_L_entry:
+  scope.enter 0
+  var __ret: (^Page, i8)
+  var __t13: ^Page
+  copy tup.0 -> __t13
+  __ret = Tuple_Page_i8 {__t13, tup.1}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func __tuple_dctor_163(tup: ^(^Page, i8)): void {
+_L_entry:
+  scope.enter 0
+  drop tup.0
+  tup.0 = null
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func __array_dctor_169(arr: [^Page]): void {
+_L_entry:
+  scope.enter 0
+  var __i: u64
+  __i = 0
+  goto _L_FOR0_cond
+_L_FOR0_cond:
+  if __i < arr.len goto _L_FOR0_body else goto _L_FOR0_exit
+_L_FOR0_body:
+  scope.enter 1
+  drop arr.ptr[__i]
+  scope.exit 1
+  goto _L_FOR0_update
+_L_FOR0_update:
+  __i = __i + 1
+  goto _L_FOR0_cond
+_L_FOR0_exit:
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}

@@ -304,7 +304,7 @@ void evalXformType(AstVisitor *visitor, AstNode *node)
     node->type = type;
     clearAstBody(node);
     if (flg & flgReferenceMembers) {
-        implementTupleTypeCopyAndDestructor(visitor, node);
+        implementTupleTypeCopyAndDestructor(ctx->typer, node);
     }
 }
 

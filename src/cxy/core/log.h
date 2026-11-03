@@ -65,6 +65,19 @@ typedef struct Diagnostic {
 
 typedef void (*DiagnosticHandler)(const Diagnostic *, void *);
 
+/*
+ * A context the compiler is currently working in, e.g. a generic
+ * instantiation. Frames are only formatted when an error is reported,
+ * so `arg` must outlive the frame (types and strings are interned).
+ */
+typedef struct LogFrame {
+    FileLoc loc;
+    cstring fmt;
+    FormatArg arg;
+} LogFrame;
+
+#define LOG_DEFAULT_MAX_FRAME_NOTES 10
+
 typedef struct Log {
     HashTable fileCache;
     DiagnosticHandler handler;
@@ -74,6 +87,11 @@ typedef struct Log {
     size_t maxErrors;
     bool ignoreStyles;
     FormatState *state;
+    struct {
+        LogFrame *items;
+        u32 count, capacity;
+    } frames;
+    u32 maxFrameNotes; // 0 shows every frame
     struct {
         cstring str;
         u64 num;
@@ -95,6 +113,10 @@ void logWarning(Log *, const FileLoc *, const char *, const FormatArg *);
 void logWarningWithId(
     Log *, u8, const FileLoc *, const char *, const FormatArg *);
 void logNote(Log *, const FileLoc *, const char *, const FormatArg *);
+
+// Errors reported between push and pop are followed by a note per frame
+void logPushFrame(Log *, const FileLoc *, cstring fmt, FormatArg arg);
+void logPopFrame(Log *);
 void printStatus(Log *L, const char *fmt, ...);
 void printStatusAlways(Log *L, const char *fmt, ...);
 void printStatusSticky(Log *L, const char *fmt, ...);

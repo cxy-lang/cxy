@@ -1,0 +1,151 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/30_class_cast_return.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func main.Base.op__init(this: ^Base, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Base.op__deinit(this: ^Base): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Base.op__destructor(this: ^Base): void {
+_L_entry:
+  scope.enter 0
+  Base_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Base.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Base_op__destructor(<^Base>(<^Base>(ptr)))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Derived.op__init(this: ^Derived, id: i32): void {
+_L_entry:
+  scope.enter 0
+  Base_op__init(this, id)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Derived.op__destructor(this: ^Derived): void {
+_L_entry:
+  scope.enter 0
+  Base_op__destructor(<^Base>(this))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Derived.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Derived_op__destructor(<^Derived>(<^Derived>(ptr)))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Derived.op__initCover(id: i32): ^Derived {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Derived
+  var __obj3: ^Derived
+  var __t0: ^Derived
+  __t0 = alloc(^Derived)
+  __obj3 = <^Derived>(__t0)
+  zeromem __obj3
+  Derived_op__init(<^Derived>(__obj3), id)
+  __ret = __obj3
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func upcast(): ^Base {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Base
+  var d: ^Derived
+  d = Derived_op__initCover(<i32>(1))
+  copy <^Base>(d) -> __ret
+  goto _L_exit
+_L_exit:
+  drop d
+  scope.exit 0
+  return __ret
+}
+
+func main.Base.op__initCover(id: i32): ^Base {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Base
+  var __obj4: ^Base
+  var __t1: ^Base
+  __t1 = alloc(^Base)
+  __obj4 = <^Base>(__t1)
+  zeromem __obj4
+  Base_op__init(<^Base>(__obj4), id)
+  __ret = __obj4
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func plain(): ^Base {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Base
+  var b: ^Base
+  b = Base_op__initCover(<i32>(2))
+  copy b -> __ret
+  goto _L_exit
+_L_exit:
+  drop b
+  scope.exit 0
+  return __ret
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  var a: ^Base
+  a = upcast()
+  var b: ^Base
+  b = plain()
+  goto _L_exit
+_L_exit:
+  drop b
+  drop a
+  scope.exit 0
+  return
+}

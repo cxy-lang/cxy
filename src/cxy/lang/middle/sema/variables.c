@@ -76,6 +76,9 @@ void checkVarDecl(AstVisitor *visitor, AstNode *node)
         }
     }
 
+    if (!typeIs(type_, Auto) && nodeIs(init, TupleExpr))
+        coerceTupleExpr(init, type_);
+
     const Type *inferredType = init_;
     if (isResultType(inferredType))
         inferredType = getResultTargetType(inferredType);

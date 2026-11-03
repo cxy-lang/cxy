@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +11,10 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
+
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
 
 #ifdef __APPLE__
 
@@ -923,35 +928,55 @@ int aeGetFileEvents(aeEventLoop *eventLoop, int fd)
     return fe->mask;
 }
 
-#if defined(HAVE_KQUEUE)
-enum Status aeWaitPid(aeEventLoop *eventLoop, int pid, aeFileProc *proc, void *clientData, uint64_t timeout)
+/*
+ * An fd that becomes readable when `pid` exits, so a process is waited on like
+ * any other fd. Returns -1 on error, the caller closes the fd. It does not
+ * reap the child, the caller still calls waitpid() for the status.
+ */
+#if defined(__linux__)
+int aeOpenPidFd(int pid)
 {
-    aeApiState *state = eventLoop->apidata;
-    struct kevent ke;
-    EV_SET(&ke, pid, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, clientData);
-    if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1)
-        return AE_ERR;
-    return aeCreateFileEvent(eventLoop, pid, AE_READABLE, proc, clientData, timeout);
+#ifdef SYS_pidfd_open
+    return (int)syscall(SYS_pidfd_open, pid, 0);
+#else
+    errno = ENOSYS;
+    return -1;
+#endif
 }
-
-void aeCancelWaitPid(aeEventLoop *eventLoop, int pid)
+#elif defined(HAVE_KQUEUE)
+/* No pidfd: a private kqueue watching the exit is itself a readable fd */
+int aeOpenPidFd(int pid)
 {
-    aeApiState *state = eventLoop->apidata;
+    int kq = kqueue();
+    if (kq == -1)
+        return -1;
+    fcntl(kq, F_SETFD, FD_CLOEXEC);
+
     struct kevent ke;
-    EV_SET(&ke, pid, EVFILT_PROC, EV_DELETE, NOTE_EXIT, 0, NULL);
-    kevent(state->kqfd, &ke, 1, NULL, 0, NULL);
-    aeDeleteFileEvent(eventLoop, pid, AE_READABLE);
+    EV_SET(&ke, pid, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, NULL);
+    if (kevent(kq, &ke, 1, NULL, 0, NULL) == -1) {
+        int err = errno;
+        close(kq);
+        if (err != ESRCH) {
+            errno = err;
+            return -1;
+        }
+        /* Already gone: a pipe with its write end closed is readable (EOF) */
+        int fds[2];
+        if (pipe(fds) == -1)
+            return -1;
+        close(fds[1]);
+        fcntl(fds[0], F_SETFD, FD_CLOEXEC);
+        return fds[0];
+    }
+    return kq;
 }
 #else
-enum Status aeWaitPid(aeEventLoop *eventLoop, int pid, aeFileProc *proc, void *clientData, uint64_t timeout)
+int aeOpenPidFd(int pid)
 {
-    (void)eventLoop; (void)pid; (void)proc; (void)clientData; (void)timeout;
-    return AE_ERR;
-}
-
-void aeCancelWaitPid(aeEventLoop *eventLoop, int pid)
-{
-    (void)eventLoop; (void)pid;
+    (void)pid;
+    errno = ENOSYS;
+    return -1;
 }
 #endif
 

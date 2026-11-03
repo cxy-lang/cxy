@@ -103,10 +103,16 @@ _L_exit:;
 
 static void testArrayRAII() {
   Resource * arr[3];
+  Resource * __t1;
+  Resource * __t2;
+  Resource * __t3;
 _L_entry:;
-  arr[0] = Resource_op__initCover(((int32_t)(1)));
-  arr[1] = Resource_op__initCover(((int32_t)(2)));
-  arr[2] = Resource_op__initCover(((int32_t)(3)));
+  __t1 = Resource_op__initCover(((int32_t)(1)));
+  __t2 = Resource_op__initCover(((int32_t)(2)));
+  __t3 = Resource_op__initCover(((int32_t)(3)));
+  arr[0] = __t1;
+  arr[1] = __t2;
+  arr[2] = __t3;
   goto _L_exit;
 _L_exit:;
   __array_dctor_137((Slice_Resource){ .ptr = arr, .len = 3 });
@@ -115,9 +121,13 @@ _L_exit:;
 
 static void testArrayIndexOverwrite() {
   Resource * arr[2];
+  Resource * __t4;
+  Resource * __t5;
 _L_entry:;
-  arr[0] = Resource_op__initCover(((int32_t)(10)));
-  arr[1] = Resource_op__initCover(((int32_t)(20)));
+  __t4 = Resource_op__initCover(((int32_t)(10)));
+  __t5 = Resource_op__initCover(((int32_t)(20)));
+  arr[0] = __t4;
+  arr[1] = __t5;
   __smart_ptr_drop(arr[0]);
   arr[0] = Resource_op__initCover(((int32_t)(30)));
   goto _L_exit;
@@ -128,10 +138,14 @@ _L_exit:;
 
 static void testArrayMoveElement() {
   Resource * arr[2];
+  Resource * __t6;
+  Resource * __t7;
   Resource * r;
 _L_entry:;
-  arr[0] = Resource_op__initCover(((int32_t)(100)));
-  arr[1] = Resource_op__initCover(((int32_t)(200)));
+  __t6 = Resource_op__initCover(((int32_t)(100)));
+  __t7 = Resource_op__initCover(((int32_t)(200)));
+  arr[0] = __t6;
+  arr[1] = __t7;
   r = arr[1];
   arr[1] = nullptr;
   goto _L_exit;
@@ -143,11 +157,15 @@ _L_exit:;
 
 static void testArraySliceBorrow() {
   Resource * a[2];
+  Resource * __t8;
+  Resource * __t9;
   Slice_Resource b;
   Slice_Resource c;
 _L_entry:;
-  a[0] = Resource_op__initCover(((int32_t)(1)));
-  a[1] = Resource_op__initCover(((int32_t)(2)));
+  __t8 = Resource_op__initCover(((int32_t)(1)));
+  __t9 = Resource_op__initCover(((int32_t)(2)));
+  a[0] = __t8;
+  a[1] = __t9;
   b.ptr = a;
   b.len = 2ULL;
   c.ptr = a;

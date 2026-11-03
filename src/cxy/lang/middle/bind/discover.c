@@ -93,6 +93,7 @@ void bindDeclaration(AstVisitor *visitor, AstNode *node)
     checkBuiltinAttribute(ctx->L, node, isBuiltinsModule);
     defineDeclaration(ctx, getDeclarationName(node), node);
     switch (node->tag) {
+    case astGenericDecl:
     case astStructDecl:
     case astFuncDecl:
     case astClassDecl:

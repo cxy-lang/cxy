@@ -138,6 +138,9 @@ pub class LinkedList[T] {
             _head = item._next
             if (_head != null)
                 _head._prev = null
+            else
+                _tail = null
+            _size -= 1
             var tmp = &&item._value
             free(item)
             return &&tmp
@@ -168,6 +171,8 @@ pub class LinkedList[T] {
             _tail = item._prev
             if (_tail != null)
                 _tail._next = null
+            else
+                _head = null
             _size -= 1
             var tmp = &&item._value
             free(item)
@@ -184,7 +189,7 @@ pub class LinkedList[T] {
                 item = item._next
                 return (tmp, idx++)
             }
-            `!!` => item == null
+            `!!` => item != null
         }
     }
 
@@ -197,7 +202,7 @@ pub class LinkedList[T] {
                 item = item._next
                 return (tmp, idx++)
             }
-            `!!` => item == null
+            `!!` => item != null
         }
     }
 

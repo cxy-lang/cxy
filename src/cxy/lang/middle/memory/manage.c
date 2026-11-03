@@ -2,6 +2,7 @@
 #include "core/hash.h"
 #include "lang/frontend/flag.h"
 
+
 bool isIrTypeCopyable(const IrType *type)
 {
     return isIrTypeDestructible(type);
@@ -640,6 +641,7 @@ static void injectCallArgumentCopies(MemMgmtContext *ctx,
     if (calleeType && calleeType->tag == irTypeFunc) {
         IrNode **argRef = &call->call.args;
         u64 i = 0;
+
         for (; *argRef && i < calleeType->func.count; i++) {
             const IrType *paramType = calleeType->func.params[i];
             csAssert(paramType != NULL, "Compiler error: paramType is NULL in call argument processing");
@@ -829,13 +831,15 @@ static bool shouldPromoteAssignToCopy(const IrNode *lhsDecl, const IrNode *lhs, 
 {
     if (!isIrVarDestructible(lhsDecl) && !isIrTypeDestructible(lhs->type))
         return false;
-    IrNode *rhsDecl = findVarDeclInNode(rhs);
+    // `<Base>x` (a class up/down cast) still refers to `x`, so it is copied
+    const IrNode *inner = unwrapCastsConst(rhs);
+    IrNode *rhsDecl = findVarDeclInNode(inner);
     if (rhsDecl && hasFlag(rhsDecl, Temporary))
         return false;
-    if (rhs->tag == irVarRef) {
-        return rhs->varRef.target && !hasFlag(rhs->varRef.target, Temporary);
+    if (inner->tag == irVarRef) {
+        return inner->varRef.target && !hasFlag(inner->varRef.target, Temporary);
     }
-    return rhs->tag == irMember || rhs->tag == irIndex;
+    return inner->tag == irMember || inner->tag == irIndex;
 }
 
 static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **blocks, u64 count)
@@ -890,7 +894,8 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                 TrackedVar *lhsVar = getTrackedVar(ctx, lhsDecl);
                 IrNode *rhs = stmt->assign.rhs;
 
-                if (lhsVar && !lhsVar->isTemporary) {
+                // ephemerals are dropped right after the assignment, so they are never live across statements
+                if (lhsVar && !lhsVar->isTemporary && !lhsVar->isEphemeral) {
                     if (stmt->assign.lhs->tag == irVarRef && bitSetTest(&currMay, lhsVar->varIndex)) {
                         if (lhsVar->needsDropFlag && !bitSetTest(&currMust, lhsVar->varIndex)) {
                             IrNode *flagAccess = makeDropFlagAccess(ctx, &stmt->loc, lhsVar);

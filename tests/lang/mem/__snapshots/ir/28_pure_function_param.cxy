@@ -1,0 +1,37 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/28_pure_function_param.cxy
+global calls: i8 = 0
+
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func hit(s: ^char): void {
+_L_entry:
+  scope.enter 0
+  ++calls
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func sayer(h: func(^char): void, s: ^char): void {
+_L_entry:
+  scope.enter 0
+  h(s)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  sayer(<func(^char): void>(hit), "hello")
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}

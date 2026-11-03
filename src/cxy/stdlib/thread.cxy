@@ -61,11 +61,15 @@ pub struct Thread {
 extern func __cxy_thread_launch(hdl: ^tinyThread.thrd_t, cl: ^void, size: u64): bool
 
 @[__override_builtin("__Thread_launch")]
-func thread_launch(fn: func() -> i32): !Thread {
+func thread_launch(@escaping fn: func() -> i32): !Thread {
     var hdl: tinyThread.thrd_t
     var status = __cxy_thread_launch(ptrof hdl, ptrof fn, sizeof!(fn))
     if (!status) {
+        // not started: `fn` is still ours and is dropped on the way out
         raise ThreadError("Failed to launch thread")
     }
+    // The thread owns its copy of the closure and releases it when it ends,
+    // clear ours so it is not released again when this function returns
+    zero!(@forced ptrof fn)
     return Thread(hdl, true)
 }

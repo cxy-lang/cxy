@@ -80,8 +80,10 @@ static const Type *handleRedirectMemberAccess(AstVisitor *visitor,
         return getOptionalTargetType(targetType);
     }
 
-    if (isClassOrStructType(targetType)) {
-        const Type *redirectOp = findStructMemberType(targetType, S_Redirect);
+    // Pointers and references to a type redirect through that type
+    const Type *redirectType = stripAll(targetType);
+    if (isClassOrStructType(redirectType)) {
+        const Type *redirectOp = findStructMemberType(redirectType, S_Redirect);
         if (redirectOp == NULL) {
             logError(ctx->L,
                      &node->loc,
@@ -177,6 +179,38 @@ static const Type *checkTupleIndexMember(TypingContext *ctx,
     return elemType;
 }
 
+// `@async x.f()` calls the wrapper `_task_f` that only exists for `@task`
+// functions, report the real problem instead of the missing wrapper
+static void reportMissingMember(TypingContext *ctx,
+                                const FileLoc *loc,
+                                const Type *type,
+                                cstring name,
+                                bool isTaskRef)
+{
+    if (isTaskRef) {
+        cstring original =
+            makeString(ctx->strings, name + CXY_TASK_WRAPPER_PREFIX_LEN);
+        const AstNode *decl = findMemberDeclInType(type, original);
+        if (decl) {
+            logError(ctx->L,
+                     loc,
+                     "'{s}' is not a `@task` function, `@async` requires one",
+                     (FormatArg[]){{.s = original}});
+            logNote(ctx->L,
+                    &decl->loc,
+                    "'{s}' declared here",
+                    (FormatArg[]){{.s = original}});
+            return;
+        }
+        name = original;
+    }
+
+    logError(ctx->L,
+             loc,
+             "type '{t}' does not have member named '{s}'",
+             (FormatArg[]){{.t = type}, {.s = name}});
+}
+
 void checkMemberExpr(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
@@ -229,11 +263,11 @@ void checkMemberExpr(AstVisitor *visitor, AstNode *node)
     if (nodeIs(member, Identifier)) {
         node->type = checkMember(visitor, targetType, member);
         if (node->type == NULL) {
-            logError(ctx->L,
-                     &member->loc,
-                     "type '{t}' does not have member named '{s}'",
-                     (FormatArg[]){{.t = targetType},
-                                   {.s = member->ident.value}});
+            reportMissingMember(ctx,
+                                &member->loc,
+                                targetType,
+                                member->ident.value,
+                                member->flags & flgAsync);
             node->type = ERROR_TYPE(ctx);
         }
         if (member->ident.super) {
@@ -266,14 +300,14 @@ void checkMemberExpr(AstVisitor *visitor, AstNode *node)
     else if (nodeIs(member, Path)) {
         AstNode *name = member->path.elements;
         for (; name; name = name->next) {
+            const Type *owner = targetType;
             targetType = checkMember(visitor, targetType, name);
             if (targetType == NULL) {
-                logError(
-                    ctx->L,
-                    &member->loc,
-                    "type '{t}' does not have member named '{s}'",
-                    (FormatArg[]){{.t = targetType},
-                                  {.s = name->pathElement.name}});
+                reportMissingMember(ctx,
+                                    &member->loc,
+                                    owner,
+                                    name->pathElement.name,
+                                    name->flags & flgAsync);
                 node->type = ERROR_TYPE(ctx);
                 return;
             }

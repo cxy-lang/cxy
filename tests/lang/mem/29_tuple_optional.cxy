@@ -1,0 +1,14 @@
+class Resource {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+// `null` and plain values for optional members of a tuple literal
+func main(): void {
+    var a: (string, i64?) = ("", null)
+    var b: (string, i64?) = ("", 5)
+    var c: (string, (i64?, string)) = ("", (null, "x"))
+    var d: (Resource?, i32) = (null, 1)
+    var e: (Resource?, i32) = (Resource(1), 2)
+}

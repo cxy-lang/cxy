@@ -893,10 +893,13 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
             (decl && nodeIs(decl, FuncDecl) && decl->funcDecl.signature)
                 ? decl->funcDecl.signature->params
                 : NULL;
+        // Only the C varargs marker of an extern is not a parameter, the
+        // expanded `...args` of a generic function are real parameters
+        bool skipVariadic = decl && hasFlag(decl, Extern);
         u64 count = 0;
         if (astParams) {
             for (const AstNode *p = astParams; p; p = p->next)
-                count += hasFlag(p, Variadic) ? 0 : 1;
+                count += (skipVariadic && hasFlag(p, Variadic)) ? 0 : 1;
         }
         else {
             count = type->func.paramsCount;
@@ -906,7 +909,7 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
         if (astParams) {
             u64 i = 0;
             for (const AstNode *p = astParams; p; p = p->next) {
-                if (hasFlag(p, Variadic))
+                if (skipVariadic && hasFlag(p, Variadic))
                     continue;
                 const Type *pType =
                     p->type ? p->type
@@ -1083,21 +1086,14 @@ static bool isIrPureValueExpr(const IrNode *node)
     return false;
 }
 
+// Stores `val` in a fresh temporary and returns a reference to it.
 // `borrowed` consumers only read the value, so an owned rvalue must be
 // tracked (and dropped) as a regular local instead of an unowned temporary.
-static IrNode *lowerFlattenedOperandEx(AstVisitor *visitor, AstNode *node, bool borrowed)
+static IrNode *flattenIrValue(LowerContext *ctx,
+                              AstNode *node,
+                              IrNode *val,
+                              bool borrowed)
 {
-    if (node == NULL)
-        return NULL;
-    astVisit(visitor, node);
-    IrNode *val = (IrNode *)node->codegen;
-    if (val == NULL)
-        return NULL;
-
-    if (isIrLValueOrConst(val) || (isIrPureValueExpr(val) && !isIrTypeDestructible(val->type)))
-        return val;
-
-    LowerContext *ctx = getAstVisitorContext(visitor);
     cstring tempName = makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
     Flags flags = flgTemporary;
     if (isIrTypeDestructible(val->type))
@@ -1122,6 +1118,36 @@ static IrNode *lowerFlattenedOperandEx(AstVisitor *visitor, AstNode *node, bool 
                           makeIrVarRef(ctx->pool, &node->loc, tempVar),
                           val));
     return makeIrVarRef(ctx->pool, &node->loc, tempVar);
+}
+
+static IrNode *lowerFlattenedOperandEx(AstVisitor *visitor, AstNode *node, bool borrowed)
+{
+    if (node == NULL)
+        return NULL;
+    astVisit(visitor, node);
+    IrNode *val = (IrNode *)node->codegen;
+    if (val == NULL)
+        return NULL;
+
+    if (isIrLValueOrConst(val) || (isIrPureValueExpr(val) && !isIrTypeDestructible(val->type)))
+        return val;
+
+    return flattenIrValue(getAstVisitorContext(visitor), node, val, borrowed);
+}
+
+// An element of a struct, tuple or array literal. A call, or a nested literal
+// that owns something, is hoisted into its own statement like a call argument,
+// so the memory pass sees the moves and copies inside it.
+static IrNode *lowerCompositeElement(AstVisitor *visitor, AstNode *node)
+{
+    LowerContext *ctx = getAstVisitorContext(visitor);
+    astVisit(visitor, node);
+    IrNode *val = (IrNode *)node->codegen;
+    if (val && ctx->currentFunc &&
+        (val->tag == irCall ||
+         (val->tag == irStructConst && isIrTypeDestructible(val->type))))
+        return flattenIrValue(ctx, node, val, false);
+    return val;
 }
 
 static IrNode *lowerFlattenedOperand(AstVisitor *visitor, AstNode *node)
@@ -1177,6 +1203,17 @@ static void lowerSliceIntoTarget(LowerContext *ctx,
                                  const AstNode *expr,
                                  IrNode *targetLValue)
 {
+    // `[]` is the empty slice, all zero
+    if (nodeIs(expr, ArrayExpr) && expr->arrayExpr.elements == NULL) {
+        emitStmt(ctx,
+                 makeIrAssign(ctx->pool,
+                              &expr->loc,
+                              targetLValue,
+                              makeIrNullConst(
+                                  ctx->pool, &expr->loc, targetLValue->type)));
+        return;
+    }
+
     const IrType *u64Type = getIrPrimitiveType(ctx->types, irTypeU64);
     const Type *exprAstType = expr->type;
     const IrType *elemIrType = targetLValue->type->strct.fields[0].type;
@@ -1410,12 +1447,40 @@ static cstring makeScopedSymbolName(LowerContext *ctx,
     return makeStringf(ctx->strings, "%s_%s", ns, baseName);
 }
 
+// Compiler generated names use '$' (not writable in source), C can't have it
+static cstring toCSymbolName(LowerContext *ctx, cstring name)
+{
+    if (name == NULL || strchr(name, '$') == NULL)
+        return name;
+    FormatState state = newFormatState(NULL, true);
+    for (const char *p = name; *p; p++) {
+        if (*p == '$')
+            format(&state, "__", NULL);
+        else
+            append(&state, p, 1);
+    }
+    char *str = formatStateToString(&state);
+    cstring res = makeString(ctx->strings, str);
+    free(str);
+    freeFormatState(&state);
+    return res;
+}
+
+static cstring getFunctionSymbolNameRaw(LowerContext *ctx,
+                                        const AstNode *funcDecl);
+
 static cstring getFunctionSymbolName(LowerContext *ctx, const AstNode *funcDecl)
+{
+    if (funcDecl && funcDecl->ir && funcDecl->ir->tag == irFunction)
+        return funcDecl->ir->function.name;
+    return toCSymbolName(ctx, getFunctionSymbolNameRaw(ctx, funcDecl));
+}
+
+static cstring getFunctionSymbolNameRaw(LowerContext *ctx,
+                                        const AstNode *funcDecl)
 {
     if (funcDecl == NULL)
         return NULL;
-    if (funcDecl->ir && funcDecl->ir->tag == irFunction)
-        return funcDecl->ir->function.name;
 
     cstring funcName = getDeclarationName(funcDecl);
     if (hasFlag(funcDecl, Main) || funcName == S_main)
@@ -1447,7 +1512,7 @@ static cstring getNormalizedName(LowerContext *ctx, const AstNode *node)
     cstring res = (str && str[0]) ? makeString(ctx->strings, str) : NULL;
     free(str);
     freeFormatState(&state);
-    return res;
+    return toCSymbolName(ctx, res);
 }
 
 static void lowerResolvedDecl(LowerContext *ctx,
@@ -2752,8 +2817,7 @@ static void visitArrayExpr(AstVisitor *visitor, AstNode *node)
     u64 count = 0;
     for (AstNode *elem = node->arrayExpr.elements; elem;
          elem = elem->next, count++) {
-        astVisit(visitor, elem);
-        IrNode *elemVal = (IrNode *)elem->codegen;
+        IrNode *elemVal = lowerCompositeElement(visitor, elem);
         if (elemsLast) {
             elemsLast->next = elemVal;
             elemsLast = elemVal;
@@ -2770,12 +2834,30 @@ static void visitTupleExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     const IrType *tupType = lowerType(ctx, node->type);
+    const Type *tupAstType = resolveUnThisUnwrapType(node->type);
     IrNode *elemsFirst = NULL, *elemsLast = NULL;
     u64 count = 0;
     for (AstNode *elem = node->tupleExpr.elements; elem;
          elem = elem->next, count++) {
-        astVisit(visitor, elem);
-        IrNode *elemVal = (IrNode *)elem->codegen;
+        IrNode *elemVal = lowerCompositeElement(visitor, elem);
+        // `null` or a plain `T` stored in a `T?` member becomes an optional
+        const Type *member = typeIs(tupAstType, Tuple) &&
+                                     count < tupAstType->tuple.count
+                                 ? tupAstType->tuple.members[count]
+                                 : NULL;
+        if (member && elemVal && isOptionalType(member) &&
+            (nodeIs(elem, NullLit) || !isOptionalType(elem->type))) {
+            elemVal = makeIrOptionalValue(
+                ctx->pool,
+                &elem->loc,
+                nodeIs(elem, NullLit) ? NULL : elemVal,
+                lowerType(ctx, member));
+        }
+        // see visitStructExpr, hoisted so the memory pass sees the value's move
+        if (elemVal && elemVal->tag == irOptionalValue &&
+            elemVal->optionalValue.hasValue && ctx->currentFunc &&
+            isIrTypeDestructible(elemVal->type))
+            elemVal = flattenIrValue(ctx, elem, elemVal, false);
         if (elemsLast) {
             elemsLast->next = elemVal;
             elemsLast = elemVal;
@@ -2795,8 +2877,7 @@ static void visitStructExpr(AstVisitor *visitor, AstNode *node)
     IrNode *fieldsFirst = NULL, *fieldsLast = NULL;
     u64 count = 0;
     for (AstNode *f = node->structExpr.fields; f; f = f->next) {
-        astVisit(visitor, f->fieldExpr.value);
-        IrNode *fVal = (IrNode *)f->fieldExpr.value->codegen;
+        IrNode *fVal = lowerCompositeElement(visitor, f->fieldExpr.value);
         cstring name = f->fieldExpr.name;
         u32 index = UINT32_MAX;
         if (f->fieldExpr.structField && nodeIs(f->fieldExpr.structField, FieldDecl)) {
@@ -2815,6 +2896,12 @@ static void visitStructExpr(AstVisitor *visitor, AstNode *node)
             fVal = makeIrOptionalValue(
                 ctx->pool, &f->loc, fVal, lowerType(ctx, fieldAstType));
         }
+        // an optional holding an owned value gets its own statement, so the
+        // memory pass sees the move or copy of the value it wraps
+        if (fVal && fVal->tag == irOptionalValue &&
+            fVal->optionalValue.hasValue && ctx->currentFunc &&
+            isIrTypeDestructible(fVal->type))
+            fVal = flattenIrValue(ctx, f->fieldExpr.value, fVal, false);
         const IrType *fType = fVal ? fVal->type : NULL;
         IrNode *fieldNode = makeIrFieldConst(ctx->pool, &f->loc, name, index, fVal, fType);
         if (fieldsLast) {
@@ -3177,6 +3264,14 @@ static cstring makeGlobalVarSymbolName(LowerContext *ctx,
     return makeStringf(ctx->strings, "%s_%s", modName, name);
 }
 
+// `@register("x0")` pins a local to a machine register, see inline asm operands
+static cstring getRegisterAttr(const AstNode *node)
+{
+    const AstNode *attr = findAttribute(node, S_register);
+    const AstNode *arg = attr ? attr->attr.args : NULL;
+    return arg && nodeIs(arg, StringLit) ? arg->stringLiteral.value : NULL;
+}
+
 static void visitVarDecl(AstVisitor *visitor, AstNode *node)
 {
     if (hasFlag(node, Comptime))
@@ -3235,6 +3330,7 @@ static void visitVarDecl(AstVisitor *visitor, AstNode *node)
                                     displayName,
                                     irType,
                                     ctx->currentScopeId);
+    varDecl->varDecl.reg = getRegisterAttr(node);
     node->ir = varDecl;
     if (node->varDecl.names)
         node->varDecl.names->ir = varDecl;
@@ -3386,6 +3482,20 @@ static void visitAssignExpr(AstVisitor *visitor, AstNode *node)
     }
 }
 
+// The payload of a `!T` call result is owned by the caller, the result
+// temporary itself is never dropped
+static bool isOwnedResultPayload(const IrNode *expr)
+{
+    if (expr->tag != irMember || !isIrTypeDestructible(expr->type))
+        return false;
+    const IrNode *root = expr;
+    while (root->tag == irMember)
+        root = root->member.target;
+    const IrNode *decl = root->tag == irVarRef ? root->varRef.target : NULL;
+    return decl && hasFlag(decl, Temporary) && decl->type &&
+           decl->type->category == irTypeCatResult;
+}
+
 static void visitExprStmt(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
@@ -3397,6 +3507,17 @@ static void visitExprStmt(AstVisitor *visitor, AstNode *node)
             node->exprStmt.expr->type
                 ? resolveUnThisUnwrapType(node->exprStmt.expr->type)
                 : NULL;
+        // the payload already lives in the result temporary, drop it in place
+        if (isOwnedResultPayload(expr)) {
+            emitStmt(ctx, makeIrDrop(ctx->pool, &node->loc, expr));
+            return;
+        }
+        // the value of a discarded catch lives in its temporary, drop it in place
+        if (nodeIs(node->exprStmt.expr, CatchExpr) && expr->tag == irVarRef &&
+            isIrTypeDestructible(expr->type)) {
+            emitStmt(ctx, makeIrDrop(ctx->pool, &node->loc, expr));
+            return;
+        }
         if (expr->tag == irVarRef || isIrConst(expr) ||
             (isIrPureValueExpr(expr) && expr->tag != irCall)) {
             return;
@@ -3786,6 +3907,26 @@ static void visitYieldStmt(AstVisitor *visitor, AstNode *node)
     }
 }
 
+// The success payload of a result value, `targetType` is the unwrapped type
+static IrNode *makeResultPayloadRef(LowerContext *ctx,
+                                    const FileLoc *loc,
+                                    const IrNode *res,
+                                    const IrType *resIrType,
+                                    const Type *targetType)
+{
+    IrNode *valMember = makeIrMember(ctx->pool,
+                                     loc,
+                                     cloneIrNode(ctx->pool, res),
+                                     1,
+                                     S_val,
+                                     resIrType->strct.fields[1].type);
+    if (valMember->type && valMember->type->tag == irTypeUntaggedUnion) {
+        return makeIrMember(
+            ctx->pool, loc, valMember, 0, NULL, lowerType(ctx, targetType));
+    }
+    return valMember;
+}
+
 static void visitCatchExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
@@ -3838,11 +3979,8 @@ static void visitCatchExpr(AstVisitor *visitor, AstNode *node)
     // Continue BB (success: tag == 0)
     setBlock(ctx, continueBB);
     if (hasResultValue) {
-        IrNode *valMember = makeIrMember(ctx->pool, &node->loc, cloneIrNode(ctx->pool, res), 1, S_val, resIrType->strct.fields[1].type);
-        IrNode *unwrapped = valMember;
-        if (valMember->type && valMember->type->tag == irTypeUntaggedUnion) {
-            unwrapped = makeIrMember(ctx->pool, &node->loc, valMember, 0, NULL, lowerType(ctx, targetType));
-        }
+        IrNode *unwrapped =
+            makeResultPayloadRef(ctx, &node->loc, res, resIrType, targetType);
         IrNode *assignStmt = makeIrAssign(ctx->pool, &node->loc, makeIrVarRef(ctx->pool, &node->loc, targetVar), unwrapped);
         assignStmt->flags |= flgUnmanaged;
         emitStmt(ctx, assignStmt);
@@ -3851,6 +3989,20 @@ static void visitCatchExpr(AstVisitor *visitor, AstNode *node)
         IrNode *defuseStmt = makeIrAssign(ctx->pool, &node->loc, resTagSlot, makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type));
         defuseStmt->flags |= flgUnmanaged;
         emitStmt(ctx, defuseStmt);
+    }
+    else if (!isVoidResultType(exprType)) {
+        // nobody consumes the payload of a discarded result, drop it in place
+        const Type *payloadType = getResultTargetType(exprType);
+        if (isIrTypeDestructible(lowerType(ctx, payloadType))) {
+            emitStmt(ctx,
+                     makeIrDrop(ctx->pool,
+                                &node->loc,
+                                makeResultPayloadRef(ctx,
+                                                     &node->loc,
+                                                     res,
+                                                     resIrType,
+                                                     payloadType)));
+        }
     }
     emitBranchIfNotTerminated(ctx, mergeBB);
 
@@ -4260,6 +4412,18 @@ static void visitMatchStmt(AstVisitor *visitor, AstNode *node)
     setBlock(ctx, exitBB);
 }
 
+static u8 lowerExternFunctionAttrs(const AstNode *node)
+{
+    u8 attrs = 0;
+    if (findAttribute(node, S_naked))
+        attrs |= irFuncAttrNaked;
+    if (findAttribute(node, S_noreturn))
+        attrs |= irFuncAttrNoReturn;
+    if (findAttribute(node, S_returns_twice))
+        attrs |= irFuncAttrReturnsTwice;
+    return attrs;
+}
+
 static void visitFuncDecl(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
@@ -4304,6 +4468,7 @@ static void visitFuncDecl(AstVisitor *visitor, AstNode *node)
                                       paramsCount);
         func->ast = node;
         func->function.isHint = isHint;
+        func->function.attrs = lowerExternFunctionAttrs(node);
         node->ir = func;
 
         if (ctx->module->module.functions) {

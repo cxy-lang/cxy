@@ -8,7 +8,8 @@ enum Status {
     AE_OK = 0,
     AE_ERR = -1,
     AE_NO_MORE = -1,
-    AE_DELETED_EVENT_ID = -1
+    AE_DELETED_EVENT_ID = -1,
+    AE_CANCELLED = -2 /* Coroutine wait interrupted by cancel */
 };
 
 enum State {
@@ -124,8 +125,8 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, enum State mask);
 
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd);
 
-enum Status aeWaitPid(aeEventLoop *eventLoop, int pid, aeFileProc *proc, void *clientData, uint64_t timeout);
-void aeCancelWaitPid(aeEventLoop *eventLoop, int pid);
+/* An fd that becomes readable when `pid` exits, -1 on error. Close it after. */
+int aeOpenPidFd(int pid);
 
 enum Status aeCreateTimeEvent(aeEventLoop *eventLoop,
                               long long milliseconds,

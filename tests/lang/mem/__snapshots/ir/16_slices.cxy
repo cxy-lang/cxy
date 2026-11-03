@@ -166,7 +166,15 @@ func testManagedArraySlice(): void {
 _L_entry:
   scope.enter 0
   var arr: [^Resource, 4]
-  arr = [Resource_op__initCover(<i32>(1)), Resource_op__initCover(<i32>(2)), Resource_op__initCover(<i32>(3)), Resource_op__initCover(<i32>(4))]
+  var __t4: ^Resource
+  __t4 = Resource_op__initCover(<i32>(1))
+  var __t5: ^Resource
+  __t5 = Resource_op__initCover(<i32>(2))
+  var __t6: ^Resource
+  __t6 = Resource_op__initCover(<i32>(3))
+  var __t7: ^Resource
+  __t7 = Resource_op__initCover(<i32>(4))
+  arr = [__t4, __t5, __t6, __t7]
   var s: [^Resource]
   s = Slice_Resource {&arr[1], 2}
   goto _L_exit

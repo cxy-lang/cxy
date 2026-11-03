@@ -380,6 +380,8 @@ const Type *checkFunctionBody(AstVisitor *visitor, AstNode *node)
     bool currentReturnState = ctx->returnState,
          currentExplicitCatch = ctx->explicitCatch;
     __typeof(ctx->catcher) currentCatcher = ctx->catcher;
+    AstNode *currentTaskVar = ctx->currentTaskVar;
+    ctx->currentTaskVar = NULL;
     ctx->returnState = false;
     ctx->explicitCatch = false;
     ctx->currentFunction = node;
@@ -391,6 +393,7 @@ const Type *checkFunctionBody(AstVisitor *visitor, AstNode *node)
     ctx->returnState = currentReturnState;
     ctx->explicitCatch = currentExplicitCatch;
     ctx->catcher = currentCatcher;
+    ctx->currentTaskVar = currentTaskVar;
 
     if (typeIs(body_, Error))
         return node->type = ERROR_TYPE(ctx);

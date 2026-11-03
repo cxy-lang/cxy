@@ -1,0 +1,74 @@
+class Keys {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+class Page {
+    keys: Keys
+    func `init`(k: Keys) { keys = &&k }
+    func `deinit`() { }
+}
+
+struct Props {
+    page: Page
+    tag: i32
+}
+
+// A move inside a call that is itself a literal element must be seen by the
+// memory pass, otherwise `keys` is dropped again at scope exit.
+func testStructField(): void {
+    var keys = Keys(1)
+    var props = Props{page: Page(&&keys), tag: 1}
+}
+
+struct Outer {
+    props: Props
+}
+
+// The move is in a literal nested in another literal
+func testNestedLiteral(): void {
+    var keys = Keys(5)
+    var outer = Outer{props: Props{page: Page(&&keys), tag: 5}}
+}
+
+struct Inner {
+    keys: Keys?
+}
+
+struct Wrapper {
+    inner: Inner
+}
+
+// The moved value is wrapped into an optional field of a nested literal
+func testOptionalField(): void {
+    var keys = Keys(6)
+    var w = Wrapper{inner: Inner{keys: &&keys}}
+}
+
+func testTupleElement(): void {
+    var keys = Keys(2)
+    var tup = (Page(&&keys), 2)
+}
+
+func testArrayElement(): void {
+    var keys = Keys(3)
+    var arr = [Page(&&keys)]
+}
+
+func testConditional(cond: bool): void {
+    var keys = Keys(4)
+    if cond {
+        var props = Props{page: Page(&&keys), tag: 4}
+    }
+}
+
+func main(): void {
+    testStructField()
+    testNestedLiteral()
+    testOptionalField()
+    testTupleElement()
+    testArrayElement()
+    testConditional(true)
+    testConditional(false)
+}

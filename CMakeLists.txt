@@ -311,8 +311,47 @@ set(CXY_PLUGIN_LIB_HEADERS
         src/cxy/plugin/plugin.h
 )
 
-# Create static library with all core Cxy sources
-add_library(cxy-core STATIC
+# Archive members are stored by basename, so sources that share a name
+# (eval/path.c and sema/path.c) end up as ambiguous members of a static library
+# and the debug map of the executable loses their debug info. Those sources are
+# compiled through uniquely named wrappers that #include the original file, the
+# line tables still point at the original file. Generated sources are kept as is.
+function(cxy_unique_object_names OUT)
+    set(abs_sources)
+    foreach (src IN LISTS ARGN)
+        get_filename_component(abs "${src}" ABSOLUTE)
+        list(APPEND abs_sources "${abs}")
+    endforeach ()
+    list(REMOVE_DUPLICATES abs_sources)
+
+    set(names)
+    set(duplicates)
+    foreach (src IN LISTS abs_sources)
+        get_filename_component(name "${src}" NAME)
+        if (name IN_LIST names)
+            list(APPEND duplicates "${name}")
+        endif ()
+        list(APPEND names "${name}")
+    endforeach ()
+
+    set(result)
+    foreach (src IN LISTS abs_sources)
+        get_filename_component(name "${src}" NAME)
+        string(FIND "${src}" "${CMAKE_CURRENT_BINARY_DIR}" generated)
+        if (name IN_LIST duplicates AND NOT generated EQUAL 0)
+            file(RELATIVE_PATH rel "${CMAKE_CURRENT_SOURCE_DIR}" "${src}")
+            string(REPLACE "/" "_" unique "${rel}")
+            set(wrapper "${CMAKE_CURRENT_BINARY_DIR}/unique/${unique}")
+            file(GENERATE OUTPUT "${wrapper}" CONTENT "#include \"${src}\"\n")
+            list(APPEND result "${wrapper}")
+        else ()
+            list(APPEND result "${src}")
+        endif ()
+    endforeach ()
+    set(${OUT} "${result}" PARENT_SCOPE)
+endfunction()
+
+cxy_unique_object_names(CXY_CORE_ALL_SOURCES
         ${CXY_3RD_PARTY_SOURCES}
         ${CXY_CORE_SOURCES}
         ${CXY_PACKAGE_SOURCES}
@@ -323,6 +362,9 @@ add_library(cxy-core STATIC
         ${CMAKE_CURRENT_BINARY_DIR}/generated/src/builtins.c
         ${CMAKE_CURRENT_BINARY_DIR}/generated/src/prologue.c
         ${CMAKE_CURRENT_BINARY_DIR}/generated/src/epilogue.c)
+
+# Create static library with all core Cxy sources
+add_library(cxy-core STATIC ${CXY_CORE_ALL_SOURCES})
 
 add_executable(cxy
         src/cxy/driver/main.c
@@ -436,6 +478,7 @@ set(CXY_STD_LIB_SOURCES
 set(CXY_STD_LIB_TEST_SOURCES
         ${CXY_STD_LIB_SOURCES}
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/json.spec.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/coro.spec.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/spec.cxy
 )
 

@@ -173,6 +173,33 @@ void checkTupleExpr(AstVisitor *visitor, AstNode *node)
     implementTupleTypeCopyAndDestructor(visitor, node);
 }
 
+// A tuple literal stored where a tuple type is expected takes that type, so
+// `null` and plain values for optional members are converted by lowering.
+void coerceTupleExpr(AstNode *expr, const Type *target)
+{
+    target = resolveUnThisUnwrapType(target);
+    if (!nodeIs(expr, TupleExpr) || !typeIs(target, Tuple) ||
+        target->tuple.count != countAstNodes(expr->tupleExpr.elements))
+        return;
+
+    u64 i = 0;
+    for (AstNode *elem = expr->tupleExpr.elements; elem;
+         elem = elem->next, i++) {
+        const Type *member = target->tuple.members[i];
+        if (nodeIs(elem, TupleExpr)) {
+            coerceTupleExpr(elem, member);
+        }
+        else if (isOptionalType(member) && !isOptionalType(elem->type)) {
+            const Type *inner = getOptionalTargetType(member);
+            elem->type = nodeIs(elem, NullLit) || inner == NULL ? member : inner;
+        }
+        else if (nodeIs(elem, NullLit) && isStructType(member)) {
+            elem->type = member;
+        }
+    }
+    expr->type = target;
+}
+
 void checkTupleType(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);

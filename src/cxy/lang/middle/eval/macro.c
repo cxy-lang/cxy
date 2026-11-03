@@ -1122,6 +1122,73 @@ static AstNode *makeLambdaOfAstNode(AstVisitor *visitor,
     return makeTypeReferenceNode(ctx->pool, closureType, &node->loc);
 }
 
+// `currentTask!()` is the `Task[R]` of the running `@task` function, `R` being
+// the unwrapped return type of the enclosing function
+static AstNode *makeCurrentTaskNode(AstVisitor *visitor,
+                                    const AstNode *node,
+                                    AstNode *args)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (!validateMacroArgumentCount(ctx, &node->loc, args, 0))
+        return NULL;
+
+    TypingContext *typer = getAstVisitorContext(ctx->typer);
+    AstNode *func = typer->currentFunction;
+    if (func == NULL || !findAttribute(func, S_task) ||
+        !typeIs(func->type, Func)) {
+        logError(ctx->L,
+                 &node->loc,
+                 "`currentTask!()` can only be used in a `@task` function",
+                 NULL);
+        return NULL;
+    }
+
+    // the first use declares `var __current_task = __currentTask[R]()` at the
+    // top of the function, later uses refer to it
+    cstring varName = makeString(ctx->strings, "__current_task");
+    if (typer->currentTaskVar) {
+        return makeResolvedPath(ctx->pool,
+                                &node->loc,
+                                varName,
+                                flgNone,
+                                typer->currentTaskVar,
+                                NULL,
+                                typer->currentTaskVar->type);
+    }
+
+    const Type *ret = func->type->func.retType;
+    if (isResultType(ret))
+        ret = isVoidResultType(ret) ? makeVoidType(ctx->types)
+                                    : getResultTargetType(ret);
+    args = makeTypeReferenceNode(ctx->pool, ret, &node->loc);
+
+    AstNode *decl = findBuiltinDecl(S___currentTask);
+    if (decl == NULL) {
+        logError(ctx->L,
+                 &node->loc,
+                 "`currentTask!` requires '__currentTask' to be defined "
+                 "(import 'stdlib/coro.cxy')",
+                 NULL);
+        return NULL;
+    }
+
+    AstNode *callee = makeResolvedPathWithArgs(
+        ctx->pool, &node->loc, S___currentTask, flgNone, decl, args, NULL);
+    AstNode *call =
+        makeCallExpr(ctx->pool, &node->loc, callee, NULL, flgNone, NULL, NULL);
+    AstNode *var = makeVarDecl(
+        ctx->pool, &func->loc, flgNone, varName, NULL, call, NULL, NULL);
+    if (typeIs(evalType(ctx, var), Error))
+        return NULL;
+
+    AstNode *body = func->funcDecl.body;
+    var->next = body->blockStmt.stmts;
+    body->blockStmt.stmts = var;
+    typer->currentTaskVar = var;
+    return makeResolvedPath(
+        ctx->pool, &node->loc, varName, flgNone, var, NULL, var->type);
+}
+
 static AstNode *makeTypeinfoNode(AstVisitor *visitor,
                                  const FileLoc *loc,
                                  const Type *type)
@@ -1939,6 +2006,7 @@ static const BuiltinMacro builtinMacros[] = {
     {.name = "column", makeColumnNumberNode},
     {.name = "cstr", makeCstrNode},
     {.name = "ctz", makeCtzNode},
+    {.name = "currentTask", makeCurrentTaskNode},
     {.name = "data", makeDataNode},
     {.name = "destructor", makeDestructorNode},
     {.name = "error", makeAstLogErrorNode},

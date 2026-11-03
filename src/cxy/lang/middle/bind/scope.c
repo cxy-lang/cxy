@@ -88,6 +88,9 @@ void suggestSimilarSymbol(const Env *env, Log *L, const char *name)
         for (u32 i = 0; i < scope->symbols.capacity; i++) {
             if (!isBucketOccupied(&scope->symbols, i))
                 continue;
+            // Compiler generated names are not suggestions
+            if (symbols[i].name[0] == '$')
+                continue;
             u64 dist = levenshteinDistance(name, symbols[i].name, minDist);
             if (dist < minDist) {
                 minDist = dist;

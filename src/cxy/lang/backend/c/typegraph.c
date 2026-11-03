@@ -118,6 +118,10 @@ static void collectTypesFromNode(ConstIrVisitor *visitor, const IrNode *node)
         return;
     if (node->tag == irGlobalVar && !hasFlag(node, Reachable))
         return;
+    // enum options are plain refs, their typedef and defines must still exist
+    if (node->tag == irGlobalRef &&
+        !(node->type && node->type->category == irTypeCatEnum))
+        return;
 
     if (node->type)
         addIrTypeToGraph(g, node->type);
@@ -205,6 +209,7 @@ void collectIrTypesFromModule(IrTypeGraph *g, const IrModule *module)
         [irFuncParam] = collectTypesFromNode,
         [irBasicBlock] = collectTypesFromNode,
         [irGlobalVar] = collectTypesFromNode,
+        [irGlobalRef] = collectTypesFromNode,
         [irVarDecl] = collectTypesFromNode,
         [irAssign] = collectTypesFromNode,
         [irBranch] = collectTypesFromNode,

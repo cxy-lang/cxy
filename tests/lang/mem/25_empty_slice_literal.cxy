@@ -1,0 +1,19 @@
+class Resource {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+func takeInts(items: [i32]): void { }
+
+func takeResources(items: [Resource]): void { }
+
+// `[]` is an empty slice for any element type
+func main(): void {
+    takeInts([])
+    takeResources([])
+    var ints: [i32] = []
+    var resources: [Resource] = []
+    takeInts(ints)
+    takeResources(resources)
+}
