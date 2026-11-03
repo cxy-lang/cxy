@@ -1,3 +1,5 @@
 # only `keep` is alive, six allocations happened in total
 summary
 sites
+types
+sitecounts

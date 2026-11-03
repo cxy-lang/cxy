@@ -26,6 +26,8 @@ static void Item_op__destructor_fwd(void * ptr);
 static Item * Item_op__initCover(int32_t id);
 static void _main();
 
+static const __TypeInfo __ti_Item = { .name = "Item", .size = sizeof(Item), .align = _Alignof(Item), .dropFields = Item_op__destructor_fwd };
+
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
   char * __t2;
@@ -75,7 +77,7 @@ static Item * Item_op__initCover(int32_t id) {
   Item * __obj3;
   Item * __t0;
 _L_entry:;
-  __t0 = __smart_ptr_alloc(sizeof(Item), Item_op__destructor_fwd);
+  __t0 = __mm_alloc(&__ti_Item, nullptr);
   __obj3 = ((Item *)(__t0));
   memset(__obj3, 0, sizeof(Item));
   Item_op__init(((Item *)(__obj3)), id);

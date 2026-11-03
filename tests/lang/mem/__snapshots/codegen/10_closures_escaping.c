@@ -34,6 +34,8 @@ static Storage * storeCallback(Closure_130 cb);
 static void __closure_body4(void * this);
 static void _main();
 
+static const __TypeInfo __ti_Storage = { .name = "Storage", .size = sizeof(Storage), .align = _Alignof(Storage), .dropFields = Storage_op__destructor_fwd };
+
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
   char * __t2;
@@ -78,7 +80,7 @@ static Storage * Storage_op__initCover(Closure_130 cb) {
   Storage * __obj3;
   Storage * __t0;
 _L_entry:;
-  __t0 = __smart_ptr_alloc(sizeof(Storage), Storage_op__destructor_fwd);
+  __t0 = __mm_alloc(&__ti_Storage, nullptr);
   __obj3 = ((Storage *)(__t0));
   memset(__obj3, 0, sizeof(Storage));
   Storage_op__init(((Storage *)(__obj3)), cb);

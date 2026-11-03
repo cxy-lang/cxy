@@ -478,6 +478,233 @@ void __cxy_mem_trace_report(void)
     liveReportFd(STDOUT_FILENO, 0, 0, true, true);
 }
 
+/* ---------------------------------------------------------------- counters */
+
+/*
+ * Cumulative per-type and per-site counters. Each thread counts into its own
+ * arrays (no shared cache line), a query sums them. The generated program
+ * provides the tables (__cxy_sites, __cxy_types) and the hooks below are called
+ * from mm.h. The records mirror __Site and __TypeInfo in runtime/mm.h.
+ */
+typedef struct {
+    const char *file;
+    uint32_t line, column;
+    const char *function;
+    uint32_t index;
+} SiteRecord;
+
+typedef struct {
+    const char *name;
+    uint64_t size;
+    uint32_t align, kind;
+    void *deinit, *dropFields, *visit;
+    uint32_t index;
+} TypeRecord;
+
+__attribute__((weak)) extern const SiteRecord *const __cxy_sites[];
+__attribute__((weak)) extern const uint32_t __cxy_site_count;
+__attribute__((weak)) extern const TypeRecord *const __cxy_types[];
+__attribute__((weak)) extern const uint32_t __cxy_type_count;
+
+typedef struct {
+    uint64_t allocs, bytes;
+} SiteCount;
+
+typedef struct {
+    uint64_t allocs, bytes, frees;
+} TypeCount;
+
+typedef struct Counters {
+    struct Counters *next;
+    SiteCount *sites;
+    TypeCount *types;
+} Counters;
+
+static __thread Counters *threadCounters;
+static Counters *allCounters; // grows only, a finished thread keeps its numbers
+static pthread_mutex_t countersLock = PTHREAD_MUTEX_INITIALIZER;
+
+static uint32_t siteTableSize(void)
+{
+    return &__cxy_site_count != NULL ? __cxy_site_count : 0;
+}
+
+static uint32_t typeTableSize(void)
+{
+    return &__cxy_type_count != NULL ? __cxy_type_count : 0;
+}
+
+static Counters *countersForThread(void)
+{
+    Counters *c = threadCounters;
+    if (c != NULL)
+        return c;
+
+    c = calloc(1, sizeof(Counters));
+    if (c == NULL)
+        return NULL;
+    c->sites = calloc(siteTableSize() + 1, sizeof(SiteCount));
+    c->types = calloc(typeTableSize() + 1, sizeof(TypeCount));
+    if (c->sites == NULL || c->types == NULL) {
+        free(c->sites);
+        free(c->types);
+        free(c);
+        return NULL;
+    }
+
+    pthread_mutex_lock(&countersLock);
+    c->next = allCounters;
+    allCounters = c;
+    pthread_mutex_unlock(&countersLock);
+    threadCounters = c;
+    return c;
+}
+
+void __cxy_mem_trace_count(uint32_t type, uint32_t site, uint64_t bytes)
+{
+    if (!__atomic_load_n(&started, __ATOMIC_ACQUIRE))
+        return;
+    Counters *c = countersForThread();
+    if (c == NULL)
+        return;
+    if (type < typeTableSize()) {
+        __atomic_fetch_add(&c->types[type].allocs, 1, __ATOMIC_RELAXED);
+        __atomic_fetch_add(&c->types[type].bytes, bytes, __ATOMIC_RELAXED);
+    }
+    if (site < siteTableSize()) {
+        __atomic_fetch_add(&c->sites[site].allocs, 1, __ATOMIC_RELAXED);
+        __atomic_fetch_add(&c->sites[site].bytes, bytes, __ATOMIC_RELAXED);
+    }
+}
+
+void __cxy_mem_trace_type_free(uint32_t type)
+{
+    if (!__atomic_load_n(&started, __ATOMIC_ACQUIRE) || type >= typeTableSize())
+        return;
+    Counters *c = countersForThread();
+    if (c != NULL)
+        __atomic_fetch_add(&c->types[type].frees, 1, __ATOMIC_RELAXED);
+}
+
+// Sums every thread's arrays into freshly allocated tables
+static void sumCounters(SiteCount **sites, TypeCount **types)
+{
+    uint32_t ns = siteTableSize(), nt = typeTableSize();
+    *sites = calloc(ns + 1, sizeof(SiteCount));
+    *types = calloc(nt + 1, sizeof(TypeCount));
+    if (*sites == NULL || *types == NULL)
+        return;
+
+    pthread_mutex_lock(&countersLock);
+    for (Counters *c = allCounters; c != NULL; c = c->next) {
+        for (uint32_t i = 0; i < ns; i++) {
+            (*sites)[i].allocs += __atomic_load_n(&c->sites[i].allocs, __ATOMIC_RELAXED);
+            (*sites)[i].bytes += __atomic_load_n(&c->sites[i].bytes, __ATOMIC_RELAXED);
+        }
+        for (uint32_t i = 0; i < nt; i++) {
+            (*types)[i].allocs += __atomic_load_n(&c->types[i].allocs, __ATOMIC_RELAXED);
+            (*types)[i].bytes += __atomic_load_n(&c->types[i].bytes, __ATOMIC_RELAXED);
+            (*types)[i].frees += __atomic_load_n(&c->types[i].frees, __ATOMIC_RELAXED);
+        }
+    }
+    pthread_mutex_unlock(&countersLock);
+}
+
+typedef struct {
+    uint32_t index;
+    uint64_t allocs;
+} RankEntry;
+
+static int compareRankDesc(const void *lhs, const void *rhs)
+{
+    const RankEntry *l = lhs, *r = rhs;
+    if (l->allocs != r->allocs)
+        return l->allocs < r->allocs ? 1 : -1;
+    return l->index < r->index ? -1 : (l->index > r->index ? 1 : 0);
+}
+
+// Types with at least one allocation, most allocated first
+static void typesReportFd(int fd)
+{
+    SiteCount *sites = NULL;
+    TypeCount *types = NULL;
+    sumCounters(&sites, &types);
+    uint32_t nt = typeTableSize();
+    if (types == NULL || nt == 0) {
+        dprintf(fd, "no type information, was the program built with --memory-trace?\n");
+        free(sites);
+        free(types);
+        return;
+    }
+
+    RankEntry *rank = calloc(nt, sizeof(RankEntry));
+    size_t n = 0;
+    for (uint32_t i = 0; rank != NULL && i < nt; i++) {
+        if (types[i].allocs > 0)
+            rank[n++] = (RankEntry){.index = i, .allocs = types[i].allocs};
+    }
+    qsort(rank, n, sizeof(RankEntry), compareRankDesc);
+
+    dprintf(fd, "%10s %10s %10s %12s  %s\n", "allocs", "frees", "live", "bytes", "type");
+    for (size_t i = 0; i < n; i++) {
+        const TypeCount *t = &types[rank[i].index];
+        const TypeRecord *info = __cxy_types[rank[i].index];
+        dprintf(fd,
+                "%10llu %10llu %10llu %12llu  %s\n",
+                (unsigned long long)t->allocs,
+                (unsigned long long)t->frees,
+                (unsigned long long)(t->allocs > t->frees ? t->allocs - t->frees : 0),
+                (unsigned long long)t->bytes,
+                info != NULL && info->name != NULL ? info->name : "<unknown>");
+    }
+    dprintf(fd, "Total: %llu types\n", (unsigned long long)n);
+    free(rank);
+    free(sites);
+    free(types);
+}
+
+// Allocation points with at least one allocation, most allocating first
+static void siteCountsReportFd(int fd, size_t limit)
+{
+    SiteCount *sites = NULL;
+    TypeCount *types = NULL;
+    sumCounters(&sites, &types);
+    uint32_t ns = siteTableSize();
+    if (sites == NULL || ns == 0) {
+        dprintf(fd, "no site information, was the program built with --memory-trace?\n");
+        free(sites);
+        free(types);
+        return;
+    }
+
+    RankEntry *rank = calloc(ns, sizeof(RankEntry));
+    size_t n = 0;
+    for (uint32_t i = 0; rank != NULL && i < ns; i++) {
+        if (sites[i].allocs > 0)
+            rank[n++] = (RankEntry){.index = i, .allocs = sites[i].allocs};
+    }
+    qsort(rank, n, sizeof(RankEntry), compareRankDesc);
+
+    size_t shown = (limit == 0 || limit > n) ? n : limit;
+    dprintf(fd, "%10s %12s  %s\n", "allocs", "bytes", "site");
+    for (size_t i = 0; i < shown; i++) {
+        const SiteCount *s = &sites[rank[i].index];
+        const SiteRecord *info = __cxy_sites[rank[i].index];
+        dprintf(fd,
+                "%10llu %12llu  %s:%u:%u (%s)\n",
+                (unsigned long long)s->allocs,
+                (unsigned long long)s->bytes,
+                info != NULL && info->file != NULL ? info->file : "<unknown>",
+                info != NULL ? info->line : 0,
+                info != NULL ? info->column : 0,
+                info != NULL && info->function != NULL ? info->function : "?");
+    }
+    dprintf(fd, "Total: %llu sites%s\n", (unsigned long long)n, shown < n ? ", showing most allocating" : "");
+    free(rank);
+    free(sites);
+    free(types);
+}
+
 /* ------------------------------------------------------------ query server */
 
 static void helpFd(int fd)
@@ -490,6 +717,8 @@ static void helpFd(int fd)
             "  leaks                full report, same as the exit-time leak report\n"
             "  ring <ptr>           lifecycle timeline of one pointer\n"
             "  mark                 remember the current allocation generation\n"
+            "  types                cumulative allocs/frees/bytes per class\n"
+            "  sitecounts [n]       cumulative allocations per allocation point\n"
             "  diff [n]             sites of allocations made since `mark` still alive\n"
             "  difflist [n]         like `list`, but only allocations since `mark`\n"
             "containment (scans a forked copy of the process):\n"
@@ -1326,6 +1555,10 @@ static void handleCommand(int fd, char *line)
         liveReportFd(fd, 0, parseLimit(args[1]), sym, false);
     else if (strcmp(cmd, "leaks") == 0)
         liveReportFd(fd, 0, 0, sym, true);
+    else if (strcmp(cmd, "types") == 0)
+        typesReportFd(fd);
+    else if (strcmp(cmd, "sitecounts") == 0)
+        siteCountsReportFd(fd, parseLimit(args[1]));
     else if (strcmp(cmd, "ring") == 0) {
         if (args[1] == NULL) {
             dprintf(fd, "usage: ring <ptr>\n");

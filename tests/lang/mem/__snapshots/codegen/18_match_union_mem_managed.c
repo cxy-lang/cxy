@@ -59,6 +59,9 @@ static void testUnionReassignment();
 static void _main();
 static void __union_dctor_141(Union_ResourceA_ResourceB_i32 * u);
 
+static const __TypeInfo __ti_ResourceA = { .name = "ResourceA", .size = sizeof(ResourceA), .align = _Alignof(ResourceA), .dropFields = ResourceA_op__destructor_fwd };
+static const __TypeInfo __ti_ResourceB = { .name = "ResourceB", .size = sizeof(ResourceB), .align = _Alignof(ResourceB), .dropFields = ResourceB_op__destructor_fwd };
+
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
   char * __t2;
@@ -139,7 +142,7 @@ static ResourceA * ResourceA_op__initCover(int32_t id) {
   ResourceA * __obj3;
   ResourceA * __t0;
 _L_entry:;
-  __t0 = __smart_ptr_alloc(sizeof(ResourceA), ResourceA_op__destructor_fwd);
+  __t0 = __mm_alloc(&__ti_ResourceA, nullptr);
   __obj3 = ((ResourceA *)(__t0));
   memset(__obj3, 0, sizeof(ResourceA));
   ResourceA_op__init(((ResourceA *)(__obj3)), id);
@@ -154,7 +157,7 @@ static ResourceB * ResourceB_op__initCover(char * tag) {
   ResourceB * __obj4;
   ResourceB * __t1;
 _L_entry:;
-  __t1 = __smart_ptr_alloc(sizeof(ResourceB), ResourceB_op__destructor_fwd);
+  __t1 = __mm_alloc(&__ti_ResourceB, nullptr);
   __obj4 = ((ResourceB *)(__t1));
   memset(__obj4, 0, sizeof(ResourceB));
   ResourceB_op__init(((ResourceB *)(__obj4)), tag);

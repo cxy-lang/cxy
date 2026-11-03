@@ -53,6 +53,8 @@ static void testClassUpcast();
 static void testClassMoveUpcast();
 static void _main();
 
+static const __TypeInfo __ti_DerivedResource = { .name = "DerivedResource", .size = sizeof(DerivedResource), .align = _Alignof(DerivedResource), .dropFields = DerivedResource_op__destructor_fwd };
+
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
   char * __t2;
@@ -192,7 +194,7 @@ static DerivedResource * DerivedResource_op__initCover(int32_t id, int32_t extra
   DerivedResource * __obj3;
   DerivedResource * __t0;
 _L_entry:;
-  __t0 = __smart_ptr_alloc(sizeof(DerivedResource), DerivedResource_op__destructor_fwd);
+  __t0 = __mm_alloc(&__ti_DerivedResource, nullptr);
   __obj3 = ((DerivedResource *)(__t0));
   memset(__obj3, 0, sizeof(DerivedResource));
   DerivedResource___defaults_init(((DerivedResource *)(__obj3)));

@@ -44,6 +44,9 @@ static int8_t __closure_body7(__closure_env6 * this);
 static Closure_140 makeCounter();
 static void _main();
 
+static const __TypeInfo __ti___closure_env4 = { .name = "__closure_env4", .size = sizeof(__closure_env4), .align = _Alignof(__closure_env4), .dropFields = nullptr };
+static const __TypeInfo __ti___closure_env6 = { .name = "__closure_env6", .size = sizeof(__closure_env6), .align = _Alignof(__closure_env6), .dropFields = nullptr };
+
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
   char * __t2;
@@ -72,7 +75,7 @@ static Closure_129 makeMultiplier(int32_t factor) {
   __closure_env4 * __env1;
 _L_entry:;
   __t0 = (__closure_env4){.factor = factor};
-  __env1 = __smart_ptr_alloc(sizeof(__closure_env4), nullptr);
+  __env1 = __mm_alloc(&__ti___closure_env4, nullptr);
   (*(__env1)) = __t0;
   __ret = (Closure_129){ .env = __env1, .fn = __closure_body5, .dtor = __smart_ptr_drop };
   goto _L_exit;
@@ -97,7 +100,7 @@ static Closure_140 makeCounter() {
 _L_entry:;
   count = 0;
   __t2 = (__closure_env6){.count = count};
-  __env3 = __smart_ptr_alloc(sizeof(__closure_env6), nullptr);
+  __env3 = __mm_alloc(&__ti___closure_env6, nullptr);
   (*(__env3)) = __t2;
   __ret = (Closure_140){ .env = __env3, .fn = __closure_body7, .dtor = __smart_ptr_drop };
   goto _L_exit;

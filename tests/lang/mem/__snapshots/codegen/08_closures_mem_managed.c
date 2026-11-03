@@ -71,6 +71,9 @@ static uint64_t __closure_body10(__closure_env9 * this);
 static void testCaptureString();
 static void _main();
 
+static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .dropFields = Resource_op__destructor_fwd };
+static const __TypeInfo __ti_X = { .name = "X", .size = sizeof(X), .align = _Alignof(X), .dropFields = nullptr };
+
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
   char * __t2;
@@ -120,7 +123,7 @@ static Resource * Resource_op__initCover(int32_t id) {
   Resource * __obj3;
   Resource * __t0;
 _L_entry:;
-  __t0 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
+  __t0 = __mm_alloc(&__ti_Resource, nullptr);
   __obj3 = ((Resource *)(__t0));
   memset(__obj3, 0, sizeof(Resource));
   Resource_op__init(((Resource *)(__obj3)), id);
@@ -216,7 +219,7 @@ static X * X_op__initCover(char * s) {
   X * __obj8;
   X * __t7;
 _L_entry:;
-  __t7 = __smart_ptr_alloc(sizeof(X), nullptr);
+  __t7 = __mm_alloc(&__ti_X, nullptr);
   __obj8 = ((X *)(__t7));
   memset(__obj8, 0, sizeof(X));
   X_op__init(((X *)(__obj8)), s);

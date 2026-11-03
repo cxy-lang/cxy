@@ -12,4 +12,12 @@ ptr=PTR size=4 refs=1 @ <ROOT>/tests/trace/programs/live_objects.cxy:5
 ptr=PTR size=4 refs=1 @ <ROOT>/tests/trace/programs/live_objects.cxy:5
 ptr=PTR size=4 refs=1 @ <ROOT>/tests/trace/programs/live_objects.cxy:5
 Total: 3 live allocations (12 bytes)
+$ types
+    allocs      frees       live        bytes  type
+         3          0          3           12  Node
+Total: 1 types
+$ sitecounts
+    allocs        bytes  site
+         3           12  <ROOT>/tests/trace/programs/live_objects.cxy:5:5 (main.Node.op__initCover)
+Total: 1 sites
 $ program output

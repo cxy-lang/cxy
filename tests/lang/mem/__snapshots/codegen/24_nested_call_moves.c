@@ -93,6 +93,9 @@ static void _main();
 static void __tuple_dctor_163(Tuple_Page_i8 * tup);
 static void __array_dctor_169(Slice_Page arr);
 
+static const __TypeInfo __ti_Keys = { .name = "Keys", .size = sizeof(Keys), .align = _Alignof(Keys), .dropFields = Keys_op__destructor_fwd };
+static const __TypeInfo __ti_Page = { .name = "Page", .size = sizeof(Page), .align = _Alignof(Page), .dropFields = Page_op__destructor_fwd };
+
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
   char * __t2;
@@ -185,7 +188,7 @@ static Keys * Keys_op__initCover(int32_t id) {
   Keys * __obj3;
   Keys * __t1;
 _L_entry:;
-  __t1 = __smart_ptr_alloc(sizeof(Keys), Keys_op__destructor_fwd);
+  __t1 = __mm_alloc(&__ti_Keys, nullptr);
   __obj3 = ((Keys *)(__t1));
   memset(__obj3, 0, sizeof(Keys));
   Keys_op__init(((Keys *)(__obj3)), id);
@@ -200,7 +203,7 @@ static Page * Page_op__initCover(Keys * k) {
   Page * __obj4;
   Page * __t2;
 _L_entry:;
-  __t2 = __smart_ptr_alloc(sizeof(Page), Page_op__destructor_fwd);
+  __t2 = __mm_alloc(&__ti_Page, nullptr);
   __obj4 = ((Page *)(__t2));
   memset(__obj4, 0, sizeof(Page));
   Page_op__init(((Page *)(__obj4)), k);

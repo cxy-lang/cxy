@@ -56,6 +56,9 @@ static void __closure_body8(void * this);
 static Dispatcher * Dispatcher_op__initCover(Closure_138 fn);
 static void _main();
 
+static const __TypeInfo __ti_Dispatcher = { .name = "Dispatcher", .size = sizeof(Dispatcher), .align = _Alignof(Dispatcher), .dropFields = Dispatcher_op__destructor_fwd };
+static const __TypeInfo __ti___closure_env5 = { .name = "__closure_env5", .size = sizeof(__closure_env5), .align = _Alignof(__closure_env5), .dropFields = nullptr };
+
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
   char * __t2;
@@ -163,7 +166,7 @@ static Dispatcher * Dispatcher_op__initCover(Closure_138 fn) {
   Dispatcher * __obj9;
   Dispatcher * __t0;
 _L_entry:;
-  __t0 = __smart_ptr_alloc(sizeof(Dispatcher), Dispatcher_op__destructor_fwd);
+  __t0 = __mm_alloc(&__ti_Dispatcher, nullptr);
   __obj9 = ((Dispatcher *)(__t0));
   memset(__obj9, 0, sizeof(Dispatcher));
   Dispatcher_op__init(((Dispatcher *)(__obj9)), fn);
@@ -185,7 +188,7 @@ static void _main() {
 _L_entry:;
   offset = 1;
   __t1 = (__closure_env5){.offset = offset};
-  __env2 = __smart_ptr_alloc(sizeof(__closure_env5), nullptr);
+  __env2 = __mm_alloc(&__ti___closure_env5, nullptr);
   (*(__env2)) = __t1;
   __t3 = (Closure_130){ .env = __env2, .fn = __closure_body6, .dtor = __smart_ptr_drop };
   h = Handler_op__initCover(__t3);

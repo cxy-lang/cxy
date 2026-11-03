@@ -63,6 +63,8 @@ static void testManagedArraySlice();
 static void _main();
 static void __array_dctor_152(Slice_Resource arr);
 
+static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .dropFields = Resource_op__destructor_fwd };
+
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
   char * __t2;
@@ -216,7 +218,7 @@ static Resource * Resource_op__initCover(int32_t id) {
   Resource * __obj4;
   Resource * __t3;
 _L_entry:;
-  __t3 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
+  __t3 = __mm_alloc(&__ti_Resource, nullptr);
   __obj4 = ((Resource *)(__t3));
   memset(__obj4, 0, sizeof(Resource));
   Resource_op__init(((Resource *)(__obj4)), id);

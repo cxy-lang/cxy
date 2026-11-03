@@ -37,6 +37,9 @@ static Base * Base_op__initCover(int32_t id);
 static Base * plain();
 static void _main();
 
+static const __TypeInfo __ti_Derived = { .name = "Derived", .size = sizeof(Derived), .align = _Alignof(Derived), .dropFields = Derived_op__destructor_fwd };
+static const __TypeInfo __ti_Base = { .name = "Base", .size = sizeof(Base), .align = _Alignof(Base), .dropFields = Base_op__destructor_fwd };
+
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
   char * __t2;
@@ -110,7 +113,7 @@ static Derived * Derived_op__initCover(int32_t id) {
   Derived * __obj3;
   Derived * __t0;
 _L_entry:;
-  __t0 = __smart_ptr_alloc(sizeof(Derived), Derived_op__destructor_fwd);
+  __t0 = __mm_alloc(&__ti_Derived, nullptr);
   __obj3 = ((Derived *)(__t0));
   memset(__obj3, 0, sizeof(Derived));
   Derived_op__init(((Derived *)(__obj3)), id);
@@ -137,7 +140,7 @@ static Base * Base_op__initCover(int32_t id) {
   Base * __obj4;
   Base * __t1;
 _L_entry:;
-  __t1 = __smart_ptr_alloc(sizeof(Base), Base_op__destructor_fwd);
+  __t1 = __mm_alloc(&__ti_Base, nullptr);
   __obj4 = ((Base *)(__t1));
   memset(__obj4, 0, sizeof(Base));
   Base_op__init(((Base *)(__obj4)), id);

@@ -14,12 +14,23 @@ typedef struct CBackend {
     bool testMode;
 } CBackend;
 
+// An allocation point emitted as a `const __Site` (trace builds)
+typedef struct CodegenSite {
+    cstring file;
+    cstring function;
+    u32 line, column;
+} CodegenSite;
+
 typedef struct CodegenContext {
     CBackend *backend;
     StrPool *strings;
     cstring moduleName;
     FormatState types;
     FormatState state;
+    FormatState typeInfos;  // `const __TypeInfo` definitions, emitted before bodies
+    DynArray typeInfoTypes; // const IrType * with a TypeInfo already emitted
+    DynArray sites;         // CodegenSite, index = `__site_<index>` (trace builds)
+    cstring functionName;   // function being emitted
     TypeTable *table;
     cstring loopUpdate;
     bool loopUpdateUsed;

@@ -69,6 +69,10 @@ static Result_void level2Void(bool fail);
 static void testVoidBubbleUp();
 static void _main();
 
+static const __TypeInfo __ti_String = { .name = "String", .size = sizeof(String), .align = _Alignof(String), .dropFields = nullptr };
+static const __TypeInfo __ti_HeavyResource = { .name = "HeavyResource", .size = sizeof(HeavyResource), .align = _Alignof(HeavyResource), .dropFields = HeavyResource_op__destructor_fwd };
+static const __TypeInfo __ti_VoidError = { .name = "VoidError", .size = sizeof(VoidError), .align = _Alignof(VoidError), .dropFields = VoidError_op__destructor_fwd };
+
 builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 87ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
 
 static void builtins_Exception_op__init(builtins_Exception * this, char * name) {
@@ -243,7 +247,7 @@ static String * String_op__initCover(char * s) {
   String * __obj3;
   String * __t0;
 _L_entry:;
-  __t0 = __smart_ptr_alloc(sizeof(String), nullptr);
+  __t0 = __mm_alloc(&__ti_String, nullptr);
   __obj3 = ((String *)(__t0));
   memset(__obj3, 0, sizeof(String));
   String_op__init(((String *)(__obj3)), s);
@@ -258,7 +262,7 @@ static HeavyResource * HeavyResource_op__initCover(String * data) {
   HeavyResource * __obj4;
   HeavyResource * __t1;
 _L_entry:;
-  __t1 = __smart_ptr_alloc(sizeof(HeavyResource), HeavyResource_op__destructor_fwd);
+  __t1 = __mm_alloc(&__ti_HeavyResource, nullptr);
   __obj4 = ((HeavyResource *)(__t1));
   memset(__obj4, 0, sizeof(HeavyResource));
   HeavyResource_op__init(((HeavyResource *)(__obj4)), data);
@@ -273,7 +277,7 @@ static VoidError * VoidError_op__initCover(int32_t code) {
   VoidError * __obj5;
   VoidError * __t2;
 _L_entry:;
-  __t2 = __smart_ptr_alloc(sizeof(VoidError), VoidError_op__destructor_fwd);
+  __t2 = __mm_alloc(&__ti_VoidError, nullptr);
   __obj5 = ((VoidError *)(__t2));
   memset(__obj5, 0, sizeof(VoidError));
   VoidError___defaults_init(((VoidError *)(__obj5)));

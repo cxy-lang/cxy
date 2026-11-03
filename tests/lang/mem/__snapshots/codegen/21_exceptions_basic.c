@@ -70,6 +70,9 @@ static int32_t testBubbleUpUnwind();
 static Result_i32 testReraise(int32_t x);
 static void _main();
 
+static const __TypeInfo __ti_TestError = { .name = "TestError", .size = sizeof(TestError), .align = _Alignof(TestError), .dropFields = TestError_op__destructor_fwd };
+static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .dropFields = Resource_op__destructor_fwd };
+
 builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 87ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
 
 static void builtins_Exception_op__init(builtins_Exception * this, char * name) {
@@ -232,7 +235,7 @@ static TestError * TestError_op__initCover(char * msg) {
   TestError * __obj3;
   TestError * __t0;
 _L_entry:;
-  __t0 = __smart_ptr_alloc(sizeof(TestError), TestError_op__destructor_fwd);
+  __t0 = __mm_alloc(&__ti_TestError, nullptr);
   __obj3 = ((TestError *)(__t0));
   memset(__obj3, 0, sizeof(TestError));
   TestError___defaults_init(((TestError *)(__obj3)));
@@ -411,7 +414,7 @@ static Resource * Resource_op__initCover(int32_t id) {
   Resource * __obj4;
   Resource * __t14;
 _L_entry:;
-  __t14 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
+  __t14 = __mm_alloc(&__ti_Resource, nullptr);
   __obj4 = ((Resource *)(__t14));
   memset(__obj4, 0, sizeof(Resource));
   Resource_op__init(((Resource *)(__obj4)), id);

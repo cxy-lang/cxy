@@ -63,6 +63,8 @@ static Resource * Resource_op__initCover(int32_t id);
 static void _main();
 static void __tuple_dctor_144(Tuple_Optional_Resource_i32 * tup);
 
+static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .dropFields = Resource_op__destructor_fwd };
+
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
   char * __t2;
@@ -112,7 +114,7 @@ static Resource * Resource_op__initCover(int32_t id) {
   Resource * __obj3;
   Resource * __t0;
 _L_entry:;
-  __t0 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
+  __t0 = __mm_alloc(&__ti_Resource, nullptr);
   __obj3 = ((Resource *)(__t0));
   memset(__obj3, 0, sizeof(Resource));
   Resource_op__init(((Resource *)(__obj3)), id);

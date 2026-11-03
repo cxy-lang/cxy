@@ -1296,7 +1296,7 @@ static int parseUtilsCommand(
     Command(
         mem_trace,
         "Query a running program built with memory tracing (summary, sites, "
-        "list, leaks, ring, mark, diff, difflist, help)",
+        "list, leaks, types, sitecounts, ring, mark, diff, difflist, help)",
         Positionals(Use(cmdArrayArgument,
                         Name("query"),
                         Help("Query and arguments, e.g. `mark`, `sites 20`, "

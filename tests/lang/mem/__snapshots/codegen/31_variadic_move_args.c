@@ -60,6 +60,9 @@ static void Hello_sayI_ZResource_ZResource_ZResource_E(Hello * this, Resource * 
 static Result_void Hello_sayerI_ZResource_ZResource_E(Hello * this, Resource * name, Resource * args, Resource * args1);
 static Result_void _main();
 
+static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .dropFields = Resource_op__destructor_fwd };
+static const __TypeInfo __ti_builtins_Exception = { .name = "Exception", .size = sizeof(builtins_Exception), .align = _Alignof(builtins_Exception), .dropFields = builtins_Exception_op__destructor_fwd };
+
 builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 87ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
 
 static void builtins_Exception_op__init(builtins_Exception * this, char * name) {
@@ -177,7 +180,7 @@ static Resource * Resource_op__initCover(int32_t id) {
   Resource * __obj3;
   Resource * __t0;
 _L_entry:;
-  __t0 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
+  __t0 = __mm_alloc(&__ti_Resource, nullptr);
   __obj3 = ((Resource *)(__t0));
   memset(__obj3, 0, sizeof(Resource));
   Resource_op__init(((Resource *)(__obj3)), id);
@@ -192,7 +195,7 @@ static builtins_Exception * builtins_Exception_op__initCover(char * name) {
   builtins_Exception * __obj4;
   builtins_Exception * __t1;
 _L_entry:;
-  __t1 = __smart_ptr_alloc(sizeof(builtins_Exception), builtins_Exception_op__destructor_fwd);
+  __t1 = __mm_alloc(&__ti_builtins_Exception, nullptr);
   __obj4 = ((builtins_Exception *)(__t1));
   memset(__obj4, 0, sizeof(builtins_Exception));
   builtins_Exception___defaults_init(((builtins_Exception *)(__obj4)));

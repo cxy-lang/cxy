@@ -66,6 +66,9 @@ extern void __cxy_mem_trace_alloc(void *ptr, uint64_t size, const char *path, ui
 extern void __cxy_mem_trace_event(void *ptr, const char *op, uint32_t refs, const char *path, uint64_t line);
 extern void __cxy_mem_trace_free(void *ptr);
 extern void __cxy_mem_trace_dump(void *ptr);
+// Cumulative per-type and per-site counters, indexes come from __TypeInfo / __Site
+extern void __cxy_mem_trace_count(uint32_t type, uint32_t site, uint64_t bytes);
+extern void __cxy_mem_trace_type_free(uint32_t type);
 
 // Lets the trace library read refcounts without knowing the header layout
 __attribute__((used)) uint32_t __cxy_mem_header_refs(void *ptr)
@@ -215,6 +218,8 @@ static inline void __mm_destroy(__ObjHeader *h, void *obj)
             h->type->dropFields(obj);
     }
 #if defined(ENABLE_MEMORY_TRACE)
+    if (!(h->weakFlags & __MM_F_LEGACY) && h->type != nullptr)
+        __cxy_mem_trace_type_free(h->type->index);
     __cxy_mem_trace_free(obj);
 #endif
     __mm_free_block(h);
@@ -325,6 +330,15 @@ static inline sptr __smart_ptr_alloc_trace(uint64_t size, sptr_dctor dctor, cons
     return ptr;
 }
 
+static inline sptr __mm_alloc_trace(const __TypeInfo *type, const __Site *site)
+{
+    sptr ptr = __mm_alloc(type, site);
+    __cxy_mem_trace_alloc(ptr, type->size, site->file, site->line);
+    __cxy_mem_trace_count(type->index, site->index, type->size);
+    CXY_MEMORY_TRACE(ptr, "alloc", site->file, site->line);
+    return ptr;
+}
+
 static inline sptr __smart_ptr_get_trace(sptr ptr, const char *path, uint64_t line)
 {
     if (ptr == nullptr)
@@ -353,6 +367,7 @@ static inline bool __smart_ptr_drop_trace(sptr ptr, const char *path, uint64_t l
 }
 #else
 // path/line are always literals from codegen, so dropping them is safe
+#define __mm_alloc_trace(type, site) __mm_alloc(type, nullptr)
 #define __smart_ptr_alloc_trace(size, dctor, path, line) __smart_ptr_alloc(size, dctor)
 #define __smart_ptr_get_trace(ptr, path, line) __smart_ptr_get(ptr)
 #define __smart_ptr_drop_trace(ptr, path, line) __smart_ptr_drop(ptr)

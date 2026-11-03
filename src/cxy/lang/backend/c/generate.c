@@ -327,29 +327,79 @@ static void emitGlobalRef(ConstIrVisitor *visitor, const IrNode *node)
     format(&ctx->state, "{s}", (FormatArg[]){{.s = name ?: "global"}});
 }
 
+// Emits the `const __TypeInfo` of a class once, under the symbol
+// `__ti_<type name>`. `dropFields` holds the whole destructor chain until the
+// allocation phase splits `deinit` from it.
+static void emitTypeInfo(CodegenContext *ctx, const IrType *st)
+{
+    for (u32 i = 0; i < ctx->typeInfoTypes.size; i++) {
+        const IrType *seen = dynArrayAt(const IrType **, &ctx->typeInfoTypes, i);
+        if (seen == st || (seen->name && st->name && strcmp(seen->name, st->name) == 0))
+            return;
+    }
+    u32 index = ctx->typeInfoTypes.size;
+    pushOnDynArray(&ctx->typeInfoTypes, &st);
+
+    FormatState *out = &ctx->typeInfos;
+    format(out, "static const __TypeInfo __ti_{s} = {{ .name = \"{s}\", .size = sizeof(",
+           (FormatArg[]){{.s = st->name}, {.s = st->display ?: st->name}});
+    emitCTypeName(out, st);
+    format(out, "), .align = _Alignof(", NULL);
+    emitCTypeName(out, st);
+    format(out, "), .index = {u32}, .dropFields = ", (FormatArg[]){{.u32 = index}});
+    if (st->strct.dctorFwd)
+        format(out, "{s}", (FormatArg[]){{.s = st->strct.dctorFwd->function.name}});
+    else if (st->strct.dctor)
+        format(out, "{s}", (FormatArg[]){{.s = st->strct.dctor->function.name}});
+    else
+        format(out, "nullptr", NULL);
+    format(out, " };\n", NULL);
+}
+
+// Trace builds: one `const __Site` per (file, line, column, function), the
+// returned index names it as `__site_<index>`
+static u32 emitSite(CodegenContext *ctx, const FileLoc *loc)
+{
+    cstring file = loc->fileName ?: "";
+    cstring function = ctx->functionName ?: "";
+    for (u32 i = 0; i < ctx->sites.size; i++) {
+        const CodegenSite *s = &dynArrayAt(CodegenSite *, &ctx->sites, i);
+        if (s->line == loc->begin.row && s->column == loc->begin.col &&
+            strcmp(s->file, file) == 0 && strcmp(s->function, function) == 0)
+            return i;
+    }
+
+    u32 index = ctx->sites.size;
+    CodegenSite site = {
+        .file = file, .function = function, .line = loc->begin.row, .column = loc->begin.col};
+    pushOnDynArray(&ctx->sites, &site);
+    format(&ctx->typeInfos,
+           "static const __Site __site_{u32} = {{ .file = \"{s}\", .line = {u32}, .column = {u32}, "
+           ".function = \"{s}\", .index = {u32} };\n",
+           (FormatArg[]){{.u32 = index},
+                         {.s = file},
+                         {.u32 = loc->begin.row},
+                         {.u32 = loc->begin.col},
+                         {.s = function},
+                         {.u32 = index}});
+    return index;
+}
+
 static void emitAlloc(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
     const IrType *type = node->alloc.type;
     const IrType *st = isIrPointerType(type) ? type->pointer.pointee : type;
-    bool trace = ctx->memTraceEnabled;
-    cstring allocFunc = trace ? "__smart_ptr_alloc_trace" : "__smart_ptr_alloc";
-    format(&ctx->state, "{s}(sizeof(", (FormatArg[]){{.s = allocFunc}});
-    emitCTypeName(&ctx->state, st);
-    format(&ctx->state, "), ", NULL);
-    if (st && st->strct.dctorFwd) {
-        format(&ctx->state, "{s}", (FormatArg[]){{.s = st->strct.dctorFwd->function.name}});
-    }
-    else if (st && st->strct.dctor) {
-        format(&ctx->state, "{s}", (FormatArg[]){{.s = st->strct.dctor->function.name}});
+    emitTypeInfo(ctx, st);
+    if (ctx->memTraceEnabled) {
+        u32 site = emitSite(ctx, &node->loc);
+        format(&ctx->state,
+               "__mm_alloc_trace(&__ti_{s}, &__site_{u32})",
+               (FormatArg[]){{.s = st->name}, {.u32 = site}});
     }
     else {
-        format(&ctx->state, "nullptr", NULL);
+        format(&ctx->state, "__mm_alloc(&__ti_{s}, nullptr)", (FormatArg[]){{.s = st->name}});
     }
-    if (trace) {
-        format(&ctx->state, ", \"{s}\", {u64}", (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
-    }
-    format(&ctx->state, ")", NULL);
 }
 
 static void emitMember(ConstIrVisitor *visitor, const IrNode *node)
@@ -1394,6 +1444,7 @@ static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
     if (hasFlag(node, Extern))
         return;
 
+    ctx->functionName = node->function.display ?: node->function.name;
     emitLineDirective(ctx, &node->loc);
     emitFunctionLinkage(&ctx->state, node);
     emitCTypeName(&ctx->state, node->type ? node->type->func.ret : NULL);
@@ -1657,6 +1708,9 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         .moduleName = rootModule ? rootModule->module.name : NULL,
         .state = newFormatState("  ", true),
         .types = newFormatState("  ", true),
+        .typeInfos = newFormatState("  ", true),
+        .typeInfoTypes = newDynArray(sizeof(const IrType *)),
+        .sites = newDynArray(sizeof(CodegenSite)),
         .debug = {.enabled = driver->options.debug}};
 
     runReachabilityAnalysis(driver);
@@ -1675,6 +1729,16 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         if (mod)
             emitFunctionPrototypes(&ctx.state, mod);
     }
+
+    // Prototypes go out now so the TypeInfo definitions, collected while the
+    // bodies are emitted, can sit between them and the bodies
+    char *protoCode = formatStateToString(&ctx.state);
+    if (protoCode) {
+        fputs(protoCode, file);
+        free(protoCode);
+    }
+    freeFormatState(&ctx.state);
+    ctx.state = newFormatState("  ", true);
 
     // clang-format off
     ConstIrVisitor visitor = makeConstIrVisitor(&ctx, {
@@ -1873,6 +1937,30 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         format(&ctx.state, "}\n", NULL);
     }
 
+    if (ctx.memTraceEnabled) {
+        // Read by libcxy-trace for names and per-site / per-type counters
+        format(&ctx.state, "\nconst __Site *const __cxy_sites[] = {{ ", NULL);
+        for (u32 i = 0; i < ctx.sites.size; i++)
+            format(&ctx.state, "&__site_{u32}, ", (FormatArg[]){{.u32 = i}});
+        format(&ctx.state,
+               "nullptr };\nconst uint32_t __cxy_site_count = {u32};\n",
+               (FormatArg[]){{.u32 = ctx.sites.size}});
+        format(&ctx.state, "const __TypeInfo *const __cxy_types[] = {{ ", NULL);
+        for (u32 i = 0; i < ctx.typeInfoTypes.size; i++) {
+            const IrType *t = dynArrayAt(const IrType **, &ctx.typeInfoTypes, i);
+            format(&ctx.state, "&__ti_{s}, ", (FormatArg[]){{.s = t->name}});
+        }
+        format(&ctx.state,
+               "nullptr };\nconst uint32_t __cxy_type_count = {u32};\n",
+               (FormatArg[]){{.u32 = ctx.typeInfoTypes.size}});
+    }
+
+    char *typeInfoCode = formatStateToString(&ctx.typeInfos);
+    if (typeInfoCode) {
+        fputs(typeInfoCode, file);
+        fputs("\n", file);
+        free(typeInfoCode);
+    }
     char *code = formatStateToString(&ctx.state);
     if (code) {
         fputs(code, file);
@@ -1880,6 +1968,9 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
     }
     freeFormatState(&ctx.state);
     freeFormatState(&ctx.types);
+    freeFormatState(&ctx.typeInfos);
+    freeDynArray(&ctx.typeInfoTypes);
+    freeDynArray(&ctx.sites);
 
     if (driver->finalizedModules.size == 0) {
         freeDynArray(&modules);

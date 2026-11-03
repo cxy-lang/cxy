@@ -178,6 +178,12 @@ static int32_t __closure_body58(__closure_env57 * this);
 static Result_void joined(User user);
 static Result_void _main();
 
+static const __TypeInfo __ti_builtins_StdOutputStream = { .name = "StdOutputStream", .size = sizeof(builtins_StdOutputStream), .align = _Alignof(builtins_StdOutputStream), .dropFields = builtins_StdOutputStream_op__destructor_fwd };
+static const __TypeInfo __ti_builtins_String = { .name = "String", .size = sizeof(builtins_String), .align = _Alignof(builtins_String), .dropFields = builtins_String_op__destructor_fwd };
+static const __TypeInfo __ti_thread_ThreadError = { .name = "ThreadError", .size = sizeof(thread_ThreadError), .align = _Alignof(thread_ThreadError), .dropFields = thread_ThreadError_op__destructor_fwd };
+static const __TypeInfo __ti___closure_env55 = { .name = "__closure_env55", .size = sizeof(__closure_env55), .align = _Alignof(__closure_env55), .dropFields = __closure_env55_op__destructor };
+static const __TypeInfo __ti___closure_env57 = { .name = "__closure_env57", .size = sizeof(__closure_env57), .align = _Alignof(__closure_env57), .dropFields = __closure_env57_op__destructor };
+
 builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 87ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
 builtins_OutputStream_VTable builtins_OutputStream_vTable = (builtins_OutputStream_VTable){.__tid = 185ULL, .append = ((Optional_u64 (*)(builtins_OutputStream *, void *, uint64_t))(nullptr))};
 builtins_OutputStream_VTable builtins_String_vTable = (builtins_OutputStream_VTable){.__tid = ((uint64_t)(207)), .append = ((Optional_u64 (*)(builtins_OutputStream *, void *, uint64_t))(builtins_String_append))};
@@ -519,7 +525,7 @@ static builtins_StdOutputStream * builtins_StdOutputStream_op__initCover(int32_t
   builtins_StdOutputStream * __obj7;
   builtins_StdOutputStream * __t80;
 _L_entry:;
-  __t80 = __smart_ptr_alloc(sizeof(builtins_StdOutputStream), builtins_StdOutputStream_op__destructor_fwd);
+  __t80 = __mm_alloc(&__ti_builtins_StdOutputStream, nullptr);
   __obj7 = ((builtins_StdOutputStream *)(__t80));
   memset(__obj7, 0, sizeof(builtins_StdOutputStream));
   builtins_StdOutputStream___defaults_init(((builtins_StdOutputStream *)(__obj7)));
@@ -668,7 +674,7 @@ static builtins_String * thread_String_op__initI_sECoverI_sE(char * str) {
   builtins_String * __obj51;
   builtins_String * __t1;
 _L_entry:;
-  __t1 = __smart_ptr_alloc(sizeof(builtins_String), builtins_String_op__destructor_fwd);
+  __t1 = __mm_alloc(&__ti_builtins_String, nullptr);
   __obj51 = ((builtins_String *)(__t1));
   memset(__obj51, 0, sizeof(builtins_String));
   builtins_String___defaults_init(((builtins_String *)(__obj51)));
@@ -684,7 +690,7 @@ static thread_ThreadError * thread_ThreadError_op__initCover(builtins_String * m
   thread_ThreadError * __obj52;
   thread_ThreadError * __t2;
 _L_entry:;
-  __t2 = __smart_ptr_alloc(sizeof(thread_ThreadError), thread_ThreadError_op__destructor_fwd);
+  __t2 = __mm_alloc(&__ti_thread_ThreadError, nullptr);
   __obj52 = ((thread_ThreadError *)(__t2));
   memset(__obj52, 0, sizeof(thread_ThreadError));
   thread_ThreadError___defaults_init(((thread_ThreadError *)(__obj52)));
@@ -722,7 +728,7 @@ _L_entry:;
 _L_IF0_then:;
   __t4 = thread_String_op__initI_sECoverI_sE("Failed to launch thread");
   __t5 = thread_ThreadError_op__initCover(__t4);
-  builtins_Exception_push(__t5, "thread", "", "thread.thread_launch", "/Users/dc/projects/mono-cxy/cxy/src/cxy/stdlib/thread.cxy", 69ULL);
+  builtins_Exception_push(__t5, "thread", "", "thread.thread_launch", "/Users/dc/.cxy/lib/cxy/std/stdlib/thread.cxy", 69ULL);
   __ret.tag = 1U;
   __ret.val._1 = __t5;
   goto _L_exit;
@@ -805,7 +811,7 @@ static Result_void detached(User user) {
 _L_entry:;
   __copy0 = User_op__copy(&(user));
   __t2 = (__closure_env55){.user = __copy0};
-  __env3 = __smart_ptr_alloc(sizeof(__closure_env55), __closure_env55_op__destructor);
+  __env3 = __mm_alloc(&__ti___closure_env55, nullptr);
   (*(__env3)) = __t2;
   __t4 = (Closure_879){ .env = __env3, .fn = __closure_body56, .dtor = __smart_ptr_drop };
   __call_res_5 = thread_launch(__t4);
@@ -854,7 +860,7 @@ static Result_void joined(User user) {
 _L_entry:;
   __copy1 = User_op__copy(&(user));
   __t7 = (__closure_env57){.user = __copy1};
-  __env8 = __smart_ptr_alloc(sizeof(__closure_env57), __closure_env57_op__destructor);
+  __env8 = __mm_alloc(&__ti___closure_env57, nullptr);
   (*(__env8)) = __t7;
   __t9 = (Closure_879){ .env = __env8, .fn = __closure_body58, .dtor = __smart_ptr_drop };
   __call_res_10 = thread_launch(__t9);

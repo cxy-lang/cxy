@@ -56,6 +56,8 @@ static void __tuple_dctor_140(Tuple_Resource_i8 * tup);
 static Union_Resource_i32 __union_copy_144(Union_Resource_i32 * u);
 static void __union_dctor_144(Union_Resource_i32 * u);
 
+static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .dropFields = Resource_op__destructor_fwd };
+
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
   char * __t2;
@@ -114,7 +116,7 @@ static Resource * Resource_op__initCover(int32_t id) {
   Resource * __obj3;
   Resource * __t1;
 _L_entry:;
-  __t1 = __smart_ptr_alloc(sizeof(Resource), Resource_op__destructor_fwd);
+  __t1 = __mm_alloc(&__ti_Resource, nullptr);
   __obj3 = ((Resource *)(__t1));
   memset(__obj3, 0, sizeof(Resource));
   Resource_op__init(((Resource *)(__obj3)), id);

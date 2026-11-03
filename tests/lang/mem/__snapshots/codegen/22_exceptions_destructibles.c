@@ -85,6 +85,10 @@ static void testHandleBubbleUp();
 static Result_String testReraiseDestructible(int32_t x);
 static void _main();
 
+static const __TypeInfo __ti_String = { .name = "String", .size = sizeof(String), .align = _Alignof(String), .dropFields = nullptr };
+static const __TypeInfo __ti_Container = { .name = "Container", .size = sizeof(Container), .align = _Alignof(Container), .dropFields = Container_op__destructor_fwd };
+static const __TypeInfo __ti_CustomError = { .name = "CustomError", .size = sizeof(CustomError), .align = _Alignof(CustomError), .dropFields = CustomError_op__destructor_fwd };
+
 builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 87ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
 
 static void builtins_Exception_op__init(builtins_Exception * this, char * name) {
@@ -273,7 +277,7 @@ static String * String_op__initCover(char * s) {
   String * __obj3;
   String * __t0;
 _L_entry:;
-  __t0 = __smart_ptr_alloc(sizeof(String), nullptr);
+  __t0 = __mm_alloc(&__ti_String, nullptr);
   __obj3 = ((String *)(__t0));
   memset(__obj3, 0, sizeof(String));
   String_op__init(((String *)(__obj3)), s);
@@ -288,7 +292,7 @@ static Container * Container_op__initCover(int32_t tag, String * name) {
   Container * __obj4;
   Container * __t1;
 _L_entry:;
-  __t1 = __smart_ptr_alloc(sizeof(Container), Container_op__destructor_fwd);
+  __t1 = __mm_alloc(&__ti_Container, nullptr);
   __obj4 = ((Container *)(__t1));
   memset(__obj4, 0, sizeof(Container));
   Container_op__init(((Container *)(__obj4)), tag, name);
@@ -303,7 +307,7 @@ static CustomError * CustomError_op__initCover(String * reason) {
   CustomError * __obj5;
   CustomError * __t2;
 _L_entry:;
-  __t2 = __smart_ptr_alloc(sizeof(CustomError), CustomError_op__destructor_fwd);
+  __t2 = __mm_alloc(&__ti_CustomError, nullptr);
   __obj5 = ((CustomError *)(__t2));
   memset(__obj5, 0, sizeof(CustomError));
   CustomError___defaults_init(((CustomError *)(__obj5)));
