@@ -1,0 +1,9 @@
+$ summary
+live: 1 allocations, 4 bytes
+allocations since start: 1
+trace events: 3
+mark: 0
+$ list 5
+ptr=PTR size=4 refs=3 @ <ROOT>/tests/trace/programs/shared_refs.cxy:5
+Total: 1 live allocations (4 bytes)
+$ program output

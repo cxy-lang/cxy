@@ -80,7 +80,8 @@ CxyAmalgamate(builtins
 CxyAmalgamate(prologue
         OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
         FILES
-        src/cxy/runtime/prologue.h)
+        src/cxy/runtime/prologue.h
+        src/cxy/runtime/mm.h)
 
 CxyAmalgamate(epilogue
         OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
@@ -619,6 +620,10 @@ if (ENABLE_UNIT_TESTS)
 
     # Add unit test to CTest
     add_test(NAME unit_tests COMMAND cxy_unit_tests)
+
+    # Runtime memory manager tests, variants are listed in tests/runtime/variants.cfg
+    add_test(NAME runtime_rc_tests
+            COMMAND ${CMAKE_SOURCE_DIR}/tests/runtime/run.sh)
 endif ()
 
 # Add stdlib test cases

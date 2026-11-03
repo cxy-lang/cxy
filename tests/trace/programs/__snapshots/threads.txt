@@ -1,0 +1,10 @@
+$ summary
+live: 1 allocations, 4 bytes
+allocations since start: 6
+trace events: 13
+mark: 0
+$ sites
+       bytes    count  site
+           4        1  <ROOT>/tests/trace/programs/threads.cxy:6
+Total: 1 live allocations (4 bytes) across 1 sites
+$ program output

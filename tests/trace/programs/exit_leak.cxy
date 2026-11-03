@@ -1,0 +1,15 @@
+class Node {
+    id: i32
+    peer: Node? = null
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+// No harness wait: the exit-time leak report is the output under test.
+// The two nodes keep each other alive.
+func main(): void {
+    var a = Node(1)
+    var b = Node(2)
+    a.peer = __copy!(b)
+    b.peer = __copy!(a)
+}

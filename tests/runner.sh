@@ -127,6 +127,18 @@ lolbash() {
   exit 1
 }
 
+# 850 -> "850 ms", 2888 -> "2.9 s", 125000 -> "2m 5s"
+format_duration() {
+  local ms=$1
+  if [ "${ms}" -lt 1000 ]; then
+    echo "${ms} ms"
+  elif [ "${ms}" -lt 60000 ]; then
+    echo "$((ms / 1000)).$(((ms % 1000) / 100)) s"
+  else
+    echo "$((ms / 60000))m $(((ms % 60000) / 1000))s"
+  fi
+}
+
 timestamp() {
   if [[ "${OSTYPE}" =~ "darwin" ]]
   then
@@ -338,6 +350,8 @@ run_test () {
     snapshot_ext=$(__read_cfg "$run_cfg" "snapshot_ext" "$snapshot_ext")
     run_args=$(__read_cfg "$run_cfg" "run_args" "$run_args")
     run_cmd=$(__read_cfg "$run_cfg" "command" "$run_cmd")
+    run_cmd="${run_cmd//\$TESTS_DIR/${TESTS_DIR}}"
+    run_args="${run_args//\$TESTS_DIR/${TESTS_DIR}}"
     execute=$(__read_cfg "$run_cfg" "execute" "false")
     exec_args=$(__read_cfg "$run_cfg" "exec_args" "$exec_args")
 
@@ -427,12 +441,15 @@ run_test () {
   return 0
 }
 
+# Commands that are not the compiler (tests/trace/run.sh) need these
+export CXY_COMPILER CXY_STDLIB
+
 TESTS_START=$(timestamp)
 FAILED_TESTS=0
 PASSED_TESTS=0
 declare -A TEST_RESULTS
 declare -A TEST_DURATIONS
-for test in $(find $TESTS_DIR -type f -name '*.cxy' -not -path '**/__snapshots/*') ; do
+for test in $(find $TESTS_DIR -type f -name '*.cxy' -not -path '**/__snapshots/*' -not -name '_*.cxy') ; do
   if [ -n "${TEST_FILTER}" ] && ! echo $test | grep -Eq "${TEST_FILTER}"
   then
     continue
@@ -493,11 +510,11 @@ for test in "${!TEST_RESULTS[@]}"; do
   if [ "${status}" = "PASSED" ]; then
     echo -ne "${Bgreen}"
     printf "  \xE2\x9C\x94 "
-    echo -e "${reset}  ${test} ... ${Bgreen}${status}${reset} (${duration} ms)"
+    echo -e "${reset}  ${test} ... ${Bgreen}${status}${reset} ($(format_duration "${duration}"))"
   else
     echo -ne "${Bred}"
     printf "  \xE2\x9C\x98 "
-    echo -e "${reset}  ${test} ... ${Bred}${status}${reset} (${duration} ms)"
+    echo -e "${reset}  ${test} ... ${Bred}${status}${reset} ($(format_duration "${duration}"))"
   fi
 done
 
@@ -507,7 +524,7 @@ echo -e "Summary"
 echo -en "  Passed: ${Bgreen}${PASSED_TESTS}${reset} Failed: "
 [ "${FAILED_TESTS}" -ne 0 ] && echo -en "${Bred}"
 echo -e "${FAILED_TESTS}${reset}"
-echo -e "  Elapsed ${duration} ms"
+echo -e "  Elapsed $(format_duration "${duration}")"
 echo -e "----------------------------------------------------------"
 [ "${FAILED_TESTS}" -ne 0 ] && exit 1
 exit 0

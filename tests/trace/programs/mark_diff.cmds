@@ -1,0 +1,7 @@
+# allocations made after `mark` are the only ones `diff` reports
+summary
+mark
+@next
+diff
+difflist 5
+summary

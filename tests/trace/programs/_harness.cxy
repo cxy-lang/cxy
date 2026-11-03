@@ -1,0 +1,10 @@
+module harness
+
+import "unistd.h" as unistd
+
+// Tells the harness the workload is done, then blocks until it sends a byte
+pub func waitForHarness(): void {
+    unistd.write(1, "READY\n" !: ^const void, 6)
+    var c: u8 = 0
+    unistd.read(0, (ptrof c) !: ^void, 1)
+}

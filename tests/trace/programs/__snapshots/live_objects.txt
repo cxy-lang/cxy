@@ -1,0 +1,15 @@
+$ summary
+live: 3 allocations, 12 bytes
+allocations since start: 3
+trace events: 3
+mark: 0
+$ sites
+       bytes    count  site
+          12        3  <ROOT>/tests/trace/programs/live_objects.cxy:5
+Total: 3 live allocations (12 bytes) across 1 sites
+$ list 5
+ptr=PTR size=4 refs=1 @ <ROOT>/tests/trace/programs/live_objects.cxy:5
+ptr=PTR size=4 refs=1 @ <ROOT>/tests/trace/programs/live_objects.cxy:5
+ptr=PTR size=4 refs=1 @ <ROOT>/tests/trace/programs/live_objects.cxy:5
+Total: 3 live allocations (12 bytes)
+$ program output
