@@ -250,6 +250,7 @@ set(CXY_MIDDLE_SOURCES
         src/cxy/lang/middle/ir/lower/type.c
         src/cxy/lang/middle/ir/lower/operand.c
         src/cxy/lang/middle/ir/lower/access.c
+        src/cxy/lang/middle/ir/lower/operator.c
         src/cxy/lang/middle/ir/reachability/reachability.c
         src/cxy/lang/middle/memory/manage.c
         src/cxy/lang/middle/memory/finalize.c

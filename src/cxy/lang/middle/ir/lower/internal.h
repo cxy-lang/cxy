@@ -122,6 +122,34 @@ void lowerTaggedUnionIntoTarget(LowerContext *ctx,
                                 const Type *targetAstType);
 
 // ---------------------------------------------------------------------------
+// Literals, operators, assignment and coercions (operator.c)
+// ---------------------------------------------------------------------------
+
+void lowerNullLit(AstVisitor *visitor, AstNode *node);
+void lowerBoolLit(AstVisitor *visitor, AstNode *node);
+void lowerCharLit(AstVisitor *visitor, AstNode *node);
+void lowerIntegerLit(AstVisitor *visitor, AstNode *node);
+void lowerFloatLit(AstVisitor *visitor, AstNode *node);
+void lowerStringLit(AstVisitor *visitor, AstNode *node);
+void lowerBinaryExpr(AstVisitor *visitor, AstNode *node);
+void lowerUnaryExpr(AstVisitor *visitor, AstNode *node);
+void lowerCastExpr(AstVisitor *visitor, AstNode *node);
+void lowerTypedExpr(AstVisitor *visitor, AstNode *node);
+void lowerAssignExpr(AstVisitor *visitor, AstNode *node);
+
+// Sets `UserWritten` on `ir` when `ast` came from the source
+IrNode *markUserWritten(const AstNode *ast, IrNode *ir);
+
+// `@copy x` as written, one operand
+static inline bool isBackendCopyExpr(const AstNode *node)
+{
+    return node && nodeIs(node, BackendCall) &&
+           node->backendCallExpr.func == bfiCopy &&
+           node->backendCallExpr.args &&
+           node->backendCallExpr.args->next == NULL;
+}
+
+// ---------------------------------------------------------------------------
 // Names and member access (access.c)
 // ---------------------------------------------------------------------------
 
@@ -132,9 +160,6 @@ void lowerIndexExpr(AstVisitor *visitor, AstNode *node);
 void lowerSliceExpr(AstVisitor *visitor, AstNode *node);
 // `&x` and `^x`, also used for `ReferenceOf`
 void lowerPointerOf(AstVisitor *visitor, AstNode *node);
-
-// Sets `UserWritten` on `ir` when `ast` came from the source
-IrNode *markUserWritten(const AstNode *ast, IrNode *ir);
 
 // ---------------------------------------------------------------------------
 // Symbol names (names.c)
