@@ -6,6 +6,7 @@
 #define ENABLE_MEMORY_TRACE 1
 #include "prologue.h"
 #include "mm.h"
+#include "mm_trace.h"
 
 extern int pthread_create(void *thread, const void *attr, void *(*fn)(void *), void *arg);
 extern int pthread_join(void *thread, void **ret);
@@ -32,6 +33,17 @@ const __Site *const __cxy_sites[] = {&testSite, nullptr};
 const uint32_t __cxy_site_count = 1;
 const __TypeInfo *const __cxy_types[] = {&testType, nullptr};
 const uint32_t __cxy_type_count = 1;
+
+static void *rootHandle;
+
+static void rootVisit(void *visitor, void *root)
+{
+    __visit_edge(visitor, root, *(void **)root);
+}
+
+const __RootInfo __cxy_roots[] = {{"rootHandle", &rootHandle, sizeof(rootHandle), rootVisit},
+                                  {nullptr, nullptr, 0, nullptr}};
+const uint32_t __cxy_root_count = 1;
 
 static uint64_t live[4];
 

@@ -80,8 +80,18 @@ CxyAmalgamate(builtins
 CxyAmalgamate(prologue
         OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
         FILES
-        src/cxy/runtime/prologue.h
+        src/cxy/runtime/prologue.h)
+
+CxyAmalgamate(mm
+        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+        FILES
         src/cxy/runtime/mm.h)
+
+# Only added to the generated C in builds with memory trace
+CxyAmalgamate(mm_trace
+        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+        FILES
+        src/cxy/runtime/mm_trace.h)
 
 CxyAmalgamate(epilogue
         OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
@@ -362,6 +372,8 @@ cxy_unique_object_names(CXY_CORE_ALL_SOURCES
         ${CXY_DRIVER_SOURCES}
         ${CMAKE_CURRENT_BINARY_DIR}/generated/src/builtins.c
         ${CMAKE_CURRENT_BINARY_DIR}/generated/src/prologue.c
+        ${CMAKE_CURRENT_BINARY_DIR}/generated/src/mm.c
+        ${CMAKE_CURRENT_BINARY_DIR}/generated/src/mm_trace.c
         ${CMAKE_CURRENT_BINARY_DIR}/generated/src/epilogue.c)
 
 # Create static library with all core Cxy sources

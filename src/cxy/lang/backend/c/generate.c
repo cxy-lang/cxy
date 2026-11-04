@@ -12,6 +12,8 @@
 #include "lang/middle/ir/visitor.h"
 #include "lang/operations.h"
 #include "src/prologue.h"
+#include "src/mm.h"
+#include "src/mm_trace.h"
 #include "src/epilogue.h"
 
 #include <errno.h>
@@ -100,6 +102,10 @@ void *initCompilerBackend(CompilerDriver *driver, int argc, char **argv)
             fputs("#define ENABLE_MEMORY_TRACE 1\n", f);
         }
         fwrite(CXY_PROLOGUE_SOURCE, 1, CXY_PROLOGUE_SOURCE_SIZE - 1, f);
+        fwrite(CXY_MM_SOURCE, 1, CXY_MM_SOURCE_SIZE - 1, f);
+        if (driver->options.withMemoryTrace) {
+            fwrite(CXY_MM_TRACE_SOURCE, 1, CXY_MM_TRACE_SOURCE_SIZE - 1, f);
+        }
     }
     return backend;
 }
@@ -2007,6 +2013,49 @@ static void emitModule(ConstIrVisitor *visitor, const IrNode *module)
     }
 }
 
+// Trace builds: global variables that hold owning references become named
+// roots. Each gets a function that reports its references from the global's own
+// address, and the table `__cxy_roots` lists them for libcxy-trace.
+static void emitRootTable(CodegenContext *ctx, const DynArray *modules)
+{
+    DynArray roots = newDynArray(sizeof(const IrNode *));
+    for (size_t i = 0; i < modules->size; i++) {
+        const IrModule *mod = dynArrayAt(const IrNode **, modules, i);
+        for (const IrNode *glob = mod ? mod->module.globals : NULL; glob; glob = glob->next) {
+            const IrType *type = glob->type;
+            if (!hasFlag(glob, Reachable) || glob->globalVar.isThreadLocal ||
+                glob->globalVar.name == NULL || type == NULL || type->tag == irTypeArray ||
+                !containsOwners(type, 0))
+                continue;
+
+            collectElementVisitors(ctx, type, 0);
+            format(&ctx->state,
+                   "static void __visitroot_{u32}(void *v, void *root) {{\n  ",
+                   (FormatArg[]){{.u32 = (u32)roots.size}});
+            emitCTypeName(&ctx->state, type);
+            format(&ctx->state, " *g = root;\n  (void)g;\n", NULL);
+            emitVisitValue(&ctx->state, type, "root", "(*g)", 0);
+            format(&ctx->state, "}\n", NULL);
+            pushOnDynArray(&roots, &glob);
+        }
+    }
+
+    format(&ctx->state, "\nconst __RootInfo __cxy_roots[] = {{ ", NULL);
+    for (u32 i = 0; i < roots.size; i++) {
+        const IrNode *glob = dynArrayAt(const IrNode **, &roots, i);
+        format(&ctx->state,
+               "{{ \"{s}\", (void *)&{s}, sizeof({s}), __visitroot_{u32} }, ",
+               (FormatArg[]){{.s = glob->globalVar.name},
+                             {.s = glob->globalVar.name},
+                             {.s = glob->globalVar.name},
+                             {.u32 = i}});
+    }
+    format(&ctx->state,
+           "{{ nullptr, nullptr, 0, nullptr } };\nconst uint32_t __cxy_root_count = {u32};\n",
+           (FormatArg[]){{.u32 = (u32)roots.size}});
+    freeDynArray(&roots);
+}
+
 static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE *file)
 {
     DynArray modules;
@@ -2286,6 +2335,8 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
     }
 
     if (ctx.memTraceEnabled) {
+        emitRootTable(&ctx, &modules);
+
         // Read by libcxy-trace for names and per-site / per-type counters
         format(&ctx.state, "\nconst __Site *const __cxy_sites[] = {{ ", NULL);
         for (u32 i = 0; i < ctx.sites.size; i++)

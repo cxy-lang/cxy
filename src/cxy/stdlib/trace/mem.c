@@ -833,7 +833,8 @@ typedef struct TraceVisitor {
 typedef struct {
     int fd;
     const void *self;
-    LiveEntry *sorted; // registry snapshot ordered by address
+    const char *selfName; // how the source is printed when it is `self`
+    LiveEntry *sorted;    // registry snapshot ordered by address
     size_t count;
     size_t edges;
 } EdgePrinter;
@@ -865,7 +866,7 @@ static void printEdge(TraceVisitor *v, const void *from, const void *to)
     const LiveEntry *source = from == p->self ? NULL : findEntry(p, from);
     char src[64];
     if (from == p->self)
-        snprintf(src, sizeof(src), "self");
+        snprintf(src, sizeof(src), "%s", p->selfName ? p->selfName : "self");
     else
         snprintf(src, sizeof(src), "%s %p", source && source->buffer ? "buffer" : "object", from);
     dprintf(p->fd,
@@ -920,6 +921,53 @@ static void edgesReportFd(int fd, const char *arg)
     free(p.sorted);
 }
 
+/* -------------------------------------------------------------------- roots */
+
+// A global variable that holds owning references, emitted by the compiler in
+// trace builds. Mirrors __RootInfo in runtime/mm.h.
+typedef struct {
+    const char *name;
+    void *addr;
+    uint64_t size;
+    void (*visit)(void *visitor, void *root);
+} RootRecord;
+
+__attribute__((weak)) extern const RootRecord __cxy_roots[];
+__attribute__((weak)) extern const uint32_t __cxy_root_count;
+
+/*
+ * `roots`: every global that owns something, and what it owns directly. A global
+ * is read where it lives, so like `edges` this is racy until the paused snapshot.
+ */
+static void rootsReportFd(int fd)
+{
+    uint32_t count = &__cxy_root_count != NULL ? __cxy_root_count : 0;
+    if (count == 0) {
+        dprintf(fd, "no roots: no global variable owns a class, buffer or closure\n");
+        return;
+    }
+
+    EdgePrinter p = {.fd = fd};
+    p.sorted = liveSnapshot(0, &p.count);
+    qsort(p.sorted, p.count, sizeof(LiveEntry), compareByPtr);
+    TraceVisitor visitor = {.edge = printEdge, .bufferBytes = bufferBytesOf, .ctx = &p};
+
+    uint64_t total = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        const RootRecord *root = &__cxy_roots[i];
+        dprintf(fd, "global %s (%p, %llu bytes)\n", root->name, root->addr, (unsigned long long)root->size);
+        p.self = root->addr;
+        p.selfName = root->name;
+        p.edges = 0;
+        root->visit(&visitor, root->addr);
+        if (p.edges == 0)
+            dprintf(fd, "  (owns nothing right now)\n");
+        total += p.edges;
+    }
+    dprintf(fd, "Total: %u roots, %llu edges\n", count, (unsigned long long)total);
+    free(p.sorted);
+}
+
 /* ------------------------------------------------------------ query server */
 
 static void helpFd(int fd)
@@ -933,6 +981,7 @@ static void helpFd(int fd)
             "  ring <ptr>           lifecycle timeline of one pointer\n"
             "  mark                 remember the current allocation generation\n"
             "  edges <ptr>          what this object owns (exact, from the visit glue)\n"
+            "  roots                global variables that own something, and what they own\n"
             "  types                cumulative allocs/frees/bytes per class\n"
             "  sitecounts [n]       cumulative allocations per allocation point\n"
             "  diff [n]             sites of allocations made since `mark` still alive\n"
@@ -1772,6 +1821,8 @@ static void handleCommand(int fd, char *line)
         liveReportFd(fd, 0, 0, sym, true);
     else if (strcmp(cmd, "edges") == 0)
         edgesReportFd(fd, args[1]);
+    else if (strcmp(cmd, "roots") == 0)
+        rootsReportFd(fd);
     else if (strcmp(cmd, "types") == 0)
         typesReportFd(fd);
     else if (strcmp(cmd, "sitecounts") == 0)
