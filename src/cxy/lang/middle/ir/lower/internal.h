@@ -74,6 +74,46 @@ typedef struct VarNameEntry {
 cstring makeUniqueVarName(LowerContext *ctx, cstring displayName);
 
 // ---------------------------------------------------------------------------
+// Types (type.c)
+// ---------------------------------------------------------------------------
+
+typedef struct TypeMapping {
+    const Type *astType;
+    const IrType *irType;
+} TypeMapping;
+
+const IrType *findCachedType(LowerContext *ctx, const Type *type);
+void cacheType(LowerContext *ctx, const Type *type, const IrType *irType);
+cstring getIrTypeName(LowerContext *ctx, const IrType *type);
+cstring readableTypeName(LowerContext *ctx, const Type *type);
+const IrType *lowerClosureFnPtrType(LowerContext *ctx, const Type *closureType);
+
+cstring makeDescriptiveTupleName(LowerContext *ctx,
+                                 const Type *type,
+                                 IrField *fields,
+                                 u64 count);
+cstring makeDescriptiveOptionalName(LowerContext *ctx,
+                                    const Type *type,
+                                    const IrType *targetType);
+cstring makeDescriptiveResultName(LowerContext *ctx,
+                                  const Type *type,
+                                  const IrType *targetType);
+cstring makeDescriptiveUnionName(LowerContext *ctx,
+                                 const Type *type,
+                                 IrField *fields,
+                                 u64 count);
+cstring makeDescriptiveUnionDisplay(LowerContext *ctx,
+                                    IrField *fields,
+                                    u64 count);
+cstring makeDescriptiveTupleDisplay(LowerContext *ctx,
+                                    IrField *fields,
+                                    u64 count);
+cstring makeDescriptiveOptionalDisplay(LowerContext *ctx,
+                                       const IrType *targetType);
+cstring makeDescriptiveResultDisplay(LowerContext *ctx,
+                                     const IrType *targetType);
+
+// ---------------------------------------------------------------------------
 // Symbol names (names.c)
 // ---------------------------------------------------------------------------
 
