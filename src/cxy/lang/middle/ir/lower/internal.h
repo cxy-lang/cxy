@@ -150,6 +150,19 @@ static inline bool isBackendCopyExpr(const AstNode *node)
 }
 
 // ---------------------------------------------------------------------------
+// Calls (call.c)
+// ---------------------------------------------------------------------------
+
+void lowerCallExpr(AstVisitor *visitor, AstNode *node);
+
+// The `!T` protocol: check the tag of a call result, return the error to the
+// caller or give back the unwrapped payload
+IrNode *emitResultCheckAndUnwrap(LowerContext *ctx,
+                                 AstNode *node,
+                                 IrNode *resVar,
+                                 const Type *resAstType);
+
+// ---------------------------------------------------------------------------
 // Names and member access (access.c)
 // ---------------------------------------------------------------------------
 
