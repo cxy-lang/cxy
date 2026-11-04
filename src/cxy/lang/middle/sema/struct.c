@@ -372,6 +372,7 @@ void checkStructExpr(AstVisitor *visitor, AstNode *node)
                      &value->loc,
                      "value type '{t}' is not assignable to field type '{t}'",
                      (FormatArg[]){{.t = type}, {.t = member->type}});
+            noteReferenceNeedsCopy(ctx->L, &value->loc, member->type, type);
             node->type = ERROR_TYPE(ctx);
             continue;
         }

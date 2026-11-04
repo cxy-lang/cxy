@@ -71,6 +71,7 @@ void checkVarDecl(AstVisitor *visitor, AstNode *node)
                      "variable initializer of type '{t}' is not assignable to "
                      "variable type '{t}'",
                      (FormatArg[]){{.t = init_}, {.t = type_}});
+            noteReferenceNeedsCopy(ctx->L, &init->loc, type_, init_);
             node->type = ERROR_TYPE(ctx);
             return;
         }

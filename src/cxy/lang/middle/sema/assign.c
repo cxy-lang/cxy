@@ -148,6 +148,8 @@ void checkAssignExpr(AstVisitor *visitor, AstNode *node)
                  "incompatible types on assigment expression, expecting '{t}', "
                  "got '{t}'",
                  (FormatArg[]){{.t = targetType}, {.t = rhs}});
+        noteReferenceNeedsCopy(
+            ctx->L, &node->assignExpr.rhs->loc, targetType, rhs);
         node->type = ERROR_TYPE(ctx);
     }
 

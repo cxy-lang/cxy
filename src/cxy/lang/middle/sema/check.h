@@ -107,6 +107,14 @@ AstNode *transformToUnionValue(TypingContext *ctx,
                                const Type *rhs);
 
 bool isExplicitConstructableFrom(Log *L, const Type *type, const Type *from);
+
+// A `&T` where an owned `T` is expected: the user has to write `@copy` to take
+// an owner. Reports a note under the type error when that is the mismatch.
+bool isReferenceToOwner(const Type *expected, const Type *actual);
+void noteReferenceNeedsCopy(Log *L,
+                            const FileLoc *loc,
+                            const Type *expected,
+                            const Type *actual);
 bool evalExplicitConstruction(AstVisitor *visitor,
                               const Type *type,
                               AstNode *node);

@@ -60,6 +60,28 @@ static bool validateMainFunction(TypingContext *ctx,
     return true;
 }
 
+bool isReferenceToOwner(const Type *expected, const Type *actual)
+{
+    if (expected == NULL || actual == NULL || isReferenceType(expected) ||
+        !isReferenceType(actual))
+        return false;
+    const Type *referred = stripReference(actual);
+    return referred != NULL && isTypeAssignableFrom(expected, referred);
+}
+
+void noteReferenceNeedsCopy(Log *L,
+                            const FileLoc *loc,
+                            const Type *expected,
+                            const Type *actual)
+{
+    if (isReferenceToOwner(expected, actual))
+        logNote(L,
+                loc,
+                "a reference is not an owner, write `@copy x` to take an owner "
+                "of the referenced value",
+                NULL);
+}
+
 const Type *matchOverloadedFunctionPerfectMatch(Log *L,
                                                 const Type *callee,
                                                 const Type **argTypes,
@@ -81,6 +103,7 @@ const Type *matchOverloadedFunctionPerfectMatch(Log *L,
             const Type *argType = resolveAndUnThisType(argTypes[i]);
             if (!isTypeAssignableFrom(paramType, argType)) {
                 logError(L, loc, "closure argument {u64} type '{t}' is incompatible with parameter type '{t}'", (FormatArg[]){{.u64 = i + 1}, {.t = argType}, {.t = paramType}});
+                noteReferenceNeedsCopy(L, loc, paramType, argType);
                 return NULL;
             }
         }
@@ -190,6 +213,23 @@ const Type *matchOverloadedFunctionPerfectMatch(Log *L,
                          "`unresolved`",
                          NULL);
             decl = decl->list.link;
+        }
+
+        // One note is enough, name the first argument that needs `@copy`
+        bool noted = false;
+        for (decl = decls; decl && !noted; decl = decl->list.link) {
+            const Type *declType = decl->type;
+            if (declType == NULL || !typeIs(declType, Func))
+                continue;
+            for (u64 i = 0; i < argsCount && i < declType->func.paramsCount; i++) {
+                const Type *paramType = resolveAndUnThisType(declType->func.params[i]),
+                           *argType = resolveAndUnThisType(argTypes[i]);
+                if (isReferenceToOwner(paramType, argType)) {
+                    noteReferenceNeedsCopy(L, loc, paramType, argType);
+                    noted = true;
+                    break;
+                }
+            }
         }
     }
     return NULL;

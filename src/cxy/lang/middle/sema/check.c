@@ -235,6 +235,7 @@ static void checkReturnStmt(AstVisitor *visitor, AstNode *node)
                      "inconsistent return type, "
                      "expecting '{t}', got '{t}'",
                      (FormatArg[]){{.t = expectedType}, {.t = expr_}});
+            noteReferenceNeedsCopy(ctx->L, &node->loc, expectedType, expr_);
             logNote(ctx->L,
                     &ret->loc,
                     "return type first declared or "

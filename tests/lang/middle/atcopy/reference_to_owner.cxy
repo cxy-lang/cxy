@@ -1,0 +1,37 @@
+// A `&T` where an owned `T` is expected is an error that points to `@copy`
+
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() {}
+}
+struct Holder { node: Node }
+class Box {
+    node: Node
+    func `init`(n: Node) { node = &&n }
+}
+func take(n: Node): i32 => n.id
+
+func initializer(r: &Node) {
+    var a: Node = r
+}
+func assignment(r: &Node) {
+    var a = Node(1)
+    a = r
+}
+func argument(r: &Node) {
+    take(r)
+}
+func fieldInLiteral(r: &Node) {
+    var h = Holder{node: r}
+}
+func fieldStore(r: &Node, b: &Box) {
+    b.node = r
+}
+func returned(r: &Node): Node {
+    return r
+}
+func constructorArg(r: &Node) {
+    var b = Box(r)
+}
+func main(): void {}

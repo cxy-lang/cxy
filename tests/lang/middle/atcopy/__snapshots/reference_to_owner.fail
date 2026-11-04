@@ -1,0 +1,93 @@
+error: variable initializer of type '&class Node' is not assignable to variable type 'class Node'
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:16:5 (to 16:20)
+   |
+16 |    var a: Node = r
+   |    ^^^^^^^^^^^^^^^
+note: a reference is not an owner, write `@copy x` to take an owner of the referenced value
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:16:19 (to 16:20)
+   |
+16 |    var a: Node = r
+   |                  ^
+
+error: incompatible types on assigment expression, expecting 'class Node', got '&class Node'
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:20:9 (to 20:10)
+   |
+20 |    a = r
+   |        ^
+note: a reference is not an owner, write `@copy x` to take an owner of the referenced value
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:20:9 (to 20:10)
+   |
+20 |    a = r
+   |        ^
+
+error: incompatible function reference `take`(1 functions declared did not match function with signature func(&class Node) -> auto)
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:23:5 (to 23:12)
+   |
+23 |    take(r)
+   |    ^^^^^^^
+
+error: found declaration with incompatible signature func(class Node) -> i32
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:13:1 (to 13:32)
+   |
+13 |func take(n: Node): i32 => n.id
+   |^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: a reference is not an owner, write `@copy x` to take an owner of the referenced value
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:23:5 (to 23:12)
+   |
+23 |    take(r)
+   |    ^^^^^^^
+
+error: value type '&class Node' is not assignable to field type 'class Node'
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:26:26 (to 26:27)
+   |
+26 |    var h = Holder{node: r}
+   |                         ^
+note: a reference is not an owner, write `@copy x` to take an owner of the referenced value
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:26:26 (to 26:27)
+   |
+26 |    var h = Holder{node: r}
+   |                         ^
+
+error: incompatible types on assigment expression, expecting 'class Node', got '&class Node'
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:29:14 (to 29:15)
+   |
+29 |    b.node = r
+   |             ^
+note: a reference is not an owner, write `@copy x` to take an owner of the referenced value
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:29:14 (to 29:15)
+   |
+29 |    b.node = r
+   |             ^
+
+error: inconsistent return type, expecting 'class Node', got '&class Node'
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:32:5 (to 32:13)
+   |
+32 |    return r
+   |    ^^^^^^^^
+note: a reference is not an owner, write `@copy x` to take an owner of the referenced value
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:32:5 (to 32:13)
+   |
+32 |    return r
+   |    ^^^^^^^^
+note: return type first declared or deduced here
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:31:26 (to 31:30)
+   |
+31 |func returned(r: &Node): Node {
+   |                         ^^^^
+
+error: incompatible function reference `op__init`(1 functions declared did not match function with signature func(&class Node) -> auto)
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:35:13 (to 35:19)
+   |
+35 |    var b = Box(r)
+   |            ^^^^^^
+
+error: found declaration with incompatible signature func(class Node) -> void
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:11:5 (to 11:40)
+   |
+11 |    func `init`(n: Node) { node = &&n }
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: a reference is not an owner, write `@copy x` to take an owner of the referenced value
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/reference_to_owner.cxy:35:13 (to 35:19)
+   |
+35 |    var b = Box(r)
+   |            ^^^^^^
