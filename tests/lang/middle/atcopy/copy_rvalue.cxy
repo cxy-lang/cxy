@@ -1,0 +1,11 @@
+// A call result is already an owner, there is nothing to copy
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+}
+
+func make(): Node => Node(1)
+
+func main(): void {
+    var a = @copy make()
+}

@@ -316,7 +316,7 @@ pub class SseStream[Application] {
                 else if line.startswith("id: ".s) {
                     _curId.clear()
                     _curId << line.substr(4)
-                    _client._lastEventId = _curId.copy()
+                    _client._lastEventId = _curId.clone()
                 }
                 else if line.startswith(":".s) {
                     #if (has_member!(#Application, "onComment", #func(_: &SseClient, _: strview) -> void)) {

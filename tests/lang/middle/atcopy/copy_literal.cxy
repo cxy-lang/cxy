@@ -1,0 +1,4 @@
+// A literal is not a place
+func main(): void {
+    var a = @copy 42
+}

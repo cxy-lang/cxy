@@ -1,0 +1,5 @@
+error: `@copy` expects a place (a variable, a field or an element) or a reference
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/atcopy/copy_literal.cxy:3:19 (to 3:21)
+  |
+3 |    var a = @copy 42
+  |                  ^^

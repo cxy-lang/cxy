@@ -1,0 +1,14 @@
+// @TEST_ARGS: ~--without-builtins
+// `@copy` shares the object, `clone()` builds a new one with the same contents
+
+func main(): void {
+    var a = "hello".S
+    var shared = @copy a
+    var cloned = a.clone()
+
+    a << " world"
+
+    // `shared` is the same object as `a`, `cloned` is independent
+    __cxy_assert(shared.size() == 11, "shared sees the change", 0, 0)
+    __cxy_assert(cloned.size() == 5, "clone is independent", 0, 0)
+}
