@@ -11,6 +11,7 @@
 #include "lang/middle/ir/lower.h"
 #include "lang/middle/ir/dump.h"
 #include "lang/middle/memory/memory.h"
+#include "lang/middle/memory/verify.h"
 
 #include <inttypes.h>
 
@@ -249,7 +250,20 @@ static AstNode *executeMemoryManagement(CompilerDriver *driver, AstNode *node)
         return NULL;
     }
 
+    OwnershipVerifyMode verifyMode = driver->options.ownershipVerify;
+    OwnershipSnapshot *snapshot =
+        verifyMode == ovmOFF ? NULL : ownershipSnapshot(node->metadata.ir);
+
     node->metadata.ir = runMemoryManagement(driver, node->metadata.ir);
+
+    if (snapshot) {
+        ownershipVerify(snapshot,
+                        node->metadata.ir,
+                        verifyMode == ovmERROR ? ownershipReportAsError
+                                               : ownershipReportAsWarning,
+                        driver->L);
+        freeOwnershipSnapshot(snapshot);
+    }
     if (hasErrors(driver->L))
         return NULL;
 

@@ -248,6 +248,7 @@ set(CXY_MIDDLE_SOURCES
         src/cxy/lang/middle/ir/reachability.c
         src/cxy/lang/middle/memory/manage.c
         src/cxy/lang/middle/memory/finalize.c
+        src/cxy/lang/middle/memory/verify.c
 )
 
 if (ENABLE_LLVM_BACKEND)
@@ -601,6 +602,7 @@ if (ENABLE_UNIT_TESTS)
             tests/lang/parser/test_switch_statement.cpp
             tests/lang/parser/parser_utils.cpp
             tests/unit/test_utils.cpp
+            tests/lang/middle/test_ownership_verify.cpp
             tests/package/test_semver.cpp
             tests/package/test_version_constraints.cpp
             tests/package/test_cxyfile_parser.cpp

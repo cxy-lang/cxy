@@ -48,6 +48,18 @@ typedef enum {
 #undef ff
 } DumpStatsMode;
 
+#define OWNERSHIP_VERIFY_MODE(f) \
+    f(OFF)                      \
+    f(WARN)                     \
+    f(ERROR)
+
+typedef enum {
+#define ff(N) ovm## N,
+    OWNERSHIP_VERIFY_MODE(ff)
+    ovmCOUNT
+#undef ff
+} OwnershipVerifyMode;
+
 #define PROFILE_MODE(f)         \
     f(NONE)                     \
     f(STDOUT)                   \
@@ -128,6 +140,7 @@ typedef struct Options {
     bool noPIE;
     bool withMemoryManager;
     bool withMemoryTrace;
+    OwnershipVerifyMode ownershipVerify;
     bool withExceptionTrace;
     bool debug;
     OptimizationLevel optimizationLevel;
