@@ -187,12 +187,39 @@ static void countEdge(__Visitor *v, const void *from, const void *to)
     edgeCount++;
 }
 
+// A pretend registry: one buffer of 32 bytes at address 64
+static uint64_t bufferSize(__Visitor *v, const void *ptr)
+{
+    (void)v;
+    return ptr == (const void *)64 ? 32 : 0;
+}
+
+static int slotCount;
+
+static void countSlot(void *visitor, void *buf, void *slot)
+{
+    (void)visitor;
+    (void)buf;
+    (void)slot;
+    slotCount++;
+}
+
 static void testVisitEdge(void)
 {
-    __Visitor v = {.edge = countEdge, .ctx = nullptr};
+    __Visitor v = {.edge = countEdge, .bufferBytes = bufferSize, .ctx = nullptr};
     __visit_edge(&v, (void *)16, (void *)32);
     __visit_edge(&v, (void *)16, nullptr); // null targets are not edges
     CHECK(edgeCount == 1);
+
+    // A raw pointer that is not a registered buffer is ignored
+    __visit_buffer(&v, (void *)16, (void *)128, 8, countSlot);
+    CHECK(edgeCount == 1 && slotCount == 0);
+    // A registered buffer: one owner edge, one visit per slot
+    __visit_buffer(&v, (void *)16, (void *)64, 8, countSlot);
+    CHECK(edgeCount == 2 && slotCount == 4);
+    // No element visitor: only the owner edge
+    __visit_buffer(&v, (void *)16, (void *)64, 0, nullptr);
+    CHECK(edgeCount == 3 && slotCount == 4);
 }
 
 int main(void)

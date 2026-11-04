@@ -819,15 +819,16 @@ static void siteCountsReportFd(int fd, size_t limit)
 
 /*
  * `edges <ptr>`: the owned references of one object, as reported by its
- * TypeInfo.visit glue (and the `__visit` member of containers). Only targets the
+ * TypeInfo.visit glue (class handles, and the buffers its raw pointer fields own). Only targets the
  * registry knows are printed. The object is read while the program runs, so a
  * concurrent free can make this report garbage: it is a debugging aid until the
  * paused snapshot of the exact graph exists.
  */
 typedef struct TraceVisitor {
     void (*edge)(struct TraceVisitor *v, const void *from, const void *to);
+    uint64_t (*bufferBytes)(struct TraceVisitor *v, const void *ptr);
     void *ctx;
-} TraceVisitor;
+} TraceVisitor; // mirrors __Visitor in runtime/mm.h
 
 typedef struct {
     int fd;
@@ -847,6 +848,12 @@ static const LiveEntry *findEntry(const EdgePrinter *p, const void *ptr)
 {
     LiveEntry key = {.ptr = (void *)ptr};
     return bsearch(&key, p->sorted, p->count, sizeof(LiveEntry), compareByPtr);
+}
+
+static uint64_t bufferBytesOf(TraceVisitor *v, const void *ptr)
+{
+    const LiveEntry *entry = findEntry(v->ctx, ptr);
+    return entry != NULL && entry->buffer ? entry->size : 0;
 }
 
 static void printEdge(TraceVisitor *v, const void *from, const void *to)
@@ -907,7 +914,7 @@ static void edgesReportFd(int fd, const char *arg)
     }
 
     dprintf(fd, "edges of %p (%s)\n", ptr, (*type)->name ? (*type)->name : "<unknown>");
-    TraceVisitor visitor = {.edge = printEdge, .ctx = &p};
+    TraceVisitor visitor = {.edge = printEdge, .bufferBytes = bufferBytesOf, .ctx = &p};
     ((void (*)(void *, void *))(*type)->visit)(ptr, &visitor);
     dprintf(fd, "Total: %llu edges\n", (unsigned long long)p.edges);
     free(p.sorted);

@@ -107,19 +107,6 @@ pub class LinkedList[T] {
         clear()
     }
 
-    // Trace builds only: every node, and the class values they hold
-    func __visit(v: ^void) {
-        __visit_edge(v, this !: ^void, _head !: ^void)
-        var node = _head
-        while (node != null) {
-            __visit_edge(v, node !: ^void, node._next !: ^void)
-            #if (T.isClass) {
-                __visit_edge(v, node !: ^void, node._value !: ^void)
-            }
-            node = node._next
-        }
-    }
-
     @memtrace(callsite)
     func insert(value: T, it: Iterator = null) {
         var item = __calloc_buffer(sizeof!(#ListItem[T])) as ^ListItem[T]

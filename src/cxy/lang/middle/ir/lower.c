@@ -291,6 +291,19 @@ static cstring getIrTypeName(LowerContext *ctx, const IrType *type)
     }
 }
 
+// The name the user knows a type by (`Vector[Node]`), for tools. The IR names
+// are mangled and also feed the names of other generated types.
+static cstring readableTypeName(LowerContext *ctx, const Type *type)
+{
+    FormatState state = newFormatState(NULL, true);
+    printType_(&state, type, false);
+    char *str = formatStateToString(&state);
+    cstring result = makeString(ctx->strings, str);
+    free(str);
+    freeFormatState(&state);
+    return result;
+}
+
 #define IR_TYPE_NAME_MAX 64
 #define IR_TYPE_NAME_PREFIX 44
 
@@ -774,6 +787,7 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
                                                     fields,
                                                     fieldCount);
         ((IrType *)structType)->index = type->index;
+        ((IrType *)structType)->typeName = readableTypeName(ctx, type);
         const NamedTypeMember *classDctor =
             findClassMember(type, S_DestructorOverload);
         if (classDctor && classDctor->decl)
@@ -786,15 +800,10 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
             findClassMember(type, S_CopyOverload);
         if (classCopy && classCopy->decl)
             ((IrType *)structType)->strct.copyAst = classCopy->decl;
-        const NamedTypeMember *classVisit =
-            findClassMember(type, S___visit);
-        if (classVisit && classVisit->decl)
-            ((IrType *)structType)->strct.visitAst = classVisit->decl;
         const IrType *ptrType =
             makeIrClassType(ctx->types, flgReferenceMembers, structType);
         ((IrType *)ptrType)->index = type->index;
-        ((IrType *)ptrType)->strct.visitAst =
-            ((IrType *)structType)->strct.visitAst;
+        ((IrType *)ptrType)->typeName = ((IrType *)structType)->typeName;
         ((IrType *)ptrType)->strct.dctorAst =
             ((IrType *)structType)->strct.dctorAst;
         ((IrType *)ptrType)->strct.dctorFwdAst =
@@ -4690,7 +4699,6 @@ static void finalizeLifecycleTypes(LowerContext *ctx)
             const AstNode *dAst = type->strct.dctorAst;
             const AstNode *fAst = type->strct.dctorFwdAst;
             const AstNode *cAst = type->strct.copyAst;
-            const AstNode *vAst = type->strct.visitAst;
 
             if (dAst != NULL) {
                 csAssert(dAst->ir != NULL,
@@ -4724,10 +4732,6 @@ static void finalizeLifecycleTypes(LowerContext *ctx)
             else {
                 type->strct.copy = NULL;
             }
-
-            // Optional: a container's `__visit` is only lowered when it was
-            // reachable, the backend skips the type's edges when it is missing
-            type->strct.visit = vAst != NULL ? vAst->ir : NULL;
         }
     }
 }

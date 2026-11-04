@@ -13,11 +13,6 @@ pub class CircularBuffer[T] {
         _buffer = __calloc_buffer(capacity * sizeof!(T)) as ^T
     }
 
-    // Trace builds only
-    func __visit(v: ^void) {
-        __visit_edge(v, this !: ^void, _buffer !: ^void)
-    }
-
     func push(value: T): !void {
         if _size == _capacity {
             raise OutOfRangeException("Out of memory")

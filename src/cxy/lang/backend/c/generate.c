@@ -327,34 +327,189 @@ static void emitGlobalRef(ConstIrVisitor *visitor, const IrNode *node)
     format(&ctx->state, "{s}", (FormatArg[]){{.s = name ?: "global"}});
 }
 
-// Trace builds: edge code for the value of `type` stored at the C expression
-// `expr`. Owned references are reported from `obj`: class handles and closure
-// environments. References, raw pointers, unions and arrays are not owners as
-// far as this glue can tell; containers report their buffers and elements from
-// a `__visit` member.
-static void emitVisitValue(FormatState *out, const IrType *type, cstring expr, u32 depth)
+// ---------------------------------------------------------------------------
+// Trace builds: the edge visitor of a class, derived from its field types.
+//
+// Owned references are class handles and closure environments, wherever they
+// sit in structs, tuples and optionals. A raw pointer field (`^T`) is a buffer
+// when it points at a registered one: the owner owns it, and what each slot of
+// it owns is reported through a generated per-element-type function. References
+// (`&T`), unions and arrays are not looked into. Containers need no tracing code.
+
+static bool isRawPointer(const IrType *type)
+{
+    return type != NULL && isIrPointerType(type) && type->category == irTypeCatNone &&
+           type->pointer.pointee != NULL && type->pointer.pointee->tag != irTypeVoid;
+}
+
+// Does a value of `type` hold anything the glue reports as an edge
+static bool containsOwners(const IrType *type, u32 depth)
+{
+    if (type == NULL || depth > 6)
+        return false;
+    switch (type->category) {
+    case irTypeCatClass:
+        if (isIrPointerType(type))
+            return true;
+        break;
+    case irTypeCatClosure: return true;
+    case irTypeCatOptional:
+        return type->strct.count > 1 && containsOwners(type->strct.fields[1].type, depth + 1);
+    case irTypeCatStruct:
+    case irTypeCatTuple: break;
+    default: return isRawPointer(type);
+    }
+    for (u64 i = 0; i < type->strct.count; i++) {
+        if (type->strct.fields[i].name != S_vtable &&
+            containsOwners(type->strct.fields[i].type, depth + 1))
+            return true;
+    }
+    return false;
+}
+
+// A struct with a pointer to its own type is a linked node: its links are not
+// followed, only the pointer to the first node is reported
+static bool isSelfLinked(const IrType *type)
+{
+    if (type == NULL || isIrPointerType(type) ||
+        (type->category != irTypeCatStruct && type->category != irTypeCatClass))
+        return false;
+    for (u64 i = 0; i < type->strct.count; i++) {
+        const IrType *f = type->strct.fields[i].type;
+        if (isRawPointer(f) && f->pointer.pointee->name == type->name)
+            return true;
+    }
+    return false;
+}
+
+// Slots of a buffer are visited when they hold owners and are not linked nodes
+static bool needsElementVisitor(const IrType *elem)
+{
+    return containsOwners(elem, 0) && !isSelfLinked(elem);
+}
+
+static void elementVisitorName(char *out, size_t size, const IrType *elem)
+{
+    snprintf(out, size, "__visitel_%s%s", isIrPointerType(elem) ? "p_" : "s_", elem->name ?: "anon");
+}
+
+static void emitVisitValue(FormatState *out, const IrType *type, cstring from, cstring expr, u32 depth);
+
+// `static void __visitel_<T>(void *v, void *buf, void *slot)`, reports what one
+// slot of a buffer of `elem` owns. Definitions that other ones call come first.
+static void emitElementVisitor(CodegenContext *ctx, const IrType *elem, u32 depth)
+{
+    if (depth > 6)
+        return;
+    for (u32 i = 0; i < ctx->visitElemTypes.size; i++) {
+        const IrType *seen = dynArrayAt(const IrType **, &ctx->visitElemTypes, i);
+        if (seen->name == elem->name)
+            return;
+    }
+    pushOnDynArray(&ctx->visitElemTypes, &elem);
+
+    char name[256];
+    elementVisitorName(name, sizeof(name), elem);
+    FormatState *out = &ctx->typeInfos;
+    // Declared first: elements may point at buffers of their own kind
+    format(out, "static void {s}(void *v, void *buf, void *slot);\n", (FormatArg[]){{.s = name}});
+}
+
+// Emits the element visitors that `type` refers to, then returns
+static void collectElementVisitors(CodegenContext *ctx, const IrType *type, u32 depth);
+
+static void emitElementVisitorBody(CodegenContext *ctx, const IrType *elem)
+{
+    char name[256];
+    elementVisitorName(name, sizeof(name), elem);
+    collectElementVisitors(ctx, elem, 0);
+    FormatState *out = &ctx->typeInfos;
+    format(out, "static void {s}(void *v, void *buf, void *slot) {{\n  ", (FormatArg[]){{.s = name}});
+    emitCTypeName(out, elem);
+    format(out, " *e = slot;\n  (void)e;\n", NULL);
+    emitVisitValue(out, elem, "buf", "(*e)", 0);
+    format(out, "}\n", NULL);
+}
+
+static void collectElementVisitors(CodegenContext *ctx, const IrType *type, u32 depth)
+{
+    if (type == NULL || depth > 6)
+        return;
+    if (isRawPointer(type)) {
+        const IrType *elem = type->pointer.pointee;
+        if (needsElementVisitor(elem)) {
+            u32 before = ctx->visitElemTypes.size;
+            emitElementVisitor(ctx, elem, depth);
+            if (ctx->visitElemTypes.size > before)
+                emitElementVisitorBody(ctx, elem);
+        }
+        return;
+    }
+    switch (type->category) {
+    case irTypeCatOptional:
+        if (type->strct.count > 1)
+            collectElementVisitors(ctx, type->strct.fields[1].type, depth + 1);
+        return;
+    case irTypeCatClass:
+        if (isIrPointerType(type))
+            return;
+        break;
+    case irTypeCatStruct:
+    case irTypeCatTuple: break;
+    default: return;
+    }
+    for (u64 i = 0; i < type->strct.count; i++) {
+        if (type->strct.fields[i].name != S_vtable)
+            collectElementVisitors(ctx, type->strct.fields[i].type, depth + 1);
+    }
+}
+
+// Edge code for the value of `type` stored at the C expression `expr`, reported
+// as owned by the variable `from`
+static void emitVisitValue(FormatState *out, const IrType *type, cstring from, cstring expr, u32 depth)
 {
     if (type == NULL || depth > 6)
         return;
 
     char sub[1024];
+    if (isRawPointer(type)) {
+        const IrType *elem = type->pointer.pointee;
+        char name[256];
+        if (needsElementVisitor(elem)) {
+            elementVisitorName(name, sizeof(name), elem);
+            format(out,
+                   "  __visit_buffer(v, {s}, {s}, sizeof(",
+                   (FormatArg[]){{.s = from}, {.s = expr}});
+            emitCTypeName(out, elem);
+            format(out, "), {s});\n", (FormatArg[]){{.s = name}});
+        }
+        else {
+            format(out,
+                   "  __visit_buffer(v, {s}, {s}, 0, nullptr);\n",
+                   (FormatArg[]){{.s = from}, {.s = expr}});
+        }
+        return;
+    }
+
     switch (type->category) {
     case irTypeCatClass:
         if (isIrPointerType(type)) {
-            format(out, "  __visit_edge(v, obj, {s});\n", (FormatArg[]){{.s = expr}});
+            format(out,
+                   "  __visit_edge(v, {s}, {s});\n",
+                   (FormatArg[]){{.s = from}, {.s = expr}});
             return;
         }
         break; // an embedded base class: its fields follow
     case irTypeCatClosure:
         format(out,
-               "  if ({s}.dtor) __visit_edge(v, obj, {s}.env);\n",
-               (FormatArg[]){{.s = expr}, {.s = expr}});
+               "  if ({s}.dtor) __visit_edge(v, {s}, {s}.env);\n",
+               (FormatArg[]){{.s = expr}, {.s = from}, {.s = expr}});
         return;
     case irTypeCatOptional:
         if (type->strct.count > 1) {
             format(out, "  if ({s}.ok) {{\n", (FormatArg[]){{.s = expr}});
             snprintf(sub, sizeof(sub), "%s.val", expr);
-            emitVisitValue(out, type->strct.fields[1].type, sub, depth + 1);
+            emitVisitValue(out, type->strct.fields[1].type, from, sub, depth + 1);
             format(out, "  }\n", NULL);
         }
         return;
@@ -365,11 +520,13 @@ static void emitVisitValue(FormatState *out, const IrType *type, cstring expr, u
 
     for (u64 i = 0; i < type->strct.count; i++) {
         const IrField *f = &type->strct.fields[i];
+        if (f->name == S_vtable)
+            continue; // static table, nothing owned
         if (f->name)
             snprintf(sub, sizeof(sub), "%s.%s", expr, f->name);
         else
             snprintf(sub, sizeof(sub), "%s._%u", expr, (unsigned)i);
-        emitVisitValue(out, f->type, sub, depth + 1);
+        emitVisitValue(out, f->type, from, sub, depth + 1);
     }
 }
 
@@ -377,6 +534,8 @@ static void emitVisitValue(FormatState *out, const IrType *type, cstring expr, u
 // the class's TypeInfo
 static void emitVisitFunction(CodegenContext *ctx, const IrType *st)
 {
+    collectElementVisitors(ctx, st, 0);
+
     FormatState *out = &ctx->typeInfos;
     format(out, "static void __visit_{s}(void *obj, void *v) {{\n  ", (FormatArg[]){{.s = st->name}});
     emitCTypeName(out, st);
@@ -385,14 +544,14 @@ static void emitVisitFunction(CodegenContext *ctx, const IrType *st)
     char expr[1024];
     for (u64 i = 0; i < st->strct.count; i++) {
         const IrField *f = &st->strct.fields[i];
+        if (f->name == S_vtable)
+            continue; // static table, nothing owned
         if (f->name)
             snprintf(expr, sizeof(expr), "o->%s", f->name);
         else
             snprintf(expr, sizeof(expr), "o->_%u", (unsigned)i);
-        emitVisitValue(out, f->type, expr, 0);
+        emitVisitValue(out, f->type, "obj", expr, 0);
     }
-    if (st->strct.visit)
-        format(out, "  {s}(o, v);\n", (FormatArg[]){{.s = st->strct.visit->function.name}});
     format(out, "}\n", NULL);
 }
 
@@ -403,7 +562,7 @@ static void emitTypeInfo(CodegenContext *ctx, const IrType *st)
 {
     for (u32 i = 0; i < ctx->typeInfoTypes.size; i++) {
         const IrType *seen = dynArrayAt(const IrType **, &ctx->typeInfoTypes, i);
-        if (seen == st || (seen->name && st->name && strcmp(seen->name, st->name) == 0))
+        if (seen->name == st->name)
             return;
     }
     u32 index = ctx->typeInfoTypes.size;
@@ -413,7 +572,7 @@ static void emitTypeInfo(CodegenContext *ctx, const IrType *st)
     if (ctx->memTraceEnabled)
         emitVisitFunction(ctx, st);
     format(out, "static const __TypeInfo __ti_{s} = {{ .name = \"{s}\", .size = sizeof(",
-           (FormatArg[]){{.s = st->name}, {.s = st->display ?: st->name}});
+           (FormatArg[]){{.s = st->name}, {.s = st->typeName ?: st->display ?: st->name}});
     emitCTypeName(out, st);
     format(out, "), .align = _Alignof(", NULL);
     emitCTypeName(out, st);
@@ -438,7 +597,7 @@ static u32 emitSite(CodegenContext *ctx, const FileLoc *loc)
     for (u32 i = 0; i < ctx->sites.size; i++) {
         const CodegenSite *s = &dynArrayAt(CodegenSite *, &ctx->sites, i);
         if (s->line == loc->begin.row && s->column == loc->begin.col &&
-            strcmp(s->file, file) == 0 && strcmp(s->function, function) == 0)
+            s->file == file && s->function == function)
             return i;
     }
 
@@ -466,9 +625,10 @@ static bool hasCallSite(const CodegenContext *ctx, const IrNode *func)
            (func->function.attrs & irFuncAttrCallSite) != 0;
 }
 
+// Names are interned, so equal names are the same pointer
 static bool compareFuncNames(const void *lhs, const void *rhs)
 {
-    return strcmp(*(cstring *)lhs, *(cstring *)rhs) == 0;
+    return *(cstring *)lhs == *(cstring *)rhs;
 }
 
 // A callee can reference a function that is lowered later, so it is matched by
@@ -485,7 +645,7 @@ static bool calleeHasCallSite(CodegenContext *ctx, const IrNode *callee)
         return false;
     return findInHashTable(&ctx->callSiteFuncs,
                            &name,
-                           hashStr(hashInit(), name),
+                           hashPtr(hashInit(), name),
                            sizeof(cstring),
                            compareFuncNames) != NULL;
 }
@@ -610,8 +770,7 @@ static cstring bufferAllocatorName(const CodegenContext *ctx, const IrNode *call
     cstring name = callee->globalRef.name;
     if (name == NULL)
         return NULL;
-    if (strcmp(name, "__alloc_buffer") == 0 || strcmp(name, "__calloc_buffer") == 0 ||
-        strcmp(name, "__realloc_buffer") == 0)
+    if (name == S___alloc_buffer || name == S___calloc_buffer || name == S___realloc_buffer)
         return name;
     return NULL;
 }
@@ -1870,6 +2029,7 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         .types = newFormatState("  ", true),
         .typeInfos = newFormatState("  ", true),
         .typeInfoTypes = newDynArray(sizeof(const IrType *)),
+        .visitElemTypes = newDynArray(sizeof(const IrType *)),
         .sites = newDynArray(sizeof(CodegenSite)),
         .debug = {.enabled = driver->options.debug}};
 
@@ -1879,6 +2039,7 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         freeFormatState(&ctx.types);
         freeFormatState(&ctx.typeInfos);
         freeDynArray(&ctx.typeInfoTypes);
+        freeDynArray(&ctx.visitElemTypes);
         freeDynArray(&ctx.sites);
         if (driver->finalizedModules.size == 0)
             freeDynArray(&modules);
@@ -1895,7 +2056,7 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
                 cstring name = f->function.name;
                 insertInHashTable(&ctx.callSiteFuncs,
                                   &name,
-                                  hashStr(hashInit(), name),
+                                  hashPtr(hashInit(), name),
                                   sizeof(cstring),
                                   compareFuncNames);
             }
@@ -2157,6 +2318,7 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
     freeFormatState(&ctx.types);
     freeFormatState(&ctx.typeInfos);
     freeDynArray(&ctx.typeInfoTypes);
+    freeDynArray(&ctx.visitElemTypes);
     freeDynArray(&ctx.sites);
     freeHashTable(&ctx.callSiteFuncs);
 

@@ -268,28 +268,6 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         }
     }
 
-    // Trace builds only: both arrays and the class keys and values they hold
-    func __visit(v: ^void) {
-        if (_capacity) {
-            __visit_edge(v, this !: ^void, _nodes !: ^void)
-            #if (#V != #void) {
-                __visit_edge(v, this !: ^void, this._values !: ^void)
-            }
-            for (const i: 0.._capacity) {
-                if (_nodes.[i].hash) {
-                    #if (K.isClass) {
-                        __visit_edge(v, _nodes !: ^void, _nodes.[i].key !: ^void)
-                    }
-                    #if (#V != #void) {
-                        #if (V.isClass) {
-                            __visit_edge(v, this._values !: ^void, this._values.[i] !: ^void)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     @memtrace(callsite)
     func remove(key: K) {
         if (_size == 0)

@@ -30,6 +30,7 @@ typedef struct CodegenContext {
     FormatState state;
     FormatState typeInfos;  // `const __TypeInfo` definitions, emitted before bodies
     DynArray typeInfoTypes; // const IrType * with a TypeInfo already emitted
+    DynArray visitElemTypes; // const IrType * with a buffer element visitor emitted
     DynArray sites;         // CodegenSite, index = `__site_<index>` (trace builds)
     cstring functionName;   // function being emitted
     const struct IrNode *function;

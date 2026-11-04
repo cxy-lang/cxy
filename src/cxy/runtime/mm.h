@@ -100,10 +100,12 @@ extern void __cxy_mem_trace_count(uint32_t type, uint32_t site, uint64_t bytes);
 extern void __cxy_mem_trace_type_free(uint32_t type);
 
 // Edge visitors: a class's TypeInfo.visit reports every reference the object
-// owns as an edge, the trace library supplies the callback. Containers report
-// their buffer and elements through `__visit_edge` from a `__visit` member.
+// owns as an edge, the trace library supplies the callbacks. The glue is
+// generated from the field types, containers need no tracing code.
 typedef struct __Visitor {
     void (*edge)(struct __Visitor *v, const void *from, const void *to);
+    // Bytes of the registered buffer that starts at `ptr`, 0 if there is none
+    uint64_t (*bufferBytes)(struct __Visitor *v, const void *ptr);
     void *ctx;
 } __Visitor;
 
@@ -111,6 +113,28 @@ static inline void __visit_edge(void *visitor, void *from, void *to)
 {
     if (to != nullptr)
         ((__Visitor *)visitor)->edge((__Visitor *)visitor, from, to);
+}
+
+// A raw pointer field: when it points at a registered buffer the owner owns it,
+// and `elem` (null when elements own nothing) reports what each slot of the
+// buffer owns. Unused slots are zero in the containers, so they report nothing.
+static inline void __visit_buffer(void *visitor,
+                                  void *owner,
+                                  void *buf,
+                                  uint64_t elemSize,
+                                  void (*elem)(void *visitor, void *buf, void *slot))
+{
+    if (buf == nullptr)
+        return;
+    __Visitor *v = (__Visitor *)visitor;
+    uint64_t bytes = v->bufferBytes(v, buf);
+    if (bytes == 0)
+        return;
+    v->edge(v, owner, buf);
+    if (elem == nullptr || elemSize == 0)
+        return;
+    for (uint64_t off = 0; off + elemSize <= bytes; off += elemSize)
+        elem(visitor, buf, (char *)buf + off);
 }
 
 // Lets the trace library read refcounts without knowing the header layout

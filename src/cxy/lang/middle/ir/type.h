@@ -88,6 +88,7 @@ struct IrType {
     u64 index;
     cstring name;
     cstring display;
+    cstring typeName; // classes: the readable name, `Vector[Node]`, for tools
     union {
         struct {
             const IrType *pointee;
@@ -114,11 +115,6 @@ struct IrType {
             union {
                 const struct AstNode *copyAst;
                 struct IrNode *copy;
-            };
-            // Classes: the `__visit` member of containers (trace builds)
-            union {
-                const struct AstNode *visitAst;
-                struct IrNode *visit;
             };
         } strct;
         struct {

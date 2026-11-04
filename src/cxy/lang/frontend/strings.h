@@ -127,7 +127,6 @@ extern "C" {
     f(__construct0)             \
     f(__construct1)             \
     f(__fwd)                    \
-    f(__visit)                  \
     f(__override_builtin)       \
     f(__copy)                   \
     f(__destroy)                \
@@ -150,6 +149,9 @@ extern "C" {
     f(hint)                     \
     f(naked)                    \
     f(nodiscard)                \
+    f(__alloc_buffer)           \
+    f(__calloc_buffer)          \
+    f(__realloc_buffer)         \
     f(memtrace)                 \
     f(callsite)                 \
     f(override)                 \

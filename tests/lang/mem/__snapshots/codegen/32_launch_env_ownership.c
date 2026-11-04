@@ -178,9 +178,9 @@ static int32_t __closure_body58(__closure_env57 * this);
 static Result_void joined(User user);
 static Result_void _main();
 
-static const __TypeInfo __ti_builtins_StdOutputStream = { .name = "StdOutputStream", .size = sizeof(builtins_StdOutputStream), .align = _Alignof(builtins_StdOutputStream), .index = 0, .dropFields = builtins_StdOutputStream_op__destructor_fwd };
-static const __TypeInfo __ti_builtins_String = { .name = "String", .size = sizeof(builtins_String), .align = _Alignof(builtins_String), .index = 1, .dropFields = builtins_String_op__destructor_fwd };
-static const __TypeInfo __ti_thread_ThreadError = { .name = "ThreadError", .size = sizeof(thread_ThreadError), .align = _Alignof(thread_ThreadError), .index = 2, .dropFields = thread_ThreadError_op__destructor_fwd };
+static const __TypeInfo __ti_builtins_StdOutputStream = { .name = "builtins.StdOutputStream", .size = sizeof(builtins_StdOutputStream), .align = _Alignof(builtins_StdOutputStream), .index = 0, .dropFields = builtins_StdOutputStream_op__destructor_fwd };
+static const __TypeInfo __ti_builtins_String = { .name = "builtins.String", .size = sizeof(builtins_String), .align = _Alignof(builtins_String), .index = 1, .dropFields = builtins_String_op__destructor_fwd };
+static const __TypeInfo __ti_thread_ThreadError = { .name = "thread.ThreadError", .size = sizeof(thread_ThreadError), .align = _Alignof(thread_ThreadError), .index = 2, .dropFields = thread_ThreadError_op__destructor_fwd };
 static const __TypeInfo __ti___closure_env55 = { .name = "__closure_env55", .size = sizeof(__closure_env55), .align = _Alignof(__closure_env55), .index = 3, .dropFields = __closure_env55_op__destructor };
 static const __TypeInfo __ti___closure_env57 = { .name = "__closure_env57", .size = sizeof(__closure_env57), .align = _Alignof(__closure_env57), .index = 4, .dropFields = __closure_env57_op__destructor };
 
