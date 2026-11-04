@@ -1438,6 +1438,7 @@ pub struct CoWaitGroup {
         }
     }
 
+    @nocopy
     pub class WaitGroup {
         _count = Atomic[i32]()
         _waiters = List[Coroutine]{}
@@ -1492,6 +1493,7 @@ pub struct CoWaitGroup {
         }
     }
 
+    @nocopy
     pub struct SharedChannel[T] {
         _buffer: CircularBuffer[T]
         _in: ^Coroutine = null
