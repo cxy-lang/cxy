@@ -195,6 +195,17 @@ static void emitExceptionTracePush(LowerContext *ctx,
     emitStmt(ctx, pushCall);
 }
 
+// `@nocopy` on a class applies to every class derived from it
+static bool isNoCopyClassType(const Type *type)
+{
+    for (u32 depth = 0; type && typeIs(type, Class) && depth < 64; depth++) {
+        if (type->tClass.decl && findAttribute(type->tClass.decl, S_nocopy))
+            return true;
+        type = type->tClass.inheritance ? type->tClass.inheritance->base : NULL;
+    }
+    return false;
+}
+
 static inline bool isBackendCopyExpr(const AstNode *node)
 {
     return node && nodeIs(node, BackendCall) &&
@@ -790,8 +801,7 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
                                                     fieldCount);
         ((IrType *)structType)->index = type->index;
         ((IrType *)structType)->typeName = readableTypeName(ctx, type);
-        ((IrType *)structType)->noCopy =
-            cDecl && findAttribute(cDecl, S_nocopy) != NULL;
+        ((IrType *)structType)->noCopy = isNoCopyClassType(type);
         const NamedTypeMember *classDctor =
             findClassMember(type, S_DestructorOverload);
         if (classDctor && classDctor->decl)

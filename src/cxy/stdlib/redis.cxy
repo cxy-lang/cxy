@@ -629,7 +629,7 @@ class CachedClient: RedisClient {
     db: u64 = 0
 
     func `init`(sock: Socket, timeout: i64, @escaping onClose: OnClose) {
-        super(sock, timeout)
+        super(&&sock, timeout)
         _onClose = &&onClose
     }
 

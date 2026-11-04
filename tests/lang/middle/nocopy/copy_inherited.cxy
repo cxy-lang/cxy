@@ -1,0 +1,24 @@
+// `@nocopy` on a base class applies to the classes derived from it
+@nocopy
+class Base {
+    fd: i32
+    func `init`(fd: i32) { this.fd = fd }
+    func `deinit`() {}
+}
+
+class Child: Base {
+    extra: i32
+    func `init`(fd: i32) {
+        super(fd)
+        this.extra = 0
+    }
+}
+
+func takeBase(b: Base): i32 => b.fd
+
+func main(): void {
+    var c = Child(1)
+    var d = c
+    var e = @copy c
+    takeBase(c)
+}

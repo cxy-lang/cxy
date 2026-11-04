@@ -1,0 +1,25 @@
+// A class derived from a `@nocopy` base can still be moved and borrowed
+@nocopy
+class Base {
+    fd: i32
+    func `init`(fd: i32) { this.fd = fd }
+    func `deinit`() {}
+}
+
+class Child: Base {
+    extra: i32
+    func `init`(fd: i32) {
+        super(fd)
+        this.extra = 0
+    }
+}
+
+func peekBase(b: &Base): i32 => b.fd
+func takeChild(c: Child): i32 => c.fd
+
+func main(): void {
+    var c = Child(1)
+    var n = peekBase(c)
+    var d = &&c
+    var m = takeChild(&&d)
+}

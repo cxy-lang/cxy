@@ -1140,6 +1140,7 @@ macro __async_task(_CALLEE, CALL, NAME) =({
     }
 })
 
+@nocopy
 pub struct Channel[T] {
     _buffer: CircularBuffer[T]
     _in: ^Coroutine = null
@@ -1200,6 +1201,7 @@ pub struct Channel[T] {
     }
 }
 
+@nocopy
 pub struct CoWaitGroup {
     _name: string
     _count = Atomic[i32]()

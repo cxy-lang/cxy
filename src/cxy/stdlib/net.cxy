@@ -354,6 +354,7 @@ pub async func getRemoteAddress(name: string, port: u16, mode: IPVersion = IPVer
     return addr
 }
 
+@nocopy
 pub class Socket {
     _fd: i32
     _addr: Address
@@ -481,12 +482,12 @@ pub class SocketOutputStream : OutputStream {
 
 pub class BufferedSocketOutputStream : BufferedOutputStream {
     - timeout: u64
-    - sock: Socket = null
+    - sock: &Socket
 
-    func `init`(sock: Socket, timeout: u64 = 0) {
+    func `init`(sock: &Socket, timeout: u64 = 0) {
         super()
         this.timeout = timeout
-        this.sock = &&sock
+        this.sock = sock
     }
 
     func flush(data: ^const void, size: u64) {

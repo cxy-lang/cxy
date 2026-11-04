@@ -1,0 +1,17 @@
+error: `Child` cannot be copied, it is `@nocopy` or holds a `@nocopy` value. Move it with `&&x` or borrow it with `&x`
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/nocopy/copy_inherited.cxy:21:5 (to 21:14)
+   |
+21 |    var d = c
+   |    ^^^^^^^^^
+
+error: `Child` cannot be copied, it is `@nocopy` or holds a `@nocopy` value. Move it with `&&x` or borrow it with `&x`
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/nocopy/copy_inherited.cxy:22:5 (to 22:20)
+   |
+22 |    var e = @copy c
+   |    ^^^^^^^^^^^^^^^
+
+error: `Child` cannot be copied, it is `@nocopy` or holds a `@nocopy` value. Move it with `&&x` or borrow it with `&x`
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/nocopy/copy_inherited.cxy:23:14 (to 23:15)
+   |
+23 |    takeBase(c)
+   |             ^

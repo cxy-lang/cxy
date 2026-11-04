@@ -513,6 +513,7 @@ pub class FileOutputStream : OutputStream {
     }
 }
 
+@nocopy
 pub struct Process {
     - _stdout: FileInputStream = null;
     - _stderr: FileInputStream = null;

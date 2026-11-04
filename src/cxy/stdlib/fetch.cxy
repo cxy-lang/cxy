@@ -342,8 +342,8 @@ pub class Request {
         }
     }
 
-    func submit(sock: Socket, timeout: u64 = 0): !void {
-        var sos = BufferedSocketOutputStream(&&sock, timeout);
+    func submit(sock: &Socket, timeout: u64 = 0): !void {
+        var sos = BufferedSocketOutputStream(sock, timeout);
         sos << _method << " "
         if (_resource.empty())
             sos << "/"
@@ -649,7 +649,7 @@ pub class Session {
                 _sock = TcpSocket(fd, _addr)
         }
         // Submit request
-        _req.submit(_sock, _timeout)
+        _req.submit(&_sock, _timeout)
         var resp: Response = Response(ptrof HTTP_PARSER_SETTINGS, &&writer);
         resp.receive(&_sock, _timeout)
         _pending = resp.takeRest()
