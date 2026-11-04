@@ -122,6 +122,21 @@ void lowerTaggedUnionIntoTarget(LowerContext *ctx,
                                 const Type *targetAstType);
 
 // ---------------------------------------------------------------------------
+// Names and member access (access.c)
+// ---------------------------------------------------------------------------
+
+void lowerIdentifier(AstVisitor *visitor, AstNode *node);
+void lowerPath(AstVisitor *visitor, AstNode *node);
+void lowerMemberExpr(AstVisitor *visitor, AstNode *node);
+void lowerIndexExpr(AstVisitor *visitor, AstNode *node);
+void lowerSliceExpr(AstVisitor *visitor, AstNode *node);
+// `&x` and `^x`, also used for `ReferenceOf`
+void lowerPointerOf(AstVisitor *visitor, AstNode *node);
+
+// Sets `UserWritten` on `ir` when `ast` came from the source
+IrNode *markUserWritten(const AstNode *ast, IrNode *ir);
+
+// ---------------------------------------------------------------------------
 // Symbol names (names.c)
 // ---------------------------------------------------------------------------
 
