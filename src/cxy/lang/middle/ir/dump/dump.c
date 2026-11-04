@@ -1,5 +1,5 @@
 #include "dump.h"
-#include "visitor.h"
+#include "lang/middle/ir/visitor.h"
 #include "lang/frontend/operator.h"
 #include <unistd.h>
 

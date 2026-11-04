@@ -243,11 +243,10 @@ set(CXY_MIDDLE_SOURCES
         src/cxy/lang/middle/ir/node.c
         src/cxy/lang/middle/ir/context.c
         src/cxy/lang/middle/ir/visitor.c
-        src/cxy/lang/middle/ir/dump.c
-        src/cxy/lang/middle/ir/lower.c
-        src/cxy/lang/middle/ir/lower_context.c
-        src/cxy/lang/middle/ir/lower_names.c
-        src/cxy/lang/middle/ir/reachability.c
+        src/cxy/lang/middle/ir/dump/dump.c
+        src/cxy/lang/middle/ir/lower/lower.c
+        src/cxy/lang/middle/ir/lower/names.c
+        src/cxy/lang/middle/ir/reachability/reachability.c
         src/cxy/lang/middle/memory/manage.c
         src/cxy/lang/middle/memory/finalize.c
         src/cxy/lang/middle/memory/verify.c
@@ -659,8 +658,17 @@ foreach (CXY_SRC ${CXY_STD_LIB_TEST_SOURCES})
 
     file(RELATIVE_PATH _FILE ${CMAKE_SOURCE_DIR}/src/cxy ${CXY_SRC})
     message(STATUS "Adding stdlib test case ${CXY_SRC}")
+
+    # Each test compiles in its own directory: `app.c` and `app` are written to
+    # the working directory, so tests sharing one would overwrite each other
+    string(REPLACE "/" "_" _TEST_DIR_NAME "${_FILE}")
+    set(_TEST_DIR ${CMAKE_CURRENT_BINARY_DIR}/stdlib-tests/${_TEST_DIR_NAME})
+    file(MAKE_DIRECTORY ${_TEST_DIR})
     add_test(NAME "${_FILE}"
-            COMMAND cxy test ${CXY_OPEN_SSL_OPTIONS} --no-progress --stdlib ${CMAKE_SOURCE_DIR}/src/cxy ${CXY_SRC})
+            COMMAND cxy test ${CXY_OPEN_SSL_OPTIONS} --no-progress
+            --stdlib ${CMAKE_SOURCE_DIR}/src/cxy
+            --plugins-dir ${CMAKE_CURRENT_BINARY_DIR}/plugins ${CXY_SRC}
+            WORKING_DIRECTORY ${_TEST_DIR})
 endforeach ()
 
 if (NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/plugins)

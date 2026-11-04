@@ -8,8 +8,8 @@
 #include "profiling.h"
 #include "stats.h"
 
-#include "lang/middle/ir/lower.h"
-#include "lang/middle/ir/dump.h"
+#include "lang/middle/ir/lower/lower.h"
+#include "lang/middle/ir/dump/dump.h"
 #include "lang/middle/memory/memory.h"
 #include "lang/middle/memory/verify.h"
 

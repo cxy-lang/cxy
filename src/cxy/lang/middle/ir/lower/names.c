@@ -1,4 +1,4 @@
-#include "lower_internal.h"
+#include "internal.h"
 
 #include "core/hash.h"
 #include "core/strpool.h"
@@ -136,4 +136,35 @@ cstring getNormalizedName(LowerContext *ctx, const AstNode *node)
     free(str);
     freeFormatState(&state);
     return toCSymbolName(ctx, res);
+}
+static bool compareVarNameEntries(const void *lhs, const void *rhs)
+{
+    const VarNameEntry *l = lhs;
+    const VarNameEntry *r = rhs;
+    return l->name == r->name;
+}
+
+cstring makeUniqueVarName(LowerContext *ctx, cstring displayName)
+{
+    if (displayName == NULL)
+        return displayName;
+
+    VarNameEntry *found = findInHashTable(&ctx->varNames,
+                                          &(VarNameEntry){.name = displayName},
+                                          hashPtr(hashInit(), displayName),
+                                          sizeof(VarNameEntry),
+                                          compareVarNameEntries);
+
+    if (found == NULL) {
+        VarNameEntry entry = {.name = displayName, .count = 1};
+        insertInHashTable(&ctx->varNames,
+                          &entry,
+                          hashPtr(hashInit(), displayName),
+                          sizeof(VarNameEntry),
+                          compareVarNameEntries);
+        return displayName;
+    }
+
+    u32 suffix = found->count++;
+    return makeStringf(ctx->strings, "%s_%u", displayName, suffix);
 }

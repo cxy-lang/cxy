@@ -12,7 +12,7 @@ extern "C" {
 #endif
 
 // ---------------------------------------------------------------------------
-// Blocks and statements (lower_context.c)
+// Blocks and statements
 // ---------------------------------------------------------------------------
 
 static inline bool isBlockTerminated(const IrNode *bb)
@@ -65,7 +65,7 @@ static inline void emitBranchIfNotTerminated(LowerContext *ctx, IrNode *target)
     }
 }
 
-// A variable name that is unique in the function, `x`, `x_1`, `x_2`...
+// A variable name that is unique in the function, `x`, `x_1`, `x_2`... (names.c)
 typedef struct VarNameEntry {
     cstring name;
     u32 count;
@@ -74,7 +74,7 @@ typedef struct VarNameEntry {
 cstring makeUniqueVarName(LowerContext *ctx, cstring displayName);
 
 // ---------------------------------------------------------------------------
-// Symbol names (lower_names.c)
+// Symbol names (names.c)
 // ---------------------------------------------------------------------------
 
 cstring makeScopedSymbolName(LowerContext *ctx,

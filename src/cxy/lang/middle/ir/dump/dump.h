@@ -1,6 +1,6 @@
 #pragma once
 
-#include "node.h"
+#include "lang/middle/ir/node.h"
 #include "core/format.h"
 #include "driver/driver.h"
 #include <stdio.h>

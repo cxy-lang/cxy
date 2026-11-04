@@ -1,7 +1,7 @@
 #pragma once
 
-#include "node.h"
-#include "type.h"
+#include "lang/middle/ir/node.h"
+#include "lang/middle/ir/type.h"
 #include "core/array.h"
 #include "driver/driver.h"
 #include "lang/frontend/ast.h"

@@ -1,5 +1,5 @@
 #include "lower.h"
-#include "lower_internal.h"
+#include "internal.h"
 
 #include "core/hash.h"
 #include "core/strpool.h"
