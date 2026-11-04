@@ -15,12 +15,8 @@
 #include <dlfcn.h>
 #include <execinfo.h>
 
-#if defined(__APPLE__)
-#include <malloc/malloc.h>
-#endif
-
 /*
- * Memory tracing runtime. The generated program (prologue.h) only calls the
+ * Memory tracing runtime. The generated program (mm_trace.h) only calls the
  * __cxy_mem_trace_* hooks below; all trace state lives here.
  *
  * Live queries: a background thread serves one-line commands on a Unix
@@ -210,12 +206,6 @@ static void printEventStack(int fd, const TraceEvent *ev, bool sym)
 
 /* ------------------------------------------------------------- live table */
 
-static inline size_t liveHash(const void *ptr)
-{
-    uint64_t h = (uint64_t)(uintptr_t)ptr >> 4;
-    h *= 11400714819323198485ull;
-    return (size_t)(h >> 16);
-}
 
 static TraceList *threadListGet(void)
 {
@@ -882,6 +872,22 @@ static void printEdge(TraceVisitor *v, const void *from, const void *to)
 
 #define HEADER_LEGACY_FLAG 0x08U
 
+typedef void (*VisitFn)(void *obj, void *visitor);
+
+// The edge visitor generated for the class of the object at `payload`, or NULL for
+// an object without one (old-style allocation, class with no TypeInfo.visit)
+static VisitFn objectVisitFn(const void *payload, const char **typeName)
+{
+    // The object header sits 16 bytes before the payload: strong, flags, type
+    const uint32_t *flags = (const uint32_t *)((const char *)payload - OBJ_HEADER_SIZE + 4);
+    const TypeRecord *const *type = (const TypeRecord *const *)((const char *)payload - 8);
+    if ((*flags & HEADER_LEGACY_FLAG) || *type == NULL)
+        return NULL;
+    if (typeName != NULL)
+        *typeName = (*type)->name;
+    return (VisitFn)(*type)->visit;
+}
+
 static void edgesReportFd(int fd, const char *arg)
 {
     if (arg == NULL) {
@@ -905,18 +911,17 @@ static void edgesReportFd(int fd, const char *arg)
         return;
     }
 
-    // The object header sits 16 bytes before the payload: strong, flags, type
-    const uint32_t *flags = (const uint32_t *)((const char *)ptr - OBJ_HEADER_SIZE + 4);
-    const TypeRecord *const *type = (const TypeRecord *const *)((const char *)ptr - 8);
-    if ((*flags & HEADER_LEGACY_FLAG) || *type == NULL || (*type)->visit == NULL) {
+    const char *typeName = NULL;
+    VisitFn visit = objectVisitFn(ptr, &typeName);
+    if (visit == NULL) {
         dprintf(fd, "%p has no edge visitor\n", ptr);
         free(p.sorted);
         return;
     }
 
-    dprintf(fd, "edges of %p (%s)\n", ptr, (*type)->name ? (*type)->name : "<unknown>");
+    dprintf(fd, "edges of %p (%s)\n", ptr, typeName ? typeName : "<unknown>");
     TraceVisitor visitor = {.edge = printEdge, .bufferBytes = bufferBytesOf, .ctx = &p};
-    ((void (*)(void *, void *))(*type)->visit)(ptr, &visitor);
+    visit(ptr, &visitor);
     dprintf(fd, "Total: %llu edges\n", (unsigned long long)p.edges);
     free(p.sorted);
 }
@@ -986,12 +991,13 @@ static void helpFd(int fd)
             "  sitecounts [n]       cumulative allocations per allocation point\n"
             "  diff [n]             sites of allocations made since `mark` still alive\n"
             "  difflist [n]         like `list`, but only allocations since `mark`\n"
-            "containment (scans a forked copy of the process):\n"
-            "  holders <ptr>        who points at this object\n"
-            "  path <ptr>           shortest chain of holders from a root to this object\n"
-            "  contains <y> <x>     is x held, directly or indirectly, by y\n"
+            "ownership graph (exact edges, built in a forked copy of the process):\n"
+            "  holders <ptr>        who owns this object, and its externalRefs\n"
+            "  path <ptr>           shortest chain from a root to this object\n"
+            "  contains <y> <x>     is x owned, directly or indirectly, by y\n"
             "  retained [n]         roots ranked by what only they keep alive\n"
-            "  tree <ptr> [depth]   what this object holds (default depth 3)\n",
+            "  cycles [n]           leaked cycles: groups that only own each other\n"
+            "  tree <ptr> [depth]   what this object owns (default depth 3)\n",
             CXY_QUERY_DEFAULT_LIMIT,
             CXY_QUERY_DEFAULT_LIMIT);
 }
@@ -1008,19 +1014,16 @@ static size_t parseLimit(const char *arg)
 /* ------------------------------------------------------ containment graph */
 
 /*
- * Who holds what. Every live allocation is a node. An aligned word inside a
- * node that points at (or into) another node is an edge. Nothing is recorded
- * while the program runs: the graph is built from a forked copy of the process
- * when a command asks for it, so the program is never stalled and the child
- * reads a consistent snapshot.
+ * Who owns what. Every live object and buffer is a node, and so is every named
+ * global root. An edge is an owned reference, as reported by the visit glue the
+ * compiler generated from the field types: nothing is guessed from memory
+ * contents. The graph is built from a forked copy of the process when a command
+ * asks for it, so the program is never stalled and the child sees a consistent
+ * snapshot of the registry.
  *
- * Container storage (vector and map buffers) is plain malloc memory. It takes
- * part when registered through __cxy_mem_trace_raw_*, and on macOS any heap
- * block found by following a pointer is added with its malloc_size().
- *
- * The scan is conservative: an integer that looks like an address is a false
- * edge, and references held only on a stack or in globals are not seen, such
- * objects show up as roots.
+ * `externalRefs = strong - incoming edges` of an object is how many of its
+ * references are held outside the heap: by a stack, a coroutine, or a global the
+ * compiler did not name. Nodes with no incoming edge are the roots.
  */
 
 #define GRAPH_NONE UINT32_MAX
@@ -1031,12 +1034,14 @@ typedef struct {
     uint64_t size;
     const char *path;
     uint64_t line;
-    bool raw; // a buffer, not a smart pointer allocation
+    const char *name; // roots: the global's name
+    uint32_t refs;    // objects: the strong count when the graph was built
+    bool raw;         // a buffer, not an object
+    bool root;        // a named global
 } GraphNode;
 
 typedef struct {
     uint32_t from, to;
-    uint32_t off; // byte offset in `from` where the pointer is stored
 } GraphEdge;
 
 typedef struct {
@@ -1047,16 +1052,12 @@ typedef struct {
 typedef struct {
     GraphNode *nodes;
     size_t count, cap;
-    GraphKey *keys; // registered nodes ordered by address
+    GraphKey *keys; // every node ordered by address
     size_t keyCount;
-    uint32_t *found; // nodes discovered by malloc_size, id + 1, 0 = empty
-    size_t foundCap, foundCount;
     GraphEdge *edges;
     size_t edgeCount, edgeCap;
     uint32_t *outStart, *outEdge;
     uint32_t *inStart, *inEdge;
-    uint64_t scanned, scanLimit;
-    bool truncated;
 } Graph;
 
 static int graphFd = -1;
@@ -1082,84 +1083,24 @@ static uint32_t graphAddNode(Graph *g, GraphNode node)
     return (uint32_t)g->count++;
 }
 
-static uint32_t graphFoundLookup(const Graph *g, uintptr_t addr)
-{
-    if (g->foundCap == 0)
-        return GRAPH_NONE;
-    size_t idx = liveHash((const void *)addr) & (g->foundCap - 1);
-    while (g->found[idx] != 0) {
-        uint32_t id = g->found[idx] - 1;
-        if (g->nodes[id].start == addr)
-            return id;
-        idx = (idx + 1) & (g->foundCap - 1);
-    }
-    return GRAPH_NONE;
-}
-
-static bool graphFoundInsert(Graph *g, uintptr_t addr, uint32_t id)
-{
-    if ((g->foundCount + 1) * 2 >= g->foundCap) {
-        size_t cap = g->foundCap ? g->foundCap * 2 : 1024;
-        uint32_t *table = calloc(cap, sizeof(uint32_t));
-        if (table == NULL)
-            return false;
-        for (size_t i = 0; i < g->foundCap; i++) {
-            if (g->found[i] == 0)
-                continue;
-            size_t idx = liveHash((const void *)g->nodes[g->found[i] - 1].start) & (cap - 1);
-            while (table[idx] != 0)
-                idx = (idx + 1) & (cap - 1);
-            table[idx] = g->found[i];
-        }
-        free(g->found);
-        g->found = table;
-        g->foundCap = cap;
-    }
-    size_t idx = liveHash((const void *)addr) & (g->foundCap - 1);
-    while (g->found[idx] != 0)
-        idx = (idx + 1) & (g->foundCap - 1);
-    g->found[idx] = id + 1;
-    g->foundCount++;
-    return true;
-}
-
-// The node holding `addr`, which may point inside it, or GRAPH_NONE
-static uint32_t graphFind(Graph *g, uintptr_t addr)
+// The node that starts at exactly `addr`, or GRAPH_NONE. Edges always name the
+// start of an object, a buffer or a root, never an address inside one.
+static uint32_t graphFind(const Graph *g, uintptr_t addr)
 {
     size_t lo = 0, hi = g->keyCount;
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;
-        if (g->keys[mid].start <= addr)
+        if (g->keys[mid].start < addr)
             lo = mid + 1;
         else
             hi = mid;
     }
-    if (lo > 0) {
-        const GraphNode *n = &g->nodes[g->keys[lo - 1].id];
-        if (addr - n->start < n->size)
-            return g->keys[lo - 1].id;
-    }
-
-    uint32_t id = graphFoundLookup(g, addr);
-    if (id != GRAPH_NONE)
-        return id;
-
-#if defined(__APPLE__)
-    // Heap blocks are 16 byte aligned and malloc_size() is 0 for anything else
-    if ((addr & 15) == 0 && addr >= 4096 && addr < ((uintptr_t)1 << 47)) {
-        size_t size = malloc_size((const void *)addr);
-        if (size > 0) {
-            id = graphAddNode(g, (GraphNode){.start = addr, .size = size, .raw = true});
-            if (id != GRAPH_NONE)
-                graphFoundInsert(g, addr, id);
-            return id;
-        }
-    }
-#endif
+    if (lo < g->keyCount && g->keys[lo].start == addr)
+        return g->keys[lo].id;
     return GRAPH_NONE;
 }
 
-static bool graphAddEdge(Graph *g, uint32_t from, uint32_t to, uint32_t off)
+static bool graphAddEdge(Graph *g, uint32_t from, uint32_t to)
 {
     if (g->edgeCount == g->edgeCap) {
         size_t cap = g->edgeCap ? g->edgeCap * 2 : 4096;
@@ -1169,28 +1110,7 @@ static bool graphAddEdge(Graph *g, uint32_t from, uint32_t to, uint32_t off)
         g->edges = edges;
         g->edgeCap = cap;
     }
-    g->edges[g->edgeCount++] = (GraphEdge){.from = from, .to = to, .off = off};
-    return true;
-}
-
-static bool graphScan(Graph *g, uint32_t id)
-{
-    const GraphNode n = g->nodes[id]; // the node array can move while scanning
-    if ((n.start & (sizeof(uintptr_t) - 1)) != 0)
-        return true;
-    const uintptr_t *words = (const uintptr_t *)n.start;
-    size_t count = (size_t)(n.size / sizeof(uintptr_t));
-    g->scanned += n.size;
-    for (size_t i = 0; i < count; i++) {
-        uintptr_t w = words[i];
-        if (w < 4096)
-            continue;
-        uint32_t to = graphFind(g, w);
-        if (to == GRAPH_NONE || to == id)
-            continue;
-        if (!graphAddEdge(g, id, to, (uint32_t)(i * sizeof(uintptr_t))))
-            return false;
-    }
+    g->edges[g->edgeCount++] = (GraphEdge){.from = from, .to = to};
     return true;
 }
 
@@ -1228,12 +1148,35 @@ static bool graphIndex(Graph *g)
     return true;
 }
 
-// Runs in the forked child: the live table is a private copy, no lock needed
+typedef struct {
+    Graph *g;
+    bool failed;
+} CollectCtx;
+
+// An edge counts when both ends are nodes of the graph: a reference to memory the
+// registry does not know (static data, an object made before tracing started) is
+// not an edge
+static void collectEdge(TraceVisitor *v, const void *from, const void *to)
+{
+    CollectCtx *c = v->ctx;
+    uint32_t f = graphFind(c->g, (uintptr_t)from), t = graphFind(c->g, (uintptr_t)to);
+    if (f == GRAPH_NONE || t == GRAPH_NONE)
+        return;
+    if (!graphAddEdge(c->g, f, t))
+        c->failed = true;
+}
+
+static uint64_t collectBufferBytes(TraceVisitor *v, const void *ptr)
+{
+    const Graph *g = ((CollectCtx *)v->ctx)->g;
+    uint32_t id = graphFind(g, (uintptr_t)ptr);
+    return id != GRAPH_NONE && g->nodes[id].raw && !g->nodes[id].root ? g->nodes[id].size : 0;
+}
+
+// Runs in the forked child: the registry is a private, consistent copy, no lock
+// is needed and the visit functions read the copy of the program's memory
 static bool graphBuild(Graph *g)
 {
-    const char *env = getenv("CXY_MEM_SCAN_LIMIT_MB");
-    g->scanLimit = (env != NULL ? strtoull(env, NULL, 10) : 2048ull) << 20;
-
     for (const TraceList *l = allLists; l != NULL; l = l->next) {
         for (const TraceRec *rec = l->head; rec != NULL; rec = rec->next) {
             GraphNode node = {.start = (uintptr_t)recPayload(rec),
@@ -1241,9 +1184,23 @@ static bool graphBuild(Graph *g)
                               .path = rec->site ? rec->site->file : NULL,
                               .line = rec->site ? rec->site->line : 0,
                               .raw = rec->kind == KIND_BUFFER};
+            if (!node.raw && __cxy_mem_header_refs)
+                node.refs = __cxy_mem_header_refs((void *)node.start);
             if (graphAddNode(g, node) == GRAPH_NONE)
                 return false;
         }
+    }
+
+    uint32_t rootCount = &__cxy_root_count != NULL ? __cxy_root_count : 0;
+    for (uint32_t i = 0; i < rootCount; i++) {
+        const RootRecord *root = &__cxy_roots[i];
+        GraphNode node = {.start = (uintptr_t)root->addr,
+                          .size = root->size,
+                          .name = root->name,
+                          .raw = true,
+                          .root = true};
+        if (graphAddNode(g, node) == GRAPH_NONE)
+            return false;
     }
 
     g->keys = malloc((g->count ? g->count : 1) * sizeof(GraphKey));
@@ -1254,28 +1211,32 @@ static bool graphBuild(Graph *g)
     g->keyCount = g->count;
     qsort(g->keys, g->keyCount, sizeof(GraphKey), compareGraphKey);
 
-    // Nodes found while scanning are appended and scanned in turn
-    for (size_t id = 0; id < g->count; id++) {
-        if (g->scanned >= g->scanLimit) {
-            g->truncated = true;
-            break;
-        }
-        if (!graphScan(g, (uint32_t)id))
-            return false;
+    CollectCtx ctx = {.g = g};
+    TraceVisitor visitor = {.edge = collectEdge, .bufferBytes = collectBufferBytes, .ctx = &ctx};
+    size_t objects = g->count - rootCount;
+    for (size_t id = 0; id < objects && !ctx.failed; id++) {
+        const GraphNode *n = &g->nodes[id];
+        VisitFn visit = n->raw ? NULL : objectVisitFn((const void *)n->start, NULL);
+        if (visit != NULL)
+            visit((void *)n->start, &visitor);
     }
-    return graphIndex(g);
+    for (uint32_t i = 0; i < rootCount && !ctx.failed; i++)
+        __cxy_roots[i].visit(&visitor, __cxy_roots[i].addr);
+    return !ctx.failed && graphIndex(g);
 }
 
 static void printGraphNode(int fd, const Graph *g, uint32_t id)
 {
     const GraphNode *n = &g->nodes[id];
-    if (!n->raw) {
-        uint32_t refs = __cxy_mem_header_refs ? __cxy_mem_header_refs((void *)n->start) : 0;
+    if (n->root) {
+        dprintf(fd, "global %s (%p, %llu bytes)", n->name, (void *)n->start, (unsigned long long)n->size);
+    }
+    else if (!n->raw) {
         dprintf(fd,
                 "%p size=%llu refs=%u @ %s:%llu",
                 (void *)n->start,
                 (unsigned long long)n->size,
-                (unsigned)refs,
+                (unsigned)n->refs,
                 n->path ? n->path : "<unknown>",
                 (unsigned long long)n->line);
     }
@@ -1293,12 +1254,12 @@ static void printGraphNode(int fd, const Graph *g, uint32_t id)
 }
 
 // One node per line, each indented one level deeper than the holder
-static void printChain(int fd, const Graph *g, const uint32_t *ids, const uint32_t *offs, size_t len)
+static void printChain(int fd, const Graph *g, const uint32_t *ids, size_t len)
 {
     for (size_t i = 0; i < len; i++) {
         dprintf(fd, "%*s", (int)(2 + i * 2), "");
         if (i > 0)
-            dprintf(fd, "+%u -> ", (unsigned)offs[i]);
+            dprintf(fd, "-> ");
         printGraphNode(fd, g, ids[i]);
         dprintf(fd, "\n");
     }
@@ -1313,9 +1274,7 @@ static uint32_t graphResolve(int fd, Graph *g, const char *arg)
     uintptr_t addr = (uintptr_t)strtoull(arg, NULL, 0);
     uint32_t id = graphFind(g, addr);
     if (id == GRAPH_NONE)
-        dprintf(fd, "%s is not inside a live allocation\n", arg);
-    else if (g->nodes[id].start != addr)
-        dprintf(fd, "note: %s is inside the allocation at %p\n", arg, (void *)g->nodes[id].start);
+        dprintf(fd, "%s is not the start of a live object, buffer or global root\n", arg);
     return id;
 }
 
@@ -1329,21 +1288,28 @@ static void graphHolders(int fd, const Graph *g, uint32_t id)
         if (holders++ < 50) {
             dprintf(fd, "  held by ");
             printGraphNode(fd, g, e->from);
-            dprintf(fd, " at +%u\n", (unsigned)e->off);
+            dprintf(fd, "\n");
         }
     }
     if (holders > 50)
         dprintf(fd, "  ... %llu more\n", (unsigned long long)(holders - 50));
     if (holders == 0)
-        dprintf(fd, "  not held by any tracked memory (stack, global or untracked buffer)\n");
+        dprintf(fd, "  not owned by any object, buffer or named global\n");
 
+    // externalRefs: the references the glue cannot account for are held by a
+    // stack, a coroutine, or a global the compiler did not name
     const GraphNode *n = &g->nodes[id];
-    uint32_t refs = (!n->raw && __cxy_mem_header_refs) ? __cxy_mem_header_refs((void *)n->start) : 0;
-    if (refs > holders)
+    if (!n->raw && n->refs > holders)
         dprintf(fd,
-                "  %llu of %u reference(s) are held outside tracked memory\n",
-                (unsigned long long)(refs - holders),
-                (unsigned)refs);
+                "  externalRefs = %llu (%u reference(s), %llu held by heap objects)\n",
+                (unsigned long long)(n->refs - holders),
+                (unsigned)n->refs,
+                (unsigned long long)holders);
+    else if (!n->raw && n->refs < holders)
+        dprintf(fd,
+                "  note: %llu edges but only %u reference(s), the graph is approximate here\n",
+                (unsigned long long)holders,
+                (unsigned)n->refs);
 }
 
 // Shortest chain from a node nothing tracked points at, down to `target`
@@ -1351,9 +1317,9 @@ static void graphPath(int fd, const Graph *g, uint32_t target)
 {
     size_t n = g->count;
     uint32_t *queue = malloc(n * sizeof(uint32_t)), *prev = malloc(n * sizeof(uint32_t));
-    uint32_t *ids = malloc(n * sizeof(uint32_t)), *offs = malloc(n * sizeof(uint32_t));
+    uint32_t *ids = malloc(n * sizeof(uint32_t));
     uint8_t *seen = calloc(n, 1);
-    if (!queue || !prev || !ids || !offs || !seen) {
+    if (!queue || !prev || !ids || !seen) {
         dprintf(fd, "error: out of memory\n");
         goto done;
     }
@@ -1379,30 +1345,26 @@ static void graphPath(int fd, const Graph *g, uint32_t target)
     }
 
     if (root == GRAPH_NONE) {
-        dprintf(fd,
-                "no root: every chain of holders ends in a cycle, or is held from memory "
-                "the scan cannot see\n");
+        dprintf(fd, "no root: every chain of holders ends in a cycle\n");
         goto done;
     }
 
     size_t len = 0;
     uint32_t v = root;
-    ids[len] = v;
-    offs[len++] = 0;
+    ids[len++] = v;
     while (v != target) {
-        const GraphEdge *e = &g->edges[prev[v]];
-        v = e->to;
-        offs[len] = e->off;
+        v = g->edges[prev[v]].to;
         ids[len++] = v;
     }
     dprintf(fd, "retention path (%llu holders deep):\n", (unsigned long long)(len - 1));
-    printChain(fd, g, ids, offs, len);
+    printChain(fd, g, ids, len);
+    if (!g->nodes[root].root)
+        dprintf(fd, "  (the first object is held from outside the heap: a stack, a coroutine or an unnamed global)\n");
 
 done:
     free(queue);
     free(prev);
     free(ids);
-    free(offs);
     free(seen);
 }
 
@@ -1415,9 +1377,9 @@ static void graphContains(int fd, const Graph *g, uint32_t outer, uint32_t inner
     }
     size_t n = g->count;
     uint32_t *queue = malloc(n * sizeof(uint32_t)), *prev = malloc(n * sizeof(uint32_t));
-    uint32_t *ids = malloc(n * sizeof(uint32_t)), *offs = malloc(n * sizeof(uint32_t));
+    uint32_t *ids = malloc(n * sizeof(uint32_t));
     uint8_t *seen = calloc(n, 1);
-    if (!queue || !prev || !ids || !offs || !seen) {
+    if (!queue || !prev || !ids || !seen) {
         dprintf(fd, "error: out of memory\n");
         goto done;
     }
@@ -1452,35 +1414,29 @@ static void graphContains(int fd, const Graph *g, uint32_t outer, uint32_t inner
     for (uint32_t v = inner; v != outer; v = g->edges[prev[v]].from)
         ids[len++] = v;
     dprintf(fd, "yes, held through %llu step(s):\n", (unsigned long long)len);
-    uint32_t *chain = queue, *chainOffs = offs; // queue is no longer needed
+    uint32_t *chain = queue; // queue is no longer needed
     chain[0] = outer;
-    chainOffs[0] = 0;
-    for (size_t i = 0; i < len; i++) {
-        uint32_t v = ids[len - 1 - i];
-        chain[i + 1] = v;
-        chainOffs[i + 1] = g->edges[prev[v]].off;
-    }
-    printChain(fd, g, chain, chainOffs, len + 1);
+    for (size_t i = 0; i < len; i++)
+        chain[i + 1] = ids[len - 1 - i];
+    printChain(fd, g, chain, len + 1);
 
 done:
     free(queue);
     free(prev);
     free(ids);
-    free(offs);
     free(seen);
 }
 
 static void graphTreeNode(int fd,
                           const Graph *g,
                           uint32_t id,
-                          uint32_t off,
                           int depth,
                           int maxDepth,
                           uint8_t *seen)
 {
     dprintf(fd, "%*s", 2 + depth * 2, "");
     if (depth > 0)
-        dprintf(fd, "+%u -> ", (unsigned)off);
+        dprintf(fd, "-> ");
     printGraphNode(fd, g, id);
     uint32_t children = g->outStart[id + 1] - g->outStart[id];
     if (seen[id]) {
@@ -1501,7 +1457,7 @@ static void graphTreeNode(int fd,
             break;
         }
         const GraphEdge *e = &g->edges[g->outEdge[k]];
-        graphTreeNode(fd, g, e->to, e->off, depth + 1, maxDepth, seen);
+        graphTreeNode(fd, g, e->to, depth + 1, maxDepth, seen);
     }
 }
 
@@ -1575,10 +1531,17 @@ static int compareRootInfo(const void *lhs, const void *rhs)
     return 0;
 }
 
+// A named global counts only for what it owns, not for its own storage
+static inline uint64_t nodeBytes(const Graph *g, uint32_t v)
+{
+    return g->nodes[v].root ? 0 : g->nodes[v].size;
+}
+
 /*
- * Roots are objects nothing tracked points at. For each, `excl` is what only
- * that root keeps alive (freed if it goes away), `reach` also counts objects
- * other roots hold too. A cache is a root with a large `excl`.
+ * Roots are the nodes nothing in the heap points at: named globals, and objects
+ * held from outside (a stack, a coroutine). For each, `excl` is what only that
+ * root keeps alive (freed if it goes away), `reach` also counts objects other
+ * roots hold too. A cache is a root with a large `excl`.
  */
 static void graphRetained(int fd, const Graph *g, size_t limit)
 {
@@ -1608,8 +1571,9 @@ static void graphRetained(int fd, const Graph *g, size_t limit)
         stamp[r] = slot;
         while (sp > 0) {
             uint32_t v = stack[--sp];
-            info->objs++;
-            info->bytes += g->nodes[v].size;
+            if (!g->nodes[v].root)
+                info->objs++;
+            info->bytes += nodeBytes(g, v);
             if (claim[v] == 0)
                 claim[v] = slot;
             else if (claim[v] != slot)
@@ -1626,7 +1590,12 @@ static void graphRetained(int fd, const Graph *g, size_t limit)
 
     size_t unrooted = 0;
     uint64_t unrootedBytes = 0;
+    size_t rootNodes = 0;
     for (uint32_t v = 0; v < n; v++) {
+        if (g->nodes[v].root) {
+            rootNodes++;
+            continue;
+        }
         if (claim[v] == 0) {
             unrooted++;
             unrootedBytes += g->nodes[v].size;
@@ -1642,7 +1611,7 @@ static void graphRetained(int fd, const Graph *g, size_t limit)
     size_t shown = 0, holding = 0;
     for (size_t i = 0; i < rootCount; i++) {
         const RootInfo *info = &roots[i];
-        if (info->objs < 2)
+        if (info->objs < (g->nodes[info->id].root ? 1 : 2))
             continue; // holds nothing
         holding++;
         if (shown >= limit)
@@ -1659,14 +1628,14 @@ static void graphRetained(int fd, const Graph *g, size_t limit)
 
         size_t count = 0;
         for (uint32_t v = 0; v < n; v++) {
-            if (claim[v] == info->slot)
+            if (claim[v] == info->slot && !g->nodes[v].root)
                 ids[count++] = v;
         }
         printTopSites(fd, g, ids, count, 3);
     }
     dprintf(fd,
             "Total: %llu objects, %llu edges, %llu roots (%llu hold other objects)%s\n",
-            (unsigned long long)n,
+            (unsigned long long)(n - rootNodes),
             (unsigned long long)g->edgeCount,
             (unsigned long long)rootCount,
             (unsigned long long)holding,
@@ -1674,13 +1643,12 @@ static void graphRetained(int fd, const Graph *g, size_t limit)
 
     if (unrooted > 0) {
         dprintf(fd,
-                "\nunrooted: %llu objects, %llu bytes only held through cycles, or from "
-                "memory the scan cannot see\n",
+                "\nunrooted: %llu objects, %llu bytes held only through cycles (see `cycles`)\n",
                 (unsigned long long)unrooted,
                 (unsigned long long)unrootedBytes);
         size_t count = 0;
         for (uint32_t v = 0; v < n; v++) {
-            if (claim[v] == 0)
+            if (claim[v] == 0 && !g->nodes[v].root)
                 ids[count++] = v;
         }
         printTopSites(fd, g, ids, count, 3);
@@ -1694,17 +1662,169 @@ done:
     free(roots);
 }
 
+static const uint64_t *cycleBytes;
+
+static int compareCycleBytes(const void *lhs, const void *rhs)
+{
+    uint64_t l = cycleBytes[*(const uint32_t *)lhs], r = cycleBytes[*(const uint32_t *)rhs];
+    return l < r ? 1 : (l > r ? -1 : 0);
+}
+
+/*
+ * Leaked cycles. A group of nodes that own each other (a strongly connected
+ * component with more than one node, or a node that owns itself) is garbage when
+ * no node outside the group points into it and none of its objects has a
+ * reference from outside the heap. Reference counting can never free it.
+ */
+static void graphCycles(int fd, const Graph *g, size_t limit)
+{
+    size_t n = g->count;
+    uint32_t *index = calloc(n, sizeof(uint32_t)), *low = calloc(n, sizeof(uint32_t));
+    uint32_t *comp = malloc(n * sizeof(uint32_t)), *pos = malloc(n * sizeof(uint32_t));
+    uint32_t *stack = malloc(n * sizeof(uint32_t)), *calls = malloc(n * sizeof(uint32_t));
+    uint8_t *onStack = calloc(n, 1);
+    if (!index || !low || !comp || !pos || !stack || !calls || !onStack) {
+        dprintf(fd, "error: out of memory\n");
+        goto done;
+    }
+
+    // Tarjan, iterative: the graph can be deeper than the stack
+    uint32_t counter = 0, compCount = 0;
+    size_t sp = 0, cp = 0;
+    for (uint32_t s = 0; s < n; s++) {
+        if (index[s] != 0)
+            continue;
+        index[s] = low[s] = ++counter;
+        stack[sp++] = s;
+        onStack[s] = 1;
+        pos[s] = g->outStart[s];
+        calls[cp++] = s;
+        while (cp > 0) {
+            uint32_t v = calls[cp - 1];
+            if (pos[v] < g->outStart[v + 1]) {
+                uint32_t w = g->edges[g->outEdge[pos[v]++]].to;
+                if (index[w] == 0) {
+                    index[w] = low[w] = ++counter;
+                    stack[sp++] = w;
+                    onStack[w] = 1;
+                    pos[w] = g->outStart[w];
+                    calls[cp++] = w;
+                }
+                else if (onStack[w] && index[w] < low[v]) {
+                    low[v] = index[w];
+                }
+                continue;
+            }
+            if (low[v] == index[v]) {
+                uint32_t x;
+                do {
+                    x = stack[--sp];
+                    onStack[x] = 0;
+                    comp[x] = compCount;
+                } while (x != v);
+                compCount++;
+            }
+            cp--;
+            if (cp > 0 && low[v] < low[calls[cp - 1]])
+                low[calls[cp - 1]] = low[v];
+        }
+    }
+
+    uint32_t *size = calloc(compCount, sizeof(uint32_t)), *order = malloc(compCount * sizeof(uint32_t));
+    uint64_t *bytes = calloc(compCount, sizeof(uint64_t));
+    uint8_t *selfLoop = calloc(compCount, 1), *entered = calloc(compCount, 1);
+    uint8_t *external = calloc(compCount, 1);
+    if (!size || !order || !bytes || !selfLoop || !entered || !external) {
+        dprintf(fd, "error: out of memory\n");
+        free(size);
+        free(order);
+        free(bytes);
+        free(selfLoop);
+        free(entered);
+        free(external);
+        goto done;
+    }
+
+    for (uint32_t v = 0; v < n; v++) {
+        uint32_t c = comp[v];
+        size[c]++;
+        bytes[c] += nodeBytes(g, v);
+        uint32_t incoming = g->inStart[v + 1] - g->inStart[v];
+        for (uint32_t k = g->inStart[v]; k < g->inStart[v + 1]; k++) {
+            uint32_t u = g->edges[g->inEdge[k]].from;
+            if (u == v)
+                selfLoop[c] = 1;
+            else if (comp[u] != c)
+                entered[c] = 1;
+        }
+        if (!g->nodes[v].raw && g->nodes[v].refs > incoming)
+            external[c] = 1;
+    }
+
+    size_t leaked = 0;
+    uint64_t leakedBytes = 0;
+    for (uint32_t c = 0; c < compCount; c++) {
+        if ((size[c] > 1 || selfLoop[c]) && !entered[c] && !external[c]) {
+            order[leaked++] = c;
+            leakedBytes += bytes[c];
+        }
+    }
+    cycleBytes = bytes;
+    qsort(order, leaked, sizeof(uint32_t), compareCycleBytes);
+
+    size_t shown = limit < leaked ? limit : leaked;
+    for (size_t i = 0; i < shown; i++) {
+        uint32_t c = order[i];
+        dprintf(fd, "cycle: %u nodes, %llu bytes\n", size[c], (unsigned long long)bytes[c]);
+        uint32_t members = 0;
+        for (uint32_t v = 0; v < n; v++) {
+            if (comp[v] != c)
+                continue;
+            if (members++ == 12) {
+                dprintf(fd, "  ... %u more\n", size[c] - 12);
+                break;
+            }
+            dprintf(fd, "  ");
+            printGraphNode(fd, g, v);
+            dprintf(fd, "\n");
+        }
+    }
+    dprintf(fd,
+            "Total: %llu leaked cycles, %llu bytes%s\n",
+            (unsigned long long)leaked,
+            (unsigned long long)leakedBytes,
+            leaked > shown ? ", showing the largest" : "");
+
+    free(size);
+    free(order);
+    free(bytes);
+    free(selfLoop);
+    free(entered);
+    free(external);
+done:
+    free(index);
+    free(low);
+    free(comp);
+    free(pos);
+    free(stack);
+    free(calls);
+    free(onStack);
+}
+
 // Runs in the forked child
 static void runGraphCommand(int fd, const char *cmd, const char *arg1, const char *arg2)
 {
     Graph g = {0};
     if (!graphBuild(&g)) {
-        dprintf(fd, "error: out of memory while scanning\n");
+        dprintf(fd, "error: out of memory while building the graph\n");
         return;
     }
 
     if (strcmp(cmd, "retained") == 0) {
         graphRetained(fd, &g, parseLimit(arg1));
+    }
+    else if (strcmp(cmd, "cycles") == 0) {
+        graphCycles(fd, &g, parseLimit(arg1));
     }
     else {
         uint32_t id = graphResolve(fd, &g, arg1);
@@ -1724,17 +1844,13 @@ static void runGraphCommand(int fd, const char *cmd, const char *arg1, const cha
                 int depth = arg2 ? atoi(arg2) : 3;
                 uint8_t *seen = calloc(g.count, 1);
                 if (seen != NULL) {
-                    graphTreeNode(fd, &g, id, 0, 0, depth < 0 ? 0 : (depth > 8 ? 8 : depth), seen);
+                    graphTreeNode(fd, &g, id, 0, depth < 0 ? 0 : (depth > 8 ? 8 : depth), seen);
                     free(seen);
                 }
             }
         }
     }
 
-    if (g.truncated)
-        dprintf(fd,
-                "warning: scan stopped after %llu MB (CXY_MEM_SCAN_LIMIT_MB), results are partial\n",
-                (unsigned long long)(g.scanLimit >> 20));
 }
 
 static void graphCrashHandler(int sig)
@@ -1845,7 +1961,7 @@ static void handleCommand(int fd, char *line)
         liveReportFd(fd, mark, parseLimit(args[1]), sym, false);
     else if (strcmp(cmd, "holders") == 0 || strcmp(cmd, "path") == 0 ||
              strcmp(cmd, "contains") == 0 || strcmp(cmd, "retained") == 0 ||
-             strcmp(cmd, "tree") == 0)
+             strcmp(cmd, "cycles") == 0 || strcmp(cmd, "tree") == 0)
         graphCommand(fd, cmd, args[1], args[2]);
     else
         dprintf(fd, "unknown command '%s', try 'help'\n", cmd);

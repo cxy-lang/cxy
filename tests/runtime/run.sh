@@ -11,7 +11,8 @@ TIMEOUT="${RC_TEST_TIMEOUT:-120}"
 ONLY=""
 
 # Test sources, with the extra files each one links
-TESTS=("rc_tests.c" "trace_tests.c:$ROOT/src/cxy/stdlib/trace/mem.c")
+# (graph_tests.c includes the trace library source itself)
+TESTS=("rc_tests.c" "trace_tests.c:$ROOT/src/cxy/stdlib/trace/mem.c" "graph_tests.c")
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -35,7 +36,7 @@ run_variant() { # <name> <test spec> <flags...>
     echo "Running runtime tests [$label]"
     # shellcheck disable=SC2068
     if ! "$CC" -std=gnu11 -Wall -Wno-unused-function -DCXY_RUNTIME_TEST $@ \
-        -I"$ROOT/src/cxy/runtime" -o "$bin" "$src" $extra -lpthread; then
+        -I"$ROOT/src/cxy/runtime" -I"$ROOT/src/cxy" -o "$bin" "$src" $extra -lpthread; then
         echo "  FAILED: build of [$label]"
         return 1
     fi
