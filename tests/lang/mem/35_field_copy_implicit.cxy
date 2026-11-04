@@ -1,0 +1,29 @@
+// @TEST_ARGS: ~--without-builtins
+// Copying a field or an element out of an object is an implicit copy by default,
+// no `@copy` or `&&` is required
+
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() {}
+}
+
+class Box {
+    node: Node
+    func `init`(n: Node) { node = &&n }
+    func get(): Node { return node }
+}
+
+struct Pair {
+    first: Node
+    second: Node
+}
+
+func main(): void {
+    var box = Box(Node(1))
+    var fromReturn = box.get()
+    var fromField = box.node
+    var p = Pair{first: Node(2), second: Node(3)}
+    var fromStruct = p.first
+    __cxy_assert(fromReturn.id + fromField.id + fromStruct.id == 4, "fields copy implicitly", 0, 0)
+}

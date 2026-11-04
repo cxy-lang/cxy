@@ -1,0 +1,182 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/35_field_copy_implicit.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+extern func __cxy_assert(cond: bool, file: ^char, line: u64, column: u64): void
+
+func main.Node.op__init(this: ^Node, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__deinit(this: ^Node): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__destructor(this: ^Node): void {
+_L_entry:
+  scope.enter 0
+  Node_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Node_op__destructor(<^Node>(<^Node>(ptr)))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Box.op__init(this: ^Box, n: ^Node): void {
+_L_entry:
+  scope.enter 0
+  drop this.node
+  this.node = n
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Box.get(this: ^Box): ^Node {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Node
+  copy this.node -> __ret
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Box.op__destructor(this: ^Box): void {
+_L_entry:
+  scope.enter 0
+  drop this.node
+  this.node = null
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Box.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Box_op__destructor(<^Box>(<^Box>(ptr)))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Pair.op__copy(this: ^Pair): Pair {
+_L_entry:
+  scope.enter 0
+  var __ret: Pair
+  var __t0: ^Node
+  copy this.first -> __t0
+  var __t1: ^Node
+  copy this.second -> __t1
+  __ret = Pair {first: __t0, second: __t1}
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Pair.op__destructor(this: ^Pair): void {
+_L_entry:
+  scope.enter 0
+  drop this.first
+  this.first = null
+  drop this.second
+  this.second = null
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__initCover(id: i32): ^Node {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Node
+  var __obj48: ^Node
+  var __t2: ^Node
+  __t2 = alloc(^Node)
+  __obj48 = <^Node>(__t2)
+  zeromem __obj48
+  Node_op__init(<^Node>(__obj48), id)
+  __ret = __obj48
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main.Box.op__initCover(n: ^Node): ^Box {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Box
+  var __obj49: ^Box
+  var __t3: ^Box
+  __t3 = alloc(^Box)
+  __obj49 = <^Box>(__t3)
+  zeromem __obj49
+  Box_op__init(<^Box>(__obj49), n)
+  __ret = __obj49
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  var box: ^Box
+  var __t4: ^Node
+  __t4 = Node_op__initCover(<i32>(1))
+  box = Box_op__initCover(__t4)
+  var fromReturn: ^Node
+  fromReturn = Box_get(<^Box>(box))
+  var fromField: ^Node
+  copy box.node -> fromField
+  var p: Pair
+  var __t5: ^Node
+  __t5 = Node_op__initCover(<i32>(2))
+  var __t6: ^Node
+  __t6 = Node_op__initCover(<i32>(3))
+  p = Pair {first: __t5, second: __t6}
+  var fromStruct: ^Node
+  copy p.first -> fromStruct
+  __cxy_assert(fromReturn.id + fromField.id + fromStruct.id == 4, "fields copy implicitly", <u64>(0), <u64>(0))
+  goto _L_exit
+_L_exit:
+  drop fromStruct
+  drop p
+  drop fromField
+  drop fromReturn
+  drop box
+  scope.exit 0
+  return
+}
