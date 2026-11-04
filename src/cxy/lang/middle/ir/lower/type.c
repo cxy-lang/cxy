@@ -285,7 +285,7 @@ const IrType *lowerClosureFnPtrType(LowerContext *ctx,
 // `@nocopy` on a class applies to every class derived from it
 static bool isNoCopyClassType(const Type *type)
 {
-    for (u32 depth = 0; type && typeIs(type, Class) && depth < 64; depth++) {
+    for (u32 depth = 0; typeIs(type, Class) && depth < 64; depth++) {
         if (type->tClass.decl && findAttribute(type->tClass.decl, S_nocopy))
             return true;
         type = type->tClass.inheritance ? type->tClass.inheritance->base : NULL;

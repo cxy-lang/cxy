@@ -219,7 +219,7 @@ const Type *matchOverloadedFunctionPerfectMatch(Log *L,
         bool noted = false;
         for (decl = decls; decl && !noted; decl = decl->list.link) {
             const Type *declType = decl->type;
-            if (declType == NULL || !typeIs(declType, Func))
+            if (!typeIs(declType, Func))
                 continue;
             for (u64 i = 0; i < argsCount && i < declType->func.paramsCount; i++) {
                 const Type *paramType = resolveAndUnThisType(declType->func.params[i]),

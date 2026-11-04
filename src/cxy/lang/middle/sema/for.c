@@ -43,7 +43,7 @@ static const Type *findIteratorType(TypingContext *ctx, AstNode *range)
 
     const Type *retType = rangeOp->func.retType;
     const Type *callOp = findStructMemberType(retType, S_CallOverload);
-    if (callOp == NULL || !typeIs(callOp, Func)) {
+    if (!typeIs(callOp, Func)) {
         logError(ctx->L,
                  &range->loc,
                  "iterator type `{t}` must implement the `()` call operator",

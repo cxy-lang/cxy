@@ -104,8 +104,8 @@ void lowerVarDecl(AstVisitor *visitor, AstNode *node)
 
     if (node->varDecl.init) {
         AstNode *initNode = node->varDecl.init;
-        if (hasFlag(varAstType, Slice) || isSliceType(varAstType)) {
-            if (initNode->type && isSliceType(initNode->type)) {
+        if (isSliceType(varAstType)) {
+            if (isSliceType(initNode->type)) {
                 astVisit(visitor, initNode);
                 IrNode *val = (IrNode *)initNode->codegen;
                 if (val)
@@ -124,7 +124,7 @@ void lowerVarDecl(AstVisitor *visitor, AstNode *node)
             }
         }
         else if (isOptionalType(varAstType)) {
-            if (initNode->type && isOptionalType(initNode->type)) {
+            if (isOptionalType(initNode->type)) {
                 astVisit(visitor, initNode);
                 IrNode *val = (IrNode *)initNode->codegen;
                 if (val)
@@ -191,9 +191,7 @@ void lowerExprStmt(AstVisitor *visitor, AstNode *node)
     node->codegen = expr;
     if (expr) {
         const Type *astType =
-            node->exprStmt.expr->type
-                ? resolveUnThisUnwrapType(node->exprStmt.expr->type)
-                : NULL;
+            resolveUnThisUnwrapType(node->exprStmt.expr->type);
         // the payload already lives in the result temporary, drop it in place
         if (isOwnedResultPayload(expr)) {
             emitStmt(ctx, makeIrDrop(ctx->pool, &node->loc, expr));
@@ -319,13 +317,13 @@ static void lowerReturnValue(AstVisitor *visitor, AstNode *node)
     const Type *retAstType = ctx->funcRetAstType;
     const Type *exprAstType = retExpr->type;
 
-    if (isSliceType(retAstType) && (exprAstType == NULL ||!isSliceType(exprAstType))) {
+    if (isSliceType(retAstType) && !isSliceType(exprAstType)) {
         lowerSliceIntoTarget(ctx, visitor, retExpr, retVarRef);
     }
     else if (isOptionalType(retAstType) && !isOptionalType(exprAstType)) {
         lowerOptionalIntoTarget(ctx, visitor, retExpr, retVarRef);
     }
-    else if (retAstType && typeIs(retAstType, Union) &&
+    else if (typeIs(retAstType, Union) &&
              (nodeIs(retExpr, UnionValueExpr) ||
               (exprAstType && !typeIs(exprAstType, Union)))) {
         lowerTaggedUnionIntoTarget(

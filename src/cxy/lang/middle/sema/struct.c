@@ -512,7 +512,7 @@ void checkStructDecl(AstVisitor *visitor, AstNode *node)
     if (hasFlag(node, Iterator)) {
         const Type *callOverload = findStructMemberType(node->type, S_CallOverload);
         const Type *truthyOverload = findStructMemberType(node->type, S_Truthy);
-        if (callOverload == NULL || !typeIs(callOverload, Func)) {
+        if (!typeIs(callOverload, Func)) {
             logError(ctx->L,
                      &node->loc,
                      "iterator type '{t}' must implement the '()' call operator",

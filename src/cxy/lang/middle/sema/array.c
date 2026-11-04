@@ -92,7 +92,7 @@ static const Type *synthesizeArrayDestructor(TypingContext *ctx,
 void implementArrayTypeCopyAndDestructor(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
-    if (node->type == NULL || !typeIs(node->type, Array) || hasFlag(node->type, Slice) || node->type->array.len == UINT64_MAX)
+    if (!typeIs(node->type, Array) || hasFlag(node->type, Slice) || node->type->array.len == UINT64_MAX)
         return;
 
     const Type *sliceType = makeSliceType(ctx->types, node->type->array.elementType);

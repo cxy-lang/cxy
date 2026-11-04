@@ -344,7 +344,7 @@ static void emitGlobalRef(ConstIrVisitor *visitor, const IrNode *node)
 
 static bool isRawPointer(const IrType *type)
 {
-    return type != NULL && isIrPointerType(type) && type->category == irTypeCatNone &&
+    return isIrPointerType(type) && type->category == irTypeCatNone &&
            type->pointer.pointee != NULL && type->pointer.pointee->tag != irTypeVoid;
 }
 

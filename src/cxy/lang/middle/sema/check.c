@@ -166,7 +166,7 @@ static void checkBlockStmt(AstVisitor *visitor, AstNode *node)
 
     AstNode *parent = node->parentScope;
     const Type *type = getNodeReturnType(parent);
-    if (type && isVoidResultType(type) && !ctx->returnState) {
+    if (isVoidResultType(type) && !ctx->returnState) {
         AstNode *ret = makeReturnAstNode(ctx->pool,
                                          builtinLoc(),
                                          flgNone,
@@ -561,8 +561,7 @@ static void checkDiscardedResult(TypingContext *ctx, AstNode *node)
     AstNode *expr = node->exprStmt.expr;
     const Type *callee = nodeIs(expr, CallExpr) ? expr->callExpr.callee->type
                                                 : NULL;
-    const AstNode *decl = (callee && typeIs(callee, Func)) ? callee->func.decl
-                                                           : NULL;
+    const AstNode *decl = typeIs(callee, Func) ? callee->func.decl : NULL;
     if (decl && findAttribute(decl, S_nodiscard)) {
         logError(ctx->L,
                  &expr->loc,
@@ -574,9 +573,8 @@ static void checkDiscardedResult(TypingContext *ctx, AstNode *node)
 
     // an assignment has the type of its target but nothing is discarded
     const Type *type = node->type;
-    if (nodeIs(expr, AssignExpr) || type == NULL ||
-        !isClassOrStructType(type) || isReferenceType(type) ||
-        isPointerType(type))
+    if (nodeIs(expr, AssignExpr) || !isClassOrStructType(type) ||
+        isReferenceType(type) || isPointerType(type))
         return;
     const AstNode *typeDecl = getTypeDecl(type);
     if (typeDecl && findAttribute(typeDecl, S_nodiscard)) {

@@ -56,7 +56,7 @@ ComptimeIterator newComptimeIterator(MemPool *pool,
                 // Prefer type as source of truth for struct/class members
                 // Iterate type member container (includes inherited members for
                 // classes)
-                if (type && (typeIs(type, Struct) || typeIs(type, Class))) {
+                if (typeIs(type, Struct) || typeIs(type, Class)) {
                     it.kind = citMembers;
                     it.state.members.container = typeIs(type, Struct)
                                                      ? type->tStruct.members
@@ -72,7 +72,7 @@ ComptimeIterator newComptimeIterator(MemPool *pool,
                 break;
             case astUnionDecl:
                 // Prefer type as source of truth for union type members
-                if (type && typeIs(type, Union)) {
+                if (typeIs(type, Union)) {
                     it.kind = citUnionType;
                     it.state.unionType.union_ = type;
                     it.state.unionType.index = 0;
@@ -87,7 +87,7 @@ ComptimeIterator newComptimeIterator(MemPool *pool,
                 break;
             case astTupleType:
                 // Prefer type as source of truth for tuple type members
-                if (type && typeIs(type, Tuple)) {
+                if (typeIs(type, Tuple)) {
                     it.kind = citTupleType;
                     it.state.tupleType.tuple = type;
                     it.state.tupleType.index = 0;

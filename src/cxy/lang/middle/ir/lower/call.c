@@ -231,7 +231,7 @@ void lowerCallExpr(AstVisitor *visitor, AstNode *node)
     IrNode *argsFirst = lowerCallArguments(
         ctx, visitor, node->callExpr.args, calleeType, 0, NULL, &argsCount);
 
-    if (calleeType && isClosureType(calleeType)) {
+    if (isClosureType(calleeType)) {
         // the callee is read twice (`.fn` and `.env`), simplify hoists any
         // expression that is not already a value that can be read again
         csAssert0(callee->tag != irClosureValue && callee->tag != irCall);
@@ -265,7 +265,7 @@ void lowerCallExpr(AstVisitor *visitor, AstNode *node)
                                   argsCount,
                                   callRetIrType);
 
-    if (!ctx->explicitCatch && calleeRetAstType && isResultType(calleeRetAstType)) {
+    if (!ctx->explicitCatch && isResultType(calleeRetAstType)) {
         const IrType *resIrType = callRetIrType;
         cstring tempName =
             makeStringf(ctx->strings, "__call_res_%u", ctx->tempCounter++);

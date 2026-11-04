@@ -128,7 +128,7 @@ static void markTypeLifecycleFunctions(ReachabilityContext *ctx, const IrType *t
     if (type == NULL)
         return;
 
-    while (type && isIrPointerType(type) && type->category != irTypeCatClass)
+    while (isIrPointerType(type) && type->category != irTypeCatClass)
         type = type->pointer.pointee;
 
     if (type == NULL)

@@ -93,12 +93,11 @@ void lowerStructExpr(AstVisitor *visitor, AstNode *node)
         }
         count++;
         // `T` assigned to a `T?` field is wrapped into the optional here
-        const Type *fieldAstType =
-            f->type ? resolveUnThisUnwrapType(f->type) : NULL;
+        const Type *fieldAstType = resolveUnThisUnwrapType(f->type);
         const Type *valueAstType = f->fieldExpr.value->type;
-        if (fVal && fieldAstType && isOptionalType(fieldAstType) &&
+        if (fVal && isOptionalType(fieldAstType) &&
             !nodeIs(f->fieldExpr.value, NullLit) &&
-            !(valueAstType && isOptionalType(valueAstType))) {
+            !isOptionalType(valueAstType)) {
             fVal = makeIrOptionalValue(
                 ctx->pool, &f->loc, fVal, lowerType(ctx, fieldAstType));
         }

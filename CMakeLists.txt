@@ -650,6 +650,7 @@ if (ENABLE_UNIT_TESTS)
             tests/lang/parser/parser_utils.cpp
             tests/unit/test_utils.cpp
             tests/unit/test_warnings.cpp
+            tests/unit/test_types_null.cpp
             tests/lang/middle/test_ownership_verify.cpp
             tests/package/test_semver.cpp
             tests/package/test_version_constraints.cpp

@@ -218,8 +218,7 @@ void lowerSliceIntoTarget(LowerContext *ctx,
     const IrType *u64Type = getIrPrimitiveType(ctx->types, irTypeU64);
     const Type *exprAstType = expr->type;
     const IrType *elemIrType = targetLValue->type->strct.fields[0].type;
-    u64 len =
-        (exprAstType && isArrayType(exprAstType)) ? exprAstType->array.len : 0;
+    u64 len = isArrayType(exprAstType) ? exprAstType->array.len : 0;
 
     IrNode *ptrTarget = makeIrMember(
         ctx->pool, &targetLValue->loc, targetLValue, 0, S_ptr, elemIrType);
@@ -319,7 +318,7 @@ void lowerTaggedUnionIntoTarget(LowerContext *ctx,
         IrNode *uVal = makeIrUnionValue(ctx->pool, &expr->loc, idx, innerVal, targetLValue->type);
         emitStmt(ctx, makeIrAssign(ctx->pool, &expr->loc, targetLValue, uVal));
     }
-    else if (expr->type && isUnionType(expr->type)) {
+    else if (isUnionType(expr->type)) {
         astVisit(visitor, (AstNode *)expr);
         IrNode *rhsVal = (IrNode *)expr->codegen;
         if (rhsVal)

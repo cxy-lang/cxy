@@ -256,7 +256,7 @@ static bool lowerUnionIs(AstVisitor *visitor, AstNode *node)
         stripPointerOrReferenceOnce(node->binaryExpr.lhs->type, NULL);
     if (isUnionType(sumType)) {
         const Type *targetType = node->binaryExpr.rhs->type;
-        if (targetType && typeIs(targetType, Info))
+        if (typeIs(targetType, Info))
             targetType = targetType->info.target;
         u32 idx = findUnionTypeIndex(sumType, targetType);
         if (idx == UINT32_MAX) {
@@ -345,15 +345,13 @@ void lowerBinaryExpr(AstVisitor *visitor, AstNode *node)
         lowerClosureNullCompare(ctx, node, lhs, rhs))
         return;
 
-    if (node->binaryExpr.lhs->type &&
-        isReferenceType(node->binaryExpr.lhs->type) &&
+    if (isReferenceType(node->binaryExpr.lhs->type) &&
         !isClassType(stripReference(node->binaryExpr.lhs->type))) {
         const IrType *valType =
             lowerType(ctx, stripReference(node->binaryExpr.lhs->type));
         lhs = makeIrDeref(ctx->pool, &node->binaryExpr.lhs->loc, lhs, valType);
     }
-    if (node->binaryExpr.rhs->type &&
-        isReferenceType(node->binaryExpr.rhs->type) &&
+    if (isReferenceType(node->binaryExpr.rhs->type) &&
         !isClassType(stripReference(node->binaryExpr.rhs->type))) {
         const IrType *valType =
             lowerType(ctx, stripReference(node->binaryExpr.rhs->type));
@@ -425,7 +423,7 @@ void lowerUnaryExpr(AstVisitor *visitor, AstNode *node)
                 makeIrUnary(ctx->pool, &node->loc, opNot, okMember, irType);
         }
         else {
-            if (opType && isReferenceType(opType) &&
+            if (isReferenceType(opType) &&
                 !isClassType(stripReference(opType))) {
                 const IrType *valType = lowerType(ctx, stripReference(opType));
                 operand = makeIrDeref(
@@ -437,7 +435,7 @@ void lowerUnaryExpr(AstVisitor *visitor, AstNode *node)
     }
     else {
         const Type *opType = node->unaryExpr.operand->type;
-        if (opType && isReferenceType(opType) &&
+        if (isReferenceType(opType) &&
             !isClassType(stripReference(opType))) {
             const IrType *valType = lowerType(ctx, stripReference(opType));
             operand = makeIrDeref(
@@ -458,7 +456,7 @@ static void lowerTypeCoercion(AstVisitor *visitor,
 
     if (isOptionalType(targetType)) {
         const IrType *optIrType = lowerType(ctx, targetType);
-        if (subExpr == NULL || nodeIs(subExpr, NullLit) || (srcType && typeIs(srcType, Null))) {
+        if (subExpr == NULL || nodeIs(subExpr, NullLit) || typeIs(srcType, Null)) {
             node->codegen = makeIrOptionalValue(ctx->pool, &node->loc, NULL, optIrType);
             return;
         }
@@ -500,7 +498,7 @@ static void lowerTypeCoercion(AstVisitor *visitor,
         return;
     }
 
-    if (srcType && isUnionType(srcType)) {
+    if (isUnionType(srcType)) {
         u32 idx = findUnionTypeIndex(srcType, stripReference(targetType));
         if (idx != UINT32_MAX) {
             IrNode *expr = lowerFlattenedOperand(visitor, subExpr);
@@ -620,7 +618,7 @@ void lowerAssignExpr(AstVisitor *visitor, AstNode *node)
     const Type *lhsAstType = node->assignExpr.lhs->type;
     const Type *rhsAstType = rhsNode->type;
 
-    if (lhsAstType && isReferenceType(lhsAstType) &&
+    if (isReferenceType(lhsAstType) &&
         !isClassType(stripReference(lhsAstType)) &&
         !isReferenceType(rhsAstType) &&
         !isClassType(stripReference(rhsAstType))) {
@@ -630,15 +628,13 @@ void lowerAssignExpr(AstVisitor *visitor, AstNode *node)
                           lowerType(ctx, stripReference(lhsAstType)));
     }
 
-    if (lhsAstType && (hasFlag(lhsAstType, Slice) || isSliceType(lhsAstType)) &&
-        (!rhsAstType ||
-         (!hasFlag(rhsAstType, Slice) && !isSliceType(rhsAstType)))) {
+    if (isSliceType(lhsAstType) && !isSliceType(rhsAstType)) {
         lowerSliceIntoTarget(ctx, visitor, rhsNode, lhs);
     }
     else if (isOptionalType(lhsAstType) && !isOptionalType(rhsAstType)) {
         lowerOptionalIntoTarget(ctx, visitor, rhsNode, lhs);
     }
-    else if (lhsAstType && typeIs(lhsAstType, Union) &&
+    else if (typeIs(lhsAstType, Union) &&
              (nodeIs(rhsNode, UnionValueExpr) ||
               (rhsAstType && !typeIs(rhsAstType, Union)))) {
         lowerTaggedUnionIntoTarget(ctx, visitor, rhsNode, lhs, lhsAstType);

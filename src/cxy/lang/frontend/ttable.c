@@ -631,64 +631,58 @@ const Type *resolveUnThisUnwrapType(const Type *type)
     return NULL;
 }
 
+// All of these accept NULL and give NULL back
 const Type *stripPointer(const Type *type)
 {
-    while (true) {
-        switch (resolveType(type)->tag) {
-        case typPointer:
-            type = stripPointer(type->pointer.pointed);
-            break;
-        default:
-            return type;
-        }
+    const Type *resolved = resolveType(type);
+    while (typeIs(resolved, Pointer)) {
+        type = resolved->pointer.pointed;
+        resolved = resolveType(type);
     }
+    return type;
 }
 
 const Type *stripReference(const Type *type)
 {
-    while (true) {
-        switch (resolveType(type)->tag) {
-        case typReference:
-            type = stripReference(type->reference.referred);
-            break;
-        default:
-            return type;
-        }
+    const Type *resolved = resolveType(type);
+    while (typeIs(resolved, Reference)) {
+        type = resolved->reference.referred;
+        resolved = resolveType(type);
     }
+    return type;
 }
 
 const Type *stripPointerOrReference(const Type *type)
 {
-    while (true) {
-        switch (resolveType(type)->tag) {
-        case typPointer:
-            type = stripPointerOrReference(type->pointer.pointed);
-            break;
-        case typReference:
-            type = stripPointerOrReference(type->reference.referred);
-        default:
-            return type;
-        }
+    const Type *resolved = resolveType(type);
+    while (typeIs(resolved, Pointer) || typeIs(resolved, Reference)) {
+        type = typeIs(resolved, Pointer) ? resolved->pointer.pointed
+                                         : resolved->reference.referred;
+        resolved = resolveType(type);
     }
+    return type;
 }
 
 const Type *stripAll(const Type *type)
 {
     while (type) {
-        switch (resolveType(type)->tag) {
+        const Type *resolved = resolveType(type);
+        if (resolved == NULL)
+            return NULL;
+        switch (resolved->tag) {
         case typPointer:
-            type = stripAll(type->pointer.pointed);
+            type = stripAll(resolved->pointer.pointed);
             break;
         case typReference:
-            type = stripAll(type->reference.referred);
+            type = stripAll(resolved->reference.referred);
             break;
         case typWrapped:
-            type = stripAll(type->wrapped.target);
+            type = stripAll(resolved->wrapped.target);
             break;
         case typThis:
-            if (type->_this.that == NULL)
+            if (resolved->_this.that == NULL)
                 return type;
-            type = stripAll(type->_this.that);
+            type = stripAll(resolved->_this.that);
             break;
         default:
             return type;
@@ -712,7 +706,7 @@ const Type *stripPointerOnce(const Type *type, u64 *flags)
         type = type->pointer.pointed;
     }
 
-    if (flags)
+    if (flags && type)
         *flags |= type->flags;
 
     return type;
@@ -727,7 +721,7 @@ const Type *stripPointerOrReferenceOnce(const Type *type, u64 *flags)
         type = type->wrapped.target;
     }
 
-    if (flags)
+    if (flags && type)
         *flags |= type->flags;
     if (typeIs(type, Pointer)) {
         type = type->pointer.pointed;
@@ -735,7 +729,7 @@ const Type *stripPointerOrReferenceOnce(const Type *type, u64 *flags)
     else if (typeIs(type, Reference))
         type = type->reference.referred;
 
-    if (flags)
+    if (flags && type)
         *flags |= type->flags;
 
     return type;
@@ -1112,7 +1106,7 @@ const Type *unwrapType(const Type *type, u64 *flags)
     }
 
     if (flags) {
-        *flags = tmp | type->flags;
+        *flags = tmp | (type ? type->flags : flgNone);
         *flags &= flgTypeApplicable;
     }
 

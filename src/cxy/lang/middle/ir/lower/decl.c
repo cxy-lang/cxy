@@ -98,8 +98,7 @@ void lowerFuncDecl(AstVisitor *visitor, AstNode *node)
         cstring pname =
             p->funcParam.name ?: makeStringf(ctx->strings, "p%u", pidx);
         Flags pFlags = p->flags;
-        const Type *pAstType =
-            p->type ? resolveUnThisUnwrapType(p->type) : NULL;
+        const Type *pAstType = resolveUnThisUnwrapType(p->type);
         if (pAstType && !isReferenceType(pAstType) &&
             !isPointerType(pAstType) && !hasFlag(p, Reference) &&
             isDestructible(pAstType)) {
@@ -186,9 +185,8 @@ void lowerFuncDecl(AstVisitor *visitor, AstNode *node)
                                         "__ret",
                                         funcType->func.ret,
                                         0);
-        ctx->funcRetAstType = (node->type && typeIs(node->type, Func))
-                                  ? node->type->func.retType
-                                  : NULL;
+        ctx->funcRetAstType =
+            typeIs(node->type, Func) ? node->type->func.retType : NULL;
         emitStmt(ctx, ctx->funcRetVar);
     }
     else {

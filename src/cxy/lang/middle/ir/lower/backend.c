@@ -79,7 +79,7 @@ void lowerBackendCall(AstVisitor *visitor, AstNode *node)
         if (allocType == NULL && node->type) {
             allocType = isPointerType(node->type) ? node->type->pointer.pointed : node->type;
         }
-        else if (allocType && isPointerType(allocType)) {
+        else if (isPointerType(allocType)) {
             allocType = allocType->pointer.pointed;
         }
         const IrType *elemType = lowerType(ctx, allocType);

@@ -850,7 +850,7 @@ static AstNode *isDestructibleType(EvalContext *ctx,
 
 static bool funcHasDefaultInit(const Type *type)
 {
-    if (type == NULL || !typeIs(type, Func))
+    if (!typeIs(type, Func))
         return false;
     AstNode *decl = getTypeDecl(type);
     if (decl == NULL || !nodeIs(decl, FuncDecl))

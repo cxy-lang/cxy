@@ -710,8 +710,6 @@ bool isArrayType(const Type *type)
 
 bool isSliceType(const Type *type)
 {
-    if (type == NULL)
-        return false;
     type = resolveUnThisUnwrapType(type);
     return typeIs(type, Array) &&
            (hasFlag(type, Slice) || type->array.len == UINT64_MAX);
@@ -733,6 +731,8 @@ bool isPointerType(const Type *type)
 bool isNullableType(const Type *type)
 {
     type = resolveUnThisUnwrapType(type);
+    if (type == NULL)
+        return false;
     switch (type->tag) {
     case typPointer:
     case typOptional:
@@ -912,13 +912,13 @@ bool isExceptionType(const Type *type)
     if (!isClassType(type) || type->tClass.inheritance == NULL)
         return false;
     type = type->tClass.inheritance->base;
-    return type && isBaseExceptionType(type);
+    return isBaseExceptionType(type);
 }
 
 bool isResultType(const Type *type)
 {
     type = resolveUnThisUnwrapType(type);
-    return type && typeIs(type, Result);
+    return typeIs(type, Result);
 }
 
 bool isVoidResultType(const Type *type)
@@ -1283,7 +1283,7 @@ const NamedTypeMember *findOverloadMemberUpInheritanceChain(const Type *type,
                                                             cstring member)
 {
     type = unwrapType(type, NULL);
-    while (type != NULL && isClassOrStructType(type)) {
+    while (isClassOrStructType(type)) {
         const NamedTypeMember *named = findStructMember(type, member);
         if (named)
             return named;
@@ -1410,7 +1410,7 @@ const Type *getSliceTargetType(const Type *type)
 
 const Type *getResultTargetType(const Type *type)
 {
-    if (type == NULL || !isResultType(type))
+    if (!isResultType(type))
         return NULL;
     type = resolveUnThisUnwrapType(type);
     return type->result.target;

@@ -465,7 +465,7 @@ void lowerReturnIntoResult(AstVisitor *visitor, AstNode *node)
             const IrType *elemType = valFieldType->strct.fields[0].type;
             IrNode *valSlot = makeIrMember(ctx->pool, &node->loc, valMember, 0, NULL, elemType);
             const Type *resTargetType = getResultTargetType(retAstType);
-            if (isSliceType(resTargetType) && (exprAstType == NULL || !isSliceType(exprAstType))) {
+            if (isSliceType(resTargetType) && !isSliceType(exprAstType)) {
                 lowerSliceIntoTarget(ctx, visitor, retExpr, valSlot);
             }
             else if (isOptionalType(resTargetType) && !isOptionalType(exprAstType)) {

@@ -115,7 +115,7 @@ static AstNode *getVTableType(AstNode *node)
 
 static const Type *makeVTableMethodType(TypingContext *ctx, const Type *classType, const Type *funcType, Flags flags)
 {
-    if (funcType == NULL || !typeIs(funcType, Func))
+    if (!typeIs(funcType, Func))
         return funcType;
 
     const Type *thisType = isClassType(classType)

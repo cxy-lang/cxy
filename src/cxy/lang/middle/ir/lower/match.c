@@ -138,8 +138,7 @@ void lowerMatchStmt(AstVisitor *visitor, AstNode *node)
             makeStringf(
                 ctx->strings, "MATCH%u_case_%u", matchId, (unsigned)ci));
         u32 caseIdx = c->caseStmt.idx;
-        if (caseIdx == 0 && c->caseStmt.match && sumType &&
-            isUnionType(sumType)) {
+        if (caseIdx == 0 && c->caseStmt.match && isUnionType(sumType)) {
             u32 found = findUnionTypeIndex(sumType, c->caseStmt.match->type);
             if (found != UINT32_MAX)
                 caseIdx = found;
