@@ -245,6 +245,8 @@ set(CXY_MIDDLE_SOURCES
         src/cxy/lang/middle/ir/visitor.c
         src/cxy/lang/middle/ir/dump.c
         src/cxy/lang/middle/ir/lower.c
+        src/cxy/lang/middle/ir/lower_context.c
+        src/cxy/lang/middle/ir/lower_names.c
         src/cxy/lang/middle/ir/reachability.c
         src/cxy/lang/middle/memory/manage.c
         src/cxy/lang/middle/memory/finalize.c
