@@ -161,4 +161,4 @@ parameter types (`test_type`).
 
 ## Dead code
 
-- [ ] Delete `visitTernaryExpr` in `lower.c` (simplify turns a ternary into an `if` first). No test: show first that no program reaches it.
+- [x] Delete `visitTernaryExpr` in `lower.c` (simplify turns a ternary into an `if` first). No test: show first that no program reaches it.
