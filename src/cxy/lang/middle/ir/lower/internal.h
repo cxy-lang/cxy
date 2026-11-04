@@ -155,16 +155,6 @@ static inline bool isBackendCopyExpr(const AstNode *node)
 
 void lowerCallExpr(AstVisitor *visitor, AstNode *node);
 
-// Releases the catch bodies entered since `outer`, innermost first
-void emitReleaseCaughtUntil(LowerContext *ctx,
-                            const FileLoc *loc,
-                            const CatchCtx *outer);
-
-// The block a `return` in `scopeId` jumps to, unwinding the scopes in between
-IrNode *getOrCreateScopeReturnBlock(LowerContext *ctx,
-                                    u32 scopeId,
-                                    const FileLoc *loc);
-
 // ---------------------------------------------------------------------------
 // The `!T` protocol (result.c)
 // ---------------------------------------------------------------------------
@@ -185,6 +175,26 @@ void emitExceptionTracePush(LowerContext *ctx,
 bool isOwnedResultPayload(const IrNode *expr);
 
 void lowerCatchExpr(AstVisitor *visitor, AstNode *node);
+
+// ---------------------------------------------------------------------------
+// Loops, jumps and scope unwinding (loop.c)
+// ---------------------------------------------------------------------------
+
+void lowerWhileStmt(AstVisitor *visitor, AstNode *node);
+void lowerForStmt(AstVisitor *visitor, AstNode *node);
+void lowerBreakStmt(AstVisitor *visitor, AstNode *node);
+void lowerContinueStmt(AstVisitor *visitor, AstNode *node);
+void lowerYieldStmt(AstVisitor *visitor, AstNode *node);
+
+// Releases the catch bodies entered since `outer`, innermost first
+void emitReleaseCaughtUntil(LowerContext *ctx,
+                            const FileLoc *loc,
+                            const CatchCtx *outer);
+
+// The block a `return` in `scopeId` jumps to, unwinding the scopes in between
+IrNode *getOrCreateScopeReturnBlock(LowerContext *ctx,
+                                    u32 scopeId,
+                                    const FileLoc *loc);
 
 // ---------------------------------------------------------------------------
 // Declarations and statements (stmt.c)
