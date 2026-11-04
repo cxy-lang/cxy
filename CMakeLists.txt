@@ -641,6 +641,7 @@ if (ENABLE_UNIT_TESTS)
             tests/lang/middle/lower/test_info.cpp
             tests/lang/middle/lower/test_access.cpp
             tests/lang/middle/lower/test_reference.cpp
+            tests/lang/middle/lower/test_closure_call.cpp
             tests/lang/middle/lower/test_binary.cpp
             tests/lang/middle/lower/test_result.cpp
             tests/lang/middle/lower/test_member_rvalue.cpp

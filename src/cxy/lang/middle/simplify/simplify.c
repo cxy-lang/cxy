@@ -630,20 +630,6 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
     if (isClosureType(callee->type)) {
         callee->parentScope = node;
         astVisit(visitor, callee);
-        if (nodeNeedsTemporaryVar(callee)) {
-            // `.fn` and `.env` are both read from the callee, evaluate it once
-            // a closure variable has the canonical closure type, like
-            // checkVarDecl, the lambda may be wrapped in a group `(...)()`
-            AstNode *value = resolveGroupExpr(callee);
-            const Type *type = nodeIs(value, ClosureValue) &&
-                                       value->closureValue.canonicalType
-                                   ? value->closureValue.canonicalType
-                                   : callee->type;
-            AstNode *var =
-                hoistToTemporary(ctx, callee, callee, type, "_c", flgNone);
-            node->callExpr.callee = makeTemporaryRef(ctx, var);
-            node->callExpr.callee->parentScope = node;
-        }
         astVisitManyNodes(visitor, args);
         return;
     }

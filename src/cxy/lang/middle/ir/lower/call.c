@@ -225,15 +225,22 @@ void lowerCallExpr(AstVisitor *visitor, AstNode *node)
         return;
     }
 
-    astVisit(visitor, node->callExpr.callee);
-    IrNode *callee = (IrNode *)node->callExpr.callee->codegen;
+    // `.fn` and `.env` are both read from a closure, so a callee that is not a
+    // variable is evaluated once, into a local
+    IrNode *callee = NULL;
+    if (isClosureType(calleeType)) {
+        callee = lowerBorrowedOperand(visitor, node->callExpr.callee);
+    }
+    else {
+        astVisit(visitor, node->callExpr.callee);
+        callee = (IrNode *)node->callExpr.callee->codegen;
+    }
     u64 argsCount = 0;
     IrNode *argsFirst = lowerCallArguments(
         ctx, visitor, node->callExpr.args, calleeType, 0, NULL, &argsCount);
 
     if (isClosureType(calleeType)) {
-        // the callee is read twice (`.fn` and `.env`), simplify hoists any
-        // expression that is not already a value that can be read again
+        // the callee is read twice, it is a value that can be read again
         csAssert0(callee->tag != irClosureValue && callee->tag != irCall);
         const IrType *voidPtrType = makeIrPointerType(
             ctx->types,

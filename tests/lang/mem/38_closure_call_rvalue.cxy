@@ -1,0 +1,21 @@
+// @TEST_ARGS: ~--without-builtins
+// The closure a call returns is evaluated once per call, also in a `while`
+// condition, and freed: ASan reports a leak or a double free otherwise
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() {}
+}
+
+func adder(n: Node): func(i32) -> i32 {
+    return (x: i32) => x + n.id
+}
+
+func main(): !void {
+    var total: i32 = 0
+    while adder(Node(1))(total) < 3 {
+        total = total + 1
+    }
+    println(total)
+    println(adder(Node(10))(5))
+}

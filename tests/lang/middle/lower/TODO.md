@@ -78,7 +78,7 @@ parameter types (`test_type`).
 ## Calls (`call.c`) , `test_call.cpp`
 
 - [ ] `call: arguments in order, an owned argument is marked`: `:owned-position` per parameter
-- [ ] `call: a call through a closure`: callee `(Member f fn)`, first argument `(Member f env)`
+- [x] `call: a call through a closure`: callee `(Member f fn)`, first argument `(Member f env)`
 - [ ] `call: variadic arguments`: extra arguments follow the declared ones
 - [ ] `call: optional call a?.f()`: branches on the receiver
 - [ ] `call: a !T callee outside a catch`: result temporary, tag check, error goes to the caller
