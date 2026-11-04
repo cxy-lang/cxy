@@ -68,246 +68,282 @@ void lowerStringLit(AstVisitor *visitor, AstNode *node)
                                       lowerType(ctx, node->type));
 }
 
+static void lowerLogicalAnd(AstVisitor *visitor, AstNode *node)
+{
+    LowerContext *ctx = getAstVisitorContext(visitor);
+    const IrType *boolType = getIrPrimitiveType(ctx->types, irTypeBool);
+    IrNode *lhs = lowerConditionOperand(ctx, visitor, node->binaryExpr.lhs);
+
+    cstring condName =
+        makeStringf(ctx->strings, "__cond%u", ctx->tempCounter++);
+    IrNode *condVar = makeIrVarDecl(ctx->pool,
+                                    &node->loc,
+                                    flgTemporary,
+                                    condName,
+                                    condName,
+                                    boolType,
+                                    ctx->currentScopeId);
+    emitStmt(ctx, condVar);
+
+    u32 logicId = ctx->nextLogicId++;
+    IrNode *rhsBB =
+        createBlock(ctx, makeStringf(ctx->strings, "AND%u_rhs", logicId));
+    IrNode *falseBB =
+        createBlock(ctx, makeStringf(ctx->strings, "AND%u_false", logicId));
+    IrNode *mergeBB =
+        createBlock(ctx, makeStringf(ctx->strings, "AND%u_merge", logicId));
+
+    emitStmt(ctx,
+             makeIrBranchIf(ctx->pool, &node->loc, lhs, rhsBB, falseBB));
+
+    setBlock(ctx, rhsBB);
+    IrNode *rhs = lowerConditionOperand(ctx, visitor, node->binaryExpr.rhs);
+    emitStmt(ctx,
+             makeIrAssign(ctx->pool,
+                          &node->loc,
+                          makeIrVarRef(ctx->pool, &node->loc, condVar),
+                          rhs));
+    emitBranchIfNotTerminated(ctx, mergeBB);
+
+    setBlock(ctx, falseBB);
+    emitStmt(ctx,
+             makeIrAssign(
+                 ctx->pool,
+                 &node->loc,
+                 makeIrVarRef(ctx->pool, &node->loc, condVar),
+                 makeIrBoolConst(ctx->pool, &node->loc, false, boolType)));
+    emitBranchIfNotTerminated(ctx, mergeBB);
+
+    setBlock(ctx, mergeBB);
+    node->codegen = makeIrVarRef(ctx->pool, &node->loc, condVar);
+}
+
+static void lowerLogicalOr(AstVisitor *visitor, AstNode *node)
+{
+    LowerContext *ctx = getAstVisitorContext(visitor);
+    const IrType *boolType = getIrPrimitiveType(ctx->types, irTypeBool);
+    IrNode *lhs = lowerConditionOperand(ctx, visitor, node->binaryExpr.lhs);
+
+    cstring condName =
+        makeStringf(ctx->strings, "__cond%u", ctx->tempCounter++);
+    IrNode *condVar = makeIrVarDecl(ctx->pool,
+                                    &node->loc,
+                                    flgTemporary,
+                                    condName,
+                                    condName,
+                                    boolType,
+                                    ctx->currentScopeId);
+    emitStmt(ctx, condVar);
+
+    u32 logicId = ctx->nextLogicId++;
+    IrNode *trueBB =
+        createBlock(ctx, makeStringf(ctx->strings, "OR%u_true", logicId));
+    IrNode *rhsBB =
+        createBlock(ctx, makeStringf(ctx->strings, "OR%u_rhs", logicId));
+    IrNode *mergeBB =
+        createBlock(ctx, makeStringf(ctx->strings, "OR%u_merge", logicId));
+
+    emitStmt(ctx,
+             makeIrBranchIf(ctx->pool, &node->loc, lhs, trueBB, rhsBB));
+
+    setBlock(ctx, trueBB);
+    emitStmt(ctx,
+             makeIrAssign(
+                 ctx->pool,
+                 &node->loc,
+                 makeIrVarRef(ctx->pool, &node->loc, condVar),
+                 makeIrBoolConst(ctx->pool, &node->loc, true, boolType)));
+    emitBranchIfNotTerminated(ctx, mergeBB);
+
+    setBlock(ctx, rhsBB);
+    IrNode *rhs = lowerConditionOperand(ctx, visitor, node->binaryExpr.rhs);
+    emitStmt(ctx,
+             makeIrAssign(ctx->pool,
+                          &node->loc,
+                          makeIrVarRef(ctx->pool, &node->loc, condVar),
+                          rhs));
+    emitBranchIfNotTerminated(ctx, mergeBB);
+
+    setBlock(ctx, mergeBB);
+    node->codegen = makeIrVarRef(ctx->pool, &node->loc, condVar);
+}
+
+static void lowerCoalesce(AstVisitor *visitor, AstNode *node)
+{
+    LowerContext *ctx = getAstVisitorContext(visitor);
+    IrNode *lhs = lowerFlattenedOperand(visitor, node->binaryExpr.lhs);
+    const Type *lhsAstType = node->binaryExpr.lhs->type;
+    const IrType *resIrType = lowerType(ctx, node->type);
+
+    cstring tempName =
+        makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
+    IrNode *resVar = makeIrVarDecl(ctx->pool,
+                                   &node->loc,
+                                   flgTemporary,
+                                   tempName,
+                                   tempName,
+                                   resIrType,
+                                   ctx->currentScopeId);
+    emitStmt(ctx, resVar);
+
+    u32 optId = ctx->nextOptId++;
+    IrNode *thenBB = createBlock(
+        ctx, makeStringf(ctx->strings, "COALESCE%u_then", optId));
+    IrNode *elseBB = createBlock(
+        ctx, makeStringf(ctx->strings, "COALESCE%u_else", optId));
+    IrNode *mergeBB = createBlock(
+        ctx, makeStringf(ctx->strings, "COALESCE%u_merge", optId));
+
+    IrNode *cond = NULL;
+    IrNode *thenVal = NULL;
+    if (isOptionalType(lhsAstType)) {
+        cond = makeIrMember(ctx->pool,
+                            &node->binaryExpr.lhs->loc,
+                            lhs,
+                            0,
+                            S_ok,
+                            getIrPrimitiveType(ctx->types, irTypeBool));
+        thenVal = makeIrMember(ctx->pool,
+                               &node->binaryExpr.lhs->loc,
+                               lhs,
+                               1,
+                               S_val,
+                               resIrType);
+    }
+    else {
+        IrNode *nullConst = makeIrNullConst(
+            ctx->pool, &node->binaryExpr.lhs->loc, lhs->type);
+        cond = makeIrBinary(ctx->pool,
+                            &node->binaryExpr.lhs->loc,
+                            opNe,
+                            lhs,
+                            nullConst,
+                            getIrPrimitiveType(ctx->types, irTypeBool));
+        thenVal = lhs;
+    }
+
+    emitStmt(ctx,
+             makeIrBranchIf(ctx->pool, &node->loc, cond, thenBB, elseBB));
+
+    setBlock(ctx, thenBB);
+    emitStmt(ctx,
+             makeIrAssign(ctx->pool,
+                          &node->loc,
+                          makeIrVarRef(ctx->pool, &node->loc, resVar),
+                          thenVal));
+    emitBranchIfNotTerminated(ctx, mergeBB);
+
+    setBlock(ctx, elseBB);
+    astVisit(visitor, node->binaryExpr.rhs);
+    IrNode *rhsVal = (IrNode *)node->binaryExpr.rhs->codegen;
+    if (rhsVal)
+        emitStmt(ctx,
+                 makeIrAssign(ctx->pool,
+                              &node->loc,
+                              makeIrVarRef(ctx->pool, &node->loc, resVar),
+                              rhsVal));
+    emitBranchIfNotTerminated(ctx, mergeBB);
+
+    setBlock(ctx, mergeBB);
+    node->codegen = makeIrVarRef(ctx->pool, &node->loc, resVar);
+}
+
+// `x is T` on a union is a tag check. Returns false when `x` is not a union.
+static bool lowerUnionIs(AstVisitor *visitor, AstNode *node)
+{
+    LowerContext *ctx = getAstVisitorContext(visitor);
+    const Type *sumType =
+        stripPointerOrReferenceOnce(node->binaryExpr.lhs->type, NULL);
+    if (isUnionType(sumType)) {
+        const Type *targetType = node->binaryExpr.rhs->type;
+        if (targetType && typeIs(targetType, Info))
+            targetType = targetType->info.target;
+        u32 idx = findUnionTypeIndex(sumType, targetType);
+        if (idx == UINT32_MAX) {
+            node->codegen =
+                makeIrBoolConst(ctx->pool,
+                                &node->loc,
+                                false,
+                                getIrPrimitiveType(ctx->types, irTypeBool));
+            return true;
+        }
+        IrNode *lhs = lowerFlattenedOperand(visitor, node->binaryExpr.lhs);
+        const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
+        IrNode *tagMember =
+            makeIrMember(ctx->pool, &node->loc, lhs, 0, "tag", u32Type);
+        IrNode *idxConst =
+            makeIrIntConst(ctx->pool, &node->loc, idx, false, u32Type);
+        node->codegen =
+            makeIrBinary(ctx->pool,
+                         &node->loc,
+                         opEq,
+                         tagMember,
+                         idxConst,
+                         getIrPrimitiveType(ctx->types, irTypeBool));
+        return true;
+    }
+    return false;
+}
+
+// `f == null` and `null == f` for a closure compare its function pointer
+static bool lowerClosureNullCompare(LowerContext *ctx,
+                                    AstNode *node,
+                                    IrNode *lhs,
+                                    IrNode *rhs)
+{
+    Operator op = node->binaryExpr.op;
+    const Type *lhsAstType = node->binaryExpr.lhs->type;
+    const Type *rhsAstType = node->binaryExpr.rhs->type;
+    if (isClosureType(lhsAstType) && (rhsAstType == NULL || typeIs(rhsAstType, Null) || nodeIs(node->binaryExpr.rhs, NullLit))) {
+        const IrType *fnPtrType = lhs->type && lhs->type->tag == irTypeStruct && lhs->type->strct.count >= 2
+                                      ? lhs->type->strct.fields[1].type
+                                      : makeIrPointerType(ctx->types, flgNone, irTypeCatNone, getIrPrimitiveType(ctx->types, irTypeVoid));
+        IrNode *fnMember = makeIrMember(ctx->pool, &node->binaryExpr.lhs->loc, lhs, 1, S_fn, fnPtrType);
+        IrNode *nullConst = makeIrNullConst(ctx->pool, &node->binaryExpr.rhs->loc, fnPtrType);
+        node->codegen = makeIrBinary(ctx->pool, &node->loc, op, fnMember, nullConst, getIrPrimitiveType(ctx->types, irTypeBool));
+        return true;
+    }
+    if (isClosureType(rhsAstType) && (lhsAstType == NULL || typeIs(lhsAstType, Null) || nodeIs(node->binaryExpr.lhs, NullLit))) {
+        const IrType *fnPtrType = rhs->type && rhs->type->tag == irTypeStruct && rhs->type->strct.count >= 2
+                                      ? rhs->type->strct.fields[1].type
+                                      : makeIrPointerType(ctx->types, flgNone, irTypeCatNone, getIrPrimitiveType(ctx->types, irTypeVoid));
+        IrNode *fnMember = makeIrMember(ctx->pool, &node->binaryExpr.rhs->loc, rhs, 1, S_fn, fnPtrType);
+        IrNode *nullConst = makeIrNullConst(ctx->pool, &node->binaryExpr.lhs->loc, fnPtrType);
+        node->codegen = makeIrBinary(ctx->pool, &node->loc, op, nullConst, fnMember, getIrPrimitiveType(ctx->types, irTypeBool));
+        return true;
+    }
+    return false;
+}
+
 void lowerBinaryExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     Operator op = node->binaryExpr.op;
 
-    if (op == opLAnd) {
-        const IrType *boolType = getIrPrimitiveType(ctx->types, irTypeBool);
-        IrNode *lhs = lowerConditionOperand(ctx, visitor, node->binaryExpr.lhs);
-
-        cstring condName =
-            makeStringf(ctx->strings, "__cond%u", ctx->tempCounter++);
-        IrNode *condVar = makeIrVarDecl(ctx->pool,
-                                        &node->loc,
-                                        flgTemporary,
-                                        condName,
-                                        condName,
-                                        boolType,
-                                        ctx->currentScopeId);
-        emitStmt(ctx, condVar);
-
-        u32 logicId = ctx->nextLogicId++;
-        IrNode *rhsBB =
-            createBlock(ctx, makeStringf(ctx->strings, "AND%u_rhs", logicId));
-        IrNode *falseBB =
-            createBlock(ctx, makeStringf(ctx->strings, "AND%u_false", logicId));
-        IrNode *mergeBB =
-            createBlock(ctx, makeStringf(ctx->strings, "AND%u_merge", logicId));
-
-        emitStmt(ctx,
-                 makeIrBranchIf(ctx->pool, &node->loc, lhs, rhsBB, falseBB));
-
-        setBlock(ctx, rhsBB);
-        IrNode *rhs = lowerConditionOperand(ctx, visitor, node->binaryExpr.rhs);
-        emitStmt(ctx,
-                 makeIrAssign(ctx->pool,
-                              &node->loc,
-                              makeIrVarRef(ctx->pool, &node->loc, condVar),
-                              rhs));
-        emitBranchIfNotTerminated(ctx, mergeBB);
-
-        setBlock(ctx, falseBB);
-        emitStmt(ctx,
-                 makeIrAssign(
-                     ctx->pool,
-                     &node->loc,
-                     makeIrVarRef(ctx->pool, &node->loc, condVar),
-                     makeIrBoolConst(ctx->pool, &node->loc, false, boolType)));
-        emitBranchIfNotTerminated(ctx, mergeBB);
-
-        setBlock(ctx, mergeBB);
-        node->codegen = makeIrVarRef(ctx->pool, &node->loc, condVar);
+    switch (op) {
+    case opLAnd:
+        lowerLogicalAnd(visitor, node);
         return;
-    }
-
-    if (op == opLOr) {
-        const IrType *boolType = getIrPrimitiveType(ctx->types, irTypeBool);
-        IrNode *lhs = lowerConditionOperand(ctx, visitor, node->binaryExpr.lhs);
-
-        cstring condName =
-            makeStringf(ctx->strings, "__cond%u", ctx->tempCounter++);
-        IrNode *condVar = makeIrVarDecl(ctx->pool,
-                                        &node->loc,
-                                        flgTemporary,
-                                        condName,
-                                        condName,
-                                        boolType,
-                                        ctx->currentScopeId);
-        emitStmt(ctx, condVar);
-
-        u32 logicId = ctx->nextLogicId++;
-        IrNode *trueBB =
-            createBlock(ctx, makeStringf(ctx->strings, "OR%u_true", logicId));
-        IrNode *rhsBB =
-            createBlock(ctx, makeStringf(ctx->strings, "OR%u_rhs", logicId));
-        IrNode *mergeBB =
-            createBlock(ctx, makeStringf(ctx->strings, "OR%u_merge", logicId));
-
-        emitStmt(ctx,
-                 makeIrBranchIf(ctx->pool, &node->loc, lhs, trueBB, rhsBB));
-
-        setBlock(ctx, trueBB);
-        emitStmt(ctx,
-                 makeIrAssign(
-                     ctx->pool,
-                     &node->loc,
-                     makeIrVarRef(ctx->pool, &node->loc, condVar),
-                     makeIrBoolConst(ctx->pool, &node->loc, true, boolType)));
-        emitBranchIfNotTerminated(ctx, mergeBB);
-
-        setBlock(ctx, rhsBB);
-        IrNode *rhs = lowerConditionOperand(ctx, visitor, node->binaryExpr.rhs);
-        emitStmt(ctx,
-                 makeIrAssign(ctx->pool,
-                              &node->loc,
-                              makeIrVarRef(ctx->pool, &node->loc, condVar),
-                              rhs));
-        emitBranchIfNotTerminated(ctx, mergeBB);
-
-        setBlock(ctx, mergeBB);
-        node->codegen = makeIrVarRef(ctx->pool, &node->loc, condVar);
+    case opLOr:
+        lowerLogicalOr(visitor, node);
         return;
-    }
-
-    if (op == opCoalesce) {
-        IrNode *lhs = lowerFlattenedOperand(visitor, node->binaryExpr.lhs);
-        const Type *lhsAstType = node->binaryExpr.lhs->type;
-        const IrType *resIrType = lowerType(ctx, node->type);
-
-        cstring tempName =
-            makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
-        IrNode *resVar = makeIrVarDecl(ctx->pool,
-                                       &node->loc,
-                                       flgTemporary,
-                                       tempName,
-                                       tempName,
-                                       resIrType,
-                                       ctx->currentScopeId);
-        emitStmt(ctx, resVar);
-
-        u32 optId = ctx->nextOptId++;
-        IrNode *thenBB = createBlock(
-            ctx, makeStringf(ctx->strings, "COALESCE%u_then", optId));
-        IrNode *elseBB = createBlock(
-            ctx, makeStringf(ctx->strings, "COALESCE%u_else", optId));
-        IrNode *mergeBB = createBlock(
-            ctx, makeStringf(ctx->strings, "COALESCE%u_merge", optId));
-
-        IrNode *cond = NULL;
-        IrNode *thenVal = NULL;
-        if (isOptionalType(lhsAstType)) {
-            cond = makeIrMember(ctx->pool,
-                                &node->binaryExpr.lhs->loc,
-                                lhs,
-                                0,
-                                S_ok,
-                                getIrPrimitiveType(ctx->types, irTypeBool));
-            thenVal = makeIrMember(ctx->pool,
-                                   &node->binaryExpr.lhs->loc,
-                                   lhs,
-                                   1,
-                                   S_val,
-                                   resIrType);
-        }
-        else {
-            IrNode *nullConst = makeIrNullConst(
-                ctx->pool, &node->binaryExpr.lhs->loc, lhs->type);
-            cond = makeIrBinary(ctx->pool,
-                                &node->binaryExpr.lhs->loc,
-                                opNe,
-                                lhs,
-                                nullConst,
-                                getIrPrimitiveType(ctx->types, irTypeBool));
-            thenVal = lhs;
-        }
-
-        emitStmt(ctx,
-                 makeIrBranchIf(ctx->pool, &node->loc, cond, thenBB, elseBB));
-
-        setBlock(ctx, thenBB);
-        emitStmt(ctx,
-                 makeIrAssign(ctx->pool,
-                              &node->loc,
-                              makeIrVarRef(ctx->pool, &node->loc, resVar),
-                              thenVal));
-        emitBranchIfNotTerminated(ctx, mergeBB);
-
-        setBlock(ctx, elseBB);
-        astVisit(visitor, node->binaryExpr.rhs);
-        IrNode *rhsVal = (IrNode *)node->binaryExpr.rhs->codegen;
-        if (rhsVal)
-            emitStmt(ctx,
-                     makeIrAssign(ctx->pool,
-                                  &node->loc,
-                                  makeIrVarRef(ctx->pool, &node->loc, resVar),
-                                  rhsVal));
-        emitBranchIfNotTerminated(ctx, mergeBB);
-
-        setBlock(ctx, mergeBB);
-        node->codegen = makeIrVarRef(ctx->pool, &node->loc, resVar);
+    case opCoalesce:
+        lowerCoalesce(visitor, node);
         return;
-    }
-
-    if (op == opIs) {
-        const Type *sumType =
-            stripPointerOrReferenceOnce(node->binaryExpr.lhs->type, NULL);
-        if (isUnionType(sumType)) {
-            const Type *targetType = node->binaryExpr.rhs->type;
-            if (targetType && typeIs(targetType, Info))
-                targetType = targetType->info.target;
-            u32 idx = findUnionTypeIndex(sumType, targetType);
-            if (idx == UINT32_MAX) {
-                node->codegen =
-                    makeIrBoolConst(ctx->pool,
-                                    &node->loc,
-                                    false,
-                                    getIrPrimitiveType(ctx->types, irTypeBool));
-                return;
-            }
-            IrNode *lhs = lowerFlattenedOperand(visitor, node->binaryExpr.lhs);
-            const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
-            IrNode *tagMember =
-                makeIrMember(ctx->pool, &node->loc, lhs, 0, "tag", u32Type);
-            IrNode *idxConst =
-                makeIrIntConst(ctx->pool, &node->loc, idx, false, u32Type);
-            node->codegen =
-                makeIrBinary(ctx->pool,
-                             &node->loc,
-                             opEq,
-                             tagMember,
-                             idxConst,
-                             getIrPrimitiveType(ctx->types, irTypeBool));
+    case opIs:
+        if (lowerUnionIs(visitor, node))
             return;
-        }
+        break;
+    default:
+        break;
     }
 
     IrNode *lhs = lowerBorrowedOperand(visitor, node->binaryExpr.lhs);
     IrNode *rhs = lowerBorrowedOperand(visitor, node->binaryExpr.rhs);
 
-    if (op == opEq || op == opNe) {
-        const Type *lhsAstType = node->binaryExpr.lhs->type;
-        const Type *rhsAstType = node->binaryExpr.rhs->type;
-        if (isClosureType(lhsAstType) && (rhsAstType == NULL || typeIs(rhsAstType, Null) || nodeIs(node->binaryExpr.rhs, NullLit))) {
-            const IrType *fnPtrType = lhs->type && lhs->type->tag == irTypeStruct && lhs->type->strct.count >= 2
-                                          ? lhs->type->strct.fields[1].type
-                                          : makeIrPointerType(ctx->types, flgNone, irTypeCatNone, getIrPrimitiveType(ctx->types, irTypeVoid));
-            IrNode *fnMember = makeIrMember(ctx->pool, &node->binaryExpr.lhs->loc, lhs, 1, S_fn, fnPtrType);
-            IrNode *nullConst = makeIrNullConst(ctx->pool, &node->binaryExpr.rhs->loc, fnPtrType);
-            node->codegen = makeIrBinary(ctx->pool, &node->loc, op, fnMember, nullConst, getIrPrimitiveType(ctx->types, irTypeBool));
-            return;
-        }
-        if (isClosureType(rhsAstType) && (lhsAstType == NULL || typeIs(lhsAstType, Null) || nodeIs(node->binaryExpr.lhs, NullLit))) {
-            const IrType *fnPtrType = rhs->type && rhs->type->tag == irTypeStruct && rhs->type->strct.count >= 2
-                                          ? rhs->type->strct.fields[1].type
-                                          : makeIrPointerType(ctx->types, flgNone, irTypeCatNone, getIrPrimitiveType(ctx->types, irTypeVoid));
-            IrNode *fnMember = makeIrMember(ctx->pool, &node->binaryExpr.rhs->loc, rhs, 1, S_fn, fnPtrType);
-            IrNode *nullConst = makeIrNullConst(ctx->pool, &node->binaryExpr.lhs->loc, fnPtrType);
-            node->codegen = makeIrBinary(ctx->pool, &node->loc, op, nullConst, fnMember, getIrPrimitiveType(ctx->types, irTypeBool));
-            return;
-        }
-    }
+    if ((op == opEq || op == opNe) &&
+        lowerClosureNullCompare(ctx, node, lhs, rhs))
+        return;
 
     if (node->binaryExpr.lhs->type &&
         isReferenceType(node->binaryExpr.lhs->type) &&
