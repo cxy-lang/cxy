@@ -372,9 +372,13 @@ IrNode *markUserWritten(const AstNode *ast, IrNode *ir)
 void lowerUnaryExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
-    IrNode *operand = lowerFlattenedOperand(visitor, node->unaryExpr.operand);
+    // `&x` and `^x` only borrow, an rvalue lives in a local of the scope
+    bool borrows =
+        node->unaryExpr.op == opPtrof || node->unaryExpr.op == opRefof;
+    IrNode *operand = borrows ? lowerBorrowedOperand(visitor, node->unaryExpr.operand)
+                              : lowerFlattenedOperand(visitor, node->unaryExpr.operand);
     const IrType *irType = lowerType(ctx, node->type);
-    if (node->unaryExpr.op == opPtrof || node->unaryExpr.op == opRefof) {
+    if (borrows) {
         const Type *opType = node->unaryExpr.operand->type;
         bool isRefOf = node->unaryExpr.op == opRefof;
         bool operandIsRef =

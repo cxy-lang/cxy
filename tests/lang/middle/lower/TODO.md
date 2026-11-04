@@ -8,6 +8,7 @@ asserts.
 Covered already: info bits (`test_info`), conditions (`test_conditions`), binary
 operators `&&` `||` `??` closure `== null` (`test_binary`), the `!T` protocol basics
 (`test_result`), rvalue members and `while` conditions (`test_member_rvalue`),
+borrowing an rvalue (`test_reference`), index access (`test_access`),
 parameter types (`test_type`).
 
 ## Names (`names.c`) , `test_names.cpp`

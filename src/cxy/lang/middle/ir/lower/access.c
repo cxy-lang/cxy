@@ -369,7 +369,8 @@ void lowerIndexExpr(AstVisitor *visitor, AstNode *node)
 void lowerPointerOf(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
-    IrNode *operand = lowerFlattenedOperand(visitor, node->unaryExpr.operand);
+    // `&x` and `^x` only borrow, an rvalue lives in a local of the scope
+    IrNode *operand = lowerBorrowedOperand(visitor, node->unaryExpr.operand);
     const Type *opType = node->unaryExpr.operand->type;
     const IrType *irType = lowerType(ctx, node->type);
     bool isRefOf = nodeIs(node, ReferenceOf);

@@ -1,8 +1,7 @@
 /**
- * Known bugs of the memory pass, written as the IR they should produce.
- * Each test is skipped until the step that fixes it lands, then the skip is
- * removed. Run them anyway with `./cxy_unit_tests --no-skip -tc="Known bug*"`:
- * they fail today. See `docs/stage/memory-pass.md`, sections 1 and 3.2.
+ * Bugs found in the memory pass, written as the IR they must produce. A test
+ * was skipped while its bug was open. All three are fixed and stay as
+ * regression tests. See `docs/stage/memory-pass.md`, sections 1 and 3.2.
  */
 
 #include "doctest.h"
@@ -42,9 +41,8 @@ bool contains(const std::string &text, const char *part)
 
 } // namespace
 
-// Fixed by classifying temporaries by use (memory-pass.md, S5)
-TEST_CASE("Known bug: an owned call result passed to a `&T` parameter is dropped" *
-          doctest::skip())
+// Fixed by removing the `_r` hoisting from simplify: lowering keeps the object in a local
+TEST_CASE("Fixed bug: an owned call result passed to a `&T` parameter is dropped")
 {
     TestCompiler cc(memoryStage());
     REQUIRE(cc.compile(std::string(program) + R"(
@@ -58,8 +56,7 @@ func main(): void {}
     CHECK(contains(cc.function("demo").sexpr(), "(Drop"));
 }
 
-TEST_CASE("Known bug: `var r = &make()` keeps the object alive and frees it" *
-          doctest::skip())
+TEST_CASE("Fixed bug: `var r = &make()` keeps the object alive and frees it")
 {
     TestCompiler cc(memoryStage());
     REQUIRE(cc.compile(std::string(program) + R"(

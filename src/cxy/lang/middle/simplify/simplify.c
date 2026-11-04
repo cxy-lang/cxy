@@ -1001,17 +1001,6 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
         astVisit(visitor, node->memberExpr.member);
 }
 
-static void visitReferenceOfExpr(AstVisitor *visitor, AstNode *node)
-{
-    SimplifyContext *ctx = getAstVisitorContext(visitor);
-    astVisitFallbackVisitAll(visitor, node);
-    AstNode *operand = node->unaryExpr.operand;
-    if (nodeNeedsTemporaryVar(operand)) {
-        AstNode *var = hoistToTemporary(
-            ctx, operand, operand, operand->type, "_r", flgTemporary);
-        node->unaryExpr.operand = makeTemporaryRef(ctx, var);
-    }
-}
 
 static void visitStructExpr(AstVisitor *visitor, AstNode *node)
 {
@@ -1491,8 +1480,7 @@ static AstNode *simplifyCode(CompilerDriver *driver, AstNode *node)
         [astStmtExpr] = visitStmtExpr,
         [astStructExpr] = visitStructExpr,
         [astMemberExpr] = visitMemberExpr,
-        [astReferenceOf] = visitReferenceOfExpr,
-        [astPointerOf] = visitReferenceOfExpr,
+
         [astForStmt] = visitForStmt,
         [astBlockStmt] = visitBlockStmt,
         [astWhileStmt] = visitWhileStmt,

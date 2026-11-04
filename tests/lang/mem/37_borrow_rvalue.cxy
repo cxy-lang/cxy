@@ -1,0 +1,28 @@
+// @TEST_ARGS: ~--without-builtins
+// An owned call result borrowed by `&T` is freed with its scope: both objects
+// below are destroyed, ASan reports a leak if not
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() {}
+}
+
+func make(id: i32): Node => Node(id)
+func peek(n: &Node): i32 => n.id
+
+func viaCall(): i32 {
+    return peek(make(1))
+}
+
+func viaRef(): i32 {
+    var r = &make(2)
+    return r.id
+}
+
+func main(): !void {
+    var total: i32 = 0
+    for i in 0..3 {
+        total = total + viaCall() + viaRef()
+    }
+    println(total)
+}
