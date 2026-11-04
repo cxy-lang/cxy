@@ -176,6 +176,11 @@ bool isOwnedResultPayload(const IrNode *expr);
 
 void lowerCatchExpr(AstVisitor *visitor, AstNode *node);
 
+// `return x` and `raise x` in a function that returns `!T`
+void lowerReturnIntoResult(AstVisitor *visitor, AstNode *node);
+// A bare `return` or `raise` in a function that returns `!T`
+void lowerReturnWithoutValue(LowerContext *ctx, AstNode *node);
+
 // ---------------------------------------------------------------------------
 // Loops, jumps and scope unwinding (loop.c)
 // ---------------------------------------------------------------------------
