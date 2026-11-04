@@ -247,6 +247,51 @@ static void testCycles(void)
     CONTAINS("Total: 0 leaked cycles");
 }
 
+// The note on each line of the exit report says why a leaked block is alive
+static void leakNoteOf(const ExitCtx *ctx, uintptr_t addr, char *buf, size_t size)
+{
+    LiveEntry entry = {.ptr = (void *)addr};
+    leakNote(&entry, (void *)ctx, buf, size);
+}
+
+static void testLeakNotes(void)
+{
+    reset();
+    uint32_t x = object(0x1000, 16, 1), y = object(0x2000, 16, 1);
+    edge(x, y);
+    edge(y, x);
+    uint32_t w = object(0x4000, 16, 2); // two references nothing in the heap accounts for
+    uint32_t buf = buffer(0x5000, 64);
+    edge(w, buf);
+    uint32_t s = object(0x6000, 16, 1);
+    edge(s, s);
+    finish();
+
+    uint32_t *comp = malloc(g.count * sizeof(uint32_t)), compCount = 0;
+    CHECK(graphComponents(&g, comp, &compCount));
+    uint32_t *compSize = calloc(compCount, sizeof(uint32_t));
+    for (uint32_t v = 0; v < g.count; v++)
+        compSize[comp[v]]++;
+    uint8_t reached[16] = {0}; // no named roots: nothing is owned from a global
+    ExitCtx ctx = {.g = &g, .reached = reached, .comp = comp, .compSize = compSize};
+
+    char note[256];
+    leakNoteOf(&ctx, 0x1000, note, sizeof(note));
+    CHECK(strstr(note, "cycle of 2 nodes, held by 0x2000") != NULL);
+    leakNoteOf(&ctx, 0x4000, note, sizeof(note));
+    CHECK(strstr(note, "no owner, 2 reference(s) held outside the heap") != NULL);
+    leakNoteOf(&ctx, 0x5000, note, sizeof(note));
+    CHECK(strstr(note, "owned by the leaked object 0x4000") != NULL);
+    leakNoteOf(&ctx, 0x6000, note, sizeof(note));
+    CHECK(strstr(note, "owns itself") != NULL);
+    leakNoteOf(&ctx, 0x9999, note, sizeof(note)); // not in the graph
+    CHECK(note[0] == '\0');
+
+    free(comp);
+    free(compSize);
+    (void)buf;
+}
+
 // Deep chains do not overflow the stack of the cycle search
 static void testDeepChain(void)
 {
@@ -263,14 +308,93 @@ static void testDeepChain(void)
     CONTAINS("cycle: 200000 nodes");
 }
 
+// A thread that allocates and frees in a loop must stop at the pause
+static volatile int stopWorker;
+static volatile uint64_t workDone;
+
+static void *hookWorker(void *arg)
+{
+    (void)arg;
+    TraceRec rec;
+    memset(&rec, 0, sizeof(rec));
+    while (!stopWorker) {
+        __cxy_mem_trace_register(&rec);
+        __cxy_mem_trace_unregister(&rec);
+        workDone++;
+    }
+    return NULL;
+}
+
+// Hooks once, then computes for a while without ever reaching a safepoint
+static void *busyWorker(void *arg)
+{
+    (void)arg;
+    TraceRec rec;
+    memset(&rec, 0, sizeof(rec));
+    __cxy_mem_trace_register(&rec);
+    uint64_t until = nowNs() + 150000000ull;
+    while (nowNs() < until && !stopWorker)
+        ;
+    __cxy_mem_trace_unregister(&rec);
+    return NULL;
+}
+
+static void testPause(void)
+{
+    started = true;
+    CHECK(pauseThreads() == 0); // nothing has allocated yet: nothing to wait for
+    resumeThreads();
+
+    pthread_t t;
+    stopWorker = 0;
+    CHECK(pthread_create(&t, NULL, hookWorker, NULL) == 0);
+    usleep(20000);
+    CHECK(workDone > 0);
+
+    CHECK(pauseThreads() == 0);
+    uint64_t atPause = workDone;
+    usleep(60000);
+    CHECK(workDone == atPause); // parked: no progress while paused
+    resumeThreads();
+    usleep(60000);
+    CHECK(workDone > atPause);
+
+    stopWorker = 1;
+    pthread_join(t, NULL);
+
+    // After the thread is gone and idle, a pause returns at once
+    uint64_t begin = nowNs();
+    CHECK(pauseThreads() == 0);
+    resumeThreads();
+    CHECK(nowNs() - begin < 100000000ull);
+}
+
+static void testPauseApproximate(void)
+{
+    // A recently active thread that does not reach a safepoint in time is counted
+    setenv("CXY_MEM_PAUSE_MS", "5", 1);
+    pthread_t t;
+    stopWorker = 0;
+    CHECK(pthread_create(&t, NULL, busyWorker, NULL) == 0);
+    usleep(5000);
+    CHECK(pauseThreads() == 1);
+    resumeThreads();
+    stopWorker = 1;
+    pthread_join(t, NULL);
+    unsetenv("CXY_MEM_PAUSE_MS");
+}
+
 int main(void)
 {
+    testPause();
+    testPauseApproximate();
     testFind();
     testChain();
     testNamedRoot();
     testSharedObject();
     testCache();
     testCycles();
+    testLeakNotes();
     testDeepChain();
     reset();
 

@@ -12,6 +12,7 @@
 #include <sys/time.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <dlfcn.h>
 #include <execinfo.h>
 
@@ -108,6 +109,9 @@ typedef struct TraceList {
     uint64_t objects, objectBytes;
     uint64_t buffers, bufferBytes;
     uint64_t objectAllocs; // objects registered since start
+    uint64_t lastHookNs;   // when the thread last allocated or freed, for pausing
+    bool parked;           // waiting at a safepoint, under pauseLock
+    bool exited;           // the thread is gone
 } TraceList;
 
 static TraceEvent ring[CXY_TRACE_RING_SIZE];
@@ -207,6 +211,45 @@ static void printEventStack(int fd, const TraceEvent *ev, bool sym)
 /* ------------------------------------------------------------- live table */
 
 
+/*
+ * Pausing the program for a consistent snapshot. Allocation and free pass through
+ * __cxy_mem_trace_register/unregister, which park the calling thread while a
+ * query holds the pause. A thread that has not allocated or freed for a while is
+ * idle (sleeping, blocked on I/O) and is not waited for. A thread that was active
+ * but does not reach a safepoint before the timeout is reported: the answer is
+ * then marked approximate.
+ */
+#define PAUSE_ACTIVE_NS 20000000ull // a thread is active if it hooked this recently
+#define PAUSE_DEFAULT_MS 200
+
+static int pauseRequested; // atomic
+static pthread_mutex_t pauseLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t pauseCond = PTHREAD_COND_INITIALIZER;
+static pthread_key_t threadKey;
+static pthread_once_t threadKeyOnce = PTHREAD_ONCE_INIT;
+
+static uint64_t nowNs(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+
+// A finished thread must not be waited for
+static void threadExited(void *arg)
+{
+    TraceList *list = arg;
+    pthread_mutex_lock(&pauseLock);
+    list->exited = true;
+    pthread_cond_broadcast(&pauseCond);
+    pthread_mutex_unlock(&pauseLock);
+}
+
+static void createThreadKey(void)
+{
+    pthread_key_create(&threadKey, threadExited);
+}
+
 static TraceList *threadListGet(void)
 {
     TraceList *list = threadList;
@@ -216,12 +259,81 @@ static TraceList *threadListGet(void)
     if (list == NULL)
         return NULL;
     pthread_mutex_init(&list->lock, NULL);
+    pthread_once(&threadKeyOnce, createThreadKey);
+    pthread_setspecific(threadKey, list);
     pthread_mutex_lock(&listsLock);
     list->next = allLists;
     allLists = list;
     pthread_mutex_unlock(&listsLock);
     threadList = list;
     return list;
+}
+
+static void parkThread(TraceList *list)
+{
+    pthread_mutex_lock(&pauseLock);
+    list->parked = true;
+    pthread_cond_broadcast(&pauseCond);
+    while (__atomic_load_n(&pauseRequested, __ATOMIC_ACQUIRE))
+        pthread_cond_wait(&pauseCond, &pauseLock);
+    list->parked = false;
+    pthread_mutex_unlock(&pauseLock);
+}
+
+// Runs at the start of every allocation and free of a registered block
+static inline void safepoint(TraceList *list)
+{
+    __atomic_store_n(&list->lastHookNs, nowNs(), __ATOMIC_RELAXED);
+    if (__builtin_expect(__atomic_load_n(&pauseRequested, __ATOMIC_ACQUIRE), 0))
+        parkThread(list);
+}
+
+// Active threads that are not parked yet. Called with pauseLock held.
+static uint32_t threadsStillRunning(void)
+{
+    uint64_t now = nowNs();
+    uint32_t running = 0;
+    for (TraceList *l = __atomic_load_n(&allLists, __ATOMIC_ACQUIRE); l != NULL; l = l->next) {
+        if (l->exited || l->parked)
+            continue;
+        if (now - __atomic_load_n(&l->lastHookNs, __ATOMIC_RELAXED) < PAUSE_ACTIVE_NS)
+            running++;
+    }
+    return running;
+}
+
+// Asks the program to stop at its next allocation or free. Returns how many
+// active threads did not stop within the timeout (0 = a consistent snapshot).
+static uint32_t pauseThreads(void)
+{
+    const char *env = getenv("CXY_MEM_PAUSE_MS");
+    long timeoutMs = env != NULL ? atol(env) : PAUSE_DEFAULT_MS;
+    uint64_t deadline = nowNs() + (uint64_t)timeoutMs * 1000000ull;
+
+    __atomic_store_n(&pauseRequested, 1, __ATOMIC_RELEASE);
+    pthread_mutex_lock(&pauseLock);
+    uint32_t running;
+    while ((running = threadsStillRunning()) > 0 && nowNs() < deadline) {
+        // Wake up often: a thread that went idle after the request is not running
+        struct timespec until;
+        clock_gettime(CLOCK_REALTIME, &until);
+        until.tv_nsec += 2000000;
+        if (until.tv_nsec >= 1000000000L) {
+            until.tv_sec++;
+            until.tv_nsec -= 1000000000L;
+        }
+        pthread_cond_timedwait(&pauseCond, &pauseLock, &until);
+    }
+    pthread_mutex_unlock(&pauseLock);
+    return running;
+}
+
+static void resumeThreads(void)
+{
+    pthread_mutex_lock(&pauseLock);
+    __atomic_store_n(&pauseRequested, 0, __ATOMIC_RELEASE);
+    pthread_cond_broadcast(&pauseCond);
+    pthread_mutex_unlock(&pauseLock);
 }
 
 static inline void *recPayload(const TraceRec *rec)
@@ -239,6 +351,7 @@ void __cxy_mem_trace_register(TraceRec *rec)
     TraceList *list = threadListGet();
     if (list == NULL)
         return;
+    safepoint(list);
 
     rec->birthTick = __atomic_add_fetch(&tick, 1, __ATOMIC_RELAXED);
     rec->list = list;
@@ -266,6 +379,9 @@ void __cxy_mem_trace_unregister(TraceRec *rec)
     TraceList *list = rec->list;
     if (list == NULL)
         return;
+    TraceList *self = threadListGet(); // the thread that frees, not the owner
+    if (self != NULL)
+        safepoint(self);
     pthread_mutex_lock(&list->lock);
     if (rec->prev != NULL)
         rec->prev->next = rec->next;
@@ -417,10 +533,31 @@ static void ringDumpFd(int fd, const void *ptr, bool sym)
  * Live allocations newer than minGen. leakStyle reproduces the exit report
  * exactly; otherwise a compact listing limited to `limit` entries (0 = all).
  */
-static void liveReportFd(int fd, uint64_t minGen, size_t limit, bool sym, bool leakStyle)
+// Optional hooks of a report: which entries to list, and a note for the end of an
+// entry's line (written into `buf`, starting with a space, empty for none)
+typedef struct {
+    bool (*keep)(const LiveEntry *entry, void *ctx);
+    void (*note)(const LiveEntry *entry, void *ctx, char *buf, size_t size);
+    void *ctx;
+} ReportHooks;
+
+static void liveReportFd(int fd,
+                         uint64_t minGen,
+                         size_t limit,
+                         bool sym,
+                         bool leakStyle,
+                         const ReportHooks *hooks)
 {
     size_t count = 0;
     LiveEntry *snap = liveSnapshot(minGen, &count);
+    if (hooks != NULL && hooks->keep != NULL) {
+        size_t kept = 0;
+        for (size_t i = 0; i < count; i++) {
+            if (hooks->keep(&snap[i], hooks->ctx))
+                snap[kept++] = snap[i];
+        }
+        count = kept;
+    }
     if (count == 0) {
         if (!leakStyle)
             dprintf(fd, "no live allocations\n");
@@ -438,25 +575,30 @@ static void liveReportFd(int fd, uint64_t minGen, size_t limit, bool sym, bool l
 
     for (size_t i = 0; i < shown; i++) {
         const LiveEntry *e = &snap[i];
+        char note[192] = "";
+        if (hooks != NULL && hooks->note != NULL)
+            hooks->note(e, hooks->ctx, note, sizeof(note));
         if (e->buffer) {
             dprintf(fd,
-                    "%sptr=%p size=%llu buffer @ %s:%llu\n",
+                    "%sptr=%p size=%llu buffer @ %s:%llu%s\n",
                     leakStyle ? "[LEAK] " : "",
                     e->ptr,
                     (unsigned long long)e->size,
                     e->path ? e->path : "<unknown>",
-                    (unsigned long long)e->line);
+                    (unsigned long long)e->line,
+                    note);
             continue;
         }
         uint32_t refs = __cxy_mem_header_refs ? __cxy_mem_header_refs(e->ptr) : 0;
         dprintf(fd,
-                "%sptr=%p size=%llu refs=%u @ %s:%llu\n",
+                "%sptr=%p size=%llu refs=%u @ %s:%llu%s\n",
                 leakStyle ? "[LEAK] " : "",
                 e->ptr,
                 (unsigned long long)e->size,
                 (unsigned)refs,
                 e->path ? e->path : "<unknown>",
-                (unsigned long long)e->line);
+                (unsigned long long)e->line,
+                note);
 
         const TraceEvent *allocEv = findAllocEvent(e->ptr);
         if (allocEv != NULL && allocEv->stackSize > CXY_TRACE_SKIP_FRAMES) {
@@ -584,14 +726,7 @@ static void summaryFd(int fd)
             (unsigned long long)__atomic_load_n(&markGen, __ATOMIC_RELAXED));
 }
 
-// Called by the program's shutdown sequence after all finalizers ran
-void __cxy_mem_trace_report(void)
-{
-    if (!__atomic_load_n(&started, __ATOMIC_ACQUIRE))
-        return;
-    fflush(stdout);
-    liveReportFd(STDOUT_FILENO, 0, 0, true, true);
-}
+
 
 /* ---------------------------------------------------------------- counters */
 
@@ -1676,19 +1811,20 @@ static int compareCycleBytes(const void *lhs, const void *rhs)
  * no node outside the group points into it and none of its objects has a
  * reference from outside the heap. Reference counting can never free it.
  */
-static void graphCycles(int fd, const Graph *g, size_t limit)
+// Strongly connected components: `comp[v]` is the component of node v, numbered
+// in the order Tarjan's algorithm closes them. Iterative: the graph can be deeper
+// than the stack.
+static bool graphComponents(const Graph *g, uint32_t *comp, uint32_t *compCountOut)
 {
     size_t n = g->count;
     uint32_t *index = calloc(n, sizeof(uint32_t)), *low = calloc(n, sizeof(uint32_t));
-    uint32_t *comp = malloc(n * sizeof(uint32_t)), *pos = malloc(n * sizeof(uint32_t));
+    uint32_t *pos = malloc(n * sizeof(uint32_t));
     uint32_t *stack = malloc(n * sizeof(uint32_t)), *calls = malloc(n * sizeof(uint32_t));
     uint8_t *onStack = calloc(n, 1);
-    if (!index || !low || !comp || !pos || !stack || !calls || !onStack) {
-        dprintf(fd, "error: out of memory\n");
+    bool ok = index && low && pos && stack && calls && onStack;
+    if (!ok)
         goto done;
-    }
 
-    // Tarjan, iterative: the graph can be deeper than the stack
     uint32_t counter = 0, compCount = 0;
     size_t sp = 0, cp = 0;
     for (uint32_t s = 0; s < n; s++) {
@@ -1729,6 +1865,28 @@ static void graphCycles(int fd, const Graph *g, size_t limit)
                 low[calls[cp - 1]] = low[v];
         }
     }
+    *compCountOut = compCount;
+
+done:
+    free(index);
+    free(low);
+    free(pos);
+    free(stack);
+    free(calls);
+    free(onStack);
+    return ok;
+}
+
+static void graphCycles(int fd, const Graph *g, size_t limit)
+{
+    size_t n = g->count;
+    uint32_t *comp = malloc((n ? n : 1) * sizeof(uint32_t));
+    uint32_t compCount = 0;
+    if (comp == NULL || !graphComponents(g, comp, &compCount)) {
+        dprintf(fd, "error: out of memory\n");
+        free(comp);
+        return;
+    }
 
     uint32_t *size = calloc(compCount, sizeof(uint32_t)), *order = malloc(compCount * sizeof(uint32_t));
     uint64_t *bytes = calloc(compCount, sizeof(uint64_t));
@@ -1742,7 +1900,8 @@ static void graphCycles(int fd, const Graph *g, size_t limit)
         free(selfLoop);
         free(entered);
         free(external);
-        goto done;
+        free(comp);
+        return;
     }
 
     for (uint32_t v = 0; v < n; v++) {
@@ -1801,19 +1960,22 @@ static void graphCycles(int fd, const Graph *g, size_t limit)
     free(selfLoop);
     free(entered);
     free(external);
-done:
-    free(index);
-    free(low);
     free(comp);
-    free(pos);
-    free(stack);
-    free(calls);
-    free(onStack);
 }
 
 // Runs in the forked child
 static void runGraphCommand(int fd, const char *cmd, const char *arg1, const char *arg2)
 {
+    // These read the paused copy too, but need no graph
+    if (strcmp(cmd, "edges") == 0) {
+        edgesReportFd(fd, arg1);
+        return;
+    }
+    if (strcmp(cmd, "roots") == 0) {
+        rootsReportFd(fd);
+        return;
+    }
+
     Graph g = {0};
     if (!graphBuild(&g)) {
         dprintf(fd, "error: out of memory while building the graph\n");
@@ -1823,6 +1985,7 @@ static void runGraphCommand(int fd, const char *cmd, const char *arg1, const cha
     if (strcmp(cmd, "retained") == 0) {
         graphRetained(fd, &g, parseLimit(arg1));
     }
+
     else if (strcmp(cmd, "cycles") == 0) {
         graphCycles(fd, &g, parseLimit(arg1));
     }
@@ -1868,9 +2031,14 @@ static void graphCrashHandler(int sig)
  */
 static void graphCommand(int fd, const char *cmd, const char *arg1, const char *arg2)
 {
+    uint32_t running = pauseThreads();
     lockAllLists();
     pid_t pid = fork();
     if (pid == 0) {
+        // The child owns the locks its parent held at the fork, and the program
+        // is not paused there: give both back before using the registry
+        __atomic_store_n(&pauseRequested, 0, __ATOMIC_RELEASE);
+        unlockAllLists();
         graphFd = fd;
         struct sigaction sa = {.sa_handler = graphCrashHandler};
         sigemptyset(&sa.sa_mask);
@@ -1885,10 +2053,16 @@ static void graphCommand(int fd, const char *cmd, const char *arg1, const char *
         _exit(0);
     }
     unlockAllLists();
+    resumeThreads();
     if (pid < 0) {
         dprintf(fd, "error: fork failed: %s\n", strerror(errno));
         return;
     }
+    if (running > 0)
+        dprintf(fd,
+                "note: approximate, %u active thread(s) did not reach a safepoint in time "
+                "(CXY_MEM_PAUSE_MS)\n",
+                running);
 
     const char *env = getenv("CXY_MEM_SCAN_SECONDS");
     long limitMs = (env != NULL ? atol(env) : 120) * 1000;
@@ -1932,13 +2106,9 @@ static void handleCommand(int fd, char *line)
     else if (strcmp(cmd, "sites") == 0)
         sitesReportFd(fd, 0, parseLimit(args[1]));
     else if (strcmp(cmd, "list") == 0)
-        liveReportFd(fd, 0, parseLimit(args[1]), sym, false);
+        liveReportFd(fd, 0, parseLimit(args[1]), sym, false, NULL);
     else if (strcmp(cmd, "leaks") == 0)
-        liveReportFd(fd, 0, 0, sym, true);
-    else if (strcmp(cmd, "edges") == 0)
-        edgesReportFd(fd, args[1]);
-    else if (strcmp(cmd, "roots") == 0)
-        rootsReportFd(fd);
+        liveReportFd(fd, 0, 0, sym, true, NULL);
     else if (strcmp(cmd, "types") == 0)
         typesReportFd(fd);
     else if (strcmp(cmd, "sitecounts") == 0)
@@ -1958,10 +2128,11 @@ static void handleCommand(int fd, char *line)
     else if (strcmp(cmd, "diff") == 0)
         sitesReportFd(fd, mark, parseLimit(args[1]));
     else if (strcmp(cmd, "difflist") == 0)
-        liveReportFd(fd, mark, parseLimit(args[1]), sym, false);
+        liveReportFd(fd, mark, parseLimit(args[1]), sym, false, NULL);
     else if (strcmp(cmd, "holders") == 0 || strcmp(cmd, "path") == 0 ||
              strcmp(cmd, "contains") == 0 || strcmp(cmd, "retained") == 0 ||
-             strcmp(cmd, "cycles") == 0 || strcmp(cmd, "tree") == 0)
+             strcmp(cmd, "cycles") == 0 || strcmp(cmd, "tree") == 0 ||
+             strcmp(cmd, "edges") == 0 || strcmp(cmd, "roots") == 0)
         graphCommand(fd, cmd, args[1], args[2]);
     else
         dprintf(fd, "unknown command '%s', try 'help'\n", cmd);
@@ -2052,6 +2223,164 @@ static void startQueryServer(void)
 failed:
     dprintf(STDERR_FILENO, "[cxy-mem] query socket disabled: %s\n", strerror(errno));
     socketPath[0] = '\0';
+}
+
+/* -------------------------------------------------------------- exit report */
+
+typedef struct {
+    const Graph *g;
+    const uint8_t *reached; // owned, directly or not, by a named global
+    const uint32_t *comp;   // strongly connected component of each node
+    const uint32_t *compSize;
+} ExitCtx;
+
+// Marks everything owned, directly or not, by a named global
+static void markReachable(const Graph *g, uint8_t *reached)
+{
+    uint32_t *stack = malloc((g->count ? g->count : 1) * sizeof(uint32_t));
+    if (stack == NULL)
+        return;
+    size_t sp = 0;
+    for (uint32_t v = 0; v < g->count; v++) {
+        if (g->nodes[v].root) {
+            reached[v] = 1;
+            stack[sp++] = v;
+        }
+    }
+    while (sp > 0) {
+        uint32_t v = stack[--sp];
+        for (uint32_t k = g->outStart[v]; k < g->outStart[v + 1]; k++) {
+            uint32_t w = g->edges[g->outEdge[k]].to;
+            if (!reached[w]) {
+                reached[w] = 1;
+                stack[sp++] = w;
+            }
+        }
+    }
+    free(stack);
+}
+
+// What is left after the program's finalizers is a leak, unless a named global
+// still owns it (a cache or a stream that lives until exit)
+static bool isLeak(const LiveEntry *e, void *arg)
+{
+    ExitCtx *c = arg;
+    uint32_t id = graphFind(c->g, (uintptr_t)e->ptr);
+    return id == GRAPH_NONE || !c->reached[id];
+}
+
+// Says why a leaked block is still alive, from its place in the graph
+static void leakNote(const LiveEntry *e, void *arg, char *buf, size_t size)
+{
+    const ExitCtx *c = arg;
+    const Graph *g = c->g;
+    buf[0] = '\0';
+    uint32_t id = graphFind(g, (uintptr_t)e->ptr);
+    if (id == GRAPH_NONE)
+        return;
+
+    // Another member of its cycle, or a leaked block outside it, owns it
+    uint32_t cycleHolder = GRAPH_NONE, leakedHolder = GRAPH_NONE;
+    bool selfOwned = false;
+    for (uint32_t k = g->inStart[id]; k < g->inStart[id + 1]; k++) {
+        uint32_t from = g->edges[g->inEdge[k]].from;
+        if (from == id)
+            selfOwned = true;
+        else if (c->comp[from] == c->comp[id])
+            cycleHolder = cycleHolder == GRAPH_NONE ? from : cycleHolder;
+        else if (!c->reached[from])
+            leakedHolder = leakedHolder == GRAPH_NONE ? from : leakedHolder;
+    }
+
+    uint32_t members = c->compSize[c->comp[id]];
+    if (members > 1 || selfOwned) {
+        if (cycleHolder != GRAPH_NONE)
+            snprintf(buf,
+                     size,
+                     "  <- cycle of %u nodes, held by %p",
+                     members,
+                     (void *)g->nodes[cycleHolder].start);
+        else
+            snprintf(buf, size, "  <- owns itself");
+    }
+    else if (leakedHolder != GRAPH_NONE) {
+        snprintf(buf,
+                 size,
+                 "  <- owned by the leaked %s %p",
+                 g->nodes[leakedHolder].raw ? "buffer" : "object",
+                 (void *)g->nodes[leakedHolder].start);
+    }
+    else if (!g->nodes[id].raw) {
+        snprintf(buf,
+                 size,
+                 "  <- no owner, %u reference(s) held outside the heap",
+                 (unsigned)g->nodes[id].refs);
+    }
+    else {
+        snprintf(buf, size, "  <- no owner");
+    }
+}
+
+// Called by the program's shutdown sequence after all finalizers ran. Leaked
+// cycles are leaks like any other object nothing owns, `cycles` names them.
+void __cxy_mem_trace_report(void)
+{
+    if (!__atomic_load_n(&started, __ATOMIC_ACQUIRE))
+        return;
+    fflush(stdout);
+
+    Graph g = {0};
+    ExitCtx ctx = {.g = &g};
+    uint8_t *reached = NULL;
+    uint32_t *comp = NULL, *compSize = NULL;
+    uint64_t retained = 0;
+    if (graphBuild(&g)) {
+        uint32_t compCount = 0;
+        reached = calloc(g.count ? g.count : 1, 1);
+        comp = malloc((g.count ? g.count : 1) * sizeof(uint32_t));
+        if (reached != NULL && comp != NULL && graphComponents(&g, comp, &compCount)) {
+            compSize = calloc(compCount ? compCount : 1, sizeof(uint32_t));
+            for (uint32_t v = 0; compSize != NULL && v < g.count; v++)
+                compSize[comp[v]]++;
+        }
+        if (reached != NULL && compSize != NULL) {
+            markReachable(&g, reached);
+            ctx.reached = reached;
+            ctx.comp = comp;
+            ctx.compSize = compSize;
+            for (uint32_t v = 0; v < g.count; v++) {
+                if (reached[v] && !g.nodes[v].root)
+                    retained++;
+            }
+        }
+        else {
+            free(reached);
+            reached = NULL;
+        }
+    }
+
+    // Without a graph every live block is reported, as before
+    ReportHooks hooks = {.keep = isLeak, .note = leakNote, .ctx = &ctx};
+    liveReportFd(STDOUT_FILENO, 0, 0, true, true, reached != NULL ? &hooks : NULL);
+    if (reached != NULL && retained > 0) {
+        size_t leaks = 0;
+        for (uint32_t v = 0; v < g.count; v++) {
+            if (!reached[v] && !g.nodes[v].root)
+                leaks++;
+        }
+        if (leaks > 0)
+            dprintf(STDOUT_FILENO, "(%llu blocks owned by named globals are not counted)\n", (unsigned long long)retained);
+    }
+    free(reached);
+    free(comp);
+    free(compSize);
+    free(g.nodes);
+    free(g.keys);
+    free(g.edges);
+    free(g.outStart);
+    free(g.outEdge);
+    free(g.inStart);
+    free(g.inEdge);
 }
 
 /* -------------------------------------------------------------------- hooks */
