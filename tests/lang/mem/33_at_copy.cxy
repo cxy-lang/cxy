@@ -1,0 +1,37 @@
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() {}
+}
+
+struct Holder {
+    node: Node
+}
+
+func take(n: Node): i32 => n.id
+
+// `@copy x` is a new owner of the same object, `x` stays valid
+func fromLocal(): i32 {
+    var a = Node(1)
+    var b = @copy a
+    return a.id + take(@copy b)
+}
+
+// `@copy` takes the whole member chain
+func fromField(): i32 {
+    var h = Holder{node: Node(2)}
+    var n = @copy h.node
+    return n.id + h.node.id
+}
+
+// `@copy` of a reference gives an owner
+func fromReference(r: &Node): i32 {
+    var n = @copy r
+    return n.id
+}
+
+func main(): void {
+    var x = Node(3)
+    var total = fromLocal() + fromField() + fromReference(&x)
+    __cxy_assert(total == 9, "total", 0, 0)
+}

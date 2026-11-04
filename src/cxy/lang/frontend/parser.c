@@ -1046,6 +1046,21 @@ static AstNode *prefix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
     if (check(P, tokLaunch))
         return launchExpression(P);
 
+    // `@copy x.y` takes a new owner, same node as `__copy!(x.y)`
+    if (check(P, tokAtCopy)) {
+        const Token tok = *advance(P);
+        AstNode *operand = prefix(P, parsePrimary);
+        return newAstNode(
+            P,
+            &tok,
+            &(AstNode){.tag = astMacroCallExpr,
+                       .flags = flgComptime,
+                       .macroCallExpr = {
+                           .callee = makeIdentifier(
+                               P->memPool, &tok.fileLoc, S___copy, 0, NULL, NULL),
+                           .args = operand}});
+    }
+
     switch (current(P)->tag) {
 #define f(O, T, ...) case tok##T:
         AST_PREFIX_EXPR_LIST(f)

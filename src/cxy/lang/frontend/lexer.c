@@ -412,8 +412,19 @@ Token advanceLexer(Lexer *lexer)
         }
         if (acceptChar(lexer, '`'))
             return makeToken(lexer, &begin, tokQuote);
-        if (acceptChar(lexer, '@'))
+        if (acceptChar(lexer, '@')) {
+            // `@copy` is one token, `@copyright` is an attribute
+            const LexerBuffer *b = lexer->buffer;
+            size_t at = b->filePos.byteOffset;
+            if (at + 4 <= b->fileSize && memcmp(&b->fileData[at], "copy", 4) == 0 &&
+                (at + 4 == b->fileSize ||
+                 isSpaceOrPunctuation(b->fileData[at + 4]))) {
+                for (int i = 0; i < 4; i++)
+                    skipChar(lexer);
+                return makeToken(lexer, &begin, tokAtCopy);
+            }
             return makeToken(lexer, &begin, tokAt);
+        }
         if (acceptChar(lexer, '?')) {
             if (acceptChar(lexer, '.'))
                 return makeToken(lexer, &begin, tokOptionalDot);

@@ -76,6 +76,7 @@ extern "C" {
     f(AstMacroAccess,  "#.")        \
     f(Define,          "##")        \
     f(BangColon,       "!:")        \
+    f(AtCopy,          "@copy")     \
 
 #define KEYWORD_LIST(f)             \
     f(Virtual, "virtual")           \
