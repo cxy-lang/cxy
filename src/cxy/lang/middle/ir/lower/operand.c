@@ -318,3 +318,18 @@ void lowerTaggedUnionIntoTarget(LowerContext *ctx,
         emitStmt(ctx, makeIrAssign(ctx->pool, &expr->loc, targetLValue, uVal));
     }
 }
+
+void lowerGroupExpr(AstVisitor *visitor, AstNode *node)
+{
+    astVisit(visitor, node->groupExpr.expr);
+    node->codegen = node->groupExpr.expr->codegen;
+}
+
+void lowerAliasExpr(AstVisitor *visitor, AstNode *node)
+{
+    LowerContext *ctx = getAstVisitorContext(visitor);
+    IrNode *expr = lowerFlattenedOperand(visitor, node->aliasExpr.expr);
+    cstring name = node->aliasExpr.name ?: getDeclarationName(node);
+    node->codegen = expr;
+    node->ir = makeIrAlias(ctx->pool, &node->loc, name, expr);
+}

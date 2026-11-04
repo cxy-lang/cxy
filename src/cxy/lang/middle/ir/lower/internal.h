@@ -155,6 +155,11 @@ static inline bool isBackendCopyExpr(const AstNode *node)
 
 void lowerCallExpr(AstVisitor *visitor, AstNode *node);
 
+// Releases the catch bodies entered since `outer`, innermost first
+void emitReleaseCaughtUntil(LowerContext *ctx,
+                            const FileLoc *loc,
+                            const CatchCtx *outer);
+
 // The block a `return` in `scopeId` jumps to, unwinding the scopes in between
 IrNode *getOrCreateScopeReturnBlock(LowerContext *ctx,
                                     u32 scopeId,
@@ -180,6 +185,21 @@ void emitExceptionTracePush(LowerContext *ctx,
 bool isOwnedResultPayload(const IrNode *expr);
 
 void lowerCatchExpr(AstVisitor *visitor, AstNode *node);
+
+// ---------------------------------------------------------------------------
+// Declarations and statements (stmt.c)
+// ---------------------------------------------------------------------------
+
+void lowerVarDecl(AstVisitor *visitor, AstNode *node);
+void lowerExprStmt(AstVisitor *visitor, AstNode *node);
+void lowerStmtExpr(AstVisitor *visitor, AstNode *node);
+void lowerBlockStmt(AstVisitor *visitor, AstNode *node);
+void lowerIfStmt(AstVisitor *visitor, AstNode *node);
+void lowerReturnStmt(AstVisitor *visitor, AstNode *node);
+
+// Wrappers that only pass their operand through (operand.c)
+void lowerGroupExpr(AstVisitor *visitor, AstNode *node);
+void lowerAliasExpr(AstVisitor *visitor, AstNode *node);
 
 // ---------------------------------------------------------------------------
 // Array, tuple, struct and union values (aggregate.c)
