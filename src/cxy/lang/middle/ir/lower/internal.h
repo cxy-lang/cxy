@@ -155,12 +155,31 @@ static inline bool isBackendCopyExpr(const AstNode *node)
 
 void lowerCallExpr(AstVisitor *visitor, AstNode *node);
 
-// The `!T` protocol: check the tag of a call result, return the error to the
-// caller or give back the unwrapped payload
+// The block a `return` in `scopeId` jumps to, unwinding the scopes in between
+IrNode *getOrCreateScopeReturnBlock(LowerContext *ctx,
+                                    u32 scopeId,
+                                    const FileLoc *loc);
+
+// ---------------------------------------------------------------------------
+// The `!T` protocol (result.c)
+// ---------------------------------------------------------------------------
+
+// Check the tag of a call result, return the error to the caller or give back
+// the unwrapped payload
 IrNode *emitResultCheckAndUnwrap(LowerContext *ctx,
                                  AstNode *node,
                                  IrNode *resVar,
                                  const Type *resAstType);
+
+// Pushes a raised exception on the exception stack trace
+void emitExceptionTracePush(LowerContext *ctx,
+                            const FileLoc *loc,
+                            IrNode *errVal);
+
+// The payload of a call result is owned by the caller
+bool isOwnedResultPayload(const IrNode *expr);
+
+void lowerCatchExpr(AstVisitor *visitor, AstNode *node);
 
 // ---------------------------------------------------------------------------
 // Names and member access (access.c)
