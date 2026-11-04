@@ -238,6 +238,8 @@ static bool compileProgram(CompilerDriver *driver,
             goto compileProgramDone;
         }
     }
+    if (mainFile)
+        driver->mainMetadata = metadata;
 
     if (hasFlag(metadata, BuiltinsModule) || hasFlag(program, ImportedModule))
         return status;

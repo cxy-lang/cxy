@@ -1,13 +1,14 @@
 /**
  * IR validation utilities.
  *
- * Compile a program with the compiler library, in the test process, take its IR
- * as an S-expression, and match it against an expected pattern. Write the
- * pattern first, then make the compiler produce it.
+ * `TestCompiler` runs the compiler in the test process and keeps the compiled
+ * program. A test looks up the node it cares about, turns it into an
+ * S-expression, and matches it against an expected pattern. Write the pattern
+ * first, then make the compiler produce it.
  *
- *   auto ir = compileToIr("func f(x: i32): i32 => x + 1");
- *   REQUIRE(ir.ok);
- *   REQUIRE_IR_MATCHES(irFunction(ir.sexp, "f"), R"(
+ *   TestCompiler cc;
+ *   REQUIRE(cc.compile("func f(x: i32): i32 => x + 1"));
+ *   REQUIRE_IR_MATCHES(cc.function("f"), R"(
  *       (Function f (Param x i32) (Ret i32)
  *           (Block _L_entry ...)
  *           ...))");
@@ -21,30 +22,55 @@
 
 #include "doctest.h"
 
+#include "lang/frontend/ast.h"
+#include "lang/middle/ir/node.h"
+
+#include <memory>
 #include <string>
 #include <vector>
 
 namespace cxy::test {
 
-struct IrCompileOptions {
-    // Stop after this stage: Lower (before the memory pass) or MemoryMgmt
+struct CompileOptions {
+    // The last stage to run: `Lower` (before the memory pass) or `MemoryMgmt`
     std::string stage = "Lower";
-    // The stdlib and the builtins module are off by default to keep the IR small
+    // The builtins module is off by default to keep the IR small
     bool withBuiltins = false;
     std::vector<std::string> extraArgs;
 };
 
-struct IrCompileResult {
-    bool ok = false;
-    std::string sexp;        // the IR of the main module
-    std::string diagnostics; // what the compiler printed
+// The compiler, its memory and the result of one compilation. Everything it
+// returns stays valid until the object is destroyed.
+class TestCompiler {
+public:
+    explicit TestCompiler(const CompileOptions &options = {});
+    ~TestCompiler();
+    TestCompiler(const TestCompiler &) = delete;
+    TestCompiler &operator=(const TestCompiler &) = delete;
+
+    // Parses `source` and runs the stages up to `options.stage`
+    bool compile(const std::string &source);
+
+    // What the compiler reported
+    const std::string &diagnostics() const;
+
+    // The AST and the IR as the last stage that ran left them
+    AstNode *program() const;
+    IrNode *irModule() const;
+
+    IrNode *lookupFunction(const std::string &name) const;
+    IrNode *lookupGlobal(const std::string &name) const;
+
+    // The S-expression of any IR node. Names the compiler generates are numbered
+    // per function, so the text does not depend on a global counter.
+    std::string sexp(const IrNode *node) const;
+    std::string function(const std::string &name) const; // "" if there is none
+    std::string module() const;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
-
-IrCompileResult compileToIr(const std::string &source,
-                            const IrCompileOptions &options = {});
-
-// The `(Function name ...)` of a module dump, or an empty string
-std::string irFunction(const std::string &moduleSexp, const std::string &name);
 
 struct IrMatchResult {
     bool matched = false;

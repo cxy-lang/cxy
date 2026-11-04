@@ -58,6 +58,9 @@ typedef struct CompilerDriver {
     Log *L;
     TypeTable *types;
     AstNode *mainModule;
+    // The `Metadata` node of the last main file compiled: `.metadata.node` is
+    // its AST and `.metadata.ir` its IR, as far as the last stage that ran.
+    AstNode *mainMetadata;
     AstNodeList startup;
     CompilerPreprocessor preprocessor;
     CxyPackage package;

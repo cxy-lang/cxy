@@ -7,12 +7,11 @@
 #include "core/strpool.h"
 #include "driver/driver.h"
 #include "driver/options.h"
+#include "lang/middle/ir/dump/sexp.h"
 
-#include <cstdio>
 #include <cstdlib>
-#include <fstream>
-#include <sstream>
-#include <unistd.h>
+#include <cstring>
+#include <stdexcept>
 
 #ifndef TEST_ROOT_DIR
 #error "TEST_ROOT_DIR must be defined to the root of the source tree"
@@ -20,15 +19,166 @@
 
 namespace cxy::test {
 
-namespace {
+// ---------------------------------------------------------------------------
+// TestCompiler
+// ---------------------------------------------------------------------------
 
-std::string readFile(const std::string &path)
+// The builtins module is global to the process, so two compilers cannot be
+// alive at the same time
+static int liveCompilers = 0;
+
+struct TestCompiler::Impl {
+    CompileOptions options;
+    std::vector<std::string> args;
+
+    MemPool pool = newMemPool();
+    StrPool strings;
+    FormatState diagnosticsState = newFormatState("  ", true);
+    DiagnosticMemoryPrintCtx diagnosticsCtx{};
+    Log log;
+    CompilerDriver driver = {};
+
+    bool driverReady = false;
+    mutable std::string diagnosticsText;
+
+    explicit Impl(const CompileOptions &opts) : options(opts)
+    {
+        if (liveCompilers++ > 0) {
+            liveCompilers--;
+            throw std::logic_error("only one TestCompiler can exist at a time");
+        }
+        strings = newStrPool(&pool);
+        log = newLog(&pool, printDiagnosticToMemory, nullptr);
+        diagnosticsCtx = {.state = &diagnosticsState, .L = &log};
+        log.handlerCtx = &diagnosticsCtx;
+
+        // The options the command line would give
+        args = {"cxy",          "dev",         "--no-progress", "--no-color",
+                "--dump-stats", "NONE",        "--stdlib",
+                std::string(TEST_ROOT_DIR) + "/src/cxy",
+                "--last-stage", options.stage};
+        if (!options.withBuiltins)
+            args.push_back("--without-builtins");
+        for (const std::string &arg : options.extraArgs)
+            args.push_back(arg);
+        args.push_back("test.cxy");
+    }
+
+    ~Impl()
+    {
+        if (driverReady)
+            deinitCompilerDriver(&driver);
+        freeFormatState(&diagnosticsState);
+        freeLog(&log);
+        freeStrPool(&strings);
+        freeMemPool(&pool);
+        liveCompilers--;
+    }
+
+    bool init()
+    {
+        std::vector<char *> argv;
+        for (std::string &arg : args)
+            argv.push_back(arg.data());
+        argv.push_back(nullptr);
+        int argc = (int)args.size();
+
+        driver.cxyBinaryPath = TEST_ROOT_DIR;
+        driver.options.strings = &strings;
+        if (!parseCommandLineOptions(&argc, argv.data(), &strings, &driver.options, &log))
+            return false;
+        driverReady = initCompilerDriver(&driver, &pool, &strings, &log, argc, argv.data());
+        return driverReady;
+    }
+};
+
+TestCompiler::TestCompiler(const CompileOptions &options)
+    : impl_(std::make_unique<Impl>(options))
 {
-    std::ifstream in(path);
-    std::stringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
 }
+
+TestCompiler::~TestCompiler() = default;
+
+bool TestCompiler::compile(const std::string &source)
+{
+    if (!impl_->init())
+        return false;
+    return compileString(&impl_->driver, source.c_str(), source.size(), "test.cxy");
+}
+
+const std::string &TestCompiler::diagnostics() const
+{
+    char *text = formatStateToString(&impl_->diagnosticsState);
+    impl_->diagnosticsText = text ? text : "";
+    free(text);
+    return impl_->diagnosticsText;
+}
+
+AstNode *TestCompiler::program() const
+{
+    AstNode *metadata = impl_->driver.mainMetadata;
+    return metadata ? metadata->metadata.node : nullptr;
+}
+
+IrNode *TestCompiler::irModule() const
+{
+    AstNode *metadata = impl_->driver.mainMetadata;
+    return metadata ? metadata->metadata.ir : nullptr;
+}
+
+IrNode *TestCompiler::lookupFunction(const std::string &name) const
+{
+    IrNode *module = irModule();
+    if (module == nullptr)
+        return nullptr;
+    for (IrNode *fn = module->module.functions; fn; fn = fn->next) {
+        if (fn->tag != irFunction)
+            continue;
+        if ((fn->function.display && name == fn->function.display) ||
+            (fn->function.name && name == fn->function.name))
+            return fn;
+    }
+    return nullptr;
+}
+
+IrNode *TestCompiler::lookupGlobal(const std::string &name) const
+{
+    IrNode *module = irModule();
+    if (module == nullptr)
+        return nullptr;
+    for (IrNode *g = module->module.globals; g; g = g->next) {
+        if (g->globalVar.name && name == g->globalVar.name)
+            return g;
+    }
+    return nullptr;
+}
+
+std::string TestCompiler::sexp(const IrNode *node) const
+{
+    if (node == nullptr)
+        return "";
+    IrSexpOptions options = {.canonicalNames = true};
+    FormatState state = newFormatState("  ", true);
+    dumpIrToSexpState(node, &state, &options);
+    char *text = formatStateToString(&state);
+    std::string result = text ? text : "";
+    free(text);
+    freeFormatState(&state);
+    return result;
+}
+
+std::string TestCompiler::function(const std::string &name) const
+{
+    return sexp(lookupFunction(name));
+}
+
+std::string TestCompiler::module() const { return sexp(irModule()); }
+
+// ---------------------------------------------------------------------------
+// Matching
+// ---------------------------------------------------------------------------
+
+namespace {
 
 std::string toText(const SExpr &e)
 {
@@ -95,92 +245,6 @@ const SExpr *findMember(const SExpr &module, const SExpr &pattern)
 }
 
 } // namespace
-
-IrCompileResult compileToIr(const std::string &source, const IrCompileOptions &options)
-{
-    IrCompileResult result;
-
-    char outPath[] = "/tmp/cxy-irtest-out-XXXXXX";
-    int outFd = mkstemp(outPath);
-    if (outFd < 0) {
-        result.diagnostics = "cannot create a temporary file";
-        return result;
-    }
-    close(outFd);
-
-    // The same options the command line would give
-    std::vector<std::string> args = {"cxy",
-                                     "dev",
-                                     "--no-progress",
-                                     "--no-color",
-                                     "--dump-stats",
-                                     "NONE",
-                                     "--stdlib",
-                                     std::string(TEST_ROOT_DIR) + "/src/cxy",
-                                     "--dump-ast",
-                                     "IRSEXP",
-                                     "--last-stage",
-                                     options.stage,
-                                     "-o",
-                                     outPath};
-    if (!options.withBuiltins)
-        args.push_back("--without-builtins");
-    for (const std::string &arg : options.extraArgs)
-        args.push_back(arg);
-    args.push_back("test.cxy"); // the source is given as a string, not read
-
-    std::vector<char *> argv;
-    for (std::string &arg : args)
-        argv.push_back(arg.data());
-    argv.push_back(nullptr);
-    int argc = (int)args.size();
-
-    MemPool pool = newMemPool();
-    FormatState diagnostics = newFormatState("  ", true);
-    Log log = newLog(&pool, printDiagnosticToMemory, nullptr);
-    DiagnosticMemoryPrintCtx diagnosticCtx = {.state = &diagnostics, .L = &log};
-    log.handlerCtx = &diagnosticCtx;
-    StrPool strings = newStrPool(&pool);
-
-    CompilerDriver driver = {};
-    driver.cxyBinaryPath = TEST_ROOT_DIR;
-    driver.options.strings = &strings;
-
-    bool ok = parseCommandLineOptions(&argc, argv.data(), &strings, &driver.options, &log);
-    if (ok)
-        ok = initCompilerDriver(&driver, &pool, &strings, &log, argc, argv.data());
-    if (ok) {
-        ok = compileString(&driver, source.c_str(), source.size(), "test.cxy");
-        deinitCompilerDriver(&driver);
-    }
-
-    char *text = formatStateToString(&diagnostics);
-    result.diagnostics = text ? text : "";
-    free(text);
-    freeFormatState(&diagnostics);
-    freeLog(&log);
-    freeStrPool(&strings);
-    freeMemPool(&pool);
-
-    result.sexp = readFile(outPath);
-    result.ok = ok && !result.sexp.empty();
-    unlink(outPath);
-    return result;
-}
-
-std::string irFunction(const std::string &moduleSexp, const std::string &name)
-{
-    try {
-        SExpr module = parseSerial(moduleSexp);
-        for (const SExpr &child : module.children) {
-            if (!child.isAtom() && child.children.size() >= 2 &&
-                isAtom(child.children[0], "Function") && child.children[1].atom == name)
-                return toText(child);
-        }
-    } catch (const std::exception &) {
-    }
-    return "";
-}
 
 IrMatchResult matchIr(const std::string &actualText, const std::string &patternText)
 {
