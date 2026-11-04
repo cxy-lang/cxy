@@ -529,10 +529,37 @@ static void emitBinary(ConstIrVisitor *visitor, const IrNode *node)
     format(&ctx->state, ")", NULL);
 }
 
+// Container storage allocators: the trace builds call `<name>_trace(site, ...)`
+static cstring bufferAllocatorName(const CodegenContext *ctx, const IrNode *callee)
+{
+    if (!ctx->memTraceEnabled || callee == NULL || callee->tag != irGlobalRef)
+        return NULL;
+    cstring name = callee->globalRef.name;
+    if (name == NULL)
+        return NULL;
+    if (strcmp(name, "__alloc_buffer") == 0 || strcmp(name, "__calloc_buffer") == 0 ||
+        strcmp(name, "__realloc_buffer") == 0)
+        return name;
+    return NULL;
+}
+
 static void emitCall(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
     const IrNode *callee = node->call.callee;
+    cstring buffer = bufferAllocatorName(ctx, callee);
+    if (buffer != NULL) {
+        // `ptr, bytes` becomes `ptr, bytes, site`: the site goes last here
+        format(&ctx->state, "{s}_trace(", (FormatArg[]){{.s = buffer}});
+        for (const IrNode *arg = node->call.args; arg; arg = arg->next) {
+            irConstVisit(visitor, arg);
+            format(&ctx->state, ", ", NULL);
+        }
+        emitSiteArg(ctx, &node->loc);
+        format(&ctx->state, ")", NULL);
+        return;
+    }
+
     irConstVisit(visitor, node->call.callee);
     format(&ctx->state, "(", NULL);
     if (calleeHasCallSite(ctx, callee)) {

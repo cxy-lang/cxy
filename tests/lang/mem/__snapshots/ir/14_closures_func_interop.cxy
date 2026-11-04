@@ -24,7 +24,7 @@ _L_exit:
   return
 }
 
-func executeOp(a: i32, b: i32, op: Closure_131): i32 {
+func executeOp(a: i32, b: i32, op: Closure_135): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -35,7 +35,7 @@ _L_exit:
   return __ret
 }
 
-func executeVoid(cb: Closure_134): void {
+func executeVoid(cb: Closure_138): void {
 _L_entry:
   scope.enter 0
   cb.fn(cb.env)
@@ -70,10 +70,10 @@ func main(): void {
 _L_entry:
   scope.enter 0
   var res: i32
-  var __t0: Closure_131
+  var __t0: Closure_135
   __t0 = ClosureValue(null, __thunk5)
   res = executeOp(<i32>(10), <i32>(20), __t0)
-  var __t1: Closure_134
+  var __t1: Closure_138
   __t1 = ClosureValue(null, __thunk6)
   executeVoid(__t1)
   goto _L_exit

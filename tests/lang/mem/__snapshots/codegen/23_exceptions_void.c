@@ -69,11 +69,11 @@ static Result_void level2Void(bool fail);
 static void testVoidBubbleUp();
 static void _main();
 
-static const __TypeInfo __ti_String = { .name = "String", .size = sizeof(String), .align = _Alignof(String), .dropFields = nullptr };
-static const __TypeInfo __ti_HeavyResource = { .name = "HeavyResource", .size = sizeof(HeavyResource), .align = _Alignof(HeavyResource), .dropFields = HeavyResource_op__destructor_fwd };
-static const __TypeInfo __ti_VoidError = { .name = "VoidError", .size = sizeof(VoidError), .align = _Alignof(VoidError), .dropFields = VoidError_op__destructor_fwd };
+static const __TypeInfo __ti_String = { .name = "String", .size = sizeof(String), .align = _Alignof(String), .index = 0, .dropFields = nullptr };
+static const __TypeInfo __ti_HeavyResource = { .name = "HeavyResource", .size = sizeof(HeavyResource), .align = _Alignof(HeavyResource), .index = 1, .dropFields = HeavyResource_op__destructor_fwd };
+static const __TypeInfo __ti_VoidError = { .name = "VoidError", .size = sizeof(VoidError), .align = _Alignof(VoidError), .index = 2, .dropFields = VoidError_op__destructor_fwd };
 
-builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 87ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
+builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 91ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
 
 static void builtins_Exception_op__init(builtins_Exception * this, char * name) {
 _L_entry:;
@@ -154,7 +154,7 @@ _L_exit:;
   return;
 }
 
-builtins_Exception_VTable VoidError_vTable = (builtins_Exception_VTable){.__tid = ((uint64_t)(140)), .what = ((char * (*)(builtins_Exception *))(VoidError_what))};
+builtins_Exception_VTable VoidError_vTable = (builtins_Exception_VTable){.__tid = ((uint64_t)(144)), .what = ((char * (*)(builtins_Exception *))(VoidError_what))};
 
 static void String_op__init(String * this, char * s) {
 _L_entry:;

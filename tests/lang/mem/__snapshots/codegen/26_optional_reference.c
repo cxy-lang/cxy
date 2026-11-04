@@ -40,7 +40,7 @@ static Resource * Resource_op__initCover(int32_t id);
 static int32_t isSetI_OZResource_E(Optional_Resource * it);
 static void _main();
 
-static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .dropFields = Resource_op__destructor_fwd };
+static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .index = 0, .dropFields = Resource_op__destructor_fwd };
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {

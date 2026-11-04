@@ -33,6 +33,7 @@ extern void *memset(void *s, int c, unsigned long n);
 extern void *memcpy(void *dest, const void *src, unsigned long n);
 extern int memcmp(const void *s1, const void *s2, unsigned long n);
 extern void *malloc(unsigned long size);
+extern void *calloc(unsigned long n, unsigned long size);
 extern void *realloc(void *ptr, unsigned long size);
 extern void *alloca(unsigned long size);
 extern void free(void *ptr);

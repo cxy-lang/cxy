@@ -26,7 +26,7 @@ static void Item_op__destructor_fwd(void * ptr);
 static Item * Item_op__initCover(int32_t id);
 static void _main();
 
-static const __TypeInfo __ti_Item = { .name = "Item", .size = sizeof(Item), .align = _Alignof(Item), .dropFields = Item_op__destructor_fwd };
+static const __TypeInfo __ti_Item = { .name = "Item", .size = sizeof(Item), .align = _Alignof(Item), .index = 0, .dropFields = Item_op__destructor_fwd };
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {

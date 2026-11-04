@@ -5,7 +5,7 @@ typedef struct Slice_i32 Slice_i32;
 typedef struct Buffer Buffer;
 typedef struct Optional_i32 Optional_i32;
 typedef struct Slice_Resource Slice_Resource;
-typedef struct __drop_flags___array_dctor_152_t __drop_flags___array_dctor_152_t;
+typedef struct __drop_flags___array_dctor_156_t __drop_flags___array_dctor_156_t;
 
 struct builtins_Exception {
   builtins_Exception_VTable * vtable;
@@ -42,7 +42,7 @@ struct Slice_Resource {
   uint64_t len;
 };
 
-struct __drop_flags___array_dctor_152_t {
+struct __drop_flags___array_dctor_156_t {
   uint64_t arr: 1;
 };
 
@@ -61,9 +61,9 @@ static void testCustomSliceOverload();
 static Resource * Resource_op__initCover(int32_t id);
 static void testManagedArraySlice();
 static void _main();
-static void __array_dctor_152(Slice_Resource arr);
+static void __array_dctor_156(Slice_Resource arr);
 
-static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .dropFields = Resource_op__destructor_fwd };
+static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .index = 0, .dropFields = Resource_op__destructor_fwd };
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
@@ -247,7 +247,7 @@ _L_entry:;
   s = (Slice_Resource){&arr[1], 2ULL};
   goto _L_exit;
 _L_exit:;
-    __array_dctor_152((Slice_Resource){ .ptr = arr, .len = 4 });
+    __array_dctor_156((Slice_Resource){ .ptr = arr, .len = 4 });
   return;
 }
 
@@ -262,11 +262,11 @@ _L_exit:;
   return;
 }
 
-static void __array_dctor_152(Slice_Resource arr) {
-  __drop_flags___array_dctor_152_t __drop_flags;
+static void __array_dctor_156(Slice_Resource arr) {
+  __drop_flags___array_dctor_156_t __drop_flags;
   uint64_t __i;
 _L_entry:;
-  memset(&(__drop_flags), 0, sizeof(__drop_flags___array_dctor_152_t));
+  memset(&(__drop_flags), 0, sizeof(__drop_flags___array_dctor_156_t));
   __drop_flags.arr = 1ULL;
   __i = 0ULL;
   goto _L_FOR0_cond;

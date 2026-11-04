@@ -53,7 +53,7 @@ static void testClassUpcast();
 static void testClassMoveUpcast();
 static void _main();
 
-static const __TypeInfo __ti_DerivedResource = { .name = "DerivedResource", .size = sizeof(DerivedResource), .align = _Alignof(DerivedResource), .dropFields = DerivedResource_op__destructor_fwd };
+static const __TypeInfo __ti_DerivedResource = { .name = "DerivedResource", .size = sizeof(DerivedResource), .align = _Alignof(DerivedResource), .index = 0, .dropFields = DerivedResource_op__destructor_fwd };
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
@@ -68,8 +68,8 @@ _L_exit:;
   return;
 }
 
-BaseResource_VTable BaseResource_vTable = (BaseResource_VTable){.__tid = 128ULL, .op__deinit = ((void (*)(BaseResource *))(BaseResource_op__deinit)), .getId = ((int32_t (*)(BaseResource *))(BaseResource_getId))};
-BaseResource_VTable DerivedResource_vTable = (BaseResource_VTable){.__tid = ((uint64_t)(140)), .op__deinit = ((void (*)(BaseResource *))(DerivedResource_op__deinit)), .getId = ((int32_t (*)(BaseResource *))(DerivedResource_getId))};
+BaseResource_VTable BaseResource_vTable = (BaseResource_VTable){.__tid = 132ULL, .op__deinit = ((void (*)(BaseResource *))(BaseResource_op__deinit)), .getId = ((int32_t (*)(BaseResource *))(BaseResource_getId))};
+BaseResource_VTable DerivedResource_vTable = (BaseResource_VTable){.__tid = ((uint64_t)(144)), .op__deinit = ((void (*)(BaseResource *))(DerivedResource_op__deinit)), .getId = ((int32_t (*)(BaseResource *))(DerivedResource_getId))};
 
 static void BaseResource_op__init(BaseResource * this, int32_t id) {
 _L_entry:;

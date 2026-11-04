@@ -13,6 +13,13 @@
 @hint pub extern func malloc(s: u64): ^void
 @hint pub extern func realloc(ptr: ^void, s: u64): ^void
 @hint pub extern func free(ptr: ^void): void
+
+// Container storage. Plain libc in release builds; trace builds register the block
+// with its allocation point (a `@memtrace(callsite)` caller's site when it has one)
+@hint pub extern func __alloc_buffer(bytes: u64): ^void
+@hint pub extern func __calloc_buffer(bytes: u64): ^void
+@hint pub extern func __realloc_buffer(ptr: ^void, bytes: u64): ^void
+@hint pub extern func __free_buffer(ptr: ^void): void
 @hint pub extern func abort(): void;
 @hint pub extern func exit(code: i32): void
 @hint pub extern func printf(s: string, ...args: auto): i32
@@ -718,14 +725,14 @@ pub class String : OutputStream {
     - func grow(growSize: u64) {
         const newSize = max(_size + growSize, 16`u64);
         if (this._data == null) {
-            this._data = <^char> malloc(newSize + 1)
+            this._data = <^char> __alloc_buffer(newSize + 1)
             this._capacity = newSize
         }
         else if (this._capacity < newSize) {
             while (this._capacity < newSize) {
                 this._capacity <<= 1
             }
-            var tmp = realloc(this._data !: ^void, this._capacity+1)
+            var tmp = __realloc_buffer(this._data !: ^void, this._capacity+1)
             if (tmp == null) {
                 panic!("failed to grow string buffer")
             }
@@ -781,7 +788,7 @@ pub class String : OutputStream {
 
     func clear() : void {
         if (_data != null) {
-            free(this._data)
+            __free_buffer(this._data)
             this._data = null
             this._capacity = 0
             this._size = 0
@@ -1016,10 +1023,11 @@ pub class BufferedOutputStream: OutputStream {
     - _capacity: u64
     - _size: u64
 
+    @memtrace(callsite)
     func `init`(capacity: u64 = 1024) {
         _capacity = capacity
         _size = 0
-        _buffer = malloc(capacity) !: ^char
+        _buffer = __alloc_buffer(capacity) !: ^char
     }
 
     virtual func flush(str: ^const void, size: u64): void
@@ -1052,7 +1060,7 @@ pub class BufferedOutputStream: OutputStream {
     func `deinit`() {
         if (_buffer) {
             sync()
-            free(_buffer !: ^void)
+            __free_buffer(_buffer !: ^void)
             _buffer = null
         }
     }
@@ -1096,14 +1104,15 @@ pub class Bytes {
     _data: ^u8 = null
     _len: u64 = 0
 
+    @memtrace(callsite)
     func `init`(len: u64) {
-        _data = malloc(len) !: ^u8
+        _data = __alloc_buffer(len) !: ^u8
         _len = len
     }
 
     func `deinit`() {
         if (_data != null)
-            free(_data !: ^void)
+            __free_buffer(_data !: ^void)
     }
 
     func `[]`(index: u64) {

@@ -180,6 +180,25 @@ static void testPoisonAndQuarantine(void)
 #endif
 #endif
 
+static void testBuffers(void)
+{
+    unsigned char *zeroed = __calloc_buffer(64);
+    CHECK(zeroed != nullptr);
+    for (int i = 0; i < 64; i++)
+        CHECK(zeroed[i] == 0);
+
+    unsigned char *grown = __alloc_buffer(8);
+    memset(grown, 0xAB, 8);
+    grown = __realloc_buffer(grown, 4096);
+    CHECK(grown != nullptr);
+    for (int i = 0; i < 8; i++)
+        CHECK(grown[i] == 0xAB);
+
+    __free_buffer(zeroed);
+    __free_buffer(grown);
+    __free_buffer(nullptr);
+}
+
 static void *retainReleaseWorker(void *arg)
 {
     for (int i = 0; i < ITERATIONS; i++) {
@@ -254,6 +273,7 @@ int main(void)
     testTypedAlloc();
     testOverflowSaturates();
     testUnderflowSaturates();
+    testBuffers();
 #ifndef NDEBUG
     testRetainDying();
 #if !defined(__MM_ASAN)

@@ -37,8 +37,8 @@ static Base * Base_op__initCover(int32_t id);
 static Base * plain();
 static void _main();
 
-static const __TypeInfo __ti_Derived = { .name = "Derived", .size = sizeof(Derived), .align = _Alignof(Derived), .dropFields = Derived_op__destructor_fwd };
-static const __TypeInfo __ti_Base = { .name = "Base", .size = sizeof(Base), .align = _Alignof(Base), .dropFields = Base_op__destructor_fwd };
+static const __TypeInfo __ti_Derived = { .name = "Derived", .size = sizeof(Derived), .align = _Alignof(Derived), .index = 0, .dropFields = Derived_op__destructor_fwd };
+static const __TypeInfo __ti_Base = { .name = "Base", .size = sizeof(Base), .align = _Alignof(Base), .index = 1, .dropFields = Base_op__destructor_fwd };
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {

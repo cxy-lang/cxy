@@ -468,6 +468,24 @@ void checkFunctionType(AstVisitor *visitor, AstNode *node)
     free(params);
 }
 
+// Overloads called by generated glue or through tables, which cannot pass a
+// hidden site. `init` and the other operators are always called by name.
+static bool isGlueOperator(Operator op)
+{
+    switch (op) {
+    case opDeinitOverload:
+    case opCopyOverload:
+    case opConstructorOverload:
+    case opDestructorOverload:
+    case opDestructorFwd:
+    case opInitDefaults:
+    case opHashOverload:
+    case opStringOverload:
+        return true;
+    default: return false;
+    }
+}
+
 // `@memtrace(callsite)` adds a hidden site parameter in trace builds. The
 // restrictions apply in every build so both builds accept the same programs.
 static bool validateMemTrace(TypingContext *ctx, const AstNode *node)
@@ -491,8 +509,9 @@ static bool validateMemTrace(TypingContext *ctx, const AstNode *node)
               "cannot pass the site";
     else if (hasFlag(node, Extern))
         why = "an extern function has a fixed C signature";
-    else if (node->funcDecl.operatorOverload != opInvalid)
-        why = "operator overloads, `init` and `deinit` are called implicitly";
+    else if (isGlueOperator(node->funcDecl.operatorOverload))
+        why = "`deinit`, `copy`, `hash`, `str` and the other glue overloads are "
+              "called through generated code that cannot pass the site";
     else if (findAttribute(node, S_task))
         why = "a `@task` function is started by `@async`, which cannot pass "
               "the site";

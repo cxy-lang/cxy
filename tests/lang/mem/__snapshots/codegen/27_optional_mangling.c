@@ -48,7 +48,7 @@ static int32_t tagI_Oi32E(Optional_i32 * it);
 static int32_t tagI_ZResource_E(Resource * it);
 static void _main();
 
-static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .dropFields = Resource_op__destructor_fwd };
+static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .index = 0, .dropFields = Resource_op__destructor_fwd };
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {

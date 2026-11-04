@@ -62,54 +62,56 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
     @[inline, static]
     - func sizeRound(s: u64) => ((s + sizeof!(#^void)) / sizeof!(#^void)) * sizeof!(#^void)
 
+    @memtrace(callsite)
     - func rehash(newCapacity: u64) {
         var oldNodes = _nodes
         var oldCapacity = _capacity;
 
         _capacity = newCapacity
         _size = 0
-        _nodes = __calloc(sizeof!(#HashMapNode[K]) * newCapacity) !: ^HashMapNode[K]
+        _nodes = __calloc_buffer(sizeof!(#HashMapNode[K]) * newCapacity) !: ^HashMapNode[K]
 
         #if (#V != #void) {
             var oldValues = this._values
-            this._values = __calloc(sizeof!(#V) * newCapacity) !: ^V
+            this._values = __calloc_buffer(sizeof!(#V) * newCapacity) !: ^V
 
             for (const i: 0..oldCapacity) {
                 if (oldNodes.[i].hash != 0) {
                     this.insertInternalWithValue(&&oldNodes.[i], &&oldValues.[i], true)
                 }
             }
-            free(oldNodes !: ^void)
-            free(oldValues !: ^void)
+            __free_buffer(oldNodes !: ^void)
+            __free_buffer(oldValues !: ^void)
         } else {
             for (const i: 0..oldCapacity) {
                 if (oldNodes.[i].hash != 0) {
                     insertInternal(&&oldNodes.[i], true)
                 }
             }
-            free(oldNodes !: ^void)
+            __free_buffer(oldNodes !: ^void)
         }
     }
 
-    @inline
+    @[inline, memtrace(callsite)]
     - func resizeMore() {
         const newSize = idealSize(_size)
         if (newSize > _capacity)
             rehash(newSize)
     }
 
-    @inline
+    @[inline, memtrace(callsite)]
     - func resizeLess() {
         var newSize = idealSize(_size)
         if (newSize < _capacity)
             rehash(newSize)
     }
 
+    @memtrace(callsite)
     - func insertInternal(item: HashMapNode[K], replace: bool): bool {
         if (_capacity == 0) {
             _capacity = idealSize(1)
             if (_capacity > 0) {
-                _nodes = __calloc(sizeof!(#HashMapNode[K]) * _capacity) !: ^HashMapNode[K]
+                _nodes = __calloc_buffer(sizeof!(#HashMapNode[K]) * _capacity) !: ^HashMapNode[K]
             }
         }
 
@@ -143,12 +145,13 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
     }
 
     #if (#V != #void) {
+        @memtrace(callsite)
         - func insertInternalWithValue(item: HashMapNode[K], value: V, replace: bool): bool {
             if (_capacity == 0) {
                 _capacity = idealSize(1)
                 if (_capacity > 0) {
-                    _nodes = __calloc(sizeof!(#HashMapNode[K]) * _capacity) !: ^HashMapNode[K]
-                    this._values = __calloc(sizeof!(#V) * _capacity) !: ^V
+                    _nodes = __calloc_buffer(sizeof!(#HashMapNode[K]) * _capacity) !: ^HashMapNode[K]
+                    this._values = __calloc_buffer(sizeof!(#V) * _capacity) !: ^V
                 }
             }
 
@@ -228,12 +231,13 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         }
     }
 
+    @memtrace(callsite)
     func `init`(initialCapacity: u64 = 0) {
         _capacity = idealSize(initialCapacity)
         if (_capacity > 0) {
-            _nodes = __calloc(sizeof!(#HashMapNode[K]) * _capacity) !: ^HashMapNode[K]
+            _nodes = __calloc_buffer(sizeof!(#HashMapNode[K]) * _capacity) !: ^HashMapNode[K]
             #if (#V != #void) {
-                this._values = __calloc(sizeof!(#V) * _capacity) !: ^V
+                this._values = __calloc_buffer(sizeof!(#V) * _capacity) !: ^V
             }
         }
     }
@@ -253,9 +257,9 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
                     }
                 }
             }
-            free(_nodes !: ^void)
+            __free_buffer(_nodes !: ^void)
             #if (#V != #void) {
-                free(this._values !: ^void)
+                __free_buffer(this._values !: ^void)
                 this._values = null
             }
             _nodes = null
@@ -264,6 +268,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         }
     }
 
+    @memtrace(callsite)
     func remove(key: K) {
         if (_size == 0)
             return
@@ -326,6 +331,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
     const func empty() => _size == 0
 
     #if (#V != #void) {
+        @memtrace(callsite)
         func insert(key: K, value: V, replace: bool = true) {
             var data = HashMapNode[K]{key: &&key}
             const status = this.insertInternalWithValue(&&data, &&value, replace)
@@ -356,7 +362,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         @inline
         const func `[]`(key: K) => get(&&key)
 
-        @inline
+        @[inline, memtrace(callsite)]
         func `[]=`(key: K, value: V) => insert(&&key, &&value)
 
         func `..`() {
@@ -416,6 +422,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
             }
         }
 
+        @memtrace(callsite)
         func map[U](transform: func(key: &const K, value: &const V) -> U) {
             var output = Vector[U]();
             var i = 0
@@ -427,6 +434,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         }
     }
     else {
+        @memtrace(callsite)
         func insert(item: K, replace: bool = true) {
             var data = HashMapNode[K]{key: &&item};
             const idx = insertInternal(&&data, replace)
@@ -491,6 +499,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
             }
         }
 
+        @memtrace(callsite)
         func map[U](transform: func(item: &const K) -> U) {
             var output = Vector[U]();
             var i = 0
@@ -507,6 +516,7 @@ pub class HashSet[V, Hasher = Hash[V], Cmp = Equals[V]]: HashMap[V, void, Hasher
     `isSet = true
     type ValueType = V
 
+    @memtrace(callsite)
     func `init`(initialCapacity: u64 = 0) {
         super(initialCapacity)
     }

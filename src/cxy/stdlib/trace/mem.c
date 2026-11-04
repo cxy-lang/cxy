@@ -52,6 +52,7 @@ typedef struct {
     uint64_t line;
     uint64_t gen; // allocation order, for most-recent-first reports
     bool raw;     // a plain buffer (container storage), only used by the graph
+    bool buffer;  // container storage from __alloc_buffer, listed like an object
 } LiveEntry;
 
 typedef struct {
@@ -69,7 +70,10 @@ static uint32_t ringIdx = 0;
 static LiveEntry *live = NULL;
 static size_t liveCap = 0;   // power of two
 static size_t liveCount = 0; // live smart pointer entries
-static size_t liveRawCount = 0; // live buffer entries
+static size_t liveRawCount = 0; // live raw entries (graph only)
+static size_t liveBufferCount = 0; // live container buffers, also in liveCount
+static uint64_t liveBufferBytes = 0;
+static uint64_t liveBufferAllocs = 0; // buffers ever registered, part of liveGen
 static size_t liveUsed = 0;  // live entries + tombstones
 static uint64_t liveGen = 0;
 static uint64_t liveBytes = 0;
@@ -192,7 +196,7 @@ static void liveRehash(size_t newCap)
     free(old);
 }
 
-static void liveInsert(void *ptr, uint64_t size, const char *path, uint64_t line, bool raw)
+static void liveInsert(void *ptr, uint64_t size, const char *path, uint64_t line, bool raw, bool buffer)
 {
     if ((liveUsed + 1) * 4 >= liveCap * 3)
         liveRehash(liveCap ? liveCap * 2 : 1024);
@@ -210,13 +214,19 @@ static void liveInsert(void *ptr, uint64_t size, const char *path, uint64_t line
                             .path = path,
                             .line = line,
                             .gen = raw ? 0 : ++liveGen,
-                            .raw = raw};
+                            .raw = raw,
+                            .buffer = buffer};
     if (raw) {
         liveRawCount++;
     }
     else {
         liveCount++;
         liveBytes += size;
+        if (buffer) {
+            liveBufferCount++;
+            liveBufferBytes += size;
+            liveBufferAllocs++;
+        }
     }
 }
 
@@ -234,6 +244,10 @@ static void liveRemove(void *ptr)
             else {
                 liveCount--;
                 liveBytes -= live[idx].size;
+                if (live[idx].buffer) {
+                    liveBufferCount--;
+                    liveBufferBytes -= live[idx].size;
+                }
             }
             return;
         }
@@ -345,6 +359,16 @@ static void liveReportFd(int fd, uint64_t minGen, size_t limit, bool sym, bool l
 
     for (size_t i = 0; i < shown; i++) {
         const LiveEntry *e = &snap[i];
+        if (e->buffer) {
+            dprintf(fd,
+                    "%sptr=%p size=%llu buffer @ %s:%llu\n",
+                    leakStyle ? "[LEAK] " : "",
+                    e->ptr,
+                    (unsigned long long)e->size,
+                    e->path ? e->path : "<unknown>",
+                    (unsigned long long)e->line);
+            continue;
+        }
         uint32_t refs = __cxy_mem_header_refs ? __cxy_mem_header_refs(e->ptr) : 0;
         dprintf(fd,
                 "%sptr=%p size=%llu refs=%u @ %s:%llu\n",
@@ -455,15 +479,20 @@ static void sitesReportFd(int fd, uint64_t minGen, size_t limit)
 static void summaryFd(int fd)
 {
     pthread_mutex_lock(&liveLock);
-    uint64_t count = liveCount, bytes = liveBytes, gen = liveGen;
+    uint64_t count = liveCount - liveBufferCount, bytes = liveBytes - liveBufferBytes;
+    uint64_t gen = liveGen - liveBufferAllocs;
+    uint64_t buffers = liveBufferCount, bufferBytes = liveBufferBytes;
     pthread_mutex_unlock(&liveLock);
     dprintf(fd,
             "live: %llu allocations, %llu bytes\n"
+            "buffers: %llu live, %llu bytes\n"
             "allocations since start: %llu\n"
             "trace events: %u\n"
             "mark: %llu\n",
             (unsigned long long)count,
             (unsigned long long)bytes,
+            (unsigned long long)buffers,
+            (unsigned long long)bufferBytes,
             (unsigned long long)gen,
             (unsigned)__atomic_load_n(&ringIdx, __ATOMIC_RELAXED),
             (unsigned long long)__atomic_load_n(&markGen, __ATOMIC_RELAXED));
@@ -977,7 +1006,7 @@ static bool graphBuild(Graph *g)
                           .size = e->size,
                           .path = e->path,
                           .line = e->line,
-                          .raw = e->raw};
+                          .raw = e->raw || e->buffer};
         if (graphAddNode(g, node) == GRAPH_NONE)
             return false;
     }
@@ -1689,25 +1718,26 @@ void __cxy_mem_trace_alloc(void *ptr, uint64_t size, const char *path, uint64_t 
 
     pthread_mutex_lock(&liveLock);
 
-    liveInsert(ptr, size, path, line, false);
+    liveInsert(ptr, size, path, line, false, false);
     pthread_mutex_unlock(&liveLock);
 }
 
 /*
- * Buffers (container storage) are not smart pointer allocations. Registering
- * them lets the containment graph see through a vector or map to its elements.
- * They never show up in leak reports. Call the hook before the buffer is freed.
+ * Container storage (__alloc_buffer and friends in runtime/mm.h). A buffer is a
+ * live entry like an object, listed with `buffer` instead of a count, and it is
+ * counted in the per-site totals. The free hook runs before the block is freed.
  */
-void __cxy_mem_trace_raw_alloc(void *ptr, uint64_t size, const char *path, uint64_t line)
+void __cxy_mem_trace_buffer_alloc(void *ptr, uint64_t size, const SiteRecord *site)
 {
     if (ptr == NULL || !__atomic_load_n(&started, __ATOMIC_ACQUIRE))
         return;
     pthread_mutex_lock(&liveLock);
-    liveInsert(ptr, size, path, line, true);
+    liveInsert(ptr, size, site->file, site->line, false, true);
     pthread_mutex_unlock(&liveLock);
+    __cxy_mem_trace_count(UINT32_MAX, site->index, size);
 }
 
-void __cxy_mem_trace_raw_realloc(void *old, void *ptr, uint64_t size, const char *path, uint64_t line)
+void __cxy_mem_trace_buffer_realloc(void *old, void *ptr, uint64_t size, const SiteRecord *site)
 {
     if (!__atomic_load_n(&started, __ATOMIC_ACQUIRE))
         return;
@@ -1715,11 +1745,13 @@ void __cxy_mem_trace_raw_realloc(void *old, void *ptr, uint64_t size, const char
     if (old != NULL)
         liveRemove(old);
     if (ptr != NULL)
-        liveInsert(ptr, size, path, line, true);
+        liveInsert(ptr, size, site->file, site->line, false, true);
     pthread_mutex_unlock(&liveLock);
+    if (ptr != NULL)
+        __cxy_mem_trace_count(UINT32_MAX, site->index, size);
 }
 
-void __cxy_mem_trace_raw_free(void *ptr)
+void __cxy_mem_trace_buffer_free(void *ptr)
 {
     if (ptr == NULL)
         return;

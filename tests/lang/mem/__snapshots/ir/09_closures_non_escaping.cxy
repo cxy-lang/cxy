@@ -4,7 +4,7 @@ extern func __smart_ptr_get(ptr: ^void): ^void
 
 extern func __smart_ptr_drop(ptr: ^void): bool
 
-func apply(x: i32, op: Closure_129): i32 {
+func apply(x: i32, op: Closure_133): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -15,7 +15,7 @@ _L_exit:
   return __ret
 }
 
-func invokeTwice(cb: Closure_132): void {
+func invokeTwice(cb: Closure_136): void {
 _L_entry:
   scope.enter 0
   cb.fn(cb.env)
@@ -57,7 +57,7 @@ _L_entry:
   __t0 = __closure_env4 {factor: factor}
   var __env1: __closure_env4
   __env1 = __t0
-  var __t2: Closure_129
+  var __t2: Closure_133
   __t2 = ClosureValue(&__env1, __closure_body5)
   res = apply(<i32>(10), __t2)
   var count: i8
@@ -66,7 +66,7 @@ _L_entry:
   __t3 = __closure_env6 {count: &count}
   var __env4: __closure_env6
   __env4 = __t3
-  var __t5: Closure_132
+  var __t5: Closure_136
   __t5 = ClosureValue(&__env4, __closure_body7)
   invokeTwice(__t5)
   goto _L_exit

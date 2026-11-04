@@ -7,9 +7,10 @@ pub class CircularBuffer[T] {
     _tail: i32 = 0
     _size: i32 = 0
 
+    @memtrace(callsite)
     func `init`(capacity: i32 = 0) {
         this._capacity = capacity ?: 1
-        _buffer = __calloc(capacity * sizeof!(T)) as ^T
+        _buffer = __calloc_buffer(capacity * sizeof!(T)) as ^T
     }
 
     func push(value: T): !void {
@@ -53,7 +54,7 @@ pub class CircularBuffer[T] {
                     _head = (_head + 1) % _capacity
                 }
             }
-            free(_buffer)
+            __free_buffer(_buffer)
             _buffer = null
         }
     }

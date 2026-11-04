@@ -19,20 +19,22 @@ pub class Vector[T] {
             return sizeof!(#T)
     }
 
+    @memtrace(callsite)
     - func grow() {
         if (_size >= _capacity) {
             _capacity += (_capacity / 2)
-            _data = <^T> realloc(_data !: ^void, elemSize() * _capacity)
+            _data = <^T> __realloc_buffer(_data !: ^void, elemSize() * _capacity)
            #if (T.isDestructible) {
                memset(ptroff!(_data + _size), 0, elemSize() * (_capacity - _size))
            }
         }
     }
 
+    @memtrace(callsite)
     func `init`(initialSize: u64 = DEFAULT_VECTOR_CAPACITY!) {
         _size = 0
         _capacity = initialSize
-        _data = <^T>__calloc(elemSize() * _capacity)
+        _data = <^T>__calloc_buffer(elemSize() * _capacity)
     }
 
     @inline
@@ -48,16 +50,17 @@ pub class Vector[T] {
     @inline
     func `deinit`() {
         clear()
-        free(_data !: ^void)
+        __free_buffer(_data !: ^void)
     }
 
+    @memtrace(callsite)
     func push(item: T) {
         grow()
         _data.[_size] = &&item
         _size++
     }
 
-    @inline
+    @[inline, memtrace(callsite)]
     func emplace(...args: auto) {
         push(T(...&&args))
     }
@@ -77,6 +80,7 @@ pub class Vector[T] {
         return item
     }
 
+    @memtrace(callsite)
     func resize(newSize: u64) {
         if (newSize < _size) {
             for (const i: newSize.._size) {
@@ -84,11 +88,11 @@ pub class Vector[T] {
             }
             _size = newSize
         }
-        _data = <^T> realloc(_data !: ^void, elemSize() * newSize)
+        _data = <^T> __realloc_buffer(_data !: ^void, elemSize() * newSize)
        _capacity = newSize;
     }
 
-    @inline
+    @[inline, memtrace(callsite)]
     func shrink() {
         resize(_size)
     }
@@ -141,6 +145,7 @@ pub class Vector[T] {
         zero!(ptrof _data.[_size])
     }
 
+    @memtrace(callsite)
     func insertAt(index: i32, value: T) {
         assert!(index <= _size)
         grow()
@@ -197,6 +202,7 @@ pub class Vector[T] {
         return acc
     }
 
+    @memtrace(callsite)
     func filter(fun: func(item: T) -> bool) {
         var vec = Vector[T]();
         for (var i: 0.._size) {
@@ -206,6 +212,7 @@ pub class Vector[T] {
         return vec
     }
 
+    @memtrace(callsite)
     func map[U](fun: func(item: T) -> U) {
         var vec = Vector[U]();
         for (var i: 0.._size) {
@@ -244,6 +251,7 @@ pub class Vector[T] {
             sb << ']'
         }
     }
+    @memtrace(callsite)
     const func clone() {
         var vec = This(_size);
         for i in 0.._size {

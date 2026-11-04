@@ -1,0 +1,12 @@
+// `deinit` is called through generated destructor glue, it cannot take a hidden
+// site. (`init` can: it is only ever called by name.)
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    @memtrace(callsite)
+    func `deinit`() { }
+}
+
+func main(): void {
+    var n = Node(1)
+}

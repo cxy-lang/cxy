@@ -1,9 +1,9 @@
 typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct __closure_env4 __closure_env4;
-typedef struct Closure_129 Closure_129;
+typedef struct Closure_133 Closure_133;
 typedef struct __closure_env6 __closure_env6;
-typedef struct Closure_140 Closure_140;
+typedef struct Closure_144 Closure_144;
 
 struct builtins_Exception {
   builtins_Exception_VTable * vtable;
@@ -20,7 +20,7 @@ struct __closure_env4 {
   int32_t factor;
 };
 
-struct Closure_129 {
+struct Closure_133 {
   void * env;
   int32_t (*fn)(void *, int32_t);
   void (*dtor)(void *);
@@ -30,7 +30,7 @@ struct __closure_env6 {
   int8_t count;
 };
 
-struct Closure_140 {
+struct Closure_144 {
   void * env;
   int32_t (*fn)(void *);
   void (*dtor)(void *);
@@ -39,13 +39,13 @@ struct Closure_140 {
 static void builtins_panicOnUnhandledException(builtins_Exception * ex);
 
 static int32_t __closure_body5(__closure_env4 * this, int32_t x);
-static Closure_129 makeMultiplier(int32_t factor);
+static Closure_133 makeMultiplier(int32_t factor);
 static int8_t __closure_body7(__closure_env6 * this);
-static Closure_140 makeCounter();
+static Closure_144 makeCounter();
 static void _main();
 
-static const __TypeInfo __ti___closure_env4 = { .name = "__closure_env4", .size = sizeof(__closure_env4), .align = _Alignof(__closure_env4), .dropFields = nullptr };
-static const __TypeInfo __ti___closure_env6 = { .name = "__closure_env6", .size = sizeof(__closure_env6), .align = _Alignof(__closure_env6), .dropFields = nullptr };
+static const __TypeInfo __ti___closure_env4 = { .name = "__closure_env4", .size = sizeof(__closure_env4), .align = _Alignof(__closure_env4), .index = 0, .dropFields = nullptr };
+static const __TypeInfo __ti___closure_env6 = { .name = "__closure_env6", .size = sizeof(__closure_env6), .align = _Alignof(__closure_env6), .index = 1, .dropFields = nullptr };
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
@@ -69,15 +69,15 @@ _L_exit:;
   return __ret;
 }
 
-static Closure_129 makeMultiplier(int32_t factor) {
-  Closure_129 __ret;
+static Closure_133 makeMultiplier(int32_t factor) {
+  Closure_133 __ret;
   __closure_env4 __t0;
   __closure_env4 * __env1;
 _L_entry:;
   __t0 = (__closure_env4){.factor = factor};
   __env1 = __mm_alloc(&__ti___closure_env4, nullptr);
   (*(__env1)) = __t0;
-  __ret = (Closure_129){ .env = __env1, .fn = __closure_body5, .dtor = __smart_ptr_drop };
+  __ret = (Closure_133){ .env = __env1, .fn = __closure_body5, .dtor = __smart_ptr_drop };
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -92,8 +92,8 @@ _L_exit:;
   return __ret;
 }
 
-static Closure_140 makeCounter() {
-  Closure_140 __ret;
+static Closure_144 makeCounter() {
+  Closure_144 __ret;
   int8_t count;
   __closure_env6 __t2;
   __closure_env6 * __env3;
@@ -102,16 +102,16 @@ _L_entry:;
   __t2 = (__closure_env6){.count = count};
   __env3 = __mm_alloc(&__ti___closure_env6, nullptr);
   (*(__env3)) = __t2;
-  __ret = (Closure_140){ .env = __env3, .fn = __closure_body7, .dtor = __smart_ptr_drop };
+  __ret = (Closure_144){ .env = __env3, .fn = __closure_body7, .dtor = __smart_ptr_drop };
   goto _L_exit;
 _L_exit:;
   return __ret;
 }
 
 static void _main() {
-  Closure_129 mul;
+  Closure_133 mul;
   int32_t r1;
-  Closure_140 cnt;
+  Closure_144 cnt;
   int32_t r2;
 _L_entry:;
   mul = makeMultiplier(((int32_t)(5)));

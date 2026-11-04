@@ -2,9 +2,9 @@ typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct __closure_env3 __closure_env3;
 typedef struct __closure_env5 __closure_env5;
-typedef struct Closure_130 Closure_130;
+typedef struct Closure_134 Closure_134;
 typedef struct __closure_env7 __closure_env7;
-typedef struct Closure_151 Closure_151;
+typedef struct Closure_155 Closure_155;
 typedef struct __closure_env9 __closure_env9;
 typedef struct __closure_env11 __closure_env11;
 
@@ -27,7 +27,7 @@ struct __closure_env5 {
   int32_t b;
 };
 
-struct Closure_130 {
+struct Closure_134 {
   void * env;
   int32_t (*fn)(void *);
   void (*dtor)(void *);
@@ -37,7 +37,7 @@ struct __closure_env7 {
   int8_t i;
 };
 
-struct Closure_151 {
+struct Closure_155 {
   void * env;
   int8_t (*fn)(void *);
   void (*dtor)(void *);
@@ -97,7 +97,7 @@ _L_exit:;
 
 static int32_t testIfElse(bool cond) {
   int32_t __ret;
-  Closure_130 fn;
+  Closure_134 fn;
   int32_t a;
   __closure_env3 __t0;
   __closure_env3 __env1;
@@ -110,13 +110,13 @@ _L_IF0_then:;
   a = 10;
   __t0 = (__closure_env3){.a = a};
   __env1 = __t0;
-  fn = (Closure_130){ .env = &__env1, .fn = __closure_body4, .dtor = nullptr };
+  fn = (Closure_134){ .env = &__env1, .fn = __closure_body4, .dtor = nullptr };
   goto _L_IF0_end;
 _L_IF0_else:;
   b = 20;
   __t2 = (__closure_env5){.b = b};
   __env3 = __t2;
-  fn = (Closure_130){ .env = &__env3, .fn = __closure_body6, .dtor = nullptr };
+  fn = (Closure_134){ .env = &__env3, .fn = __closure_body6, .dtor = nullptr };
   goto _L_IF0_end;
 _L_IF0_end:;
   __ret = fn.fn(fn.env);
@@ -136,7 +136,7 @@ _L_exit:;
 
 static void testLoopBreak() {
   int8_t i;
-  Closure_151 c;
+  Closure_155 c;
   __closure_env7 __t4;
   __closure_env7 __env5;
 _L_entry:;
@@ -147,7 +147,7 @@ _L_FOR0_cond:;
 _L_FOR0_body:;
   __t4 = (__closure_env7){.i = i};
   __env5 = __t4;
-  c = (Closure_151){ .env = &__env5, .fn = __closure_body8, .dtor = nullptr };
+  c = (Closure_155){ .env = &__env5, .fn = __closure_body8, .dtor = nullptr };
   if (i == 3) goto _L_exit; else goto _L_FOR0_update;
 _L_FOR0_update:;
   i = (i + 1);
@@ -176,7 +176,7 @@ _L_exit:;
 
 static int32_t testSwitch(int32_t mode) {
   int32_t __ret;
-  Closure_130 fn;
+  Closure_134 fn;
   int32_t x;
   __closure_env9 __t6;
   __closure_env9 __env7;
@@ -195,13 +195,13 @@ _L_SWITCH0_case_0:;
   x = 100;
   __t6 = (__closure_env9){.x = x};
   __env7 = __t6;
-  fn = (Closure_130){ .env = &__env7, .fn = __closure_body10, .dtor = nullptr };
+  fn = (Closure_134){ .env = &__env7, .fn = __closure_body10, .dtor = nullptr };
   goto _L_SWITCH0_exit;
 _L_SWITCH0_case_1:;
   y = 200;
   __t8 = (__closure_env11){.y = y};
   __env9 = __t8;
-  fn = (Closure_130){ .env = &__env9, .fn = __closure_body12, .dtor = nullptr };
+  fn = (Closure_134){ .env = &__env9, .fn = __closure_body12, .dtor = nullptr };
   goto _L_SWITCH0_exit;
 _L_exit:;
   return __ret;

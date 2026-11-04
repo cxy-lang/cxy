@@ -14,12 +14,13 @@ struct TrieNode[T] {
         children = HashMap[wchar, ^This]();
     }
 
+    @memtrace(callsite)
     func add(c: wchar) {
         if (var child = children.[c]) {
             return *child
         }
 
-        var node = __calloc(sizeof!(This)) !: ^This;
+        var node = __calloc_buffer(sizeof!(This)) !: ^This;
         node.op__init(c)
         children.[c] = node
         return node
@@ -35,7 +36,7 @@ struct TrieNode[T] {
 
             for node, _ in nodes {
                 delete *node
-                free(node !: ^void)
+                __free_buffer(node !: ^void)
             }
         }
     }

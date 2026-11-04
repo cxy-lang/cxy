@@ -97,7 +97,7 @@ pub class LinkedList[T] {
                 delete item._value
             }
             _head = item._next
-            free(item)
+            __free_buffer(item)
         }
         _tail = null
         _size = 0
@@ -107,8 +107,9 @@ pub class LinkedList[T] {
         clear()
     }
 
+    @memtrace(callsite)
     func insert(value: T, it: Iterator = null) {
-        var item = __calloc(sizeof!(#ListItem[T])) as ^ListItem[T]
+        var item = __calloc_buffer(sizeof!(#ListItem[T])) as ^ListItem[T]
         item._value = &&value
         if (_head == null) {
             _head = item
@@ -142,13 +143,14 @@ pub class LinkedList[T] {
                 _tail = null
             _size -= 1
             var tmp = &&item._value
-            free(item)
+            __free_buffer(item)
             return &&tmp
         }
     }
 
+    @memtrace(callsite)
     func push(value: T) {
-        var item = __calloc(sizeof!(#ListItem[T])) as ^ListItem[T]
+        var item = __calloc_buffer(sizeof!(#ListItem[T])) as ^ListItem[T]
         item._value = &&value
         if (_tail == null) {
             _head = item
@@ -175,7 +177,7 @@ pub class LinkedList[T] {
                 _head = null
             _size -= 1
             var tmp = &&item._value
-            free(item)
+            __free_buffer(item)
             return &&tmp
         }
     }
@@ -232,7 +234,7 @@ pub class LinkedList[T] {
             _tail = prev
         _size -= 1
         delete it._value
-        free(it)
+        __free_buffer(it)
     }
 }
 

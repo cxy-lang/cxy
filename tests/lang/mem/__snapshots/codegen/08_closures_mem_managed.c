@@ -2,11 +2,11 @@ typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct Resource Resource;
 typedef struct __closure_env4 __closure_env4;
-typedef struct Closure_143 Closure_143;
+typedef struct Closure_147 Closure_147;
 typedef struct __closure_env6 __closure_env6;
 typedef struct X X;
 typedef struct __closure_env9 __closure_env9;
-typedef struct Closure_165 Closure_165;
+typedef struct Closure_169 Closure_169;
 
 struct builtins_Exception {
   builtins_Exception_VTable * vtable;
@@ -27,7 +27,7 @@ struct __closure_env4 {
   Resource * r;
 };
 
-struct Closure_143 {
+struct Closure_147 {
   void * env;
   int32_t (*fn)(void *);
   void (*dtor)(void *);
@@ -45,7 +45,7 @@ struct __closure_env9 {
   X * s;
 };
 
-struct Closure_165 {
+struct Closure_169 {
   void * env;
   uint64_t (*fn)(void *);
   void (*dtor)(void *);
@@ -71,8 +71,8 @@ static uint64_t __closure_body10(__closure_env9 * this);
 static void testCaptureString();
 static void _main();
 
-static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .dropFields = Resource_op__destructor_fwd };
-static const __TypeInfo __ti_X = { .name = "X", .size = sizeof(X), .align = _Alignof(X), .dropFields = nullptr };
+static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .index = 0, .dropFields = Resource_op__destructor_fwd };
+static const __TypeInfo __ti_X = { .name = "X", .size = sizeof(X), .align = _Alignof(X), .index = 1, .dropFields = nullptr };
 
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex) {
@@ -153,7 +153,7 @@ _L_exit:;
 
 static void testCaptureClassByValue() {
   Resource * r;
-  Closure_143 c;
+  Closure_147 c;
   __closure_env4 __t2;
   Resource * __copy0;
   __closure_env4 __env3;
@@ -162,7 +162,7 @@ _L_entry:;
   __copy0 = __smart_ptr_get(r);
   __t2 = (__closure_env4){.r = __copy0};
   __env3 = __t2;
-  c = (Closure_143){ .env = &__env3, .fn = __closure_body5, .dtor = nullptr };
+  c = (Closure_147){ .env = &__env3, .fn = __closure_body5, .dtor = nullptr };
   c.fn(c.env);
   goto _L_exit;
 _L_exit:;
@@ -191,14 +191,14 @@ _L_exit:;
 
 static void testCaptureClassByMove() {
   Resource * r;
-  Closure_143 c;
+  Closure_147 c;
   __closure_env6 __t5;
   __closure_env6 __env6;
 _L_entry:;
   r = Resource_op__initCover(((int32_t)(2)));
   __t5 = (__closure_env6){.r = r};
   __env6 = __t5;
-  c = (Closure_143){ .env = &__env6, .fn = __closure_body7, .dtor = nullptr };
+  c = (Closure_147){ .env = &__env6, .fn = __closure_body7, .dtor = nullptr };
   c.fn(c.env);
   goto _L_exit;
 _L_exit:;
@@ -249,7 +249,7 @@ _L_exit:;
 
 static void testCaptureString() {
   X * s;
-  Closure_165 c;
+  Closure_169 c;
   __closure_env9 __t9;
   X * __copy1;
   __closure_env9 __env10;
@@ -258,7 +258,7 @@ _L_entry:;
   __copy1 = __smart_ptr_get(s);
   __t9 = (__closure_env9){.s = __copy1};
   __env10 = __t9;
-  c = (Closure_165){ .env = &__env10, .fn = __closure_body10, .dtor = nullptr };
+  c = (Closure_169){ .env = &__env10, .fn = __closure_body10, .dtor = nullptr };
   c.fn(c.env);
   goto _L_exit;
 _L_exit:;

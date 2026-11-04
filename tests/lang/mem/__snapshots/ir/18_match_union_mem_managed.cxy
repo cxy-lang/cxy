@@ -213,7 +213,7 @@ _L_exit:
   return
 }
 
-func __union_copy_141(u: ^^ResourceA | ^ResourceB | i32): ^ResourceA | ^ResourceB | i32 {
+func __union_copy_145(u: ^^ResourceA | ^ResourceB | i32): ^ResourceA | ^ResourceB | i32 {
 _L_entry:
   scope.enter 0
   var __ret: ^ResourceA | ^ResourceB | i32
@@ -246,7 +246,7 @@ _L_exit:
   return __ret
 }
 
-func __union_dctor_141(u: ^^ResourceA | ^ResourceB | i32): void {
+func __union_dctor_145(u: ^^ResourceA | ^ResourceB | i32): void {
 _L_entry:
   scope.enter 0
   switch u.tag {

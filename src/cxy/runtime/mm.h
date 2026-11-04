@@ -69,6 +69,10 @@ extern void __cxy_mem_trace_dump(void *ptr);
 // Cumulative per-type and per-site counters, indexes come from __TypeInfo / __Site
 extern void __cxy_mem_trace_count(uint32_t type, uint32_t site, uint64_t bytes);
 extern void __cxy_mem_trace_type_free(uint32_t type);
+// Container storage, see __alloc_buffer below
+extern void __cxy_mem_trace_buffer_alloc(void *ptr, uint64_t size, const __Site *site);
+extern void __cxy_mem_trace_buffer_realloc(void *old, void *ptr, uint64_t size, const __Site *site);
+extern void __cxy_mem_trace_buffer_free(void *ptr);
 
 // Lets the trace library read refcounts without knowing the header layout
 __attribute__((used)) uint32_t __cxy_mem_header_refs(void *ptr)
@@ -292,6 +296,64 @@ static inline bool __mm_release(void *obj)
         __atomic_store_n(&h->strong, __MM_RC_SATURATED, __ATOMIC_RELAXED);
     return false;
 }
+
+/* ------------------------------------------------- container storage */
+
+// Storage owned by exactly one container. Release builds call libc directly: no
+// header, no bookkeeping. Trace builds register the block with the allocation
+// point; the backend calls the `_trace` forms with the site (hidden parameter
+// of a `@memtrace(callsite)` caller, or the call expression's own).
+#if defined(ENABLE_MEMORY_TRACE)
+static inline void *__alloc_buffer_trace(uint64_t bytes, const __Site *site)
+{
+    void *ptr = malloc(bytes);
+    __cxy_mem_trace_buffer_alloc(ptr, bytes, site);
+    return ptr;
+}
+
+static inline void *__calloc_buffer_trace(uint64_t bytes, const __Site *site)
+{
+    void *ptr = calloc(1, bytes);
+    __cxy_mem_trace_buffer_alloc(ptr, bytes, site);
+    return ptr;
+}
+
+static inline void *__realloc_buffer_trace(void *old, uint64_t bytes, const __Site *site)
+{
+    void *ptr = realloc(old, bytes);
+    if (ptr != nullptr || bytes == 0)
+        __cxy_mem_trace_buffer_realloc(old, ptr, bytes, site);
+    return ptr;
+}
+
+static inline void __free_buffer(void *ptr)
+{
+    if (ptr == nullptr)
+        return;
+    __cxy_mem_trace_buffer_free(ptr);
+    free(ptr);
+}
+#else
+static inline void *__alloc_buffer(uint64_t bytes)
+{
+    return malloc(bytes);
+}
+
+static inline void *__calloc_buffer(uint64_t bytes)
+{
+    return calloc(1, bytes);
+}
+
+static inline void *__realloc_buffer(void *old, uint64_t bytes)
+{
+    return realloc(old, bytes);
+}
+
+static inline void __free_buffer(void *ptr)
+{
+    free(ptr);
+}
+#endif
 
 /* ------------------------------------------------- shims for generated code */
 

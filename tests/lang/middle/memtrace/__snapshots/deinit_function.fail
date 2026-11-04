@@ -1,0 +1,5 @@
+error: `@memtrace(callsite)` is not allowed here: `deinit`, `copy`, `hash`, `str` and the other glue overloads are called through generated code that cannot pass the site
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/memtrace/deinit_function.cxy:6:6 (to 6:24)
+  |
+6 |    @memtrace(callsite)
+  |     ^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,13 @@
+import { Vector } from "stdlib/vector.cxy"
+import { HashMap } from "stdlib/hash.cxy"
+import { waitForHarness } from "./_harness.cxy"
+
+func main(): void {
+    var v = Vector[i32]()
+    for i in 0..100 {
+        v.push(7)
+    }
+    var m = HashMap[i32, i32]()
+    m.insert(1, 10)
+    waitForHarness()
+}

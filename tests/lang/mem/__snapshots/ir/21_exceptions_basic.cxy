@@ -1,6 +1,6 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/21_exceptions_basic.cxy
-global TestError_vTable: Exception_VTable = builtins_Exception_VTable {__tid: <u64>(134), what: <func(^Exception): ^char>(TestError_what)}
+global TestError_vTable: Exception_VTable = builtins_Exception_VTable {__tid: <u64>(138), what: <func(^Exception): ^char>(TestError_what)}
 
 extern func __smart_ptr_get(ptr: ^void): ^void
 
