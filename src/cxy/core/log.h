@@ -25,7 +25,8 @@ extern "C" {
     f(DropFlagMismatch,  11)            \
     f(RedeclaredOwner,   12)            \
     f(ReturnedBorrow,    13)            \
-    f(DanglingBorrow,    14)
+    f(DanglingBorrow,    14)            \
+    f(ImplicitCopy,      15)
 
 // clang-format on
 
@@ -46,7 +47,8 @@ enum {
      BIT(wrnReturnedBorrow) | BIT(wrnDanglingBorrow))
 #define wrnDefault                                                             \
     wrnAll & ~(BIT(wrnMissingStage) | BIT(wrnCMacroRedefine) |                 \
-               BIT(wrnMaybeUninitialized) | wrnOwnership)
+               BIT(wrnMaybeUninitialized) | wrnOwnership |                  \
+               BIT(wrnImplicitCopy))
 
 typedef u64 WarningId;
 

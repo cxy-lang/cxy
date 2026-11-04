@@ -625,6 +625,38 @@ static void insertBeforeStmt(IrNode *bb, IrNode **prevRef, IrNode *stmt, IrNode 
     *prevRef = node;
 }
 
+// Reported where the pass takes a new owner the user did not write. It goes away
+// with the inference itself (plan 6c), when `@copy` or `&&` is required.
+static void reportImplicitCopy(MemMgmtContext *ctx, const IrNode *place)
+{
+    Log *L = ctx->driver->L;
+    if (!isWarningEnabled(L, ImplicitCopy) || place == NULL)
+        return;
+
+    const IrNode *decl = findVarDeclInNode(place);
+    cstring name = NULL;
+    if (place->tag == irVarRef && decl)
+        name = decl->tag == irFuncParam ? decl->funcParam.name
+                                        : (decl->varDecl.display ?: decl->varDecl.name);
+    else if (place->tag == irMember)
+        name = place->member.name;
+
+    if (name)
+        logWarningWithId(L,
+                         wrnImplicitCopy,
+                         &place->loc,
+                         "`{s}` is copied implicitly, write `@copy {s}` to share "
+                         "it or `&&{s}` to move it",
+                         (FormatArg[]){{.s = name}, {.s = name}, {.s = name}});
+    else
+        logWarningWithId(L,
+                         wrnImplicitCopy,
+                         &place->loc,
+                         "this value is copied implicitly, write `@copy` before "
+                         "it to share it or `&&` to move it",
+                         NULL);
+}
+
 static void injectCallArgumentCopies(MemMgmtContext *ctx,
                                      IrNode *bb,
                                      IrNode **prevRef,
@@ -767,6 +799,7 @@ static void processPayloadItem(MemMgmtContext *ctx,
         }
 
         if (needsCopy) {
+            reportImplicitCopy(ctx, inner);
             cstring tempName = makeStringf(ctx->strings, "__copy%u", ctx->tempCounter++);
             IrNode *tempVar = makeIrVarDecl(ctx->pool, &inner->loc, flgTemporary, tempName, tempName, inner->type, ctx->currentScopeId);
             TrackedVar *tv = addTrackedVar(ctx, tempVar, tempName, ctx->currentScopeId, inner->type);
@@ -1000,6 +1033,10 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         injectCompositePayloadCopies(ctx, bb, &prev, stmt, rhs, &next, &currMay, &currMust);
                     }
                     else if (shouldPromoteAssignToCopy(lhsDecl, stmt->assign.lhs, rhs)) {
+                        // `return local` moves the local, only fields and the like are copies
+                        IrNode *copied = unwrapCasts(rhs);
+                        if (!(hasFlag(lhsDecl, Returned) && copied->tag == irVarRef))
+                            reportImplicitCopy(ctx, copied);
                         IrNode *lhs = stmt->assign.lhs;
                         stmt->tag = irCopy;
                         stmt->copy.src = rhs;

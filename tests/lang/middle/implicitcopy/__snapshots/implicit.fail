@@ -1,0 +1,17 @@
+error[ImplicitCopy]: `a` is copied implicitly, write `@copy a` to share it or `&&a` to move it
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/implicitcopy/implicit.cxy:17:13 (to 17:14)
+   |
+17 |    var b = a
+   |            ^
+
+error[ImplicitCopy]: `a` is copied implicitly, write `@copy a` to share it or `&&a` to move it
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/implicitcopy/implicit.cxy:18:10 (to 18:11)
+   |
+18 |    take(a)
+   |         ^
+
+error[ImplicitCopy]: `a` is copied implicitly, write `@copy a` to share it or `&&a` to move it
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/implicitcopy/implicit.cxy:19:26 (to 19:27)
+   |
+19 |    var h = Holder{node: a}
+   |                         ^
