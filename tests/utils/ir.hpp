@@ -1,10 +1,9 @@
 /**
- * IR validation utilities.
+ * Matching IR and AST S-expressions against patterns.
  *
- * `TestCompiler` runs the compiler in the test process and keeps the compiled
- * program. A test looks up the node it cares about, turns it into an
- * S-expression, and matches it against an expected pattern. Write the pattern
- * first, then make the compiler produce it.
+ * Compile a program with `cxy::testing::TestCompiler` (src/cxy/testing), look up
+ * the node you care about, and match its S-expression against an expected
+ * pattern. Write the pattern first, then make the compiler produce it.
  *
  *   TestCompiler cc;
  *   REQUIRE(cc.compile("func f(x: i32): i32 => x + 1"));
@@ -22,55 +21,11 @@
 
 #include "doctest.h"
 
-#include "lang/frontend/ast.h"
-#include "lang/middle/ir/node.h"
+#include "testing/compiler.hpp"
 
-#include <memory>
 #include <string>
-#include <vector>
 
 namespace cxy::test {
-
-struct CompileOptions {
-    // The last stage to run: `Lower` (before the memory pass) or `MemoryMgmt`
-    std::string stage = "Lower";
-    // The builtins module is off by default to keep the IR small
-    bool withBuiltins = false;
-    std::vector<std::string> extraArgs;
-};
-
-// The compiler, its memory and the result of one compilation. Everything it
-// returns stays valid until the object is destroyed.
-class TestCompiler {
-public:
-    explicit TestCompiler(const CompileOptions &options = {});
-    ~TestCompiler();
-    TestCompiler(const TestCompiler &) = delete;
-    TestCompiler &operator=(const TestCompiler &) = delete;
-
-    // Parses `source` and runs the stages up to `options.stage`
-    bool compile(const std::string &source);
-
-    // What the compiler reported
-    const std::string &diagnostics() const;
-
-    // The AST and the IR as the last stage that ran left them
-    AstNode *program() const;
-    IrNode *irModule() const;
-
-    IrNode *lookupFunction(const std::string &name) const;
-    IrNode *lookupGlobal(const std::string &name) const;
-
-    // The S-expression of any IR node. Names the compiler generates are numbered
-    // per function, so the text does not depend on a global counter.
-    std::string sexp(const IrNode *node) const;
-    std::string function(const std::string &name) const; // "" if there is none
-    std::string module() const;
-
-private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
-};
 
 struct IrMatchResult {
     bool matched = false;
@@ -80,6 +35,10 @@ struct IrMatchResult {
 // `actual` is matched against `pattern`. A `(Function name ...)` or
 // `(Global name ...)` pattern is matched against that member of a `(Module ...)`.
 IrMatchResult matchIr(const std::string &actual, const std::string &pattern);
+
+// A node that was not found never matches
+IrMatchResult matchIr(const cxy::testing::IrNodeWrapper &actual, const std::string &pattern);
+IrMatchResult matchIr(const cxy::testing::AstNodeWrapper &actual, const std::string &pattern);
 
 } // namespace cxy::test
 
@@ -103,3 +62,7 @@ IrMatchResult matchIr(const std::string &actual, const std::string &pattern);
         INFO("expected no match, but it matched");                             \
         REQUIRE_FALSE(ir_match_result.matched);                                \
     } while (0)
+
+// The same matching, for an AST node of a compiled program
+#define REQUIRE_NODE_MATCHES REQUIRE_IR_MATCHES
+#define CHECK_NODE_MATCHES CHECK_IR_MATCHES

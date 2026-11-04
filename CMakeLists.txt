@@ -389,6 +389,17 @@ add_executable(cxy
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/include/cxy/core)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/lib)
 
+# The compiler as a library for tests and tools: compile in-process, keep the
+# program, look nodes up and dump them (src/cxy/testing). Not part of the compiler
+# binary.
+add_library(cxy-testing STATIC
+        src/cxy/testing/compiler.cpp
+        src/cxy/testing/ast_find.c)
+target_link_libraries(cxy-testing PUBLIC cxy-core)
+target_include_directories(cxy-testing PUBLIC src/cxy src/3rdParty)
+target_compile_definitions(cxy-testing PRIVATE
+        -DCXY_TESTING_STDLIB_DIR="${CMAKE_SOURCE_DIR}/src/cxy")
+
 add_library(cxy-trace STATIC
         src/cxy/stdlib/trace/coro.c
         src/cxy/stdlib/trace/mem.c)
@@ -594,12 +605,12 @@ enable_testing()
 # Add doctest C++ testing framework
 if (ENABLE_UNIT_TESTS)
     # Helpers shared by test executables: AST and IR matching. Built once, on top
-    # of cxy-core, so a test only compiles its own sources.
+    # of cxy-testing, so a test only compiles its own sources.
     add_library(cxy-test STATIC
             tests/utils/ast.cpp
             tests/utils/ir.cpp
     )
-    target_link_libraries(cxy-test PUBLIC cxy-core)
+    target_link_libraries(cxy-test PUBLIC cxy-testing cxy-core)
     target_include_directories(cxy-test PUBLIC
             src/cxy
             src/3rdParty

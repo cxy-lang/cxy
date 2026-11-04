@@ -605,6 +605,16 @@ static void block(SexpContext *ctx, const IrNode *bb)
 // Declarations
 // ---------------------------------------------------------------------------
 
+static void param(SexpContext *ctx, const IrNode *p)
+{
+    open(ctx, "Param");
+    space(ctx);
+    atom(ctx, p->funcParam.name ?: "?");
+    space(ctx);
+    typeAtom(ctx, p->type);
+    close(ctx);
+}
+
 static void function(SexpContext *ctx, const IrNode *fn)
 {
     clearNames(ctx);
@@ -613,12 +623,7 @@ static void function(SexpContext *ctx, const IrNode *fn)
     atom(ctx, fn->function.display ?: fn->function.name ?: "?");
     for (const IrNode *p = fn->function.params; p; p = p->next) {
         space(ctx);
-        open(ctx, "Param");
-        space(ctx);
-        atom(ctx, p->funcParam.name ?: "?");
-        space(ctx);
-        typeAtom(ctx, p->type);
-        close(ctx);
+        param(ctx, p);
     }
     space(ctx);
     open(ctx, "Ret");
@@ -684,6 +689,17 @@ void dumpIrToSexpState(const IrNode *node,
         out(&ctx, "(null)", NULL);
         return;
     }
+
+    // Number the names of the enclosing function first, off the record
+    if (ctx.options->canonicalNames && ctx.options->function &&
+        ctx.options->function != node) {
+        FormatState scratch = newFormatState("  ", true);
+        ctx.state = &scratch;
+        function(&ctx, ctx.options->function);
+        ctx.state = state;
+        ctx.depth = 0;
+        freeFormatState(&scratch);
+    }
     switch (node->tag) {
     case irModule:
         module(&ctx, node);
@@ -696,6 +712,9 @@ void dumpIrToSexpState(const IrNode *node,
         break;
     case irGlobalVar:
         global(&ctx, node);
+        break;
+    case irFuncParam:
+        param(&ctx, node);
         break;
     default:
         // a statement, or an expression (statements fall back to expressions)

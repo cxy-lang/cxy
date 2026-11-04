@@ -8,6 +8,7 @@
 #include "utils/ir.hpp"
 
 using namespace cxy::test;
+using namespace cxy::testing;
 
 namespace {
 
@@ -75,15 +76,119 @@ TEST_CASE("Test compiler: the compiled program is kept")
     REQUIRE(cc.compile("func add(a: i32, b: i32): i32 { return a + b }\nfunc main(): void {}"));
     INFO(cc.diagnostics());
 
-    CHECK(cc.program() != nullptr);
-    REQUIRE(cc.irModule() != nullptr);
+    CHECK(cc.ast());
+    REQUIRE(cc.ir());
+    CHECK(cc.ir().tag() == irModule);
 
-    IrNode *add = cc.lookupFunction("add");
-    REQUIRE(add != nullptr);
-    CHECK(add->tag == irFunction);
-    CHECK(cc.lookupFunction("missing") == nullptr);
-    CHECK(cc.sexp(add) == cc.function("add"));
-    CHECK(cc.function("missing").empty());
+    IrNodeWrapper add = cc.ir().findFunction("add");
+    REQUIRE(add);
+    CHECK(add.tag() == irFunction);
+    CHECK(add.sexpr() == cc.function("add").sexpr());
+    CHECK_FALSE(cc.ir().findFunction("missing"));
+    CHECK_FALSE(cc.function("missing"));
+}
+
+TEST_CASE("IR wrapper: a lookup in an empty wrapper is empty")
+{
+    TestCompiler cc;
+    REQUIRE(cc.compile("func main(): void {}"));
+    IrNodeWrapper missing = cc.function("missing");
+    CHECK_FALSE(missing);
+    CHECK_FALSE(missing.findBlock("entry"));
+    CHECK_FALSE(missing.findVariable("x"));
+    CHECK(missing.sexpr().empty());
+    CHECK_FALSE(matchIr(missing, "(Function missing ...)").matched);
+}
+
+TEST_CASE("IR wrapper: variables, blocks and parameters of a function")
+{
+    TestCompiler cc;
+    REQUIRE(cc.compile(std::string(nodeProgram) + R"(
+func make(): Node => Node(1)
+func demo(flag: bool): i32 {
+    var a = Node(1)
+    if flag {
+        var b = make()
+    }
+    return make().id + make().id
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+
+    IrNodeWrapper demo = cc.function("demo");
+    REQUIRE(demo);
+
+    SUBCASE("a variable by name") {
+        REQUIRE_IR_MATCHES(demo.findVariable("a"), "(VarDecl a ^Node)");
+        CHECK_FALSE(demo.findVariable("nothing"));
+    }
+    SUBCASE("a variable by prefix and index") {
+        // the two hoisted member temporaries, in declaration order
+        REQUIRE_IR_MATCHES(demo.findVariable("_m", 0), "(VarDecl _m0 ^Node)");
+        REQUIRE_IR_MATCHES(demo.findVariable("_m", 1), "(VarDecl _m1 ^Node)");
+        CHECK_FALSE(demo.findVariable("_m", 2));
+    }
+    SUBCASE("a variable in a nested block") {
+        REQUIRE_IR_MATCHES(demo.findVariable("b"), "(VarDecl b ^Node)");
+    }
+    SUBCASE("a block, with or without the generated prefix") {
+        CHECK(demo.findBlock("_L_entry"));
+        CHECK(demo.findBlock("entry"));
+        CHECK(demo.findBlock("IF0_then"));
+        CHECK_FALSE(demo.findBlock("nothing"));
+        REQUIRE_IR_MATCHES(demo.findBlock("IF0_then"), "(Block _L_IF0_then ...)");
+    }
+    SUBCASE("a variable is searched in one block only when asked from a block") {
+        CHECK_FALSE(demo.findBlock("entry").findVariable("b"));
+        CHECK(demo.findBlock("IF0_then").findVariable("b"));
+    }
+    SUBCASE("a parameter") {
+        REQUIRE_IR_MATCHES(demo.findParam("flag"), "(Param flag bool)");
+    }
+    SUBCASE("a node dumped on its own has the names of its function") {
+        const std::string whole = demo.sexpr();
+        // the second temporary is `_m1` in the whole function and on its own
+        CHECK(whole.find(demo.findVariable("_m", 1).sexpr()) != std::string::npos);
+    }
+}
+
+TEST_CASE("IR wrapper: globals of a module")
+{
+    TestCompiler cc;
+    REQUIRE(cc.compile("var counter: i32 = 7\nfunc main(): void {}"));
+    INFO(cc.diagnostics());
+    REQUIRE(cc.ir().findGlobal("counter"));
+    REQUIRE_IR_MATCHES(cc.ir().findGlobal("counter"), "(Global counter i32 7)");
+    CHECK_FALSE(cc.ir().findGlobal("missing"));
+}
+
+TEST_CASE("AST wrapper: declarations of a compiled program")
+{
+    TestCompiler cc;
+    REQUIRE(cc.compile(std::string(nodeProgram) + R"(
+func demo(): i32 {
+    var total = 3
+    return total
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+
+    AstNodeWrapper demo = cc.ast().findFunction("demo");
+    REQUIRE(demo);
+    CHECK(demo.tag() == astFuncDecl);
+    CHECK_FALSE(cc.ast().findFunction("missing"));
+    CHECK(cc.ast().findClass("Node"));
+
+    AstNodeWrapper total = demo.findVariable("total");
+    REQUIRE(total);
+    CHECK(total.tag() == astVarDecl);
+    CHECK_FALSE(demo.findVariable("nothing"));
+    // `total` is below `demo`, `demo` is not below `total`
+    CHECK_FALSE(total.findFunction("demo"));
+    CHECK(total.sexpr().find("total") != std::string::npos);
+    CHECK(demo.sexpr().find("total") != std::string::npos);
 }
 
 TEST_CASE("Test compiler: errors are reported, not thrown")
@@ -134,8 +239,8 @@ func main(): void {}
     INFO(cc.diagnostics());
 
     // Both functions hoist the same temporary, whatever the global counter says
-    const std::string first = cc.function("first");
-    const std::string second = cc.function("second");
+    const std::string first = cc.function("first").sexpr();
+    const std::string second = cc.function("second").sexpr();
     REQUIRE_FALSE(first.empty());
     REQUIRE_FALSE(second.empty());
     CHECK(first.find("_m0") != std::string::npos);
@@ -212,7 +317,7 @@ func main(): void {}
     {
         TestCompiler cc(stage("MemoryMgmt"));
         REQUIRE(cc.compile(source));
-        first = cc.module();
+        first = cc.ir().sexpr();
     }
     {
         // something different in between, with the builtins module this time
@@ -224,7 +329,7 @@ func main(): void {}
     {
         TestCompiler cc(stage("MemoryMgmt"));
         REQUIRE(cc.compile(source));
-        second = cc.module();
+        second = cc.ir().sexpr();
     }
     REQUIRE_FALSE(first.empty());
     CHECK(first == second);

@@ -30,6 +30,10 @@ typedef struct IrSexpOptions {
     // appearance in the function (`__t0`, `_m0`), so a test does not depend on
     // the global temporary counter.
     bool canonicalNames;
+    // The function that contains the node being dumped. With canonical names,
+    // its generated names are numbered first, so a variable or a block dumped
+    // on its own gets the same names as in the dump of the whole function.
+    const IrNode *function;
 } IrSexpOptions;
 
 void dumpIrToSexpState(const IrNode *node,
