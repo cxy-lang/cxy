@@ -253,6 +253,9 @@ set(CXY_MIDDLE_SOURCES
         src/cxy/lang/middle/ir/lower/operator.c
         src/cxy/lang/middle/ir/lower/call.c
         src/cxy/lang/middle/ir/lower/result.c
+        src/cxy/lang/middle/ir/lower/aggregate.c
+        src/cxy/lang/middle/ir/lower/closure.c
+        src/cxy/lang/middle/ir/lower/backend.c
         src/cxy/lang/middle/ir/reachability/reachability.c
         src/cxy/lang/middle/memory/manage.c
         src/cxy/lang/middle/memory/finalize.c

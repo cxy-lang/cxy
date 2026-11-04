@@ -182,6 +182,21 @@ bool isOwnedResultPayload(const IrNode *expr);
 void lowerCatchExpr(AstVisitor *visitor, AstNode *node);
 
 // ---------------------------------------------------------------------------
+// Array, tuple, struct and union values (aggregate.c)
+// ---------------------------------------------------------------------------
+
+void lowerArrayExpr(AstVisitor *visitor, AstNode *node);
+void lowerTupleExpr(AstVisitor *visitor, AstNode *node);
+void lowerStructExpr(AstVisitor *visitor, AstNode *node);
+void lowerUnionValueExpr(AstVisitor *visitor, AstNode *node);
+
+// Closure values and environments (closure.c)
+void lowerClosureValue(AstVisitor *visitor, AstNode *node);
+
+// Calls of the compiler builtins: copy, move, drop, alloc... (backend.c)
+void lowerBackendCall(AstVisitor *visitor, AstNode *node);
+
+// ---------------------------------------------------------------------------
 // Names and member access (access.c)
 // ---------------------------------------------------------------------------
 
