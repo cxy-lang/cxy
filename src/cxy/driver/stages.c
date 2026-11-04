@@ -250,18 +250,17 @@ static AstNode *executeMemoryManagement(CompilerDriver *driver, AstNode *node)
         return NULL;
     }
 
-    OwnershipVerifyMode verifyMode = driver->options.ownershipVerify;
+    // The verifier runs only when one of its warnings is enabled
     OwnershipSnapshot *snapshot =
-        verifyMode == ovmOFF ? NULL : ownershipSnapshot(node->metadata.ir);
+        (driver->L->enabledWarnings.num & wrnOwnership)
+            ? ownershipSnapshot(node->metadata.ir)
+            : NULL;
 
     node->metadata.ir = runMemoryManagement(driver, node->metadata.ir);
 
     if (snapshot) {
-        ownershipVerify(snapshot,
-                        node->metadata.ir,
-                        verifyMode == ovmERROR ? ownershipReportAsError
-                                               : ownershipReportAsWarning,
-                        driver->L);
+        ownershipVerify(
+            snapshot, node->metadata.ir, ownershipReportToLog, driver->L);
         freeOwnershipSnapshot(snapshot);
     }
     if (hasErrors(driver->L))

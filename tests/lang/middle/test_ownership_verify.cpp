@@ -36,6 +36,7 @@ struct Builder {
     IrTypeTable *types = newIrTypeTable(&pool, &strings);
     const IrType *cls = makeIrClassType(types, flgNone, nullptr);
     const IrType *u64Type = getIrPrimitiveType(types, irTypeU64);
+    const IrType *refType = makeIrPointerType(types, flgNone, irTypeCatReference, nullptr);
     IrNode *func = nullptr;
     IrNode *module = nullptr;
     IrNode *params = nullptr;
@@ -79,6 +80,27 @@ struct Builder {
         IrNode *decl = makeIrVarDecl(&pool, &loc, flgNone, name, name, cls, 1);
         irAppendBlockStmt(bb, decl);
         return decl;
+    }
+
+    IrNode *refVar(IrNode *bb, const char *name, u64 flags = flgNone)
+    {
+        FileLoc loc = at();
+        IrNode *decl = makeIrVarDecl(&pool, &loc, flags, name, name, refType, 1);
+        irAppendBlockStmt(bb, decl);
+        return decl;
+    }
+
+    // `&x` of a class local: the handle cast to a reference type
+    IrNode *borrow(IrNode *decl)
+    {
+        FileLoc loc = at();
+        return makeIrCast(&pool, &loc, ref(decl), refType);
+    }
+
+    IrNode *field(IrNode *decl)
+    {
+        FileLoc loc = at();
+        return makeIrMember(&pool, &loc, ref(decl), 0, "f", cls);
     }
 
     IrNode *param(const char *name)
@@ -479,4 +501,105 @@ TEST_CASE("Ownership verifier: O13 redeclared while owned")
     REQUIRE(found.size() >= 1);
     CHECK(found[0].rule == "O13");
     freeOwnershipSnapshot(snap);
+}
+
+TEST_CASE("Ownership verifier: B3 returned borrow of a local")
+{
+    Builder b;
+    IrNode *bb = b.block("entry");
+    IrNode *retVar = b.refVar(bb, "__ret", flgReturned);
+    IrNode *x = b.var(bb, "x");
+    irAppendBlockStmt(bb, b.assign(x, b.value()));
+    irAppendBlockStmt(bb, b.assign(retVar, b.borrow(x)));
+    IrNode *r = b.ret();
+    irAppendBlockStmt(bb, r);
+
+    OwnershipSnapshot *snap = ownershipSnapshot(b.module);
+    Builder::insertBefore(bb, r, b.drop(x));
+    auto found = b.verify(snap);
+    REQUIRE(found.size() == 1);
+    CHECK(found[0].rule == "B3");
+    CHECK(found[0].var == "x");
+    freeOwnershipSnapshot(snap);
+}
+
+TEST_CASE("Ownership verifier: B4 borrow outlives its owner")
+{
+    SUBCASE("read after the owner was moved")
+    {
+        Builder b;
+        IrNode *bb = b.block("entry");
+        IrNode *x = b.var(bb, "x");
+        IrNode *r = b.refVar(bb, "r");
+        irAppendBlockStmt(bb, b.assign(x, b.value()));
+        irAppendBlockStmt(bb, b.assign(r, b.borrow(x)));
+        irAppendBlockStmt(bb, b.call(b.move(x)));
+        irAppendBlockStmt(bb, b.call(b.ref(r)));
+        irAppendBlockStmt(bb, b.ret());
+
+        OwnershipSnapshot *snap = ownershipSnapshot(b.module);
+        auto found = b.verify(snap);
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "B4");
+        CHECK(found[0].var == "r");
+        freeOwnershipSnapshot(snap);
+    }
+
+    SUBCASE("last read before the owner is moved")
+    {
+        Builder b;
+        IrNode *bb = b.block("entry");
+        IrNode *x = b.var(bb, "x");
+        IrNode *r = b.refVar(bb, "r");
+        irAppendBlockStmt(bb, b.assign(x, b.value()));
+        irAppendBlockStmt(bb, b.assign(r, b.borrow(x)));
+        irAppendBlockStmt(bb, b.call(b.ref(r)));
+        irAppendBlockStmt(bb, b.call(b.move(x)));
+        irAppendBlockStmt(bb, b.ret());
+
+        OwnershipSnapshot *snap = ownershipSnapshot(b.module);
+        CHECK(b.verify(snap).empty());
+        freeOwnershipSnapshot(snap);
+    }
+}
+
+TEST_CASE("Ownership verifier: O5 field moved out and not cleared")
+{
+    auto build = [](bool clearField) {
+        Builder b;
+        IrNode *bb = b.block("entry");
+        IrNode *x = b.var(bb, "x");
+        IrNode *y = b.var(bb, "y");
+        irAppendBlockStmt(bb, b.assign(x, b.value()));
+
+        FileLoc loc = b.at();
+        irAppendBlockStmt(bb, b.assign(y, makeIrMove(&b.pool, &loc, b.field(x))));
+        IrNode *r = b.ret();
+        irAppendBlockStmt(bb, r);
+
+        OwnershipSnapshot *snap = ownershipSnapshot(b.module);
+        if (clearField) {
+            FileLoc l2 = b.at();
+            IrNode *zero = makeIrAssign(&b.pool, &l2, b.field(x), makeIrNullConst(&b.pool, &l2, b.cls));
+            Builder::insertBefore(bb, r, zero);
+        }
+        Builder::insertBefore(bb, r, b.drop(y));
+        Builder::insertBefore(bb, r, b.drop(x));
+        auto found = b.verify(snap);
+        freeOwnershipSnapshot(snap);
+        return found;
+    };
+
+    SUBCASE("field cleared after the move")
+    {
+        CHECK(build(true).empty());
+    }
+
+    SUBCASE("field left in place")
+    {
+        auto found = build(false);
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O5");
+        CHECK(found[0].var == "x");
+    }
 }

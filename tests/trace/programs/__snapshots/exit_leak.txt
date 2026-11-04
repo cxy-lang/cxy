@@ -1,6 +1,6 @@
 $ program output
 
 === CXY Memory Leak Summary ===
-[LEAK] ptr=PTR size=24 refs=1 @ <ROOT>/tests/trace/programs/exit_leak.cxy:12
-[LEAK] ptr=PTR size=24 refs=1 @ <ROOT>/tests/trace/programs/exit_leak.cxy:11
+[LEAK] ptr=PTR size=24 refs=1 @ <ROOT>/tests/trace/programs/exit_leak.cxy:12  <- cycle of 2 nodes, held by PTR
+[LEAK] ptr=PTR size=24 refs=1 @ <ROOT>/tests/trace/programs/exit_leak.cxy:11  <- cycle of 2 nodes, held by PTR
 Total: 2 active allocations (48 bytes leaked)

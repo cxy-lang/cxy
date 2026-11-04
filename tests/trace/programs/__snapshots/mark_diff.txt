@@ -1,5 +1,6 @@
 $ summary
 live: 1 allocations, 4 bytes
+buffers: 0 live, 0 bytes
 allocations since start: 1
 trace events: 1
 mark: 0
@@ -17,6 +18,7 @@ ptr=PTR size=4 refs=1 @ <ROOT>/tests/trace/programs/mark_diff.cxy:12
 Total: 2 live allocations (8 bytes)
 $ summary
 live: 3 allocations, 12 bytes
+buffers: 0 live, 0 bytes
 allocations since start: 3
 trace events: 3
 mark: 1

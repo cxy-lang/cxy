@@ -16,7 +16,16 @@ extern "C" {
     f(RedundantStmt,     2)             \
     f(CMacroRedefine,    3)             \
     f(CUnsupportedField, 4)             \
-    f(MaybeUninitialized,5)
+    f(MaybeUninitialized,5)             \
+    f(OwnerLeak,         6)             \
+    f(UseAfterMove,      7)             \
+    f(DoubleDrop,        8)             \
+    f(UnclearedMove,     9)             \
+    f(OverwrittenOwner,  10)            \
+    f(DropFlagMismatch,  11)            \
+    f(RedeclaredOwner,   12)            \
+    f(ReturnedBorrow,    13)            \
+    f(DanglingBorrow,    14)
 
 // clang-format on
 
@@ -29,9 +38,15 @@ enum {
 #define wrnNone (0ull)
 #define wrnAll (~(0ull) >> 1)
 #define wrn_Error (1ull << 63)
+// The ownership verifier runs only when one of these is enabled
+#define wrnOwnership                                                           \
+    (BIT(wrnOwnerLeak) | BIT(wrnUseAfterMove) | BIT(wrnDoubleDrop) |           \
+     BIT(wrnUnclearedMove) | BIT(wrnOverwrittenOwner) |                        \
+     BIT(wrnDropFlagMismatch) | BIT(wrnRedeclaredOwner) |                      \
+     BIT(wrnReturnedBorrow) | BIT(wrnDanglingBorrow))
 #define wrnDefault                                                             \
     wrnAll & ~(BIT(wrnMissingStage) | BIT(wrnCMacroRedefine) |                 \
-               BIT(wrnMaybeUninitialized))
+               BIT(wrnMaybeUninitialized) | wrnOwnership)
 
 typedef u64 WarningId;
 
@@ -61,6 +76,7 @@ typedef struct Diagnostic {
     FileLoc loc;
     cstring fmt;
     const FormatArg *args;
+    cstring code; // warning name, NULL for other diagnostics
 } Diagnostic;
 
 typedef void (*DiagnosticHandler)(const Diagnostic *, void *);
@@ -96,6 +112,7 @@ typedef struct Log {
         cstring str;
         u64 num;
     } enabledWarnings;
+    u64 warningsAsErrors; // warnings reported as errors
     bool showDiagnostics;
     bool progress;
 } Log;
@@ -160,6 +177,7 @@ static inline FileLoc *locAfter(FileLoc *dst, const FileLoc *loc)
 }
 
 u64 parseWarningLevels(Log *L, cstring str);
+u64 parseWarningLevelsFrom(Log *L, u64 base, cstring str);
 
 static inline bool isWarningEnabled_(Log *L, WarningId id)
 {

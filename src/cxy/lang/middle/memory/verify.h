@@ -18,6 +18,7 @@ extern "C" {
 
 typedef struct OwnershipFinding {
     const char *rule;       // "O1", "O2", ...
+    u8 warning;             // the compiler warning it is reported under (wrn*)
     bool definite;          // true: every path, false: some path
     const char *func;
     const char *var;
@@ -41,9 +42,8 @@ u64 ownershipVerify(const OwnershipSnapshot *snapshot,
                     OwnershipReporter reporter,
                     void *ctx);
 
-// Reporters for a `Log *` context
-void ownershipReportAsWarning(void *ctx, const OwnershipFinding *finding);
-void ownershipReportAsError(void *ctx, const OwnershipFinding *finding);
+// Reporter for a `Log *` context. Honors --warnings and --warning-as-error.
+void ownershipReportToLog(void *ctx, const OwnershipFinding *finding);
 
 #ifdef __cplusplus
 }

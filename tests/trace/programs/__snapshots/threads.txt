@@ -1,5 +1,6 @@
 $ summary
 live: 1 allocations, 4 bytes
+buffers: 0 live, 0 bytes
 allocations since start: 6
 trace events: 13
 mark: 0

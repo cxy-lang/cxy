@@ -63,18 +63,6 @@ static bool cmdParseDumpStatsModes(CmdParser *P,
 #undef DUMP_STATS_MODES_COUNT
 }
 
-static bool cmdParseOwnershipVerifyMode(CmdParser *P,
-                                        CmdFlagValue *dst,
-                                        const char *str,
-                                        const char *name)
-{
-    static CmdEnumValueDesc modes[] = {
-#define ff(NN) {#NN, ovm##NN},
-        OWNERSHIP_VERIFY_MODE(ff)
-#undef ff
-    };
-    return cmdParseEnumValue(P, dst, str, name, modes, ovmCOUNT);
-}
 
 static bool cmdParseProfileMode(CmdParser *P,
                                 CmdFlagValue *dst,
@@ -1526,11 +1514,10 @@ bool parseCommandLineOptions(
             Help("Build with memory tracing (implies --debug, defines "
                  "TRACE_MEMORY and links libcxy-trace from "
                  "$CXY_MEMORY_TRACE_LIB_DIR, or the stdlib directory)")),
-        Use(cmdParseOwnershipVerifyMode,
-            Name("verify-ownership"),
-            Help("Check the memory pass's drops against the language's "
-                 "ownership rules, values: OFF|WARN|ERROR"),
-            Def("OFF")));
+        Str(Name("warning-as-error"),
+            Help("Reports the listed compiler warnings as errors and enables "
+                 "them (eg 'Warn1|Warn2', 'All')"),
+            Def("")));
 
     P->ctx = options;
     P->strdup = cmdStrdup;
@@ -1561,6 +1548,11 @@ bool parseCommandLineOptions(
         parseWarningLevels(log, log->enabledWarnings.str);
     if (log->enabledWarnings.num & wrn_Error)
         return false;
+    log->warningsAsErrors =
+        parseWarningLevelsFrom(log, wrnNone, getGlobalString(cmd, 24));
+    if (log->warningsAsErrors & wrn_Error)
+        return false;
+    log->enabledWarnings.num |= log->warningsAsErrors;
 
     options->withoutBuiltins = getGlobalOption(cmd, 4);
     if (cmd->id == CMD_dev) {
@@ -1621,7 +1613,7 @@ bool parseCommandLineOptions(
     options->pluginsDir = getGlobalString(cmd, 21);
     options->depsDir = getGlobalString(cmd, 22);
     options->withMemoryTrace = getGlobalOption(cmd, 23);
-    options->ownershipVerify = getGlobalInt(cmd, 24);
+
 
     if (options->libDir == NULL) {
         options->libDir = makeString(strings, getenv("CXY_STDLIB_DIR"));

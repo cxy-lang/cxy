@@ -47,13 +47,19 @@ static void registerWarnings(HashTable *warnings)
                       sizeof(Warning),
                       compareWarningIds);
     insertInHashTable(warnings,
+                      &(Warning){"Ownership", 9, wrnOwnership},
+                      hashStr(hashInit(), "Ownership"),
+                      sizeof(Warning),
+                      compareWarningIds);
+    insertInHashTable(warnings,
                       &(Warning){"None", 4, wrnNone},
                       hashStr(hashInit(), "None"),
                       sizeof(Warning),
                       compareWarningIds);
 }
 
-static WarningId parseNextWarningId(Log *L, char *start, char *end)
+// `name` is NUL terminated and already trimmed
+static WarningId parseNextWarningId(Log *L, const char *name)
 {
     static bool initialized = false;
     static HashTable warningIds = {};
@@ -62,30 +68,19 @@ static WarningId parseNextWarningId(Log *L, char *start, char *end)
         warningIds = newTempHashTable(sizeof(Warning));
         registerWarnings(&warningIds);
     }
-    char *p = start;
-    while (isspace(*p))
-        p++;
-    if (*p == '0') {
+
+    u64 len = strlen(name);
+    if (len == 0) {
         logError(L,
                  NULL,
-                 "parsing warning failed, expecting a warning name (got '{s}')",
-                 (FormatArg[]){{.s = start}});
+                 "parsing warning failed, expecting a warning name",
+                 NULL);
         return wrn_Error;
     }
 
-    u64 len;
-    if (end) {
-        while (isspace(*end))
-            end--;
-        end[1] = '\0';
-        len = end - p;
-    }
-    else
-        len = strlen(p);
-
     Warning *warning = findInHashTable(&warningIds,
-                                       &(Warning){.name = p, .len = len},
-                                       hashRawBytes(hashInit(), p, len),
+                                       &(Warning){.name = name, .len = len},
+                                       hashRawBytes(hashInit(), name, len),
                                        sizeof(Warning),
                                        compareWarningIds);
 
@@ -93,7 +88,7 @@ static WarningId parseNextWarningId(Log *L, char *start, char *end)
         logError(L,
                  NULL,
                  "parsing warning failed, unknown warning name ('{s}')",
-                 (FormatArg[]){{.s = start}});
+                 (FormatArg[]){{.s = name}});
         return wrn_Error;
     }
 
@@ -332,11 +327,20 @@ static void printDiagnosticToState(FormatState *state,
                                                 {STYLE_BOLD, COLOR_CYAN}};
     static const char *headers[] = {"error", "warning", "note"};
 
-    format(state,
-           "{$}{s}{$}: ",
-           (FormatArg[]){{.style = header_styles[diag->kind]},
-                         {.s = headers[diag->kind]},
-                         {.style = resetStyle}});
+    // A warning's name is what --warnings and --warning-as-error accept
+    if (diag->code)
+        format(state,
+               "{$}{s}[{s}]{$}: ",
+               (FormatArg[]){{.style = header_styles[diag->kind]},
+                             {.s = headers[diag->kind]},
+                             {.s = diag->code},
+                             {.style = resetStyle}});
+    else
+        format(state,
+               "{$}{s}{$}: ",
+               (FormatArg[]){{.style = header_styles[diag->kind]},
+                             {.s = headers[diag->kind]},
+                             {.style = resetStyle}});
     format(state, diag->fmt, diag->args);
     format(state, "\n", NULL);
     if (diag->loc.fileName) {
@@ -356,22 +360,33 @@ static void printDiagnosticToState(FormatState *state,
     }
 }
 
-static void printMessage(Log *log,
-                         DiagnosticKind msg_type,
-                         const FileLoc *fileLoc,
-                         const char *format_str,
-                         const FormatArg *args)
+static void printCodedMessage(Log *log,
+                              DiagnosticKind msg_type,
+                              cstring code,
+                              const FileLoc *fileLoc,
+                              const char *format_str,
+                              const FormatArg *args)
 {
     Diagnostic diag = {.loc = fileLoc ? *fileLoc : (FileLoc){},
                        .kind = msg_type,
                        .fmt = format_str,
-                       .args = args};
+                       .args = args,
+                       .code = code};
     if (log->handler) {
         log->handler(&diag, log->handlerCtx);
     }
     else {
         printDiagnosticToConsole(&diag, log);
     }
+}
+
+static void printMessage(Log *log,
+                         DiagnosticKind msg_type,
+                         const FileLoc *fileLoc,
+                         const char *format_str,
+                         const FormatArg *args)
+{
+    printCodedMessage(log, msg_type, NULL, fileLoc, format_str, args);
 }
 
 void logPushFrame(Log *log, const FileLoc *loc, cstring fmt, FormatArg arg)
@@ -444,8 +459,20 @@ void logWarningWithId(Log *log,
                       const char *format_str,
                       const FormatArg *args)
 {
-    if (log->enabledWarnings.num & (1 << warningId))
-        printMessage(log, dkWarning, fileLoc, format_str, args);
+    static const cstring names[] = {
+#define f(NAME, IDX) [IDX] = #NAME,
+        CXY_COMPILER_WARNINGS(f)
+#undef f
+    };
+    u64 bit = BIT(warningId);
+    if (log->enabledWarnings.num & bit)
+        printCodedMessage(log,
+                          (log->warningsAsErrors & bit) ? dkError : dkWarning,
+                          warningId < sizeof(names) / sizeof(names[0]) ? names[warningId]
+                                                                       : NULL,
+                          fileLoc,
+                          format_str,
+                          args);
 }
 
 void printDiagnosticToConsole(const Diagnostic *diag, void *ctx)
@@ -468,46 +495,58 @@ void printDiagnosticToMemory(const Diagnostic *diag, void *ctx)
 
 u64 parseWarningLevels(Log *L, cstring str)
 {
-    WarningId warnings = L->enabledWarnings.num;
+    return parseWarningLevelsFrom(L, L->enabledWarnings.num, str);
+}
+
+u64 parseWarningLevelsFrom(Log *L, u64 base, cstring str)
+{
+    WarningId warnings = base;
     if (str == NULL)
         return warnings;
-    char *copy = strdup(str);
-    char *start = copy, *end = strchr(str, '|');
 
-    while (start && start[0] != '\0') {
-        char *last = end;
-        if (last) {
-            *last = '\0';
-            last--;
-            end++;
+    // Tokens are `Name`, `~Name`, separated by `|`. Only the copy is modified.
+    char *copy = strdup(str);
+    char *cursor = copy;
+    while (cursor != NULL) {
+        char *token = cursor;
+        char *bar = strchr(cursor, '|');
+        if (bar) {
+            *bar = '\0';
+            cursor = bar + 1;
+        }
+        else
+            cursor = NULL;
+
+        while (isspace((unsigned char)*token))
+            token++;
+        char *tail = token + strlen(token);
+        while (tail > token && isspace((unsigned char)tail[-1]))
+            *--tail = '\0';
+        if (*token == '\0')
+            continue;
+
+        bool flip = *token == '~';
+        if (flip) {
+            token++;
+            while (isspace((unsigned char)*token))
+                token++;
         }
 
-        while (isspace(*start))
-            start++;
-        bool flip = start[0] == '~';
-        if (flip)
-            start++;
-
-        u64 warning = parseNextWarningId(L, start, last);
-        if (warning == wrn_Error || warning == wrnNone || warning == wrnAll) {
+        u64 warning = parseNextWarningId(L, token);
+        if (warning == wrn_Error) {
             free(copy);
-            return warning;
+            return wrn_Error;
         }
 
         if (flip)
             warnings &= ~warning;
+        else if (warning == wrnNone) // `None` clears what came before
+            warnings = wrnNone;
         else
             warnings |= warning;
-
-        while (end && *end == '|')
-            end++;
-
-        start = end;
-        end = last ? strchr(last, '|') : NULL;
     }
 
     free(copy);
-
     return warnings;
 }
 

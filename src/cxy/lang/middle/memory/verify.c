@@ -23,12 +23,18 @@ typedef enum {
     oevDrop,       // flagIndex: -1 unconditional, -2 unknown flag, else drop-if
     oevFlagSet,    // `__drop_flags.i = v`, flagValue 0, 1 or 2 (unknown)
     oevFlagsClear, // `zeromem __drop_flags`
-    oevReturn
+    oevReturn,
+    oevMovePart,   // `&&x.f`, the field must be cleared before x is dropped
+    oevZeroPart,   // a field of x is cleared or refilled
+    oevEscape,     // decl: a local whose borrow is returned
+    oevBind,       // decl: a reference variable, other: the owner it borrows
+    oevRefUse      // decl: a reference variable is read
 } OwnEventKind;
 
 typedef struct OwnEvent {
     OwnEventKind kind;
     const IrNode *decl;
+    const IrNode *other;
     const FileLoc *loc;
     i32 flagIndex;
     i8 flagValue;
@@ -86,6 +92,82 @@ static void emit(Collector *c,
     pushOnDynArray(&c->events, &ev);
 }
 
+static void emitBind(Collector *c, const IrNode *ref, const IrNode *owner, const FileLoc *loc)
+{
+    OwnEvent ev = {.kind = oevBind, .decl = ref, .other = owner, .loc = loc};
+    pushOnDynArray(&c->events, &ev);
+}
+
+// The local a place is stored in, looking through fields and array elements.
+// Stops at raw pointers and references: what they point to has another owner.
+static const IrNode *rootOf(const IrNode *node)
+{
+    while (node) {
+        const IrNode *target = NULL;
+        switch (node->tag) {
+        case irCast:
+            node = node->cast.expr;
+            continue;
+        case irVarRef:
+            return node->varRef.target;
+        case irMember:
+            target = node->member.target;
+            break;
+        case irIndex:
+            target = node->index.target;
+            if (target && target->type && target->type->tag != irTypeArray)
+                return NULL;
+            break;
+        default:
+            return NULL;
+        }
+        const IrType *type = target ? target->type : NULL;
+        if (type && type->tag == irTypePointer && type->category != irTypeCatClass)
+            return NULL;
+        node = target;
+    }
+    return NULL;
+}
+
+// A local that owns its storage: returning a borrow of it dangles
+static bool isOwningStorage(const IrNode *decl)
+{
+    if (decl == NULL || (decl->tag != irVarDecl && decl->tag != irFuncParam))
+        return false;
+    if (hasFlag(decl, Temporary) || hasFlag(decl, Ephemeral) || hasFlag(decl, Returned))
+        return false;
+    return decl->type && decl->type->category != irTypeCatReference;
+}
+
+// The local `rhs` borrows (`&x`), or NULL. A class `&x` is a reference-typed
+// cast of the handle, anything else is the address of the storage.
+static const IrNode *borrowedLocal(const IrNode *rhs)
+{
+    bool viaRefCast = false;
+    const IrNode *n = rhs;
+    while (n && n->tag == irCast) {
+        if (n->type && n->type->category == irTypeCatReference)
+            viaRefCast = true;
+        n = n->cast.expr;
+    }
+    if (n == NULL)
+        return NULL;
+
+    const IrNode *root = NULL;
+    if (n->tag == irAddrOf)
+        root = rootOf(n->addrOf.target);
+    else if (viaRefCast && isTrackedDecl(rootOf(n)))
+        root = rootOf(n);
+    return isOwningStorage(root) ? root : NULL;
+}
+
+static bool isReferenceVar(const IrNode *decl)
+{
+    return decl && decl->tag == irVarDecl && !hasFlag(decl, Returned) &&
+           !hasFlag(decl, Temporary) && decl->type &&
+           decl->type->category == irTypeCatReference;
+}
+
 static const IrNode *flagMemberDecl(const Collector *c, const IrNode *node)
 {
     node = stripCasts(node);
@@ -102,6 +184,8 @@ static void visitVarRef(IrVisitor *v, IrNode *node)
     Collector *c = getIrVisitorContext(v);
     if (isTrackedDecl(node->varRef.target))
         emit(c, oevUse, node->varRef.target, &node->loc, 0, 0);
+    else if (isReferenceVar(node->varRef.target))
+        emit(c, oevRefUse, node->varRef.target, &node->loc, 0, 0);
 }
 
 static void visitMove(IrVisitor *v, IrNode *node)
@@ -112,7 +196,10 @@ static void visitMove(IrVisitor *v, IrNode *node)
         emit(c, oevMove, decl, &node->loc, 0, 0);
         return;
     }
-    // A move out of a field or an element only reads the root here
+    // A move out of a field or an element leaves the root alive but holed
+    const IrNode *root = rootOf(node->move.src);
+    if (isTrackedDecl(root))
+        emit(c, oevMovePart, root, &node->loc, 0, 0);
     irVisit(v, node->move.src);
 }
 
@@ -129,9 +216,24 @@ static void visitAssign(IrVisitor *v, IrNode *node)
     irVisit(v, node->assign.rhs);
 
     IrNode *lhs = node->assign.lhs;
+    const IrNode *lhsRoot = rootOf(lhs);
+    if (hasFlag(lhsRoot, Returned)) {
+        const IrNode *borrowed = borrowedLocal(node->assign.rhs);
+        if (borrowed)
+            emit(c, oevEscape, borrowed, &node->loc, 0, 0);
+    }
+
     const IrNode *decl = trackedVarRef(lhs);
     if (decl) {
         emit(c, isEmptyValue(node->assign.rhs) ? oevClear : oevDef, decl, &node->loc, 0, 0);
+        return;
+    }
+
+    // `var r = &x` ties r to x. Any other source makes r unknown (no owner).
+    const IrNode *bare = stripCasts(lhs);
+    if (bare && bare->tag == irVarRef && isReferenceVar(bare->varRef.target)) {
+        const IrNode *owner = borrowedLocal(node->assign.rhs);
+        emitBind(c, bare->varRef.target, isTrackedDecl(owner) ? owner : NULL, &node->loc);
         return;
     }
 
@@ -144,6 +246,8 @@ static void visitAssign(IrVisitor *v, IrNode *node)
         emit(c, oevFlagSet, NULL, &node->loc, (i32)member->member.index, value);
         return;
     }
+    if (isTrackedDecl(lhsRoot))
+        emit(c, oevZeroPart, lhsRoot, &node->loc, 0, 0);
     irVisit(v, lhs);
 }
 
@@ -152,10 +256,14 @@ static void visitCopy(IrVisitor *v, IrNode *node)
     Collector *c = getIrVisitorContext(v);
     irVisit(v, node->copy.src);
     const IrNode *decl = trackedVarRef(node->copy.dst);
-    if (decl)
+    if (decl) {
         emit(c, oevDef, decl, &node->loc, 0, 0);
-    else
-        irVisit(v, node->copy.dst);
+        return;
+    }
+    const IrNode *root = rootOf(node->copy.dst);
+    if (isTrackedDecl(root))
+        emit(c, oevZeroPart, root, &node->loc, 0, 0);
+    irVisit(v, node->copy.dst);
 }
 
 static void visitDrop(IrVisitor *v, IrNode *node)
@@ -184,6 +292,9 @@ static void visitZeromem(IrVisitor *v, IrNode *node)
         emit(c, oevFlagsClear, NULL, &node->loc, 0, 0);
         return;
     }
+    const IrNode *root = rootOf(node->zeromem.target);
+    if (isTrackedDecl(root) && trackedVarRef(node->zeromem.target) == NULL)
+        emit(c, oevZeroPart, root, &node->loc, 0, 0);
     irVisit(v, node->zeromem.target);
 }
 
@@ -191,6 +302,9 @@ static void visitReturn(IrVisitor *v, IrNode *node)
 {
     Collector *c = getIrVisitorContext(v);
     irVisit(v, node->returnStmt.value);
+    const IrNode *borrowed = borrowedLocal(node->returnStmt.value);
+    if (borrowed)
+        emit(c, oevEscape, borrowed, &node->loc, 0, 0);
     emit(c, oevReturn, NULL, &node->loc, 0, 0);
 }
 
@@ -295,8 +409,11 @@ typedef struct VarState {
     u8 pairs;
     bool staleAny; // some path moved or dropped the value
     bool staleAll; // every path did
+    bool partialAny; // a field was moved out and not cleared yet
+    bool partialAll;
     char originKind;
     const FileLoc *origin;
+    const FileLoc *partialOrigin;
 } VarState;
 
 #define PAIR_BIT(own, flag) (1u << (((own) << 1) | (flag)))
@@ -369,10 +486,28 @@ typedef struct BlockInfo {
     bool reached;
 } BlockInfo;
 
-typedef enum { ruleO1, ruleO2, ruleO3, ruleO7, ruleO8, ruleO13 } Rule;
+typedef enum { ruleO1, ruleO2, ruleO3, ruleO5, ruleO7, ruleO8, ruleO13, ruleB3, ruleB4 } Rule;
 
-static const char *const ruleNames[] = {
-    [ruleO1] = "O1", [ruleO2] = "O2", [ruleO3] = "O3", [ruleO7] = "O7", [ruleO8] = "O8", [ruleO13] = "O13"};
+static const char *const ruleNames[] = {[ruleO1] = "O1",
+                                        [ruleO2] = "O2",
+                                        [ruleO3] = "O3",
+                                        [ruleO5] = "O5",
+                                        [ruleO7] = "O7",
+                                        [ruleO8] = "O8",
+                                        [ruleO13] = "O13",
+                                        [ruleB3] = "B3",
+                                        [ruleB4] = "B4"};
+
+// The compiler warning each rule is reported under
+static const u8 ruleWarnings[] = {[ruleO1] = wrnOwnerLeak,
+                                  [ruleO2] = wrnUseAfterMove,
+                                  [ruleO3] = wrnDoubleDrop,
+                                  [ruleO5] = wrnUnclearedMove,
+                                  [ruleO7] = wrnOverwrittenOwner,
+                                  [ruleO8] = wrnDropFlagMismatch,
+                                  [ruleO13] = wrnRedeclaredOwner,
+                                  [ruleB3] = wrnReturnedBorrow,
+                                  [ruleB4] = wrnDanglingBorrow};
 
 typedef struct Finding {
     Rule rule;
@@ -391,7 +526,8 @@ typedef struct FuncVerify {
     u32 flagCount;
     BlockInfo *blocks;
     u32 blockCount;
-    DynArray reported; // Finding
+    HashTable bindIndex; // reference variable to the owner variable it borrows
+    DynArray reported;   // Finding
     OwnershipReporter reporter;
     void *reporterCtx;
     u64 findings;
@@ -423,6 +559,7 @@ static void reportFinding(FuncVerify *fv,
 
     OwnershipFinding finding = {
         .rule = ruleNames[rule],
+        .warning = ruleWarnings[rule],
         .definite = definite,
         .func = fv->func->function.display ? fv->func->function.display
                                            : fv->func->function.name,
@@ -476,6 +613,33 @@ static void applyEvent(FuncVerify *fv, VarState *vars, const OwnEvent *ev, bool 
         for (u32 i = 0; i < fv->varCount; i++)
             vars[i].pairs = pairsSetFlag(vars[i].pairs, 0);
         return;
+    case oevEscape:
+        if (report)
+            reportFinding(fv,
+                          ruleB3,
+                          true,
+                          ev->decl,
+                          ev->loc,
+                          NULL,
+                          "is borrowed and the borrow is returned, but it dies at function exit");
+        return;
+    case oevBind:
+        return;
+    case oevRefUse: {
+        i64 owner = getPtrIndex(&fv->bindIndex, ev->decl);
+        if (!report || owner < 0 || owner >= (i64)fv->varCount)
+            return;
+        VarState *o = &vars[owner];
+        if (o->staleAny) {
+            char what[160];
+            snprintf(what,
+                     sizeof(what),
+                     "borrows `%s`, which was moved or dropped",
+                     declName(fv->decls[owner]));
+            reportFinding(fv, ruleB4, o->staleAll, ev->decl, ev->loc, o, what);
+        }
+        return;
+    }
     case oevReturn:
         if (!report)
             return;
@@ -513,6 +677,7 @@ static void applyEvent(FuncVerify *fv, VarState *vars, const OwnEvent *ev, bool 
                           "is declared again while its previous value is still owned");
         s->pairs = pairsSetOwn(s->pairs, 0);
         s->staleAny = s->staleAll = false;
+        s->partialAny = s->partialAll = false;
         s->origin = NULL;
         break;
     case oevDef:
@@ -527,7 +692,15 @@ static void applyEvent(FuncVerify *fv, VarState *vars, const OwnEvent *ev, bool 
                           "is assigned while its old value is still owned, the old value leaks");
         s->pairs = pairsSetOwn(s->pairs, ev->kind == oevDef ? 1 : 0);
         s->staleAny = s->staleAll = false;
+        s->partialAny = s->partialAll = false;
         s->origin = NULL;
+        break;
+    case oevMovePart:
+        s->partialAny = s->partialAll = true;
+        s->partialOrigin = ev->loc;
+        break;
+    case oevZeroPart:
+        s->partialAny = s->partialAll = false;
         break;
     case oevUse:
         if (report && s->staleAny)
@@ -554,6 +727,19 @@ static void applyEvent(FuncVerify *fv, VarState *vars, const OwnEvent *ev, bool 
         s->origin = ev->loc;
         break;
     case oevDrop:
+        if (report && s->partialAny) {
+            VarState hole = *s;
+            hole.origin = s->partialOrigin;
+            hole.originKind = 'm';
+            reportFinding(fv,
+                          ruleO5,
+                          s->partialAll,
+                          decl,
+                          ev->loc,
+                          &hole,
+                          "is dropped while a field moved out of it was not cleared");
+        }
+        s->partialAny = s->partialAll = false;
         if (ev->flagIndex == -1) {
             if (report && s->staleAny)
                 reportFinding(fv,
@@ -629,15 +815,22 @@ static bool joinInto(BlockInfo *dst, const VarState *src, u32 n)
         u8 pairs = d->pairs | s->pairs;
         bool staleAny = d->staleAny || s->staleAny;
         bool staleAll = d->staleAll && s->staleAll;
+        bool partialAny = d->partialAny || s->partialAny;
+        bool partialAll = d->partialAll && s->partialAll;
+        if (s->partialOrigin && (d->partialOrigin == NULL || (s->partialAny && !d->partialAny)))
+            d->partialOrigin = s->partialOrigin;
         if (s->origin && (d->origin == NULL || (s->staleAny && !d->staleAny))) {
             d->origin = s->origin;
             d->originKind = s->originKind;
         }
-        if (pairs != d->pairs || staleAny != d->staleAny || staleAll != d->staleAll)
+        if (pairs != d->pairs || staleAny != d->staleAny || staleAll != d->staleAll ||
+            partialAny != d->partialAny || partialAll != d->partialAll)
             changed = true;
         d->pairs = pairs;
         d->staleAny = staleAny;
         d->staleAll = staleAll;
+        d->partialAny = partialAny;
+        d->partialAll = partialAll;
     }
     return changed;
 }
@@ -796,6 +989,31 @@ static void verifyFunction(const OwnershipSnapshot *snap,
         bi++;
     }
 
+    // A reference variable tied to one owner is checked against that owner's
+    // state at every read
+    fv.bindIndex = newHashTable(sizeof(PtrIndex), &fv.pool);
+    for (u32 i = 0; i < fv.blockCount; i++) {
+        BlockInfo *b = &fv.blocks[i];
+        for (u32 si = 0; si < b->stmtCount; si++) {
+            for (u32 k = 0; k < b->stmts[si].count; k++) {
+                const OwnEvent *ev = &b->stmts[si].events[k];
+                if (ev->kind != oevBind)
+                    continue;
+                i64 owner = ev->other ? getPtrIndex(&fv.varIndex, ev->other) : -1;
+                u32 value = owner >= 0 ? (u32)owner : UINT32_MAX;
+                PtrIndex *known = findInHashTable(&fv.bindIndex,
+                                                  ev->decl,
+                                                  hashPtr(hashInit(), ev->decl),
+                                                  sizeof(PtrIndex),
+                                                  comparePtrIndexKey);
+                if (known == NULL)
+                    putPtrIndex(&fv.bindIndex, ev->decl, value);
+                else if (known->value != value)
+                    known->value = UINT32_MAX;
+            }
+        }
+    }
+
     for (u32 i = 0; i < fv.blockCount; i++) {
         BlockInfo *b = &fv.blocks[i];
         u32 cap = countSuccessors(b->bb);
@@ -888,27 +1106,18 @@ u64 ownershipVerify(const OwnershipSnapshot *snap,
 // Reporting
 // ---------------------------------------------------------------------------
 
-static void reportToLog(Log *L, const OwnershipFinding *f, bool asError)
+void ownershipReportToLog(void *ctx, const OwnershipFinding *f)
 {
+    Log *L = ctx;
+    if (!(L->enabledWarnings.num & BIT(f->warning)))
+        return;
+
     char text[320];
-    snprintf(text, sizeof(text), "[%s] %s (in %s)", f->rule, f->message, f->func);
+    snprintf(text, sizeof(text), "%s (in %s)", f->message, f->func);
     FormatArg args[] = {{.s = text}};
-    if (asError)
-        logError(L, &f->loc, "{s}", args);
-    else
-        logWarning(L, &f->loc, "{s}", args);
+    logWarningWithId(L, f->warning, &f->loc, "{s}", args);
     if (f->hasOrigin) {
         FormatArg note[] = {{.s = f->originNote}};
         logNote(L, &f->origin, "{s}", note);
     }
-}
-
-void ownershipReportAsWarning(void *ctx, const OwnershipFinding *finding)
-{
-    reportToLog(ctx, finding, false);
-}
-
-void ownershipReportAsError(void *ctx, const OwnershipFinding *finding)
-{
-    reportToLog(ctx, finding, true);
 }
