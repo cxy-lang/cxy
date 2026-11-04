@@ -1,0 +1,7 @@
+// `callsite` is the only option, it must be spelled out
+@memtrace
+func make(): i32 => 1
+
+func main(): void {
+    make()
+}

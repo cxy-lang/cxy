@@ -149,6 +149,9 @@ extern "C" {
     f(hint)                     \
     f(naked)                    \
     f(nodiscard)                \
+    f(memtrace)                 \
+    f(callsite)                 \
+    f(override)                 \
     f(noreturn)                 \
     f(returns_twice)            \
     f(register)                 \

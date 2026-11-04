@@ -103,11 +103,14 @@ typedef struct IrCase {
     IrNode *target;
 } IrCase;
 
-// Attributes of functions defined in C, forwarded to the extern prototype
+// Naked, NoReturn and ReturnsTwice are forwarded to the extern prototype of
+// functions defined in C. CallSite is read by the backend in trace builds.
 typedef enum {
     irFuncAttrNaked = BIT(0),
     irFuncAttrNoReturn = BIT(1),
     irFuncAttrReturnsTwice = BIT(2),
+    // Takes the allocation site of its caller as a hidden first parameter
+    irFuncAttrCallSite = BIT(3),
 } IrFuncAttr;
 
 struct IrNode {

@@ -1,0 +1,11 @@
+// A marked function carries a hidden parameter, so it cannot become a raw
+// function pointer. A `@pure` parameter keeps the plain function type.
+@memtrace(callsite)
+func make(): i32 => 1
+
+@pure
+func apply(f: func() -> i32): i32 => f()
+
+func main(): void {
+    apply(make)
+}

@@ -1,0 +1,5 @@
+error: 'make' is marked `@memtrace(callsite)` and cannot be used as a value, its signature carries a hidden site parameter
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/memtrace/used_as_value.cxy:10:11 (to 10:15)
+   |
+10 |    apply(make)
+   |          ^^^^

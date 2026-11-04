@@ -235,6 +235,7 @@ static AstNode *createCoverProto(TypingContext *ctx,
         NULL);
     cover->parentScope = node->parentScope;
     cover->funcDecl.index = node->funcDecl.index;
+    cover->funcDecl.isInitCover = true;
     cover->attrs = makeAttribute(ctx->pool, builtinLoc(), S_inline, NULL, NULL);
     return cover;
 }

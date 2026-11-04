@@ -289,9 +289,15 @@ void checkFunctionParam(AstVisitor *visitor, AstNode *node)
         node->type = type_;
 }
 
+static bool validateMemTrace(TypingContext *ctx, const AstNode *node);
+
 const Type *checkFunctionSignature(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
+    // Members get their signature checked from class and struct checks, so the
+    // attribute is validated here, once
+    if (node->type == NULL && !validateMemTrace(ctx, node))
+        return node->type = ERROR_TYPE(ctx);
     AstNode *params = node->funcDecl.signature->params, *param = params,
             *ret = node->funcDecl.signature->ret, *body = node->funcDecl.body;
     u64 paramsCount = countAstNodes(params);
@@ -462,6 +468,44 @@ void checkFunctionType(AstVisitor *visitor, AstNode *node)
     free(params);
 }
 
+// `@memtrace(callsite)` adds a hidden site parameter in trace builds. The
+// restrictions apply in every build so both builds accept the same programs.
+static bool validateMemTrace(TypingContext *ctx, const AstNode *node)
+{
+    const AstNode *attr = findAttribute(node, S_memtrace);
+    if (attr == NULL)
+        return true;
+
+    if (findAttributeArgument(attr, S_callsite) == NULL) {
+        logError(ctx->L,
+                 &attr->loc,
+                 "expecting `callsite` as the argument of `@memtrace`, "
+                 "e.g. `@memtrace(callsite)`",
+                 NULL);
+        return false;
+    }
+
+    cstring why = NULL;
+    if (hasFlags(node, flgVirtual | flgAbstract) || findAttribute(node, S_override))
+        why = "a virtual or overriding method is called through a table that "
+              "cannot pass the site";
+    else if (hasFlag(node, Extern))
+        why = "an extern function has a fixed C signature";
+    else if (node->funcDecl.operatorOverload != opInvalid)
+        why = "operator overloads, `init` and `deinit` are called implicitly";
+    else if (findAttribute(node, S_task))
+        why = "a `@task` function is started by `@async`, which cannot pass "
+              "the site";
+    if (why == NULL)
+        return true;
+
+    logError(ctx->L,
+             &attr->loc,
+             "`@memtrace(callsite)` is not allowed here: {s}",
+             (FormatArg[]){{.s = why}});
+    return false;
+}
+
 void checkFunctionDecl(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
@@ -473,6 +517,7 @@ void checkFunctionDecl(AstVisitor *visitor, AstNode *node)
     const Type *type = checkFunctionSignature(visitor, node);
     if (typeIs(type, Error))
         return;
+
     if (hasFlag(node, Main)) {
         validateMainFunction(ctx, node, type);
         if (typeIs(node->type, Error))

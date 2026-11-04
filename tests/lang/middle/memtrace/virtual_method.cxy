@@ -1,0 +1,10 @@
+// `@memtrace(callsite)` is rejected on a virtual method in every build
+class Base {
+    func `init`() {}
+    @memtrace(callsite)
+    virtual func make(): i32 => 1
+}
+
+func main(): void {
+    var b = Base()
+}

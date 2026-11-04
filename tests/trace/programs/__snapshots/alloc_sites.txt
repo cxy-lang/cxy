@@ -1,0 +1,13 @@
+$ sitecounts
+    allocs        bytes  site
+         3           12  <ROOT>/tests/trace/programs/alloc_sites.cxy:22:17 (main)
+         1            4  <ROOT>/tests/trace/programs/alloc_sites.cxy:11:12 (make)
+         1            4  <ROOT>/tests/trace/programs/alloc_sites.cxy:15:13 (genericI_i32E)
+         1            4  <ROOT>/tests/trace/programs/alloc_sites.cxy:19:13 (main)
+         1            4  <ROOT>/tests/trace/programs/alloc_sites.cxy:20:13 (main)
+Total: 5 sites
+$ types
+    allocs      frees       live        bytes  type
+         7          4          3           28  Node
+Total: 1 types
+$ program output

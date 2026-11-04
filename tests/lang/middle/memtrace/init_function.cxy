@@ -1,0 +1,10 @@
+// `init` is called implicitly, it cannot take a hidden site
+class Node {
+    id: i32
+    @memtrace(callsite)
+    func `init`(id: i32) { this.id = id }
+}
+
+func main(): void {
+    var n = Node(1)
+}

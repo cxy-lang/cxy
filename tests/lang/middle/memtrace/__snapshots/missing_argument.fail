@@ -1,0 +1,5 @@
+error: expecting `callsite` as the argument of `@memtrace`, e.g. `@memtrace(callsite)`
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/memtrace/missing_argument.cxy:2:2 (to 2:10)
+  |
+2 |@memtrace
+  | ^^^^^^^^

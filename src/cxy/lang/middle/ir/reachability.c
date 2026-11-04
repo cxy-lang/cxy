@@ -24,6 +24,7 @@ typedef struct ReachabilityContext {
     HashTable symbolMap; // cstring name -> SymbolEntry
     HashTable moduleInits; // const IrNode* module -> ModuleInitEntry
     DynArray worklist;   // List of IrNode* (functions and globals)
+    const IrNode *calleeNode; // callee of the call being visited
 } ReachabilityContext;
 
 static inline bool compareSymbolEntry(const void *a, const void *b)
@@ -163,10 +164,33 @@ static void markTypeLifecycleFunctions(ReachabilityContext *ctx, const IrType *t
 static void visitGlobalRef(ConstIrVisitor *visitor, const IrNode *node)
 {
     ReachabilityContext *ctx = getConstIrVisitorContext(visitor);
-    if (node->globalRef.target)
-        markAndEnqueue(ctx, node->globalRef.target);
-    else if (node->globalRef.name)
-        markSymbolByName(ctx, node->globalRef.name);
+    IrNode *target = node->globalRef.target;
+    if (target == NULL && node->globalRef.name)
+        target = findSymbol(ctx, node->globalRef.name);
+    if (target)
+        markAndEnqueue(ctx, target);
+
+    // A function with a hidden site parameter cannot become a value
+    if (target && target->tag == irFunction && node != ctx->calleeNode &&
+        (target->function.attrs & irFuncAttrCallSite)) {
+        logError(ctx->driver->L,
+                 &node->loc,
+                 "'{s}' is marked `@memtrace(callsite)` and cannot be used as "
+                 "a value, its signature carries a hidden site parameter",
+                 (FormatArg[]){{.s = target->function.display
+                                         ?: target->function.name}});
+    }
+}
+
+static void visitCall(ConstIrVisitor *visitor, const IrNode *node)
+{
+    ReachabilityContext *ctx = getConstIrVisitorContext(visitor);
+    const IrNode *saved = ctx->calleeNode;
+    ctx->calleeNode = node->call.callee;
+    irConstVisit(visitor, node->call.callee);
+    ctx->calleeNode = saved;
+    for (const IrNode *arg = node->call.args; arg; arg = arg->next)
+        irConstVisit(visitor, arg);
 }
 
 static void visitVarRef(ConstIrVisitor *visitor, const IrNode *node)
@@ -318,6 +342,7 @@ void runReachabilityAnalysis(CompilerDriver *driver)
     // clang-format off
     ConstIrVisitor visitor = makeConstIrVisitor(&ctx, {
         [irGlobalRef] = visitGlobalRef,
+        [irCall] = visitCall,
         [irVarRef] = visitVarRef,
         [irAddrOf] = visitAddrOf,
         [irAlloc] = visitAlloc,

@@ -8,11 +8,12 @@ mark 1
 @next
 $ diff
        bytes    count  site
-           8        2  <ROOT>/tests/trace/programs/mark_diff.cxy:5
-Total: 2 live allocations (8 bytes) across 1 sites
+           4        1  <ROOT>/tests/trace/programs/mark_diff.cxy:12
+           4        1  <ROOT>/tests/trace/programs/mark_diff.cxy:13
+Total: 2 live allocations (8 bytes) across 2 sites
 $ difflist 5
-ptr=PTR size=4 refs=1 @ <ROOT>/tests/trace/programs/mark_diff.cxy:5
-ptr=PTR size=4 refs=1 @ <ROOT>/tests/trace/programs/mark_diff.cxy:5
+ptr=PTR size=4 refs=1 @ <ROOT>/tests/trace/programs/mark_diff.cxy:13
+ptr=PTR size=4 refs=1 @ <ROOT>/tests/trace/programs/mark_diff.cxy:12
 Total: 2 live allocations (8 bytes)
 $ summary
 live: 3 allocations, 12 bytes

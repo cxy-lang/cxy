@@ -551,6 +551,7 @@ struct AstNode {
             AstNode *opaqueParams;
             AstNode *this_;
             AstNode *initCover;
+            bool isInitCover; // generated `Class(args)` function that allocates
             union {
                 AstNode *body;
                 AstNode *definition;

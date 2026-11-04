@@ -7,6 +7,7 @@
 #include "driver/driver.h"
 
 typedef struct TypeGraph TypeGraph;
+struct IrNode;
 
 typedef struct CBackend {
     cstring filename;
@@ -31,6 +32,8 @@ typedef struct CodegenContext {
     DynArray typeInfoTypes; // const IrType * with a TypeInfo already emitted
     DynArray sites;         // CodegenSite, index = `__site_<index>` (trace builds)
     cstring functionName;   // function being emitted
+    const struct IrNode *function;
+    HashTable callSiteFuncs; // cstring names of functions with a hidden site parameter
     TypeTable *table;
     cstring loopUpdate;
     bool loopUpdateUsed;

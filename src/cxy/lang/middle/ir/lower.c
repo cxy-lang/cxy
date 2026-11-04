@@ -4541,6 +4541,8 @@ static void visitFuncDecl(AstVisitor *visitor, AstNode *node)
                                   paramsCount);
     func->ast = node;
     node->ir = func;
+    if (node->funcDecl.isInitCover || findAttribute(node, S_memtrace))
+        func->function.attrs |= irFuncAttrCallSite;
 
     ctx->currentFunc = func;
     ctx->nextBlockId = 0;

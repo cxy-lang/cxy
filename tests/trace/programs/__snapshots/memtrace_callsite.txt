@@ -1,0 +1,11 @@
+$ sitecounts
+    allocs        bytes  site
+         2            8  <ROOT>/tests/trace/programs/memtrace_callsite.cxy:22:13 (main)
+         1            4  <ROOT>/tests/trace/programs/memtrace_callsite.cxy:20:13 (main)
+         1            4  <ROOT>/tests/trace/programs/memtrace_callsite.cxy:21:13 (main)
+Total: 3 sites
+$ types
+    allocs      frees       live        bytes  type
+         4          1          3           16  Node
+Total: 1 types
+$ program output

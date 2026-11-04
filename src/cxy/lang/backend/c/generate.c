@@ -385,6 +385,48 @@ static u32 emitSite(CodegenContext *ctx, const FileLoc *loc)
     return index;
 }
 
+// Trace builds: functions with the CallSite attribute (generated `Class(args)`
+// constructors) take the caller's site as a hidden first parameter `__site`
+static bool hasCallSite(const CodegenContext *ctx, const IrNode *func)
+{
+    return ctx->memTraceEnabled && func != NULL && func->tag == irFunction &&
+           (func->function.attrs & irFuncAttrCallSite) != 0;
+}
+
+static bool compareFuncNames(const void *lhs, const void *rhs)
+{
+    return strcmp(*(cstring *)lhs, *(cstring *)rhs) == 0;
+}
+
+// A callee can reference a function that is lowered later, so it is matched by
+// symbol name against the set collected before emission
+static bool calleeHasCallSite(CodegenContext *ctx, const IrNode *callee)
+{
+    if (!ctx->memTraceEnabled || callee == NULL || callee->tag != irGlobalRef)
+        return false;
+    cstring name = callee->globalRef.name;
+    if (name == NULL && callee->globalRef.target &&
+        callee->globalRef.target->tag == irFunction)
+        name = callee->globalRef.target->function.name;
+    if (name == NULL)
+        return false;
+    return findInHashTable(&ctx->callSiteFuncs,
+                           &name,
+                           hashStr(hashInit(), name),
+                           sizeof(cstring),
+                           compareFuncNames) != NULL;
+}
+
+// The incoming site inside a function that has one, otherwise the site of the
+// expression at `loc`
+static void emitSiteArg(CodegenContext *ctx, const FileLoc *loc)
+{
+    if (hasCallSite(ctx, ctx->function))
+        format(&ctx->state, "__site", NULL);
+    else
+        format(&ctx->state, "&__site_{u32}", (FormatArg[]){{.u32 = emitSite(ctx, loc)}});
+}
+
 static void emitAlloc(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
@@ -392,10 +434,9 @@ static void emitAlloc(ConstIrVisitor *visitor, const IrNode *node)
     const IrType *st = isIrPointerType(type) ? type->pointer.pointee : type;
     emitTypeInfo(ctx, st);
     if (ctx->memTraceEnabled) {
-        u32 site = emitSite(ctx, &node->loc);
-        format(&ctx->state,
-               "__mm_alloc_trace(&__ti_{s}, &__site_{u32})",
-               (FormatArg[]){{.s = st->name}, {.u32 = site}});
+        format(&ctx->state, "__mm_alloc_trace(&__ti_{s}, ", (FormatArg[]){{.s = st->name}});
+        emitSiteArg(ctx, &node->loc);
+        format(&ctx->state, ")", NULL);
     }
     else {
         format(&ctx->state, "__mm_alloc(&__ti_{s}, nullptr)", (FormatArg[]){{.s = st->name}});
@@ -491,8 +532,14 @@ static void emitBinary(ConstIrVisitor *visitor, const IrNode *node)
 static void emitCall(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    const IrNode *callee = node->call.callee;
     irConstVisit(visitor, node->call.callee);
     format(&ctx->state, "(", NULL);
+    if (calleeHasCallSite(ctx, callee)) {
+        emitSiteArg(ctx, &node->loc);
+        if (node->call.args)
+            format(&ctx->state, ", ", NULL);
+    }
     for (const IrNode *arg = node->call.args; arg; arg = arg->next) {
         irConstVisit(visitor, arg);
         if (arg->next)
@@ -1445,10 +1492,16 @@ static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
         return;
 
     ctx->functionName = node->function.display ?: node->function.name;
+    ctx->function = node;
     emitLineDirective(ctx, &node->loc);
     emitFunctionLinkage(&ctx->state, node);
     emitCTypeName(&ctx->state, node->type ? node->type->func.ret : NULL);
     format(&ctx->state, " {s}(", (FormatArg[]){{.s = node->function.name}});
+    if (hasCallSite(ctx, node)) {
+        format(&ctx->state, "const __Site *__site", NULL);
+        if (node->function.params)
+            format(&ctx->state, ", ", NULL);
+    }
     for (const IrNode *p = node->function.params; p; p = p->next) {
         emitCParam(&ctx->state, p->type, p->funcParam.name);
         if (p->next)
@@ -1473,6 +1526,8 @@ static void emitFunction(ConstIrVisitor *visitor, const IrNode *node)
     }
 
     format(&ctx->state, "}\n\n", NULL);
+    ctx->function = NULL;
+    ctx->functionName = NULL;
 
     int finiKind = irModuleFiniKind(node);
     if (finiKind != 0) {
@@ -1625,7 +1680,7 @@ static void emitTypeGraphDefinitions(FormatState *state, const DynArray *modules
     freeIrTypeGraph(g);
 }
 
-static void emitFunctionPrototypes(FormatState *state, const IrModule *module)
+static void emitFunctionPrototypes(FormatState *state, const IrModule *module, bool trace)
 {
     for (const IrNode *func = module->module.functions; func; func = func->next) {
         if (!hasFlag(func, Reachable))
@@ -1661,6 +1716,11 @@ static void emitFunctionPrototypes(FormatState *state, const IrModule *module)
         emitFunctionLinkage(state, func);
         emitCTypeName(state, func->type ? func->type->func.ret : NULL);
         format(state, " {s}(", (FormatArg[]){{.s = func->function.name}});
+        if (trace && (func->function.attrs & irFuncAttrCallSite)) {
+            format(state, "const __Site *__site", NULL);
+            if (func->function.params)
+                format(state, ", ", NULL);
+        }
         for (const IrNode *p = func->function.params; p; p = p->next) {
             emitCParam(state, p->type, p->funcParam.name);
             if (p->next)
@@ -1714,6 +1774,33 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
         .debug = {.enabled = driver->options.debug}};
 
     runReachabilityAnalysis(driver);
+    if (hasErrors(driver->L)) {
+        freeFormatState(&ctx.state);
+        freeFormatState(&ctx.types);
+        freeFormatState(&ctx.typeInfos);
+        freeDynArray(&ctx.typeInfoTypes);
+        freeDynArray(&ctx.sites);
+        if (driver->finalizedModules.size == 0)
+            freeDynArray(&modules);
+        return false;
+    }
+
+    ctx.callSiteFuncs = newTempHashTable(sizeof(cstring));
+    if (ctx.memTraceEnabled) {
+        for (size_t i = 0; i < modules.size; i++) {
+            const IrModule *mod = dynArrayAt(const IrNode **, &modules, i);
+            for (const IrNode *f = mod ? mod->module.functions : NULL; f; f = f->next) {
+                if (!(f->function.attrs & irFuncAttrCallSite))
+                    continue;
+                cstring name = f->function.name;
+                insertInHashTable(&ctx.callSiteFuncs,
+                                  &name,
+                                  hashStr(hashInit(), name),
+                                  sizeof(cstring),
+                                  compareFuncNames);
+            }
+        }
+    }
 
     // Types across all finalized modules
     emitTypeGraphDefinitions(&ctx.types, &modules, driver->pool);
@@ -1727,7 +1814,7 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
     for (size_t i = 0; i < modules.size; i++) {
         const IrModule *mod = dynArrayAt(const IrNode **, &modules, i);
         if (mod)
-            emitFunctionPrototypes(&ctx.state, mod);
+            emitFunctionPrototypes(&ctx.state, mod, ctx.memTraceEnabled);
     }
 
     // Prototypes go out now so the TypeInfo definitions, collected while the
@@ -1971,6 +2058,7 @@ static bool emitCModule(CompilerDriver *driver, const IrModule *rootModule, FILE
     freeFormatState(&ctx.typeInfos);
     freeDynArray(&ctx.typeInfoTypes);
     freeDynArray(&ctx.sites);
+    freeHashTable(&ctx.callSiteFuncs);
 
     if (driver->finalizedModules.size == 0) {
         freeDynArray(&modules);
@@ -1992,7 +2080,8 @@ AstNode *generateCode(CompilerDriver *driver, AstNode *node)
         return NULL;
     }
 
-    emitCModule(driver, node->metadata.ir, backend->output);
+    if (!emitCModule(driver, node->metadata.ir, backend->output))
+        return NULL;
     return node;
 }
 

@@ -1,0 +1,24 @@
+import { waitForHarness } from "./_harness.cxy"
+
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+@memtrace(callsite)
+func makeNode(id: i32): Node => Node(id)
+
+// Calls to a marked function from a marked function forward the incoming site
+@memtrace(callsite)
+func makeTwo(id: i32): Node {
+    var scratch = makeNode(id)
+    return makeNode(id + 1)
+}
+
+func main(): void {
+    var a = makeNode(1)
+    var b = makeNode(2)
+    var c = makeTwo(3)
+    waitForHarness()
+}
