@@ -438,11 +438,9 @@ static void infoMarkers(SexpContext *ctx, const IrNode *node)
         u32 bit;
         cstring name;
     } bits[] = {
-        {irInfoPlace, "place"},
         {irInfoOwnedPosition, "owned-position"},
         {irInfoUserWritten, "user-written"},
         {irInfoImplicit, "implicit"},
-        {irInfoFromReference, "from-reference"},
         {irInfoGlue, "glue"},
         {irInfoSynthetic, "synthetic"},
     };
@@ -702,6 +700,7 @@ static void function(SexpContext *ctx, const IrNode *fn)
     space(ctx);
     typeAtom(ctx, fn->type ? fn->type->func.ret : NULL);
     close(ctx);
+    infoMarkers(ctx, fn);
 
     if (hasFlag(fn, Extern) || fn->function.firstBlock == NULL) {
         out(ctx, " (Extern)", NULL);

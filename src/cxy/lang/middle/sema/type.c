@@ -81,6 +81,7 @@ static const Type *synthesizeUnionDestructor(TypingContext *ctx,
                    .matchStmt = {.expr = uIdent, .cases = cases.first}});
     AstNode *body = makeBlockStmt(ctx->pool, loc, matchNode, NULL, makeVoidType(ctx->types));
     AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, makeVoidAstNode(ctx->pool, loc, flgNone, NULL, NULL), body, flgGenerated | flgPure | flgBuiltin, NULL, NULL);
+    markGlue(funcDecl);
 
     const Type *funcType = checkType(visitor, funcDecl);
     if (!typeIs(funcType, Error) && ctx->root.parent) {
@@ -137,6 +138,7 @@ static const Type *synthesizeUnionCopy(TypingContext *ctx,
     AstNode *body = makeBlockStmt(ctx->pool, loc, matchNode, NULL, unionType);
     AstNode *retTypeNode = makeTypeReferenceNode(ctx->pool, unionType, loc);
     AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, retTypeNode, body, flgGenerated | flgPure | flgBuiltin, NULL, NULL);
+    markGlue(funcDecl);
 
     const Type *funcType = checkType(visitor, funcDecl);
     if (!typeIs(funcType, Error) && ctx->root.parent) {

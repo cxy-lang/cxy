@@ -221,20 +221,18 @@ typedef enum IrValueClass {
 
 typedef enum IrInfo {
     irInfoClassMask = 0x7,
-    // a variable, field, element or dereference
-    irInfoPlace = BIT(3),
-    // an operand that a taker consumes: owned argument, literal element, ...
-    irInfoOwnedPosition = BIT(4),
+    // an operand that a consumer takes ownership of: an argument for a
+    // non-reference parameter, an assignment source, a literal element or
+    // payload. Only set on values that own something.
+    irInfoOwnedPosition = BIT(3),
     // `&&`, `@copy` or `&` written in the source
-    irInfoUserWritten = BIT(5),
+    irInfoUserWritten = BIT(4),
     // a copy or move inserted by the compiler
-    irInfoImplicit = BIT(6),
-    // a copy whose source had a `&T` type
-    irInfoFromReference = BIT(7),
-    // inside generated copy, destructor or visit functions
-    irInfoGlue = BIT(8),
+    irInfoImplicit = BIT(5),
+    // on a function: generated copy or destructor, there is no user code in it
+    irInfoGlue = BIT(6),
     // a statement or variable created by a pass, not written by the user
-    irInfoSynthetic = BIT(9),
+    irInfoSynthetic = BIT(7),
 } IrInfo;
 
 static inline bool irHasInfo(const IrNode *node, u32 bits)

@@ -274,7 +274,7 @@ func main(): void {}
                 (Block _L_entry ...)
                 (Block _L_IF0_then
                     ...
-                    (Call (GlobalRef take) (Move (VarRef a)))
+                    (Call (GlobalRef take) (Move (VarRef a) :owned-position :user-written))
                     ...)
                 ...))");
         REQUIRE_IR_DOES_NOT_MATCH(cc.function("demo"), "(Function demo ... (Drop _) ...)");
@@ -373,7 +373,7 @@ TEST_CASE("IR info: a new node has none")
     MemPool pool = newMemPool();
     IrNode *ref = makeRef(&pool, "x");
     CHECK(ref->info == 0);
-    CHECK_FALSE(irHasInfo(ref, irInfoPlace));
+    CHECK_FALSE(irHasInfo(ref, irInfoOwnedPosition));
     CHECK(irValueClass(ref) == irClassNone);
     REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x)");
     freeMemPool(&pool);
@@ -384,21 +384,20 @@ TEST_CASE("IR info: bits are independent and printed in the dump")
     MemPool pool = newMemPool();
     IrNode *ref = makeRef(&pool, "x");
 
-    irSetInfo(ref, irInfoPlace);
-    CHECK(irHasInfo(ref, irInfoPlace));
+    irSetInfo(ref, irInfoOwnedPosition);
+    CHECK(irHasInfo(ref, irInfoOwnedPosition));
     CHECK_FALSE(irHasInfo(ref, irInfoGlue));
-    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :place)");
+    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :owned-position)");
 
-    irSetInfo(ref, irInfoOwnedPosition | irInfoUserWritten);
-    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :place :owned-position :user-written)");
+    irSetInfo(ref, irInfoUserWritten | irInfoSynthetic);
+    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :owned-position :user-written :synthetic)");
 
-    irClearInfo(ref, irInfoPlace);
-    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :owned-position :user-written)");
+    irClearInfo(ref, irInfoOwnedPosition);
+    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :user-written :synthetic)");
 
-    irSetInfo(ref, irInfoImplicit | irInfoFromReference | irInfoGlue | irInfoSynthetic);
+    irSetInfo(ref, irInfoImplicit | irInfoGlue);
     REQUIRE_IR_MATCHES(
-        dumpNode(ref),
-        "(VarRef x :owned-position :user-written :implicit :from-reference :glue :synthetic)");
+        dumpNode(ref), "(VarRef x :user-written :implicit :glue :synthetic)");
     freeMemPool(&pool);
 }
 
@@ -412,18 +411,21 @@ TEST_CASE("IR info: the value class is a number, not a bit")
     REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :class-statement)");
 
     // setting a class replaces the old one and leaves the bits alone
-    irSetInfo(ref, irInfoPlace);
+    irSetInfo(ref, irInfoOwnedPosition);
     irSetValueClass(ref, irClassResult);
     CHECK(irValueClass(ref) == irClassResult);
-    CHECK(irHasInfo(ref, irInfoPlace));
-    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :class-result :place)");
+    CHECK(irHasInfo(ref, irInfoOwnedPosition));
+    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :class-result :owned-position)");
     freeMemPool(&pool);
 }
 
 TEST_CASE("IR info: a node without information dumps as before")
 {
     TestCompiler cc;
-    REQUIRE(cc.compile(std::string(nodeProgram) + "func demo(): i32 { var a = Node(1)\n return a.id }\nfunc main(): void {}"));
+    REQUIRE(cc.compile("func demo(x: i32): i32 { return x + 1 }\nfunc main(): void {}"));
     INFO(cc.diagnostics());
-    CHECK(cc.function("demo").sexpr().find(":place") == std::string::npos);
+    const std::string text = cc.function("demo").sexpr();
+    CHECK(text.find(":owned-position") == std::string::npos);
+    CHECK(text.find(":user-written") == std::string::npos);
+    CHECK(text.find(":glue") == std::string::npos);
 }

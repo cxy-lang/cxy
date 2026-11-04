@@ -46,6 +46,7 @@ static const Type *synthesizeTupleDestructor(TypingContext *ctx,
 
     AstNode *body = makeBlockStmt(ctx->pool, loc, stmts.first, NULL, makeVoidType(ctx->types));
     AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, makeVoidAstNode(ctx->pool, loc, flgNone, NULL, NULL), body, flgGenerated | flgPure | flgBuiltin, NULL, NULL);
+    markGlue(funcDecl);
 
     const Type *funcType = checkType(visitor, funcDecl);
     if (!typeIs(funcType, Error) && ctx->root.parent) {
@@ -87,6 +88,7 @@ static const Type *synthesizeTupleCopy(TypingContext *ctx,
     AstNode *body = makeBlockStmt(ctx->pool, loc, makeReturnAstNode(ctx->pool, loc, flgNone, retTuple, NULL, tupleType), NULL, NULL);
     AstNode *retTypeNode = makeTypeReferenceNode(ctx->pool, tupleType, loc);
     AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, retTypeNode, body, flgGenerated | flgPure | flgBuiltin, NULL, NULL);
+    markGlue(funcDecl);
 
     const Type *funcType = checkType(visitor, funcDecl);
     if (!typeIs(funcType, Error) && ctx->root.parent) {

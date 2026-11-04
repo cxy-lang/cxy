@@ -835,20 +835,20 @@ AstNode *createClassOrStructBuiltins(MemPool *pool, AstNode *node)
 
     if (nodeIs(node, StructDecl) && !hasMember(node, S_CopyOverload)) {
         insertAstNode(&funcs,
-                      makeOperatorOverload(pool,
-                                           &loc,
-                                           opCopyOverload,
-                                           NULL,
-                                           NULL,
-                                           NULL,
-                                           flgPublic,
-                                           NULL,
-                                           NULL));
+                      markGlue(makeOperatorOverload(pool,
+                                                    &loc,
+                                                    opCopyOverload,
+                                                    NULL,
+                                                    NULL,
+                                                    NULL,
+                                                    flgPublic,
+                                                    NULL,
+                                                    NULL)));
     }
 
     if (!hasMember(node, S_DestructorOverload)) {
         insertAstNode(&funcs,
-                      makeOperatorOverload(
+                      markGlue(makeOperatorOverload(
                           pool,
                           &loc,
                           opDestructorOverload,
@@ -857,13 +857,13 @@ AstNode *createClassOrStructBuiltins(MemPool *pool, AstNode *node)
                           NULL,
                           flgPublic,
                           NULL,
-                          NULL));
+                          NULL)));
     }
 
     csAssert0(!hasMember(node, S_DestructorFwd));
     if (nodeIs(node, ClassDecl)) {
         insertAstNode(&funcs,
-                      makeOperatorOverload(
+                      markGlue(makeOperatorOverload(
                           pool,
                           &loc,
                           opDestructorFwd,
@@ -879,7 +879,7 @@ AstNode *createClassOrStructBuiltins(MemPool *pool, AstNode *node)
                           NULL,
                           flgPure | flgStatic | flgPublic,
                           NULL,
-                          NULL));
+                          NULL)));
     }
     return funcs.first;
 }

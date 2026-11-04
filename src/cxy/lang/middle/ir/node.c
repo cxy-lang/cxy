@@ -2,6 +2,14 @@
 
 #include <string.h>
 
+// The constructors of nodes that consume an operand mark it, so the pass reads
+// one bit instead of knowing the shape. Values that own nothing are not marked.
+static void markOwnedOperand(IrNode *operand)
+{
+    if (operand && isIrTypeDestructible(operand->type))
+        irSetInfo(operand, irInfoOwnedPosition);
+}
+
 IrNode *makeIrNode(MemPool *pool, const FileLoc *loc, u64 flags, IrTag tag, const IrType *type)
 {
     IrNode *node = allocFromMemPool(pool, sizeof(IrNode));
@@ -116,6 +124,7 @@ IrNode *makeIrAssign(MemPool *pool, const FileLoc *loc, IrNode *lhs, IrNode *rhs
     IrNode *node = makeIrNode(pool, loc, flgNone, irAssign, NULL);
     node->assign.lhs = lhs;
     node->assign.rhs = rhs;
+    markOwnedOperand(rhs);
     return node;
 }
 
@@ -428,6 +437,17 @@ IrNode *makeIrCall(MemPool *pool,
     node->call.callee = callee;
     node->call.args = args;
     node->call.argsCount = argsCount;
+
+    // A reference parameter borrows. Variadic arguments go by their own type.
+    const IrType *calleeType = callee ? callee->type : NULL;
+    if (calleeType && calleeType->tag == irTypeFunc) {
+        u64 i = 0;
+        for (IrNode *arg = args; arg; arg = arg->next, i++) {
+            const IrType *param = i < calleeType->func.count ? calleeType->func.params[i] : arg->type;
+            if (param && param->category != irTypeCatReference)
+                markOwnedOperand(arg);
+        }
+    }
     return node;
 }
 
@@ -473,6 +493,7 @@ IrNode *makeIrOptionalValue(MemPool *pool, const FileLoc *loc, IrNode *value, co
     IrNode *node = makeIrNode(pool, loc, flgNone, irOptionalValue, type);
     node->optionalValue.hasValue = (value != NULL);
     node->optionalValue.value = value;
+    markOwnedOperand(value);
     return node;
 }
 
@@ -481,6 +502,7 @@ IrNode *makeIrUnionValue(MemPool *pool, const FileLoc *loc, u32 index, IrNode *v
     IrNode *node = makeIrNode(pool, loc, flgNone, irUnionValue, type);
     node->unionValue.index = index;
     node->unionValue.value = value;
+    markOwnedOperand(value);
     return node;
 }
 
@@ -535,6 +557,7 @@ IrNode *makeIrClosureValue(MemPool *pool, const FileLoc *loc, IrNode *env, IrNod
     node->closureValue.env = env;
     node->closureValue.func = func;
     node->closureValue.dtor = dtor;
+    markOwnedOperand(env);
     return node;
 }
 
@@ -584,6 +607,8 @@ IrNode *makeIrArrayConst(MemPool *pool, const FileLoc *loc, IrNode *elements, u6
     IrNode *node = makeIrNode(pool, loc, flgNone, irArrayConst, type);
     node->arrayConst.elements = elements;
     node->arrayConst.count = count;
+    for (IrNode *e = elements; e; e = e->next)
+        markOwnedOperand(e);
     return node;
 }
 
@@ -601,6 +626,8 @@ IrNode *makeIrStructConst(MemPool *pool, const FileLoc *loc, IrNode *fields, u64
     IrNode *node = makeIrNode(pool, loc, flgNone, irStructConst, type);
     node->structConst.fields = fields;
     node->structConst.count = count;
+    for (IrNode *f = fields; f; f = f->next)
+        markOwnedOperand(f->tag == irFieldConst ? f->fieldConst.value : f);
     return node;
 }
 

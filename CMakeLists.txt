@@ -625,6 +625,7 @@ if (ENABLE_UNIT_TESTS)
     add_executable(cxy_unit_tests
             tests/utils/test_ast.cpp
             tests/lang/middle/test_ir_sexp.cpp
+            tests/lang/middle/test_ir_info.cpp
             tests/lang/parser/test_literals.cpp
             tests/lang/parser/test_primitive_types.cpp
             tests/lang/parser/test_optional_parens.cpp

@@ -1936,6 +1936,14 @@ static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
         ctx->pool, &node->loc, op, lhs, rhs, lowerType(ctx, node->type));
 }
 
+// `&&`, `@copy` and `&` from the source, not the ones the compiler inserts
+static IrNode *markUserWritten(const AstNode *ast, IrNode *ir)
+{
+    if (ir && ast->userWritten)
+        irSetInfo(ir, irInfoUserWritten);
+    return ir;
+}
+
 static void visitUnaryExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
@@ -1953,15 +1961,18 @@ static void visitUnaryExpr(AstVisitor *visitor, AstNode *node)
                           operand->type->tag == irTypeArray;
         if (operandIsRef || isArrayRef || (isRefOf && isClassType(opType))) {
             node->codegen = (node->unaryExpr.op == opRefof)
-                                ? makeIrCast(ctx->pool, &node->loc, operand, irType)
+                                ? markUserWritten(
+                                      node,
+                                      makeIrCast(ctx->pool, &node->loc, operand, irType))
                                 : operand;
         }
         else
-            node->codegen =
-                makeIrAddrOf(ctx->pool, &node->loc, operand, irType);
+            node->codegen = markUserWritten(
+                node, makeIrAddrOf(ctx->pool, &node->loc, operand, irType));
     }
     else if (node->unaryExpr.op == opMove)
-        node->codegen = makeIrMove(ctx->pool, &node->loc, operand);
+        node->codegen =
+            markUserWritten(node, makeIrMove(ctx->pool, &node->loc, operand));
     else if (node->unaryExpr.op == opDelete) {
         node->codegen = makeIrDrop(ctx->pool, &node->loc, operand);
     }
@@ -2026,12 +2037,14 @@ static void visitPointerOf(AstVisitor *visitor, AstNode *node)
                       operand->type->tag == irTypeArray;
     if (operandIsRef || isArrayRef || (isRefOf && isClassType(opType))) {
         node->codegen = isRefOf
-                            ? makeIrCast(ctx->pool, &node->loc, operand, irType)
+                            ? markUserWritten(
+                                  node,
+                                  makeIrCast(ctx->pool, &node->loc, operand, irType))
                             : operand;
         return;
     }
-    node->codegen = makeIrAddrOf(
-        ctx->pool, &node->loc, operand, irType);
+    node->codegen = markUserWritten(
+        node, makeIrAddrOf(ctx->pool, &node->loc, operand, irType));
 }
 
 static void lowerTypeCoercion(AstVisitor *visitor,
@@ -3002,7 +3015,8 @@ static void visitBackendCall(AstVisitor *visitor, AstNode *node)
         IrNode *src = lowerFlattenedOperand(visitor, args);
         if (args && args->next) {
             IrNode *dst = lowerFlattenedOperand(visitor, args->next);
-            node->codegen = makeIrCopy(ctx->pool, &node->loc, src, dst);
+            node->codegen = markUserWritten(
+                node, makeIrCopy(ctx->pool, &node->loc, src, dst));
         }
         else {
             const IrType *elemType =
@@ -3018,7 +3032,9 @@ static void visitBackendCall(AstVisitor *visitor, AstNode *node)
                                             ctx->currentScopeId);
             emitStmt(ctx, tempVar);
             IrNode *dst = makeIrVarRef(ctx->pool, &node->loc, tempVar);
-            emitStmt(ctx, makeIrCopy(ctx->pool, &node->loc, src, dst));
+            emitStmt(ctx,
+                     markUserWritten(
+                         node, makeIrCopy(ctx->pool, &node->loc, src, dst)));
             node->codegen = dst;
         }
         break;
@@ -3209,10 +3225,12 @@ static void visitVarDecl(AstVisitor *visitor, AstNode *node)
             IrNode *src =
                 lowerFlattenedOperand(visitor, initNode->backendCallExpr.args);
             emitStmt(ctx,
-                     makeIrCopy(ctx->pool,
-                                &node->loc,
-                                src,
-                                makeIrVarRef(ctx->pool, &node->loc, varDecl)));
+                     markUserWritten(
+                         initNode,
+                         makeIrCopy(ctx->pool,
+                                    &node->loc,
+                                    src,
+                                    makeIrVarRef(ctx->pool, &node->loc, varDecl))));
         }
         else {
             astVisit(visitor, initNode);
@@ -3279,7 +3297,9 @@ static void visitAssignExpr(AstVisitor *visitor, AstNode *node)
     else if (isBackendCopyExpr(rhsNode)) {
         IrNode *src =
             lowerFlattenedOperand(visitor, rhsNode->backendCallExpr.args);
-        emitStmt(ctx, makeIrCopy(ctx->pool, &node->loc, src, lhs));
+        emitStmt(ctx,
+                 markUserWritten(rhsNode,
+                                 makeIrCopy(ctx->pool, &node->loc, src, lhs)));
     }
     else {
         astVisit(visitor, rhsNode);
@@ -3989,7 +4009,10 @@ static void visitReturnStmt(AstVisitor *visitor, AstNode *node)
         else if (isBackendCopyExpr(retExpr)) {
             IrNode *src =
                 lowerFlattenedOperand(visitor, retExpr->backendCallExpr.args);
-            emitStmt(ctx, makeIrCopy(ctx->pool, &node->loc, src, retVarRef));
+            emitStmt(ctx,
+                     markUserWritten(
+                         retExpr,
+                         makeIrCopy(ctx->pool, &node->loc, src, retVarRef)));
         }
         else {
             astVisit(visitor, retExpr);
@@ -4358,6 +4381,8 @@ static void visitFuncDecl(AstVisitor *visitor, AstNode *node)
                                   paramsCount);
     func->ast = node;
     node->ir = func;
+    if (node->glue)
+        irSetInfo(func, irInfoGlue);
     if (node->funcDecl.isInitCover || findAttribute(node, S_memtrace))
         func->function.attrs |= irFuncAttrCallSite;
 

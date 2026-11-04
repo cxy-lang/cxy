@@ -265,6 +265,10 @@ struct IrNode;
     struct {                                                                   \
         bool used;                                                             \
         bool infligt;                                                          \
+        /* `&&`, `@copy` or `&` that came from the source */                  \
+        bool userWritten;                                                      \
+        /* a function the compiler generated: copy or destructor */           \
+        bool glue;                                                             \
     } attr(packed);
 
 typedef enum { iptModule, iptPath } ImportKind;
@@ -1356,6 +1360,13 @@ AstNode *makeOperatorOverload(MemPool *pool,
                               u64 flags,
                               AstNode *next,
                               const Type *type);
+
+// A function the compiler generates (copy, destructor): no user code inside
+static inline AstNode *markGlue(AstNode *func)
+{
+    func->glue = true;
+    return func;
+}
 
 AstNode *makeNewExpr(MemPool *pool,
                      const FileLoc *loc,

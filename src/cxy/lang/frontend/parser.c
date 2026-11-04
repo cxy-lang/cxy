@@ -1054,6 +1054,7 @@ static AstNode *prefix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
             P,
             &tok,
             &(AstNode){.tag = astBackendCall,
+                       .userWritten = true,
                        .backendCallExpr = {.func = bfiCopy, .args = operand}});
     }
 
@@ -1081,6 +1082,7 @@ static AstNode *prefix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
         return newAstNode(P,
                           &tok,
                           &(AstNode){.tag = astReferenceOf,
+                                     .userWritten = true,
                                      .unaryExpr = {.operand = operand,
                                                    .op = opRefof,
                                                    .isPrefix = true}});
@@ -1090,6 +1092,7 @@ static AstNode *prefix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
         P,
         &tok,
         &(AstNode){.tag = astUnaryExpr,
+                   .userWritten = true,
                    .unaryExpr = {.operand = operand,
                                  .op = tokenToUnaryOperator(tok.tag),
                                  .isPrefix = true}});

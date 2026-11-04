@@ -78,6 +78,7 @@ static const Type *synthesizeArrayDestructor(TypingContext *ctx,
 
     AstNode *body = makeBlockStmt(ctx->pool, loc, forStmt, NULL, makeVoidType(ctx->types));
     AstNode *funcDecl = makeFunctionDecl(ctx->pool, loc, funcName, param, makeVoidAstNode(ctx->pool, loc, flgNone, NULL, NULL), body, flgGenerated | flgPure | flgBuiltin, NULL, NULL);
+    markGlue(funcDecl);
 
     const Type *funcType = checkType(visitor, funcDecl);
     if (!typeIs(funcType, Error)) {
