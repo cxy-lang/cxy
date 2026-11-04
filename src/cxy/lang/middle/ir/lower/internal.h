@@ -6,6 +6,7 @@
 #include "lower.h"
 
 #include "lang/frontend/flag.h"
+#include "lang/frontend/visitor.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -83,6 +84,42 @@ typedef struct TypeMapping {
 } TypeMapping;
 
 const IrType *lowerClosureFnPtrType(LowerContext *ctx, const Type *closureType);
+
+// ---------------------------------------------------------------------------
+// Operands (operand.c)
+// ---------------------------------------------------------------------------
+
+bool isIrPureValueExpr(const IrNode *node);
+
+// Stores `val` in a fresh temporary and returns a reference to it
+IrNode *flattenIrValue(LowerContext *ctx,
+                       AstNode *node,
+                       IrNode *val,
+                       bool borrowed);
+
+// An operand evaluated once, in order, before the statement
+IrNode *lowerFlattenedOperand(AstVisitor *visitor, AstNode *node);
+// Same, for a consumer that only reads it
+IrNode *lowerBorrowedOperand(AstVisitor *visitor, AstNode *node);
+// An element of a struct, tuple or array literal
+IrNode *lowerCompositeElement(AstVisitor *visitor, AstNode *node);
+IrNode *lowerConditionOperand(LowerContext *ctx,
+                              AstVisitor *visitor,
+                              AstNode *condNode);
+
+void lowerSliceIntoTarget(LowerContext *ctx,
+                          AstVisitor *visitor,
+                          const AstNode *expr,
+                          IrNode *targetLValue);
+void lowerOptionalIntoTarget(LowerContext *ctx,
+                             AstVisitor *visitor,
+                             const AstNode *expr,
+                             IrNode *targetLValue);
+void lowerTaggedUnionIntoTarget(LowerContext *ctx,
+                                AstVisitor *visitor,
+                                const AstNode *expr,
+                                IrNode *targetLValue,
+                                const Type *targetAstType);
 
 // ---------------------------------------------------------------------------
 // Symbol names (names.c)
