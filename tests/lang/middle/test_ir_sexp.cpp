@@ -7,6 +7,10 @@
 #include "doctest.h"
 #include "utils/ir.hpp"
 
+#include "lang/middle/ir/dump/sexp.h"
+
+#include <cstddef>
+
 using namespace cxy::test;
 using namespace cxy::testing;
 
@@ -333,4 +337,93 @@ func main(): void {}
     }
     REQUIRE_FALSE(first.empty());
     CHECK(first == second);
+}
+
+namespace {
+
+// Dump a hand built node, with no function around it
+std::string dumpNode(const IrNode *node)
+{
+    FormatState state = newFormatState("  ", true);
+    dumpIrToSexpState(node, &state, nullptr);
+    char *text = formatStateToString(&state);
+    std::string result = text ? text : "";
+    free(text);
+    freeFormatState(&state);
+    return result;
+}
+
+IrNode *makeRef(MemPool *pool, const char *name)
+{
+    IrNode *ref = makeIrNode(pool, nullptr, flgNone, irVarRef, nullptr);
+    ref->varRef.name = name;
+    return ref;
+}
+
+} // namespace
+
+TEST_CASE("IR info: the field costs no space")
+{
+    CHECK(sizeof(IrNode) == 160);
+    CHECK(offsetof(IrNode, loc) == 8);
+}
+
+TEST_CASE("IR info: a new node has none")
+{
+    MemPool pool = newMemPool();
+    IrNode *ref = makeRef(&pool, "x");
+    CHECK(ref->info == 0);
+    CHECK_FALSE(irHasInfo(ref, irInfoPlace));
+    CHECK(irValueClass(ref) == irClassNone);
+    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x)");
+    freeMemPool(&pool);
+}
+
+TEST_CASE("IR info: bits are independent and printed in the dump")
+{
+    MemPool pool = newMemPool();
+    IrNode *ref = makeRef(&pool, "x");
+
+    irSetInfo(ref, irInfoPlace);
+    CHECK(irHasInfo(ref, irInfoPlace));
+    CHECK_FALSE(irHasInfo(ref, irInfoGlue));
+    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :place)");
+
+    irSetInfo(ref, irInfoOwnedPosition | irInfoUserWritten);
+    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :place :owned-position :user-written)");
+
+    irClearInfo(ref, irInfoPlace);
+    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :owned-position :user-written)");
+
+    irSetInfo(ref, irInfoImplicit | irInfoFromReference | irInfoGlue | irInfoSynthetic);
+    REQUIRE_IR_MATCHES(
+        dumpNode(ref),
+        "(VarRef x :owned-position :user-written :implicit :from-reference :glue :synthetic)");
+    freeMemPool(&pool);
+}
+
+TEST_CASE("IR info: the value class is a number, not a bit")
+{
+    MemPool pool = newMemPool();
+    IrNode *ref = makeRef(&pool, "x");
+
+    irSetValueClass(ref, irClassStatement);
+    CHECK(irValueClass(ref) == irClassStatement);
+    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :class-statement)");
+
+    // setting a class replaces the old one and leaves the bits alone
+    irSetInfo(ref, irInfoPlace);
+    irSetValueClass(ref, irClassResult);
+    CHECK(irValueClass(ref) == irClassResult);
+    CHECK(irHasInfo(ref, irInfoPlace));
+    REQUIRE_IR_MATCHES(dumpNode(ref), "(VarRef x :class-result :place)");
+    freeMemPool(&pool);
+}
+
+TEST_CASE("IR info: a node without information dumps as before")
+{
+    TestCompiler cc;
+    REQUIRE(cc.compile(std::string(nodeProgram) + "func demo(): i32 { var a = Node(1)\n return a.id }\nfunc main(): void {}"));
+    INFO(cc.diagnostics());
+    CHECK(cc.function("demo").sexpr().find(":place") == std::string::npos);
 }

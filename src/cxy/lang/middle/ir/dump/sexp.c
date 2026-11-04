@@ -22,6 +22,7 @@ typedef struct SexpContext {
 } SexpContext;
 
 static void expr(SexpContext *ctx, const IrNode *node);
+static void exprNode(SexpContext *ctx, const IrNode *node);
 
 static void out(SexpContext *ctx, const char *fmt, const FormatArg *args)
 {
@@ -381,7 +382,7 @@ static void exprValue(SexpContext *ctx, const IrNode *node)
     }
 }
 
-static void expr(SexpContext *ctx, const IrNode *node)
+static void exprNode(SexpContext *ctx, const IrNode *node)
 {
     if (node == NULL) {
         out(ctx, "null", NULL);
@@ -426,6 +427,72 @@ static cstring blockName(const IrNode *bb)
 static void marker(SexpContext *ctx, cstring name)
 {
     out(ctx, " :{s}", (FormatArg[]){{.s = name}});
+}
+
+static void infoMarkers(SexpContext *ctx, const IrNode *node)
+{
+    static const cstring classNames[] = {
+        NULL, "class-in-flight", "class-statement", "class-extended",
+        "class-result", "class-return-slot"};
+    static const struct {
+        u32 bit;
+        cstring name;
+    } bits[] = {
+        {irInfoPlace, "place"},
+        {irInfoOwnedPosition, "owned-position"},
+        {irInfoUserWritten, "user-written"},
+        {irInfoImplicit, "implicit"},
+        {irInfoFromReference, "from-reference"},
+        {irInfoGlue, "glue"},
+        {irInfoSynthetic, "synthetic"},
+    };
+
+    IrValueClass cls = irValueClass(node);
+    if (cls != irClassNone && cls < sizeof(classNames) / sizeof(classNames[0]))
+        marker(ctx, classNames[cls]);
+    for (u32 i = 0; i < sizeof(bits) / sizeof(bits[0]); i++) {
+        if (irHasInfo(node, bits[i].bit))
+            marker(ctx, bits[i].name);
+    }
+}
+
+// Renders a node, then puts its info markers before the closing parenthesis.
+// Atoms (constants) have no place for them and print as before.
+static void withInfo(SexpContext *ctx,
+                     const IrNode *node,
+                     void (*render)(SexpContext *, const IrNode *))
+{
+    if (node == NULL || node->info == 0) {
+        render(ctx, node);
+        return;
+    }
+
+    FormatState *saved = ctx->state;
+    FormatState scratch = newFormatState("  ", true);
+    ctx->state = &scratch;
+    render(ctx, node);
+    ctx->state = saved;
+    char *text = formatStateToString(&scratch);
+    freeFormatState(&scratch);
+    if (text == NULL)
+        return;
+
+    size_t len = strlen(text);
+    if (len > 1 && text[0] == '(' && text[len - 1] == ')') {
+        text[len - 1] = '\0';
+        out(ctx, "{s}", (FormatArg[]){{.s = text}});
+        infoMarkers(ctx, node);
+        close(ctx);
+    }
+    else {
+        out(ctx, "{s}", (FormatArg[]){{.s = text}});
+    }
+    free(text);
+}
+
+static void expr(SexpContext *ctx, const IrNode *node)
+{
+    withInfo(ctx, node, exprNode);
 }
 
 static void stmtVarDecl(SexpContext *ctx, const IrNode *node)
@@ -552,7 +619,7 @@ static void stmtOwnership(SexpContext *ctx, const IrNode *node)
     }
 }
 
-static void stmt(SexpContext *ctx, const IrNode *node)
+static void stmtNode(SexpContext *ctx, const IrNode *node)
 {
     switch (node->tag) {
     case irVarDecl:
@@ -582,9 +649,14 @@ static void stmt(SexpContext *ctx, const IrNode *node)
         break;
     default:
         // an expression statement: a call, or a bare move
-        expr(ctx, node);
+        exprNode(ctx, node);
         break;
     }
+}
+
+static void stmt(SexpContext *ctx, const IrNode *node)
+{
+    withInfo(ctx, node, stmtNode);
 }
 
 static void block(SexpContext *ctx, const IrNode *bb)

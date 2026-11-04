@@ -6,6 +6,8 @@
 #include "lang/frontend/flag.h"
 #include "lang/frontend/operator.h"
 
+#include <stddef.h>
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -89,6 +91,7 @@ typedef struct IrBasicBlock IrBasicBlock;
 
 #define CXY_IR_NODE_HEAD                                                       \
     IrTag tag;                                                                 \
+    u32 info;                                                                  \
     FileLoc loc;                                                               \
     u64 flags;                                                                 \
     const IrType *type;                                                        \
@@ -195,6 +198,63 @@ struct IrNode {
 
 typedef IrNode IrModule;
 typedef IrNode IrFunction;
+
+// `info` fills the padding after `tag`. `flags` is all AST flags, so what
+// lowering knows about ownership gets its own field.
+#ifdef __cplusplus
+#define CXY_IR_STATIC_ASSERT(c, m) static_assert(c, m)
+#else
+#define CXY_IR_STATIC_ASSERT(c, m) _Static_assert(c, m)
+#endif
+CXY_IR_STATIC_ASSERT(sizeof(IrNode) == 160, "IrNode must not grow");
+CXY_IR_STATIC_ASSERT(offsetof(IrNode, loc) == 8, "info must fit in the padding");
+
+// Low 3 bits of `info`: the role of a value in the memory pass
+typedef enum IrValueClass {
+    irClassNone,
+    irClassInFlight,
+    irClassStatement,
+    irClassExtended,
+    irClassResult,
+    irClassReturnSlot,
+} IrValueClass;
+
+typedef enum IrInfo {
+    irInfoClassMask = 0x7,
+    // a variable, field, element or dereference
+    irInfoPlace = BIT(3),
+    // an operand that a taker consumes: owned argument, literal element, ...
+    irInfoOwnedPosition = BIT(4),
+    // `&&`, `@copy` or `&` written in the source
+    irInfoUserWritten = BIT(5),
+    // a copy or move inserted by the compiler
+    irInfoImplicit = BIT(6),
+    // a copy whose source had a `&T` type
+    irInfoFromReference = BIT(7),
+    // inside generated copy, destructor or visit functions
+    irInfoGlue = BIT(8),
+    // a statement or variable created by a pass, not written by the user
+    irInfoSynthetic = BIT(9),
+} IrInfo;
+
+static inline bool irHasInfo(const IrNode *node, u32 bits)
+{
+    return (node->info & bits) == bits;
+}
+
+static inline void irSetInfo(IrNode *node, u32 bits) { node->info |= bits; }
+
+static inline void irClearInfo(IrNode *node, u32 bits) { node->info &= ~bits; }
+
+static inline IrValueClass irValueClass(const IrNode *node)
+{
+    return (IrValueClass)(node->info & irInfoClassMask);
+}
+
+static inline void irSetValueClass(IrNode *node, IrValueClass cls)
+{
+    node->info = (node->info & ~(u32)irInfoClassMask) | (u32)cls;
+}
 
 IrNode *makeIrNode(MemPool *pool, const FileLoc *loc, u64 flags, IrTag tag, const IrType *type);
 
