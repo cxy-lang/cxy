@@ -138,14 +138,14 @@ _L_exit:;
 
 static Node * Node_op__initCover(int32_t id) {
   Node * __ret;
-  Node * __obj20;
+  Node * __obj13;
   Node * __t2;
 _L_entry:;
   __t2 = __mm_alloc(&__ti_Node, nullptr);
-  __obj20 = ((Node *)(__t2));
-  memset(__obj20, 0, sizeof(Node));
-  Node_op__init(((Node *)(__obj20)), id);
-  __ret = __obj20;
+  __obj13 = ((Node *)(__t2));
+  memset(__obj13, 0, sizeof(Node));
+  Node_op__init(((Node *)(__obj13)), id);
+  __ret = __obj13;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -153,14 +153,14 @@ _L_exit:;
 
 static Box * Box_op__initCover(Node * n) {
   Box * __ret;
-  Box * __obj21;
+  Box * __obj14;
   Box * __t3;
 _L_entry:;
   __t3 = __mm_alloc(&__ti_Box, nullptr);
-  __obj21 = ((Box *)(__t3));
-  memset(__obj21, 0, sizeof(Box));
-  Box_op__init(((Box *)(__obj21)), n);
-  __ret = __obj21;
+  __obj14 = ((Box *)(__t3));
+  memset(__obj14, 0, sizeof(Box));
+  Box_op__init(((Box *)(__obj14)), n);
+  __ret = __obj14;
   goto _L_exit;
 _L_exit:;
   return __ret;

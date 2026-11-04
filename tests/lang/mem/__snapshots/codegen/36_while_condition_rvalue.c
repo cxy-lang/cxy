@@ -299,14 +299,14 @@ _L_exit:;
 
 static Node * Node_op__initCover(int32_t id) {
   Node * __ret;
-  Node * __obj20;
+  Node * __obj13;
   Node * __t0;
 _L_entry:;
   __t0 = __mm_alloc(&__ti_Node, nullptr);
-  __obj20 = ((Node *)(__t0));
-  memset(__obj20, 0, sizeof(Node));
-  Node_op__init(((Node *)(__obj20)), id);
-  __ret = __obj20;
+  __obj13 = ((Node *)(__t0));
+  memset(__obj13, 0, sizeof(Node));
+  Node_op__init(((Node *)(__obj13)), id);
+  __ret = __obj13;
   goto _L_exit;
 _L_exit:;
   return __ret;

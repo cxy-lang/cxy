@@ -639,6 +639,7 @@ if (ENABLE_UNIT_TESTS)
             tests/utils/test_ast.cpp
             tests/lang/middle/test_ir_sexp.cpp
             tests/lang/middle/lower/test_info.cpp
+            tests/lang/middle/lower/test_access.cpp
             tests/lang/middle/lower/test_binary.cpp
             tests/lang/middle/lower/test_result.cpp
             tests/lang/middle/lower/test_member_rvalue.cpp

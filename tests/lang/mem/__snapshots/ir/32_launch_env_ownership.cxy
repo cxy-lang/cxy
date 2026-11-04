@@ -28,20 +28,20 @@ _L_exit:
   return
 }
 
-func main.__closure_env27.op__copy(this: ^__closure_env27): __closure_env27 {
+func main.__closure_env20.op__copy(this: ^__closure_env20): __closure_env20 {
 _L_entry:
   scope.enter 0
-  var __ret: __closure_env27
+  var __ret: __closure_env20
   var __t1: User
   copy this.user -> __t1
-  __ret = __closure_env27 {user: __t1}
+  __ret = __closure_env20 {user: __t1}
   goto _L_exit
 _L_exit:
   scope.exit 0
   return __ret
 }
 
-func main.__closure_env27.op__destructor(this: ^__closure_env27): void {
+func main.__closure_env20.op__destructor(this: ^__closure_env20): void {
 _L_entry:
   scope.enter 0
   drop this.user
@@ -75,7 +75,7 @@ _L_exit:
   return
 }
 
-func __closure_body28(this: ^__closure_env27): i32 {
+func __closure_body21(this: ^__closure_env20): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -91,15 +91,15 @@ func detached(user: User): !void {
 _L_entry:
   scope.enter 0
   var __ret: !void
-  var __t2: __closure_env27
+  var __t2: __closure_env20
   var __copy0: User
   copy user -> __copy0
-  __t2 = __closure_env27 {user: __copy0}
-  var __env3: ^__closure_env27
-  __env3 = alloc(__closure_env27)
+  __t2 = __closure_env20 {user: __copy0}
+  var __env3: ^__closure_env20
+  __env3 = alloc(__closure_env20)
   *__env3 = __t2
   var __t4: Closure_884
-  __t4 = ClosureValue(__env3, __closure_body28)
+  __t4 = ClosureValue(__env3, __closure_body21)
   var __call_res_5: !Thread
   __call_res_5 = thread_launch(__t4)
   if __call_res_5.tag == 1 goto _L_call_err_0 else goto _L_call_cont_1
@@ -118,20 +118,20 @@ _L_exit:
   return __ret
 }
 
-func main.__closure_env29.op__copy(this: ^__closure_env29): __closure_env29 {
+func main.__closure_env22.op__copy(this: ^__closure_env22): __closure_env22 {
 _L_entry:
   scope.enter 0
-  var __ret: __closure_env29
+  var __ret: __closure_env22
   var __t6: User
   copy this.user -> __t6
-  __ret = __closure_env29 {user: __t6}
+  __ret = __closure_env22 {user: __t6}
   goto _L_exit
 _L_exit:
   scope.exit 0
   return __ret
 }
 
-func main.__closure_env29.op__destructor(this: ^__closure_env29): void {
+func main.__closure_env22.op__destructor(this: ^__closure_env22): void {
 _L_entry:
   scope.enter 0
   drop this.user
@@ -142,7 +142,7 @@ _L_exit:
   return
 }
 
-func __closure_body30(this: ^__closure_env29): i32 {
+func __closure_body23(this: ^__closure_env22): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -159,15 +159,15 @@ _L_entry:
   scope.enter 0
   var __ret: !void
   var t: Thread
-  var __t7: __closure_env29
+  var __t7: __closure_env22
   var __copy1: User
   copy user -> __copy1
-  __t7 = __closure_env29 {user: __copy1}
-  var __env8: ^__closure_env29
-  __env8 = alloc(__closure_env29)
+  __t7 = __closure_env22 {user: __copy1}
+  var __env8: ^__closure_env22
+  __env8 = alloc(__closure_env22)
   *__env8 = __t7
   var __t9: Closure_884
-  __t9 = ClosureValue(__env8, __closure_body30)
+  __t9 = ClosureValue(__env8, __closure_body23)
   var __call_res_10: !Thread
   __call_res_10 = thread_launch(__t9)
   if __call_res_10.tag == 1 goto _L_call_err_0 else goto _L_call_cont_1

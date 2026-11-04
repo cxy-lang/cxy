@@ -10,14 +10,14 @@ func main.String.op__initI_sECoverI_sE(str: ^char): ^String {
 _L_entry:
   scope.enter 0
   var __ret: ^String
-  var __obj20: ^String
+  var __obj13: ^String
   var __t0: ^String
   __t0 = alloc(^String)
-  __obj20 = <^String>(__t0)
-  zeromem __obj20
-  builtins_String___defaults_init(<^String>(__obj20))
-  builtins_String_op__initI_sE(<^String>(__obj20), str)
-  __ret = __obj20
+  __obj13 = <^String>(__t0)
+  zeromem __obj13
+  builtins_String___defaults_init(<^String>(__obj13))
+  builtins_String_op__initI_sE(<^String>(__obj13), str)
+  __ret = __obj13
   goto _L_exit
 _L_exit:
   scope.exit 0

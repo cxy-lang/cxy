@@ -622,26 +622,6 @@ static void visitCastExpr(AstVisitor *visitor, AstNode *node)
     // }
 }
 
-static void visitIndexExpr(AstVisitor *visitor, AstNode *node)
-{
-    SimplifyContext *ctx = getAstVisitorContext(visitor);
-    AstNode *target = node->indexExpr.target, *index = node->indexExpr.index;
-    astVisit(visitor, target);
-    astVisit(visitor, index);
-    if (nodeNeedsTemporaryVar(index)) {
-        AstNode *var =
-            hoistToTemporary(ctx,
-                             index,
-                             deepCloneAstNode(ctx->pool, index),
-                             index->type,
-                             "_idx",
-                             flgTemporary | (index->flags & flgConst));
-        index->tag = astIdentifier;
-        index->ident.value = var->_namedNode.name;
-        index->ident.resolvesTo = var;
-        index->flags |= flgMove;
-    }
-}
 
 static void visitCallExpr(AstVisitor *visitor, AstNode *node)
 {
@@ -1506,7 +1486,6 @@ static AstNode *simplifyCode(CompilerDriver *driver, AstNode *node)
         [astIdentifier] = visitIdentifier,
         [astBinaryExpr] = visitBinaryExpr,
         [astTernaryExpr] = visitTernaryExpr,
-        [astIndexExpr] = visitIndexExpr,
         [astCallExpr] = visitCallExpr,
         [astCastExpr] = visitCastExpr,
         [astStmtExpr] = visitStmtExpr,

@@ -70,7 +70,7 @@ parameter types (`test_type`).
 - [ ] `access: an enum option is a global ref`: `Color.Red`
 - [ ] `access: an optional member`: `a?.b` branches on `ok`
 - [ ] `access: redirect through an optional`: `->` form
-- [ ] `access: index of an array, a slice, a pointer`: `(Index x i)`
+- [x] `access: index of an array, a slice, a pointer`: `(Index x i)`
 - [ ] `access: slice of an array with a range`: ptr offset and length
 - [ ] `access: a static member and a method`: callee is a global ref
 
