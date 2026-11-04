@@ -10,6 +10,7 @@
 
 #include "lang/middle/ir/lower/lower.h"
 #include "lang/middle/ir/dump/dump.h"
+#include "lang/middle/ir/dump/sexp.h"
 #include "lang/middle/memory/memory.h"
 #include "lang/middle/memory/verify.h"
 
@@ -108,14 +109,18 @@ static AstNode *executeDumpAst(CompilerDriver *driver, AstNode *node)
         }
     }
 
-    if (driver->options.dev.dumpMode == dmpIR) {
+    if (driver->options.dev.dumpMode == dmpIR ||
+        driver->options.dev.dumpMode == dmpIRSEXP) {
         if (node->metadata.ir == NULL) {
             logError(driver->L, builtinLoc(), "cannot dump IR: AST has not been lowered", NULL);
             if (file != stdout)
                 fclose(file);
             return NULL;
         }
-        dumpIr(driver, node->metadata.ir, file);
+        if (driver->options.dev.dumpMode == dmpIRSEXP)
+            dumpIrToSexp(driver, node->metadata.ir, file);
+        else
+            dumpIr(driver, node->metadata.ir, file);
         if (file != stdout)
             fclose(file);
         return node;

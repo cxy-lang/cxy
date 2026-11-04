@@ -27,7 +27,8 @@ typedef enum {
     ff(YAML)                \
     ff(SEXP)                \
     ff(CXY)                 \
-    ff(IR)
+    ff(IR)                  \
+    ff(IRSEXP)
 
 typedef enum {
 #define ff(N) dmp## N,

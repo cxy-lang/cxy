@@ -244,6 +244,7 @@ set(CXY_MIDDLE_SOURCES
         src/cxy/lang/middle/ir/context.c
         src/cxy/lang/middle/ir/visitor.c
         src/cxy/lang/middle/ir/dump/dump.c
+        src/cxy/lang/middle/ir/dump/sexp.c
         src/cxy/lang/middle/ir/lower/lower.c
         src/cxy/lang/middle/ir/lower/names.c
         src/cxy/lang/middle/ir/reachability/reachability.c
@@ -596,6 +597,8 @@ if (ENABLE_UNIT_TESTS)
     add_executable(cxy_unit_tests
             tests/utils/test_ast.cpp
             tests/utils/ast.cpp
+            tests/utils/ir.cpp
+            tests/lang/middle/test_ir_sexp.cpp
             tests/lang/parser/test_literals.cpp
             tests/lang/parser/test_primitive_types.cpp
             tests/lang/parser/test_optional_parens.cpp
@@ -629,7 +632,10 @@ if (ENABLE_UNIT_TESTS)
             tests
     )
 
+    # The IR tests compile programs with the compiler binary
+    add_dependencies(cxy_unit_tests cxy)
     target_compile_definitions(cxy_unit_tests PRIVATE
+            -DCXY_BINARY="$<TARGET_FILE:cxy>"
             -DCXY_VERSION="${CXY_VERSION}"
             -DCXY_BUILD_ID="${CXY_BUILD_ID}"
             -DTEST_ROOT_DIR="${CMAKE_SOURCE_DIR}"

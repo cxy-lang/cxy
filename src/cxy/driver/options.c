@@ -816,7 +816,8 @@ static void fixCmdDevOptions(Options *options)
         options->dev.lastStage = ccsCompile;
     }
     else if (options->dev.dumpMode != dmpNONE) {
-        if (options->dev.dumpMode == dmpIR) {
+        if (options->dev.dumpMode == dmpIR ||
+            options->dev.dumpMode == dmpIRSEXP) {
             options->dev.lastStage = MAX(options->dev.lastStage, ccsLower);
             options->dev.useIr = true;
         }
