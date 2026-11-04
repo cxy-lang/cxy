@@ -29,10 +29,6 @@ typedef struct SimplifyContext {
     AstNodeList *startup;
     AstNode *returnVar;
     bool traceMemory;
-    struct {
-        AstNodeList exprs;
-        bool visiting;
-    } whileCond;
     union {
         struct {
             AstNode *currentFunction;
@@ -90,15 +86,12 @@ static AstNode *makeTemporaryRef(SimplifyContext *ctx, AstNode *var)
 
 // Declares a temporary variable of the given type initialised with `init`,
 // ahead of the current statement. `expr` is the expression it stands for.
-// Inside a while condition the variable is assigned again each time the
-// condition is evaluated.
 static AstNode *hoistToTemporary(SimplifyContext *ctx,
                                  AstNode *expr,
                                  AstNode *init,
                                  const Type *type,
                                  cstring prefix,
-                                 u64 flags,
-                                 bool reassignInWhile)
+                                 u64 flags)
 {
     AstNode *var = makeVarDecl(ctx->pool,
                                &expr->loc,
@@ -108,17 +101,6 @@ static AstNode *hoistToTemporary(SimplifyContext *ctx,
                                init,
                                NULL,
                                type);
-    if (reassignInWhile && ctx->whileCond.visiting) {
-        insertAstNode(&ctx->whileCond.exprs,
-                      makeAssignExpr(ctx->pool,
-                                     &expr->loc,
-                                     flgNone,
-                                     makeTemporaryRef(ctx, var),
-                                     opAssign,
-                                     deepCloneAstNode(ctx->pool, expr),
-                                     NULL,
-                                     var->type));
-    }
     astModifierAdd(&ctx->block, var);
     return var;
 }
@@ -653,8 +635,7 @@ static void visitIndexExpr(AstVisitor *visitor, AstNode *node)
                              deepCloneAstNode(ctx->pool, index),
                              index->type,
                              "_idx",
-                             flgTemporary | (index->flags & flgConst),
-                             true);
+                             flgTemporary | (index->flags & flgConst));
         index->tag = astIdentifier;
         index->ident.value = var->_namedNode.name;
         index->ident.resolvesTo = var;
@@ -679,7 +660,7 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
                                    ? value->closureValue.canonicalType
                                    : callee->type;
             AstNode *var =
-                hoistToTemporary(ctx, callee, callee, type, "_c", flgNone, true);
+                hoistToTemporary(ctx, callee, callee, type, "_c", flgNone);
             node->callExpr.callee = makeTemporaryRef(ctx, var);
             node->callExpr.callee->parentScope = node;
         }
@@ -846,14 +827,10 @@ static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
         }
     }
     else if (node->binaryExpr.op == opLOr || node->binaryExpr.op == opLAnd) {
-        bool whileCondVisiting = ctx->whileCond.visiting;
         node->binaryExpr.lhs = wrapLogicalOperandInStmtExpr(ctx, lhs);
         node->binaryExpr.rhs = wrapLogicalOperandInStmtExpr(ctx, rhs);
-
-        ctx->whileCond.visiting = false;
         astVisit(visitor, node->binaryExpr.lhs);
         astVisit(visitor, node->binaryExpr.rhs);
-        ctx->whileCond.visiting = whileCondVisiting;
     }
     else {
         astVisitFallbackVisitAll(visitor, node);
@@ -1036,17 +1013,10 @@ static void visitStmtExpr(AstVisitor *visitor, AstNode *node)
 
 static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
 {
-    SimplifyContext *ctx = getAstVisitorContext(visitor);
     astVisitFallbackVisitAll(visitor, node);
     if (!nodeIs(node, MemberExpr))
         return;
 
-    AstNode *target = node->memberExpr.target;
-    if (nodeNeedsTemporaryVar(target) && !nodeIs(target, TypeRef)) {
-        AstNode *var = hoistToTemporary(
-            ctx, target, target, target->type, "_m", flgNone, true);
-        node->memberExpr.target = makeTemporaryRef(ctx, var);
-    }
     if (nodeIs(node->memberExpr.member, Path))
         astVisit(visitor, node->memberExpr.member);
 }
@@ -1058,7 +1028,7 @@ static void visitReferenceOfExpr(AstVisitor *visitor, AstNode *node)
     AstNode *operand = node->unaryExpr.operand;
     if (nodeNeedsTemporaryVar(operand)) {
         AstNode *var = hoistToTemporary(
-            ctx, operand, operand, operand->type, "_r", flgTemporary, false);
+            ctx, operand, operand, operand->type, "_r", flgTemporary);
         node->unaryExpr.operand = makeTemporaryRef(ctx, var);
     }
 }
@@ -1198,24 +1168,11 @@ void visitReturnStmt(AstVisitor *visitor, AstNode *node)
 
 static void visitWhileStmt(AstVisitor *visitor, AstNode *node)
 {
-    SimplifyContext *ctx = getAstVisitorContext(visitor);
-
-    AstNode *cond = node->whileStmt.cond, *update = node->whileStmt.update;
-    __typeof(ctx->whileCond) wc = ctx->whileCond;
-    ctx->whileCond = (__typeof(ctx->whileCond)){};
-    ctx->whileCond.visiting = true;
-    astVisit(visitor, cond);
-    if (ctx->whileCond.exprs.first) {
-        if (update != NULL) {
-            insertAstNode(&ctx->whileCond.exprs, update);
-        }
-        node->whileStmt.update = makeGroupExpr(
-            ctx->pool, &cond->loc, flgNone, ctx->whileCond.exprs.first, NULL);
-    }
-    ctx->whileCond = wc;
-
+    // The condition is lowered inside the loop, so anything it needs is
+    // evaluated on every iteration
+    astVisit(visitor, node->whileStmt.cond);
     astVisit(visitor, node->whileStmt.body);
-    astVisit(visitor, update);
+    astVisit(visitor, node->whileStmt.update);
 }
 
 void visitSwitchStmt(AstVisitor *visitor, AstNode *node)

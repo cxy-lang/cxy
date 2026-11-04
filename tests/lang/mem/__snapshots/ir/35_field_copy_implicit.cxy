@@ -120,13 +120,13 @@ func main.Node.op__initCover(id: i32): ^Node {
 _L_entry:
   scope.enter 0
   var __ret: ^Node
-  var __obj48: ^Node
+  var __obj20: ^Node
   var __t2: ^Node
   __t2 = alloc(^Node)
-  __obj48 = <^Node>(__t2)
-  zeromem __obj48
-  Node_op__init(<^Node>(__obj48), id)
-  __ret = __obj48
+  __obj20 = <^Node>(__t2)
+  zeromem __obj20
+  Node_op__init(<^Node>(__obj20), id)
+  __ret = __obj20
   goto _L_exit
 _L_exit:
   scope.exit 0
@@ -137,13 +137,13 @@ func main.Box.op__initCover(n: ^Node): ^Box {
 _L_entry:
   scope.enter 0
   var __ret: ^Box
-  var __obj49: ^Box
+  var __obj21: ^Box
   var __t3: ^Box
   __t3 = alloc(^Box)
-  __obj49 = <^Box>(__t3)
-  zeromem __obj49
-  Box_op__init(<^Box>(__obj49), n)
-  __ret = __obj49
+  __obj21 = <^Box>(__t3)
+  zeromem __obj21
+  Box_op__init(<^Box>(__obj21), n)
+  __ret = __obj21
   goto _L_exit
 _L_exit:
   scope.exit 0

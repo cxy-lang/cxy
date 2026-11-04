@@ -129,9 +129,9 @@ func main(): void {}
     }
     SUBCASE("a variable by prefix and index") {
         // the two hoisted member temporaries, in declaration order
-        REQUIRE_IR_MATCHES(demo.findVariable("_m", 0), "(VarDecl _m0 ^Node)");
-        REQUIRE_IR_MATCHES(demo.findVariable("_m", 1), "(VarDecl _m1 ^Node)");
-        CHECK_FALSE(demo.findVariable("_m", 2));
+        REQUIRE_IR_MATCHES(demo.findVariable("__t", 0), "(VarDecl __t0 ^Node)");
+        REQUIRE_IR_MATCHES(demo.findVariable("__t", 1), "(VarDecl __t1 ^Node)");
+        CHECK_FALSE(demo.findVariable("__t", 2));
     }
     SUBCASE("a variable in a nested block") {
         REQUIRE_IR_MATCHES(demo.findVariable("b"), "(VarDecl b ^Node)");
@@ -152,8 +152,8 @@ func main(): void {}
     }
     SUBCASE("a node dumped on its own has the names of its function") {
         const std::string whole = demo.sexpr();
-        // the second temporary is `_m1` in the whole function and on its own
-        CHECK(whole.find(demo.findVariable("_m", 1).sexpr()) != std::string::npos);
+        // the second temporary is `__t1` in the whole function and on its own
+        CHECK(whole.find(demo.findVariable("__t", 1).sexpr()) != std::string::npos);
     }
 }
 
@@ -247,9 +247,9 @@ func main(): void {}
     const std::string second = cc.function("second").sexpr();
     REQUIRE_FALSE(first.empty());
     REQUIRE_FALSE(second.empty());
-    CHECK(first.find("_m0") != std::string::npos);
-    CHECK(second.find("_m0") != std::string::npos);
-    CHECK(first.find("_m1") == std::string::npos);
+    CHECK(first.find("__t0") != std::string::npos);
+    CHECK(second.find("__t0") != std::string::npos);
+    CHECK(first.find("__t1") == std::string::npos);
 }
 
 TEST_CASE("IR dump: before and after the memory pass")

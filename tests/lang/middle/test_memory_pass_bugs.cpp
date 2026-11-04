@@ -74,8 +74,7 @@ func main(): void {}
 }
 
 // Fixed by removing the hoisting from simplify (memory-pass.md, 3.2)
-TEST_CASE("Known bug: the condition of a `while` is evaluated on every iteration" *
-          doctest::skip())
+TEST_CASE("Fixed bug: the condition of a `while` is evaluated on every iteration")
 {
     CompileOptions options;
     options.stage = "Lower";

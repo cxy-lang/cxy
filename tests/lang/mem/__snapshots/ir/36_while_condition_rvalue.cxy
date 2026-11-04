@@ -1,0 +1,117 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/36_while_condition_rvalue.cxy
+global counter: i8 = 0
+
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func main.Node.op__init(this: ^Node, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__deinit(this: ^Node): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__destructor(this: ^Node): void {
+_L_entry:
+  scope.enter 0
+  Node_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Node_op__destructor(<^Node>(<^Node>(ptr)))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__initCover(id: i32): ^Node {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Node
+  var __obj20: ^Node
+  var __t0: ^Node
+  __t0 = alloc(^Node)
+  __obj20 = <^Node>(__t0)
+  zeromem __obj20
+  Node_op__init(<^Node>(__obj20), id)
+  __ret = __obj20
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func next(): ^Node {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Node
+  counter = counter + 1
+  __ret = Node_op__initCover(<i32>(counter))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func printlnI_i8E(args: i8): void {
+_L_entry:
+  scope.enter 0
+  builtins_OutputStream_op__lshiftI_i8E(<^OutputStream>(builtins_stdout), args)
+  builtins_OutputStream_op__lshiftI_wE(<^OutputStream>(builtins_stdout), '\n')
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main(): !void {
+_L_entry:
+  var __drop_flags: __drop_flags__main_t
+  zeromem __drop_flags
+  scope.enter 0
+  var __ret: !void
+  var total: i8
+  total = 0
+  goto _L_WHILE0_cond
+_L_WHILE0_cond:
+  var __t1: ^Node
+  drop-if __t1, __drop_flags.__t1
+  __t1 = next()
+  __drop_flags.__t1 = 1
+  if __t1.id < 4 goto _L_WHILE0_body else goto _L_WHILE0_exit
+_L_WHILE0_body:
+  scope.enter 1
+  total = total + 1
+  scope.exit 1
+  goto _L_WHILE0_cond
+_L_WHILE0_exit:
+  printlnI_i8E(total)
+  __ret.tag = 0
+  goto _L_exit
+_L_exit:
+  drop __t1
+  __drop_flags.__t1 = 0
+  scope.exit 0
+  return __ret
+}

@@ -1,0 +1,23 @@
+// @TEST_ARGS: ~--without-builtins
+// The condition is evaluated on every iteration: next() is called until it
+// returns an id of 4, and every object it returns is freed
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() {}
+}
+
+var counter = 0
+
+func next(): Node {
+    counter = counter + 1
+    return Node(counter)
+}
+
+func main(): !void {
+    var total = 0
+    while next().id < 4 {
+        total = total + 1
+    }
+    println(total)
+}

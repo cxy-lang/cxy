@@ -96,12 +96,12 @@ _L_exit:;
 }
 
 static void builtins_OutputStream_appendStringI_sE(builtins_OutputStream * this, char * s) {
-  uint64_t __t41;
+  uint64_t __t44;
 _L_entry:;
   if (s != nullptr) goto _L_IF0_then; else goto _L_exit;
 _L_IF0_then:;
-  __t41 = strlen(s);
-  this->vtable->append(this, ((void *)(s)), __t41);
+  __t44 = strlen(s);
+  this->vtable->append(this, ((void *)(s)), __t44);
   goto _L_exit;
 _L_exit:;
   return;
@@ -117,17 +117,17 @@ _L_exit:;
 
 static uint64_t builtins_maxI_u64E(uint64_t a, uint64_t b) {
   uint64_t __ret;
-  uint64_t _if13;
+  uint64_t _if10;
 _L_entry:;
   if (a > b) goto _L_IF0_then; else goto _L_IF0_else;
 _L_IF0_then:;
-  _if13 = a;
+  _if10 = a;
   goto _L_IF0_end;
 _L_IF0_else:;
-  _if13 = b;
+  _if10 = b;
   goto _L_IF0_end;
 _L_IF0_end:;
-  __ret = _if13;
+  __ret = _if10;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -136,10 +136,10 @@ _L_exit:;
 static builtins_String * builtins_String_op__initCoverI_Pccu64E(char * str, uint64_t len) {
   builtins_String * __ret;
   builtins_String * __obj6;
-  builtins_String * __t43;
+  builtins_String * __t46;
 _L_entry:;
-  __t43 = __mm_alloc(&__ti_builtins_String, nullptr);
-  __obj6 = ((builtins_String *)(__t43));
+  __t46 = __mm_alloc(&__ti_builtins_String, nullptr);
+  __obj6 = ((builtins_String *)(__t46));
   memset(__obj6, 0, sizeof(builtins_String));
   builtins_String___defaults_init(((builtins_String *)(__obj6)));
   builtins_String_op__initI_Pccu64E(((builtins_String *)(__obj6)), str, len);
@@ -151,14 +151,14 @@ _L_exit:;
 
 static void builtins_String_grow(builtins_String * this, uint64_t growSize) {
   uint64_t newSize;
-  void * __t44;
+  void * __t47;
   void * tmp;
 _L_entry:;
   newSize = builtins_maxI_u64E((this->_size + growSize), 16ULL);
   if (this->_data == nullptr) goto _L_IF0_then; else goto _L_IF0_else;
 _L_IF0_then:;
-  __t44 = __alloc_buffer((newSize + 1));
-  this->_data = ((char *)(__t44));
+  __t47 = __alloc_buffer((newSize + 1));
+  this->_data = ((char *)(__t47));
   this->_capacity = newSize;
   goto _L_exit;
 _L_IF0_else:;
@@ -335,10 +335,10 @@ _L_exit:;
 static builtins_StdOutputStream * builtins_StdOutputStream_op__initCover(int32_t fd) {
   builtins_StdOutputStream * __ret;
   builtins_StdOutputStream * __obj7;
-  builtins_StdOutputStream * __t80;
+  builtins_StdOutputStream * __t98;
 _L_entry:;
-  __t80 = __mm_alloc(&__ti_builtins_StdOutputStream, nullptr);
-  __obj7 = ((builtins_StdOutputStream *)(__t80));
+  __t98 = __mm_alloc(&__ti_builtins_StdOutputStream, nullptr);
+  __obj7 = ((builtins_StdOutputStream *)(__t98));
   memset(__obj7, 0, sizeof(builtins_StdOutputStream));
   builtins_StdOutputStream___defaults_init(((builtins_StdOutputStream *)(__obj7)));
   builtins_StdOutputStream_op__init(((builtins_StdOutputStream *)(__obj7)), fd);
@@ -384,15 +384,15 @@ __attribute__((constructor)) static void builtins___fini_reg(void) { __cxy_regis
 
 static builtins_String * builtins_String_op__initI_sECoverI_sE(char * str) {
   builtins_String * __ret;
-  builtins_String * __obj48;
+  builtins_String * __obj20;
   builtins_String * __t0;
 _L_entry:;
   __t0 = __mm_alloc(&__ti_builtins_String, nullptr);
-  __obj48 = ((builtins_String *)(__t0));
-  memset(__obj48, 0, sizeof(builtins_String));
-  builtins_String___defaults_init(((builtins_String *)(__obj48)));
-  builtins_String_op__initI_sE(((builtins_String *)(__obj48)), str);
-  __ret = __obj48;
+  __obj20 = ((builtins_String *)(__t0));
+  memset(__obj20, 0, sizeof(builtins_String));
+  builtins_String___defaults_init(((builtins_String *)(__obj20)));
+  builtins_String_op__initI_sE(((builtins_String *)(__obj20)), str);
+  __ret = __obj20;
   goto _L_exit;
 _L_exit:;
   return __ret;
