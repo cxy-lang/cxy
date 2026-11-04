@@ -177,6 +177,11 @@ static inline bool isIrVoidType(const IrType *type) { return type && type->tag =
 static inline bool isIrTypeNoCopy(const IrType *type)
 {
     for (u32 depth = 0; type && depth < 8; depth++) {
+        // `@copy r` of a `&T` makes an owner of T
+        if (type->tag == irTypePointer && type->category == irTypeCatReference) {
+            type = type->pointer.pointee;
+            continue;
+        }
         if (type->noCopy)
             return true;
         if (type->tag != irTypeStruct || type->category == irTypeCatClass)

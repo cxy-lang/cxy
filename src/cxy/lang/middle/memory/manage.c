@@ -1102,7 +1102,9 @@ static void visitNoCopyCopy(IrVisitor *visitor, IrNode *node)
         node->loc.begin.byteOffset == node->loc.end.byteOffset)
         return;
 
-    // A class handle is a pointer, report the class
+    // Report the type behind a reference, and a class by its readable name
+    if (type->tag == irTypePointer && type->category == irTypeCatReference)
+        type = type->pointer.pointee;
     cstring name = type->typeName ?: type->display ?: type->name;
     logError(ctx->driver->L,
              &node->loc,

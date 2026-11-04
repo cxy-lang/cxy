@@ -1,0 +1,22 @@
+// A reference cannot become a second owner of a `@nocopy` type either,
+// borrowing it stays fine
+@nocopy
+class Handle {
+    fd: i32
+    func `init`(fd: i32) { this.fd = fd }
+    func `deinit`() {}
+}
+
+func peek(h: &Handle): i32 => h.fd
+
+func fromRef(r: &Handle): i32 {
+    var n = peek(r)
+    var o = @copy r
+    return n
+}
+
+func main(): void {
+    var a = Handle(1)
+    var r = &a
+    var n = peek(r)
+}
