@@ -232,29 +232,6 @@ static void simplifyCastExpression(SimplifyContext *ctx,
     }
 }
 
-static void simplifyCondition(SimplifyContext *ctx, AstNode *cond)
-{
-    AstNode *rhs = NULL, *lhs = deepCloneAstNode(ctx->pool, cond);
-    if (isIntegerType(cond->type)) {
-        rhs = makeIntegerLiteral(ctx->pool, &cond->loc, 0, NULL, cond->type);
-    }
-    else if (isFloatType(cond->type)) {
-        rhs = makeFloatLiteral(ctx->pool, &cond->loc, 0.0, NULL, cond->type);
-    }
-    else if (isCharacterType(cond->type)) {
-        rhs = makeCharLiteral(ctx->pool, &cond->loc, 0, NULL, cond->type);
-    }
-    else if (isPointerType(cond->type)) {
-        rhs = makeNullLiteral(ctx->pool, &cond->loc, NULL, cond->type);
-    }
-    else {
-        unreachable("Shouldn't be a thing!");
-    }
-    cond->tag = astBinaryExpr;
-    cond->binaryExpr.op = opNe;
-    cond->binaryExpr.lhs = lhs;
-    cond->binaryExpr.rhs = rhs;
-}
 
 static AstNode *wrapLogicalOperandInStmtExpr(SimplifyContext *ctx,
                                              AstNode *expr)
@@ -1207,10 +1184,6 @@ void visitIfStmt(AstVisitor *visitor, AstNode *node)
 {
     SimplifyContext *ctx = getAstVisitorContext(visitor);
 
-    AstNode *cond = node->ifStmt.cond;
-    // if (!isBooleanType(cond->type)) {
-    //     simplifyCondition(ctx, cond);
-    // }
     astVisitFallbackVisitAll(visitor, node);
 }
 
@@ -1228,9 +1201,6 @@ static void visitWhileStmt(AstVisitor *visitor, AstNode *node)
     SimplifyContext *ctx = getAstVisitorContext(visitor);
 
     AstNode *cond = node->whileStmt.cond, *update = node->whileStmt.update;
-    if (!isBooleanType(cond->type)) {
-        simplifyCondition(ctx, cond);
-    }
     __typeof(ctx->whileCond) wc = ctx->whileCond;
     ctx->whileCond = (__typeof(ctx->whileCond)){};
     ctx->whileCond.visiting = true;

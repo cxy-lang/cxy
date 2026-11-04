@@ -223,7 +223,7 @@ static Optional_u64 builtins_String_append(builtins_String * this, char * str, u
   Optional_u64 __ret;
   char * p;
 _L_entry:;
-  if (size) goto _L_IF0_then; else goto _L_IF0_end;
+  if (size != 0ULL) goto _L_IF0_then; else goto _L_IF0_end;
 _L_IF0_then:;
   builtins_String_grow(this, size);
   p = (this->_data + this->_size);
@@ -296,7 +296,7 @@ _L_exit:;
 static Optional_u64 builtins_StdOutputStream_append(builtins_StdOutputStream * this, char * str, uint64_t size) {
   Optional_u64 __ret;
 _L_entry:;
-  if (size) goto _L_IF0_then; else goto _L_IF0_end;
+  if (size != 0ULL) goto _L_IF0_then; else goto _L_IF0_end;
 _L_IF0_then:;
   write(this->fd, ((void *)(str)), size);
   goto _L_IF0_end;

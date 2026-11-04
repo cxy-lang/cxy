@@ -177,6 +177,25 @@ IrNode *lowerConditionOperand(LowerContext *ctx,
                             nullConst,
                             getIrPrimitiveType(ctx->types, irTypeBool));
     }
+
+    // Integer, float, character and pointer conditions compare with zero
+    IrNode *zero = NULL;
+    if (isIntegerType(astType))
+        zero = makeIrIntConst(
+            ctx->pool, &condNode->loc, 0, false, cond->type);
+    else if (isFloatType(astType))
+        zero = makeIrFloatConst(ctx->pool, &condNode->loc, 0.0, cond->type);
+    else if (isCharacterType(astType))
+        zero = makeIrCharConst(ctx->pool, &condNode->loc, 0, cond->type);
+    else if (isPointerType(astType))
+        zero = makeIrNullConst(ctx->pool, &condNode->loc, cond->type);
+    if (zero)
+        return makeIrBinary(ctx->pool,
+                            &condNode->loc,
+                            opNe,
+                            cond,
+                            zero,
+                            getIrPrimitiveType(ctx->types, irTypeBool));
     return cond;
 }
 
