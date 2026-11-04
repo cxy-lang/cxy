@@ -593,11 +593,26 @@ enable_testing()
 
 # Add doctest C++ testing framework
 if (ENABLE_UNIT_TESTS)
+    # Helpers shared by test executables: AST and IR matching. Built once, on top
+    # of cxy-core, so a test only compiles its own sources.
+    add_library(cxy-test STATIC
+            tests/utils/ast.cpp
+            tests/utils/ir.cpp
+    )
+    target_link_libraries(cxy-test PUBLIC cxy-core)
+    target_include_directories(cxy-test PUBLIC
+            src/cxy
+            src/3rdParty
+            tests/utils
+            tests
+    )
+    target_compile_definitions(cxy-test PUBLIC
+            -DTEST_ROOT_DIR="${CMAKE_SOURCE_DIR}"
+    )
+
     # Create unit test executable
     add_executable(cxy_unit_tests
             tests/utils/test_ast.cpp
-            tests/utils/ast.cpp
-            tests/utils/ir.cpp
             tests/lang/middle/test_ir_sexp.cpp
             tests/lang/parser/test_literals.cpp
             tests/lang/parser/test_primitive_types.cpp
@@ -622,6 +637,7 @@ if (ENABLE_UNIT_TESTS)
     )
 
     target_link_libraries(cxy_unit_tests
+            cxy-test
             cxy-core
     )
 
@@ -632,10 +648,7 @@ if (ENABLE_UNIT_TESTS)
             tests
     )
 
-    # The IR tests compile programs with the compiler binary
-    add_dependencies(cxy_unit_tests cxy)
     target_compile_definitions(cxy_unit_tests PRIVATE
-            -DCXY_BINARY="$<TARGET_FILE:cxy>"
             -DCXY_VERSION="${CXY_VERSION}"
             -DCXY_BUILD_ID="${CXY_BUILD_ID}"
             -DTEST_ROOT_DIR="${CMAKE_SOURCE_DIR}"

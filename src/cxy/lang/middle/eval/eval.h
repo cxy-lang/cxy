@@ -29,6 +29,7 @@ void initEvalVisitor(AstVisitor *visitor, EvalContext *ctx);
 const Type *evalType(EvalContext *ctx, AstNode *node);
 bool evaluate(AstVisitor *visitor, AstNode *node);
 void initComptime(EvalContext *ctx);
+void deinitComptime(void);
 
 void evalStringConcatenation(EvalContext *ctx,
                              AstNode *node,

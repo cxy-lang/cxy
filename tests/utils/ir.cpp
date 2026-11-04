@@ -2,31 +2,25 @@
 
 #include "ast.hpp"
 
+#include "core/log.h"
+#include "core/mempool.h"
+#include "core/strpool.h"
+#include "driver/driver.h"
+#include "driver/options.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <unistd.h>
 
-#ifndef CXY_BINARY
-#error "CXY_BINARY must be defined to the path of the cxy compiler"
+#ifndef TEST_ROOT_DIR
+#error "TEST_ROOT_DIR must be defined to the root of the source tree"
 #endif
 
 namespace cxy::test {
 
 namespace {
-
-std::string quote(const std::string &s)
-{
-    std::string out = "'";
-    for (char c : s) {
-        if (c == '\'')
-            out += "'\\''";
-        else
-            out += c;
-    }
-    return out + "'";
-}
 
 std::string readFile(const std::string &path)
 {
@@ -106,46 +100,70 @@ IrCompileResult compileToIr(const std::string &source, const IrCompileOptions &o
 {
     IrCompileResult result;
 
-    char srcPath[] = "/tmp/cxy-irtest-XXXXXX.cxy";
     char outPath[] = "/tmp/cxy-irtest-out-XXXXXX";
-    int srcFd = mkstemps(srcPath, 4);
     int outFd = mkstemp(outPath);
-    if (srcFd < 0 || outFd < 0) {
-        result.diagnostics = "cannot create temporary files";
+    if (outFd < 0) {
+        result.diagnostics = "cannot create a temporary file";
         return result;
     }
     close(outFd);
-    {
-        FILE *f = fdopen(srcFd, "w");
-        fputs(source.c_str(), f);
-        fclose(f);
-    }
 
-    std::string cmd = quote(CXY_BINARY) +
-                      " dev --no-progress --no-color --dump-stats NONE"
-                      " --stdlib " + quote(std::string(TEST_ROOT_DIR) + "/src/cxy");
+    // The same options the command line would give
+    std::vector<std::string> args = {"cxy",
+                                     "dev",
+                                     "--no-progress",
+                                     "--no-color",
+                                     "--dump-stats",
+                                     "NONE",
+                                     "--stdlib",
+                                     std::string(TEST_ROOT_DIR) + "/src/cxy",
+                                     "--dump-ast",
+                                     "IRSEXP",
+                                     "--last-stage",
+                                     options.stage,
+                                     "-o",
+                                     outPath};
     if (!options.withBuiltins)
-        cmd += " --without-builtins";
-    cmd += " --dump-ast IRSEXP --last-stage " + options.stage;
+        args.push_back("--without-builtins");
     for (const std::string &arg : options.extraArgs)
-        cmd += " " + quote(arg);
-    cmd += " -o " + quote(outPath) + " " + quote(srcPath) + " 2>&1";
+        args.push_back(arg);
+    args.push_back("test.cxy"); // the source is given as a string, not read
 
-    FILE *pipe = popen(cmd.c_str(), "r");
-    if (pipe == nullptr) {
-        result.diagnostics = "cannot run " + cmd;
-    }
-    else {
-        char buf[4096];
-        size_t n;
-        while ((n = fread(buf, 1, sizeof(buf), pipe)) > 0)
-            result.diagnostics.append(buf, n);
-        int status = pclose(pipe);
-        result.sexp = readFile(outPath);
-        result.ok = status == 0 && !result.sexp.empty();
+    std::vector<char *> argv;
+    for (std::string &arg : args)
+        argv.push_back(arg.data());
+    argv.push_back(nullptr);
+    int argc = (int)args.size();
+
+    MemPool pool = newMemPool();
+    FormatState diagnostics = newFormatState("  ", true);
+    Log log = newLog(&pool, printDiagnosticToMemory, nullptr);
+    DiagnosticMemoryPrintCtx diagnosticCtx = {.state = &diagnostics, .L = &log};
+    log.handlerCtx = &diagnosticCtx;
+    StrPool strings = newStrPool(&pool);
+
+    CompilerDriver driver = {};
+    driver.cxyBinaryPath = TEST_ROOT_DIR;
+    driver.options.strings = &strings;
+
+    bool ok = parseCommandLineOptions(&argc, argv.data(), &strings, &driver.options, &log);
+    if (ok)
+        ok = initCompilerDriver(&driver, &pool, &strings, &log, argc, argv.data());
+    if (ok) {
+        ok = compileString(&driver, source.c_str(), source.size(), "test.cxy");
+        deinitCompilerDriver(&driver);
     }
 
-    unlink(srcPath);
+    char *text = formatStateToString(&diagnostics);
+    result.diagnostics = text ? text : "";
+    free(text);
+    freeFormatState(&diagnostics);
+    freeLog(&log);
+    freeStrPool(&strings);
+    freeMemPool(&pool);
+
+    result.sexp = readFile(outPath);
+    result.ok = ok && !result.sexp.empty();
     unlink(outPath);
     return result;
 }

@@ -52,6 +52,43 @@ TEST_CASE("IR matcher: members of a module")
     CHECK(irFunction(module, "missing").empty());
 }
 
+// The compiler keeps no state between compilations in a process: the builtins
+// module, the interned strings and the compile-time member tables belong to one
+// compilation and are reset when it ends.
+TEST_CASE("IR dump: compiling twice in one process gives the same IR")
+{
+    const char *source = R"(
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() {}
+}
+func take(n: Node): i32 => n.id
+func demo(): i32 {
+    var a = Node(1)
+    return take(a)
+}
+func main(): void {}
+)";
+    IrCompileOptions managed;
+    managed.stage = "MemoryMgmt";
+
+    auto first = compileToIr(source, managed);
+    // something different in between, with the builtins module this time
+    IrCompileOptions withBuiltins;
+    withBuiltins.withBuiltins = true;
+    auto other = compileToIr("func main(): void { var s = \"x\".S }", withBuiltins);
+    auto second = compileToIr(source, managed);
+
+    INFO(first.diagnostics);
+    INFO(other.diagnostics);
+    INFO(second.diagnostics);
+    REQUIRE(first.ok);
+    REQUIRE(other.ok);
+    REQUIRE(second.ok);
+    CHECK(first.sexp == second.sexp);
+}
+
 TEST_CASE("IR dump: a plain function")
 {
     auto ir = compileToIr(R"(

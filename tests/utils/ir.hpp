@@ -1,9 +1,9 @@
 /**
  * IR validation utilities.
  *
- * Compile a program with the `cxy` binary, take its IR as an S-expression, and
- * match it against an expected pattern. Write the pattern first, then make the
- * compiler produce it.
+ * Compile a program with the compiler library, in the test process, take its IR
+ * as an S-expression, and match it against an expected pattern. Write the
+ * pattern first, then make the compiler produce it.
  *
  *   auto ir = compileToIr("func f(x: i32): i32 => x + 1");
  *   REQUIRE(ir.ok);
@@ -15,9 +15,6 @@
  * Pattern syntax, on top of plain S-expressions:
  *   _      matches any single node (an atom or a whole list)
  *   ...    inside a list, matches any number of siblings, including none
- *
- * The compiler runs as a separate process because its global state (the
- * builtins module, interned strings) cannot be reset between compilations.
  */
 
 #pragma once

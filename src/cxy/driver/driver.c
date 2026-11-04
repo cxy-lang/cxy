@@ -15,6 +15,7 @@
 #include "lang/frontend/strings.h"
 #include "lang/frontend/ttable.h"
 #include "lang/middle/builtins.h"
+#include "lang/middle/eval/eval.h"
 #include "lang/middle/ir/node.h"
 #include "plugin.h"
 
@@ -353,6 +354,8 @@ void deinitCompilerDriver(CompilerDriver *driver)
         freeHashTable(&driver->linkLibraries);
         freeHashTable(&driver->nativeSources);
         freeTypeTable(driver->types);
+        deinitBuiltins();
+        deinitComptime();
     }
 
     profileDeinitContext(&driver->profiling);

@@ -1271,14 +1271,18 @@ static void initStructFieldMembers(EvalContext *ctx)
 #undef ADD_MEMBER
 }
 
+static bool comptimeInitialized = false;
+
+// The member tables live in the pool of the compilation that is ending
+void deinitComptime(void) { comptimeInitialized = false; }
+
 void initComptime(EvalContext *ctx)
 {
-    static bool initialized = false;
-    if (!initialized) {
+    if (!comptimeInitialized) {
         initDefaultMembers(ctx);
         initStructDeclMembers(ctx);
         initStructFieldMembers(ctx);
-        initialized = true;
+        comptimeInitialized = true;
     }
 }
 

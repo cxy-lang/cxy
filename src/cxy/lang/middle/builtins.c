@@ -219,6 +219,18 @@ static inline void addOverridableBuiltin(cstring name)
 
 bool isBuiltinsInitialized() { return cxy_builtins.module != NULL; }
 
+// The builtin string types, looked up once per compilation
+static const Type *tString = NULL, *tCString = NULL;
+
+// Everything here points into the pool and the type table of the compilation
+// that is ending. A second compilation in the same process starts clean.
+void deinitBuiltins(void)
+{
+    cxy_builtins = (__typeof(cxy_builtins)){NULL};
+    builtinContractsInitialized = false;
+    tString = tCString = NULL;
+}
+
 void initializeBuiltins(Log *L, MemPool *pool)
 {
     if (cxy_builtins.L != NULL) {
@@ -310,7 +322,6 @@ bool hasBuiltinOverride(cstring name)
 
 bool isBuiltinString(const Type *type)
 {
-    static const Type *tString = NULL, *tCString = NULL;
     if (tString == NULL && isBuiltinsInitialized()) {
         tString = findBuiltinType(S_String);
         tCString = findBuiltinType(S___string);

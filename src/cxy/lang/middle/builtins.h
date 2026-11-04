@@ -12,6 +12,7 @@ extern "C" {
 
 bool isBuiltinsInitialized();
 void initializeBuiltins(Log *L, MemPool *pool);
+void deinitBuiltins(void);
 void setBuiltinsModule(const Type *module, const FileLoc *loc);
 bool checkBuiltinAttribute(Log *L, const AstNode *decl, bool isBuiltinModule);
 bool validateBuiltinContracts(Log *L, const Type *module);
