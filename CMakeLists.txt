@@ -638,8 +638,12 @@ if (ENABLE_UNIT_TESTS)
     add_executable(cxy_unit_tests
             tests/utils/test_ast.cpp
             tests/lang/middle/test_ir_sexp.cpp
-            tests/lang/middle/test_ir_info.cpp
-            tests/lang/middle/test_ir_conditions.cpp
+            tests/lang/middle/lower/test_info.cpp
+            tests/lang/middle/lower/test_binary.cpp
+            tests/lang/middle/lower/test_result.cpp
+            tests/lang/middle/lower/test_member_rvalue.cpp
+            tests/lang/middle/lower/test_type.cpp
+            tests/lang/middle/lower/test_conditions.cpp
             tests/lang/middle/test_memory_pass_bugs.cpp
             tests/lang/parser/test_literals.cpp
             tests/lang/parser/test_primitive_types.cpp
