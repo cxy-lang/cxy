@@ -1,0 +1,5 @@
+error: `Handle` cannot be copied, it is `@nocopy` or holds a `@nocopy` value. Move it with `&&x` or borrow it with `&x`
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/nocopy/copy_explicit.cxy:11:5 (to 11:20)
+   |
+11 |    var b = @copy a
+   |    ^^^^^^^^^^^^^^^

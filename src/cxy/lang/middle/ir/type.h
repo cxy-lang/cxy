@@ -85,6 +85,7 @@ struct IrType {
     u64 size;
     u64 align;
     bool isPacked;
+    bool noCopy; // declared `@nocopy`: a move-only type
     u64 index;
     cstring name;
     cstring display;
@@ -170,6 +171,29 @@ static inline bool isIrArrayType(const IrType *type) { return type && type->tag 
 static inline bool isIrStructType(const IrType *type) { return type && type->tag == irTypeStruct; }
 static inline bool isIrFuncType(const IrType *type) { return type && type->tag == irTypeFunc; }
 static inline bool isIrVoidType(const IrType *type) { return type && type->tag == irTypeVoid; }
+
+// A `@nocopy` type, or a value type that holds one by value. A class handle is
+// only move-only if the class itself is declared so.
+static inline bool isIrTypeNoCopy(const IrType *type)
+{
+    for (u32 depth = 0; type && depth < 8; depth++) {
+        if (type->noCopy)
+            return true;
+        if (type->tag != irTypeStruct || type->category == irTypeCatClass)
+            return false;
+        for (u64 i = 0; i < type->strct.count; i++) {
+            const IrType *field = type->strct.fields[i].type;
+            if (field && field->tag == irTypeStruct && field->category != irTypeCatClass) {
+                if (isIrTypeNoCopy(field))
+                    return true;
+            }
+            else if (field && field->noCopy)
+                return true;
+        }
+        return false;
+    }
+    return false;
+}
 
 static inline bool isIrTypeDestructible(const IrType *type)
 {

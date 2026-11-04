@@ -701,6 +701,8 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
         const IrType *structType = makeIrStructType(
             ctx->types, flags, sOpts, name, type->name, fields, fieldCount);
         ((IrType *)structType)->index = type->index;
+        ((IrType *)structType)->noCopy =
+            sDecl && findAttribute(sDecl, S_nocopy) != NULL;
         const NamedTypeMember *dctorMember =
             findStructMember(type, S_DestructorOverload);
         if (dctorMember && dctorMember->decl)
@@ -788,6 +790,8 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
                                                     fieldCount);
         ((IrType *)structType)->index = type->index;
         ((IrType *)structType)->typeName = readableTypeName(ctx, type);
+        ((IrType *)structType)->noCopy =
+            cDecl && findAttribute(cDecl, S_nocopy) != NULL;
         const NamedTypeMember *classDctor =
             findClassMember(type, S_DestructorOverload);
         if (classDctor && classDctor->decl)
@@ -804,6 +808,7 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
             makeIrClassType(ctx->types, flgReferenceMembers, structType);
         ((IrType *)ptrType)->index = type->index;
         ((IrType *)ptrType)->typeName = ((IrType *)structType)->typeName;
+        ((IrType *)ptrType)->noCopy = ((IrType *)structType)->noCopy;
         ((IrType *)ptrType)->strct.dctorAst =
             ((IrType *)structType)->strct.dctorAst;
         ((IrType *)ptrType)->strct.dctorFwdAst =

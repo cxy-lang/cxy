@@ -1,6 +1,7 @@
 #include "memory.h"
 #include "core/hash.h"
 #include "lang/frontend/flag.h"
+#include "lang/middle/ir/visitor.h"
 
 
 bool isIrTypeCopyable(const IrType *type)
@@ -1091,6 +1092,37 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
     }
 }
 
+static void visitNoCopyCopy(IrVisitor *visitor, IrNode *node)
+{
+    MemMgmtContext *ctx = getIrVisitorContext(visitor);
+    irVisitFallbackVisitAll(visitor, node);
+    const IrType *type = node->copy.src ? node->copy.src->type : NULL;
+    // Generated glue (a struct's copy overload) has an empty source range
+    if (!isIrTypeNoCopy(type) || node->loc.fileName == NULL ||
+        node->loc.begin.byteOffset == node->loc.end.byteOffset)
+        return;
+
+    // A class handle is a pointer, report the class
+    cstring name = type->typeName ?: type->display ?: type->name;
+    logError(ctx->driver->L,
+             &node->loc,
+             "`{s}` cannot be copied, it is `@nocopy` or holds a `@nocopy` "
+             "value. Move it with `&&x` or borrow it with `&x`",
+             (FormatArg[]){{.s = name}});
+}
+
+// Runs after every copy exists, so it sees user `@copy` and the copies the pass
+// inserted alike.
+static void rejectNoCopyCopies(MemMgmtContext *ctx, IrNode *func)
+{
+    IrVisitor visitor = makeIrVisitor(ctx, {[irCopy] = visitNoCopyCopy});
+    visitor.fallback = irVisitFallbackVisitAll;
+    for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
+        if (bb->tag == irBasicBlock)
+            irVisitManyNodes(&visitor, bb->basicBlock.first);
+    }
+}
+
 static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
 {
     MemPool localPool = newMemPool();
@@ -1112,6 +1144,7 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
             synthesizeDropFlags(ctx, func);
         }
         elaborateDropsAndReassignments(ctx, blocks, blockCount);
+        rejectNoCopyCopies(ctx, func);
     }
 
     freeHashTable(&ctx->trackedVars);

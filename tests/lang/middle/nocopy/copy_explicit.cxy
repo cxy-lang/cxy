@@ -1,0 +1,12 @@
+// `@copy` of a `@nocopy` type is an error that names the type
+@nocopy
+class Handle {
+    fd: i32
+    func `init`(fd: i32) { this.fd = fd }
+    func `deinit`() {}
+}
+
+func main(): void {
+    var a = Handle(1)
+    var b = @copy a
+}

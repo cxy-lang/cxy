@@ -94,6 +94,7 @@ extern "C" {
     f(linkage)                  \
     f(section)                  \
     f(packed)                   \
+    f(nocopy)                   \
     f(strview)                  \
     f(builtin)                  \
     f(append)                   \

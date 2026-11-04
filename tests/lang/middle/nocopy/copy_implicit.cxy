@@ -1,0 +1,15 @@
+// An implicit copy of a `@nocopy` type is rejected too
+@nocopy
+class Handle {
+    fd: i32
+    func `init`(fd: i32) { this.fd = fd }
+    func `deinit`() {}
+}
+
+func take(h: Handle): i32 => h.fd
+
+func main(): void {
+    var a = Handle(1)
+    var b = a
+    take(a)
+}

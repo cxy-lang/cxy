@@ -1,0 +1,17 @@
+// A struct that holds a `@nocopy` value is move-only as well
+@nocopy
+class Handle {
+    fd: i32
+    func `init`(fd: i32) { this.fd = fd }
+    func `deinit`() {}
+}
+
+struct Pair {
+    first: Handle
+    count: i32
+}
+
+func main(): void {
+    var p = Pair{first: Handle(1), count: 2}
+    var q = @copy p
+}

@@ -1,0 +1,5 @@
+error: `Pair` cannot be copied, it is `@nocopy` or holds a `@nocopy` value. Move it with `&&x` or borrow it with `&x`
+  in /Users/dc/projects/mono-cxy/cxy/tests/lang/middle/nocopy/copy_in_struct.cxy:16:5 (to 16:20)
+   |
+16 |    var q = @copy p
+   |    ^^^^^^^^^^^^^^^

@@ -1,0 +1,25 @@
+// A `@nocopy` type can be moved, borrowed and returned, only copying is rejected
+@nocopy
+class Handle {
+    fd: i32
+    func `init`(fd: i32) { this.fd = fd }
+    func `deinit`() {}
+}
+
+struct Pair {
+    first: Handle
+    count: i32
+}
+
+func use(h: Handle): i32 => h.fd
+func peek(h: &Handle): i32 => h.fd
+func make(): Handle => Handle(7)
+
+func main(): void {
+    var a = Handle(1)
+    var n = peek(a)
+    var b = &&a
+    var c = use(make())
+    var p = Pair{first: &&b, count: 2}
+    var q = &&p
+}

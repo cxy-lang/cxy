@@ -1236,6 +1236,7 @@ pub struct CoWaitGroup {
 
 
 #if (defined __CXY_THREADS_ENABLED__) {
+    @nocopy
     pub class Mutex {
         _osMutex = tinyThread.mtx_t{}      // Protects waiters list
         _locked = Atomic[bool]()                 // Lock state
@@ -1309,6 +1310,7 @@ pub struct CoWaitGroup {
         }
     }
 
+    @nocopy
     pub class ConditionVariable {
         _waiters = List[Coroutine]{}
         _osMutex = tinyThread.mtx_t{}
@@ -1382,6 +1384,7 @@ pub struct CoWaitGroup {
         }
     }
 
+    @nocopy
     pub class Semaphore {
         _count = Atomic[i32]()
         _waiters = List[Coroutine]{}
