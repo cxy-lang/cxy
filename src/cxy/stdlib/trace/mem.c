@@ -46,12 +46,12 @@ typedef struct {
 } TraceEvent;
 
 typedef struct {
-    void *ptr; // NULL = empty slot, LIVE_TOMBSTONE = deleted
+    void *ptr; // payload address
     uint64_t size;
     const char *path;
     uint64_t line;
-    uint64_t gen; // allocation order, for most-recent-first reports
-    bool raw;     // a plain buffer (container storage), only used by the graph
+    uint64_t gen; // birth tick, for most-recent-first reports and `mark`
+    bool raw;     // unused until the exact graph replaces the scan
     bool buffer;  // container storage from __alloc_buffer, listed like an object
 } LiveEntry;
 
@@ -62,22 +62,66 @@ typedef struct {
     uint64_t bytes;
 } SiteEntry;
 
-#define LIVE_TOMBSTONE ((void *)1)
+// Records emitted by the generated program, they mirror __Site and __TypeInfo in
+// runtime/mm.h
+typedef struct {
+    const char *file;
+    uint32_t line, column;
+    const char *function;
+    uint32_t index;
+} SiteRecord;
+
+typedef struct {
+    const char *name;
+    uint64_t size;
+    uint32_t align, kind;
+    void *deinit, *dropFields, *visit;
+    uint32_t index;
+} TypeRecord;
+
+/*
+ * Registry. Every object and buffer carries a TraceRec in front of it (mirrors
+ * __TraceHeader in runtime/mm.h). Entries live on the list of the thread that
+ * allocated them, each list has its own lock, so allocating threads never contend
+ * and a free on another thread only locks the owner's list.
+ */
+#define KIND_OBJECT 0
+#define KIND_BUFFER 1
+
+struct TraceList;
+typedef struct __attribute__((aligned(16))) TraceRec {
+    const SiteRecord *site;
+    uint64_t birthTick;
+    struct TraceRec *prev, *next;
+    struct TraceList *list;
+    uint64_t size;
+    uint32_t kind;
+    uint32_t reserved;
+    uint64_t stackId;
+} TraceRec;
+
+_Static_assert(sizeof(TraceRec) == 64, "must mirror __TraceHeader");
+
+// The object header that follows a TraceRec is 16 bytes
+#define OBJ_HEADER_SIZE 16
+
+typedef struct TraceList {
+    pthread_mutex_t lock;
+    TraceRec *head;
+    struct TraceList *next; // every list, push-only: a finished thread keeps its entries
+    uint64_t objects, objectBytes;
+    uint64_t buffers, bufferBytes;
+    uint64_t objectAllocs; // objects registered since start
+} TraceList;
 
 static TraceEvent ring[CXY_TRACE_RING_SIZE];
 static uint32_t ringIdx = 0;
 
-static LiveEntry *live = NULL;
-static size_t liveCap = 0;   // power of two
-static size_t liveCount = 0; // live smart pointer entries
-static size_t liveRawCount = 0; // live raw entries (graph only)
-static size_t liveBufferCount = 0; // live container buffers, also in liveCount
-static uint64_t liveBufferBytes = 0;
-static uint64_t liveBufferAllocs = 0; // buffers ever registered, part of liveGen
-static size_t liveUsed = 0;  // live entries + tombstones
-static uint64_t liveGen = 0;
-static uint64_t liveBytes = 0;
-static pthread_mutex_t liveLock = PTHREAD_MUTEX_INITIALIZER;
+static __thread TraceList *threadList;
+static TraceList *allLists;
+static pthread_mutex_t listsLock = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t tick;      // allocation clock, entries are stamped with it
+static uint64_t startTick; // entries older than this are static, never reported
 
 static bool started = false;
 
@@ -173,86 +217,113 @@ static inline size_t liveHash(const void *ptr)
     return (size_t)(h >> 16);
 }
 
-static void liveRehash(size_t newCap)
+static TraceList *threadListGet(void)
 {
-    LiveEntry *old = live;
-    size_t oldCap = liveCap;
-    live = calloc(newCap, sizeof(LiveEntry));
-    if (live == NULL) {
-        // Out of memory while tracing: keep the old table
-        live = old;
-        return;
-    }
-    liveCap = newCap;
-    liveUsed = liveCount + liveRawCount;
-    for (size_t i = 0; i < oldCap; i++) {
-        if (old[i].ptr == NULL || old[i].ptr == LIVE_TOMBSTONE)
-            continue;
-        size_t idx = liveHash(old[i].ptr) & (liveCap - 1);
-        while (live[idx].ptr != NULL)
-            idx = (idx + 1) & (liveCap - 1);
-        live[idx] = old[i];
-    }
-    free(old);
+    TraceList *list = threadList;
+    if (list != NULL)
+        return list;
+    list = calloc(1, sizeof(TraceList));
+    if (list == NULL)
+        return NULL;
+    pthread_mutex_init(&list->lock, NULL);
+    pthread_mutex_lock(&listsLock);
+    list->next = allLists;
+    allLists = list;
+    pthread_mutex_unlock(&listsLock);
+    threadList = list;
+    return list;
 }
 
-static void liveInsert(void *ptr, uint64_t size, const char *path, uint64_t line, bool raw, bool buffer)
+static inline void *recPayload(const TraceRec *rec)
 {
-    if ((liveUsed + 1) * 4 >= liveCap * 3)
-        liveRehash(liveCap ? liveCap * 2 : 1024);
-    if (live == NULL)
+    return (char *)rec + sizeof(TraceRec) + (rec->kind == KIND_OBJECT ? OBJ_HEADER_SIZE : 0);
+}
+
+// Called by mm.h after the block is allocated, nothing is registered before
+// __cxy_mem_trace_start (static allocations are never reported)
+void __cxy_mem_trace_register(TraceRec *rec)
+{
+    rec->list = NULL;
+    if (!__atomic_load_n(&started, __ATOMIC_ACQUIRE))
+        return;
+    TraceList *list = threadListGet();
+    if (list == NULL)
         return;
 
-    size_t idx = liveHash(ptr) & (liveCap - 1);
-    while (live[idx].ptr != NULL && live[idx].ptr != LIVE_TOMBSTONE)
-        idx = (idx + 1) & (liveCap - 1);
-    if (live[idx].ptr == NULL)
-        liveUsed++;
-    // Buffers don't take part in generations, `mark` and `diff` only see objects
-    live[idx] = (LiveEntry){.ptr = ptr,
-                            .size = size,
-                            .path = path,
-                            .line = line,
-                            .gen = raw ? 0 : ++liveGen,
-                            .raw = raw,
-                            .buffer = buffer};
-    if (raw) {
-        liveRawCount++;
+    rec->birthTick = __atomic_add_fetch(&tick, 1, __ATOMIC_RELAXED);
+    rec->list = list;
+    pthread_mutex_lock(&list->lock);
+    rec->prev = NULL;
+    rec->next = list->head;
+    if (list->head != NULL)
+        list->head->prev = rec;
+    list->head = rec;
+    if (rec->kind == KIND_BUFFER) {
+        list->buffers++;
+        list->bufferBytes += rec->size;
     }
     else {
-        liveCount++;
-        liveBytes += size;
-        if (buffer) {
-            liveBufferCount++;
-            liveBufferBytes += size;
-            liveBufferAllocs++;
-        }
+        list->objects++;
+        list->objectBytes += rec->size;
+        list->objectAllocs++;
     }
+    pthread_mutex_unlock(&list->lock);
 }
 
-static void liveRemove(void *ptr)
+// Called before the block is freed, from any thread
+void __cxy_mem_trace_unregister(TraceRec *rec)
 {
-    if (live == NULL)
+    TraceList *list = rec->list;
+    if (list == NULL)
         return;
-    size_t idx = liveHash(ptr) & (liveCap - 1);
-    while (live[idx].ptr != NULL) {
-        if (live[idx].ptr == ptr) {
-            live[idx].ptr = LIVE_TOMBSTONE;
-            if (live[idx].raw) {
-                liveRawCount--;
-            }
-            else {
-                liveCount--;
-                liveBytes -= live[idx].size;
-                if (live[idx].buffer) {
-                    liveBufferCount--;
-                    liveBufferBytes -= live[idx].size;
-                }
-            }
-            return;
-        }
-        idx = (idx + 1) & (liveCap - 1);
+    pthread_mutex_lock(&list->lock);
+    if (rec->prev != NULL)
+        rec->prev->next = rec->next;
+    else
+        list->head = rec->next;
+    if (rec->next != NULL)
+        rec->next->prev = rec->prev;
+    if (rec->kind == KIND_BUFFER) {
+        list->buffers--;
+        list->bufferBytes -= rec->size;
     }
+    else {
+        list->objects--;
+        list->objectBytes -= rec->size;
+    }
+    pthread_mutex_unlock(&list->lock);
+    rec->list = NULL;
+}
+
+// Locks every list, in registration order, so a fork sees consistent lists
+static void lockAllLists(void)
+{
+    pthread_mutex_lock(&listsLock);
+    for (TraceList *l = allLists; l != NULL; l = l->next)
+        pthread_mutex_lock(&l->lock);
+}
+
+static void unlockAllLists(void)
+{
+    for (TraceList *l = allLists; l != NULL; l = l->next)
+        pthread_mutex_unlock(&l->lock);
+    pthread_mutex_unlock(&listsLock);
+}
+
+// Live totals for tests and tools: objects, object bytes, buffers, buffer bytes
+void __cxy_mem_trace_stats(uint64_t out[4])
+{
+    out[0] = out[1] = out[2] = out[3] = 0;
+    pthread_mutex_lock(&listsLock);
+    for (TraceList *l = allLists; l != NULL; l = l->next) {
+        pthread_mutex_lock(&l->lock);
+        out[0] += l->objects;
+        out[1] += l->objectBytes;
+        out[2] += l->buffers;
+        out[3] += l->bufferBytes;
+        pthread_mutex_unlock(&l->lock);
+    }
+    pthread_mutex_unlock(&listsLock);
 }
 
 static int compareByGenDesc(const void *lhs, const void *rhs)
@@ -261,25 +332,43 @@ static int compareByGenDesc(const void *lhs, const void *rhs)
     return l < r ? 1 : (l > r ? -1 : 0);
 }
 
-// Copies live entries newer than minGen (most recent first); caller frees
+static void snapshotAppend(LiveEntry **snap, size_t *n, size_t *cap, const TraceRec *rec)
+{
+    if (*n == *cap) {
+        size_t newCap = *cap ? *cap * 2 : 256;
+        LiveEntry *grown = realloc(*snap, newCap * sizeof(LiveEntry));
+        if (grown == NULL)
+            return;
+        *snap = grown;
+        *cap = newCap;
+    }
+    (*snap)[(*n)++] = (LiveEntry){.ptr = recPayload(rec),
+                                  .size = rec->size,
+                                  .path = rec->site ? rec->site->file : NULL,
+                                  .line = rec->site ? rec->site->line : 0,
+                                  .gen = rec->birthTick,
+                                  .buffer = rec->kind == KIND_BUFFER};
+}
+
+// Copies live entries born after minGen (most recent first); caller frees
 static LiveEntry *liveSnapshot(uint64_t minGen, size_t *count)
 {
-    pthread_mutex_lock(&liveLock);
-    size_t n = liveCount;
-    LiveEntry *snap = n ? malloc(n * sizeof(LiveEntry)) : NULL;
-    size_t j = 0;
-    if (snap != NULL) {
-        for (size_t i = 0; i < liveCap && j < n; i++) {
-            if (live[i].ptr != NULL && live[i].ptr != LIVE_TOMBSTONE && !live[i].raw &&
-                live[i].gen > minGen)
-                snap[j++] = live[i];
+    LiveEntry *snap = NULL;
+    size_t n = 0, cap = 0;
+    pthread_mutex_lock(&listsLock);
+    for (TraceList *l = allLists; l != NULL; l = l->next) {
+        pthread_mutex_lock(&l->lock);
+        for (const TraceRec *rec = l->head; rec != NULL; rec = rec->next) {
+            if (rec->birthTick > minGen)
+                snapshotAppend(&snap, &n, &cap, rec);
         }
+        pthread_mutex_unlock(&l->lock);
     }
-    pthread_mutex_unlock(&liveLock);
+    pthread_mutex_unlock(&listsLock);
 
     if (snap != NULL)
-        qsort(snap, j, sizeof(LiveEntry), compareByGenDesc);
-    *count = j;
+        qsort(snap, n, sizeof(LiveEntry), compareByGenDesc);
+    *count = n;
     return snap;
 }
 
@@ -478,11 +567,18 @@ static void sitesReportFd(int fd, uint64_t minGen, size_t limit)
 
 static void summaryFd(int fd)
 {
-    pthread_mutex_lock(&liveLock);
-    uint64_t count = liveCount - liveBufferCount, bytes = liveBytes - liveBufferBytes;
-    uint64_t gen = liveGen - liveBufferAllocs;
-    uint64_t buffers = liveBufferCount, bufferBytes = liveBufferBytes;
-    pthread_mutex_unlock(&liveLock);
+    uint64_t count = 0, bytes = 0, gen = 0, buffers = 0, bufferBytes = 0;
+    pthread_mutex_lock(&listsLock);
+    for (TraceList *l = allLists; l != NULL; l = l->next) {
+        pthread_mutex_lock(&l->lock);
+        count += l->objects;
+        bytes += l->objectBytes;
+        gen += l->objectAllocs;
+        buffers += l->buffers;
+        bufferBytes += l->bufferBytes;
+        pthread_mutex_unlock(&l->lock);
+    }
+    pthread_mutex_unlock(&listsLock);
     dprintf(fd,
             "live: %llu allocations, %llu bytes\n"
             "buffers: %llu live, %llu bytes\n"
@@ -515,21 +611,6 @@ void __cxy_mem_trace_report(void)
  * provides the tables (__cxy_sites, __cxy_types) and the hooks below are called
  * from mm.h. The records mirror __Site and __TypeInfo in runtime/mm.h.
  */
-typedef struct {
-    const char *file;
-    uint32_t line, column;
-    const char *function;
-    uint32_t index;
-} SiteRecord;
-
-typedef struct {
-    const char *name;
-    uint64_t size;
-    uint32_t align, kind;
-    void *deinit, *dropFields, *visit;
-    uint32_t index;
-} TypeRecord;
-
 __attribute__((weak)) extern const SiteRecord *const __cxy_sites[];
 __attribute__((weak)) extern const uint32_t __cxy_site_count;
 __attribute__((weak)) extern const TypeRecord *const __cxy_types[];
@@ -998,17 +1079,16 @@ static bool graphBuild(Graph *g)
     const char *env = getenv("CXY_MEM_SCAN_LIMIT_MB");
     g->scanLimit = (env != NULL ? strtoull(env, NULL, 10) : 2048ull) << 20;
 
-    for (size_t i = 0; i < liveCap; i++) {
-        const LiveEntry *e = &live[i];
-        if (e->ptr == NULL || e->ptr == LIVE_TOMBSTONE)
-            continue;
-        GraphNode node = {.start = (uintptr_t)e->ptr,
-                          .size = e->size,
-                          .path = e->path,
-                          .line = e->line,
-                          .raw = e->raw || e->buffer};
-        if (graphAddNode(g, node) == GRAPH_NONE)
-            return false;
+    for (const TraceList *l = allLists; l != NULL; l = l->next) {
+        for (const TraceRec *rec = l->head; rec != NULL; rec = rec->next) {
+            GraphNode node = {.start = (uintptr_t)recPayload(rec),
+                              .size = rec->size,
+                              .path = rec->site ? rec->site->file : NULL,
+                              .line = rec->site ? rec->site->line : 0,
+                              .raw = rec->kind == KIND_BUFFER};
+            if (graphAddNode(g, node) == GRAPH_NONE)
+                return false;
+        }
     }
 
     g->keys = malloc((g->count ? g->count : 1) * sizeof(GraphKey));
@@ -1517,7 +1597,7 @@ static void graphCrashHandler(int sig)
  */
 static void graphCommand(int fd, const char *cmd, const char *arg1, const char *arg2)
 {
-    pthread_mutex_lock(&liveLock);
+    lockAllLists();
     pid_t pid = fork();
     if (pid == 0) {
         graphFd = fd;
@@ -1533,7 +1613,7 @@ static void graphCommand(int fd, const char *cmd, const char *arg1, const char *
         runGraphCommand(fd, cmd, arg1, arg2);
         _exit(0);
     }
-    pthread_mutex_unlock(&liveLock);
+    unlockAllLists();
     if (pid < 0) {
         dprintf(fd, "error: fork failed: %s\n", strerror(errno));
         return;
@@ -1596,9 +1676,7 @@ static void handleCommand(int fd, char *line)
         ringDumpFd(fd, (void *)(uintptr_t)strtoull(args[1], NULL, 0), sym);
     }
     else if (strcmp(cmd, "mark") == 0) {
-        pthread_mutex_lock(&liveLock);
-        uint64_t gen = liveGen;
-        pthread_mutex_unlock(&liveLock);
+        uint64_t gen = __atomic_load_n(&tick, __ATOMIC_RELAXED);
         __atomic_store_n(&markGen, gen, __ATOMIC_RELAXED);
         dprintf(fd, "mark %llu\n", (unsigned long long)gen);
     }
@@ -1707,57 +1785,10 @@ void __cxy_mem_trace_start(void)
 {
     // Allocations before this point are static and never reported as leaks
     bool expected = false;
-    if (__atomic_compare_exchange_n(&started, &expected, true, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+    if (__atomic_compare_exchange_n(&started, &expected, true, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        __atomic_store_n(&startTick, __atomic_load_n(&tick, __ATOMIC_RELAXED), __ATOMIC_RELAXED);
         startQueryServer();
-}
-
-void __cxy_mem_trace_alloc(void *ptr, uint64_t size, const char *path, uint64_t line)
-{
-    if (ptr == NULL || !__atomic_load_n(&started, __ATOMIC_ACQUIRE))
-        return;
-
-    pthread_mutex_lock(&liveLock);
-
-    liveInsert(ptr, size, path, line, false, false);
-    pthread_mutex_unlock(&liveLock);
-}
-
-/*
- * Container storage (__alloc_buffer and friends in runtime/mm.h). A buffer is a
- * live entry like an object, listed with `buffer` instead of a count, and it is
- * counted in the per-site totals. The free hook runs before the block is freed.
- */
-void __cxy_mem_trace_buffer_alloc(void *ptr, uint64_t size, const SiteRecord *site)
-{
-    if (ptr == NULL || !__atomic_load_n(&started, __ATOMIC_ACQUIRE))
-        return;
-    pthread_mutex_lock(&liveLock);
-    liveInsert(ptr, size, site->file, site->line, false, true);
-    pthread_mutex_unlock(&liveLock);
-    __cxy_mem_trace_count(UINT32_MAX, site->index, size);
-}
-
-void __cxy_mem_trace_buffer_realloc(void *old, void *ptr, uint64_t size, const SiteRecord *site)
-{
-    if (!__atomic_load_n(&started, __ATOMIC_ACQUIRE))
-        return;
-    pthread_mutex_lock(&liveLock);
-    if (old != NULL)
-        liveRemove(old);
-    if (ptr != NULL)
-        liveInsert(ptr, size, site->file, site->line, false, true);
-    pthread_mutex_unlock(&liveLock);
-    if (ptr != NULL)
-        __cxy_mem_trace_count(UINT32_MAX, site->index, size);
-}
-
-void __cxy_mem_trace_buffer_free(void *ptr)
-{
-    if (ptr == NULL)
-        return;
-    pthread_mutex_lock(&liveLock);
-    liveRemove(ptr);
-    pthread_mutex_unlock(&liveLock);
+    }
 }
 
 void __cxy_mem_trace_event(void *ptr, const char *op, uint32_t refs, const char *path, uint64_t line)
@@ -1772,15 +1803,6 @@ void __cxy_mem_trace_event(void *ptr, const char *op, uint32_t refs, const char 
     ev->line = line;
     ev->refs = refs;
     ev->stackSize = backtrace(ev->stack, CXY_TRACE_STACK_DEPTH);
-}
-
-void __cxy_mem_trace_free(void *ptr)
-{
-    if (ptr == NULL)
-        return;
-    pthread_mutex_lock(&liveLock);
-    liveRemove(ptr);
-    pthread_mutex_unlock(&liveLock);
 }
 
 void __cxy_mem_trace_dump(void *ptr)
