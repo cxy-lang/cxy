@@ -1046,19 +1046,15 @@ static AstNode *prefix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
     if (check(P, tokLaunch))
         return launchExpression(P);
 
-    // `@copy x.y` takes a new owner, same node as `__copy!(x.y)`
+    // `@copy x.y` takes a new owner. Sema gives the node its type.
     if (check(P, tokAtCopy)) {
         const Token tok = *advance(P);
         AstNode *operand = prefix(P, parsePrimary);
         return newAstNode(
             P,
             &tok,
-            &(AstNode){.tag = astMacroCallExpr,
-                       .flags = flgComptime,
-                       .macroCallExpr = {
-                           .callee = makeIdentifier(
-                               P->memPool, &tok.fileLoc, S___copy, 0, NULL, NULL),
-                           .args = operand}});
+            &(AstNode){.tag = astBackendCall,
+                       .backendCallExpr = {.func = bfiCopy, .args = operand}});
     }
 
     switch (current(P)->tag) {

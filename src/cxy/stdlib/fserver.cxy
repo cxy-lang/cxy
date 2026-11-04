@@ -115,7 +115,7 @@ pub class FileServer {
 
         ep(config.route.str(), (req: &const Request, resp: &Response) => {
             var uri = req.uri()
-            var path = __copy!(uri)
+            var path = @copy uri
             if (path.empty()) {
                 var rootAliasOpt = this.redirects.["/"];
                 if (!rootAliasOpt) {
@@ -124,7 +124,7 @@ pub class FileServer {
                     return
                 }
                 var rootAlias = *rootAliasOpt;
-                path = __copy!(rootAlias)
+                path = @copy rootAlias
             }
 
             var idx = path.rIndexOf('.'`char)
@@ -135,7 +135,7 @@ pub class FileServer {
                     return
                 }
                 var tmp = *aliasedPath;
-                path = __copy!(tmp)
+                path = @copy tmp
                 idx =  path.rIndexOf('.'`char)
             }
             var pathOpt = this.fileExists(&path);

@@ -621,6 +621,28 @@ static void checkBackendCallExpr(AstVisitor *visitor, AstNode *node)
     for (AstNode *arg = node->backendCallExpr.args; arg; arg = arg->next) {
         checkType(visitor, arg);
     }
+
+    // `@copy x` comes from the parser untyped, sema generated copies are typed
+    if (node->type == NULL && node->backendCallExpr.func == bfiCopy) {
+        AstNode *arg = node->backendCallExpr.args;
+        const Type *type = arg ? arg->type : NULL;
+        if (type == NULL || typeIs(type, Error)) {
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        if (!nodeIsLeftValue(arg) && !isReferenceType(type)) {
+            logError(ctx->L,
+                     &arg->loc,
+                     "`@copy` expects a place (a variable, a field or an "
+                     "element) or a reference",
+                     NULL);
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        node->type = isReferenceType(type) ? type->reference.referred : type;
+        return;
+    }
+
     if (node->type == NULL) {
         node->type = makeVoidType(ctx->types);
     }

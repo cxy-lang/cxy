@@ -486,7 +486,7 @@ pub struct Value {
     // Cast function for converting Value to target types
     const func cast[Target](@unused b64: bool = true): !Target {
         #if (#Target == #Value) {
-            return <Target>(__copy!(*this))
+            return <Target>(@copy *this)
         }
         else #if (#Target == #bool) {
             match (_value) {
@@ -533,7 +533,7 @@ pub struct Value {
                 HashMap[String, Value] as obj => {
                     var value = Target()
                     for key, val: obj {
-                        value.[__copy!(key)] = val.cast[Target.ValueType](b64)
+                        value.[@copy key] = val.cast[Target.ValueType](b64)
                     }
                     return &&value
                 }

@@ -159,7 +159,7 @@ pub class SseServer[Application, Context] : Upgrade {
     }
 
     func upgrade(@unused req: &const Request, resp: &Response): bool {
-        resp.sse(__copy!(this))
+        resp.sse(@copy this)
         return true
     }
 
@@ -257,7 +257,7 @@ pub class SseStream[Application] {
         // Extra request headers from the application, if it provides any
         #if (has_member!(#Application, "headers", #func() -> &HashMap[String, String])) {
             for h in _app.headers() {
-                sess.header(__copy!(h.0), __copy!(h.1))
+                sess.header(@copy h.0, @copy h.1)
             }
         }
 

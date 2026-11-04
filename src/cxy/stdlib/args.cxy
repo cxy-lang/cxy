@@ -216,7 +216,7 @@ pub struct FlagValues {
         } else {
             var list = Vector[strview]()
             list.push(value)
-            values.[__copy!(name)] = &&list
+            values.[@copy name] = &&list
         }
     }
 
@@ -260,7 +260,7 @@ pub struct FlagValues {
         } else {
             var m = HashMap[strview, strview]()
             m.[key] = value
-            values.[__copy!(name)] = &&m
+            values.[@copy name] = &&m
         }
     }
 
@@ -439,14 +439,14 @@ pub class Command {
         var flagName = flagsByShorthand.[shorthand]
         if flagName {
             var name = *flagName
-            return flags.[__copy!(name)]
+            return flags.[@copy name]
         }
 
         // Then check persistent flags
         var persistentFlagName = persistentFlagsByShorthand.[shorthand]
         if persistentFlagName {
             var name = *persistentFlagName
-            return persistentFlags.[__copy!(name)]
+            return persistentFlags.[@copy name]
         }
 
         return null
@@ -537,7 +537,7 @@ pub class Command {
         var cmd = commands.[name]
         if cmd {
             var tmp = *cmd
-            return __copy!(tmp)
+            return @copy tmp
         }
         return null
     }
@@ -649,7 +649,7 @@ pub class Command {
         // before validating, so it isn't blocked by missing required
         // flags/arguments or a missing subcommand
         if hasTerminalFlagSet() {
-            return (__copy!(this), false)  // Don't execute, let the caller handle it
+            return (@copy this, false)  // Don't execute, let the caller handle it
         }
 
         // If this command has subcommands, one must have been invoked above
@@ -673,7 +673,7 @@ pub class Command {
         // Validate declared positional arguments
         validatePositionalArgs()
 
-        return (__copy!(this), true)  // Execute this command
+        return (@copy this, true)  // Execute this command
     }
 
     // Parse long flag arguments

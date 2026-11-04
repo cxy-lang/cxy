@@ -227,29 +227,6 @@ static AstNode *makeFilenameNode(AstVisitor *visitor,
                        visitor->current->loc.fileName ?: "<native>"});
 }
 
-static AstNode *makeCopyNode(AstVisitor *visitor,
-                             attr(unused) const AstNode *node,
-                             attr(unused) AstNode *args)
-{
-    EvalContext *ctx = getAstVisitorContext(visitor);
-    if (!validateMacroArgumentCount(ctx, &node->loc, args, 1))
-        return NULL;
-    const Type *type = args->type ?: evalType(ctx, args);
-    if (typeIs(type, Error))
-        return NULL;
-    if (!nodeIsLeftValue(args) && !isReferenceType(type)) {
-        logError(ctx->L,
-                 &args->loc,
-                 "expecting a lvalue expression or a reference typed node",
-                 NULL);
-        return NULL;
-    }
-
-    if (isReferenceType(type))
-        type = type->reference.referred;
-    return makeBackendCallExpr(
-        ctx->pool, &node->loc, flgNone, bfiCopy, args, type);
-}
 
 static AstNode *makeForceDropNode(AstVisitor *visitor,
                                   attr(unused) const AstNode *node,
@@ -1996,7 +1973,7 @@ static int compareBuiltinMacros(const void *lhs, const void *rhs)
  */
 static const BuiltinMacro builtinMacros[] = {
     {.name = "__CxyPluginAction", makeCxyPluginActionNode},
-    {.name = "__copy", makeCopyNode},
+
     {.name = "__forcedrop", makeForceDropNode},
     {.name = "assert", makeAssertNode},
     {.name = "ast_list_add", actionAstListAdd},

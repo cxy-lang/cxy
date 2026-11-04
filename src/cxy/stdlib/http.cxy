@@ -731,7 +731,7 @@ pub class Request {
         if !q {
             return def
         }
-        return __copy!(*q)
+        return @copy *q
     }
 
     @inline
@@ -1661,7 +1661,7 @@ test "Route pattern matching with middle parameters" {
     router.add("GET /home/{id}/edit", |&params|(req: &const Request, @unused res: &Response) => {
         var val = req.param("id")
         if val {
-            params.id = __copy!(*val)
+            params.id = @copy *val
         }
     })
 
@@ -1709,10 +1709,10 @@ test "Route pattern matching with multiple middle parameters" {
         var val1 = req.param("id")
         var val2 = req.param("commentId")
         if val1 {
-            params.id = __copy!(*val1)
+            params.id = @copy *val1
         }
         if val2 {
-            params.commentId = __copy!(*val2)
+            params.commentId = @copy *val2
         }
     })
 
@@ -1733,11 +1733,11 @@ test "Route pattern matching with extension suffix" {
     router.add("GET /projects/{namespace}/{name}/badge.svg", |&matchedProject|(req: &const Request, @unused res: &Response) => {
         var ns = req.param("namespace")
         if ns {
-            matchedProject.namespace = __copy!(*ns)
+            matchedProject.namespace = @copy *ns
         }
         var name = req.param("name")
         if name {
-            matchedProject.name = __copy!(*name)
+            matchedProject.name = @copy *name
         }
     })
 

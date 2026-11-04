@@ -10,6 +10,6 @@ class Node {
 func main(): void {
     var a = Node(1)
     var b = Node(2)
-    a.peer = __copy!(b)
-    b.peer = __copy!(a)
+    a.peer = @copy b
+    b.peer = @copy a
 }

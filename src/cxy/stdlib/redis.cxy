@@ -61,7 +61,7 @@ struct RedisCommand {
     @inline
     func addArgument[T](arg: &const T): void {
         #if T.isNumber || T.isBoolean {
-            os << ArgumentFormat[T](__copy!(arg))
+            os << ArgumentFormat[T](@copy arg)
                << "\r\n"
         } else #if T.isString {
             os << RedisType.String << arg.size() << "\r\n"
@@ -355,7 +355,7 @@ pub class RedisClient {
             if part.empty() {
                 continue
             }
-            var line = __copy!(part)
+            var line = @copy part
             if line.[0] == '\n' {
                 line = part.substr(1)
             }
@@ -774,7 +774,7 @@ pub class RedisDb {
     func _returnConnection(client: &CachedClient): void {
         client.handle = null
         client.alive = timestamp() + _config.keepAlive
-        _cache.push(__copy!(client))
+        _cache.push(@copy client)
         if !_cleaning {
             async cleanup()
         }

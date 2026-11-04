@@ -6,7 +6,6 @@
 #include "parser_utils.hpp"
 #include "utils/ast.hpp"
 
-#include "lang/frontend/strings.h"
 
 #include <cstring>
 
@@ -56,34 +55,46 @@ TEST_CASE("@copy lexes as one token") {
     }
 }
 
-TEST_CASE("@copy parses like __copy!") {
+static size_t count(const std::string &text, const std::string &what) {
+    size_t n = 0;
+    for (size_t at = text.find(what); at != std::string::npos; at = text.find(what, at + 1))
+        n++;
+    return n;
+}
+
+// `@copy` is a backend call node, not a macro call
+TEST_CASE("@copy parses to a backend call") {
     ParserTestFixture fixture;
-    // The parser builds the `__copy` callee from an interned constant
-    cxy::test::MemPoolWrapper stringsPool;
-    StrPool strings = newStrPool(stringsPool.get());
-    internCommonStrings(&strings);
 
     SUBCASE("variable") {
-        auto atCopy = fixture.parseProgram("func demo() { var b = @copy a }");
-        auto macro = fixture.parseProgram("func demo() { var b = __copy!(a) }");
-        REQUIRE(atCopy != nullptr);
-        REQUIRE(macro != nullptr);
-        CHECK(show(atCopy) == show(macro));
+        auto ast = fixture.parseProgram("func demo() { var b = @copy a }");
+        REQUIRE(ast != nullptr);
+        std::string text = show(ast);
+        CHECK(count(text, "(BackendCall") == 1);
+        CHECK(count(text, "MacroCallExpr") == 0);
     }
 
     SUBCASE("takes the whole member chain") {
-        auto atCopy = fixture.parseProgram("func demo() { var b = @copy a.b.c }");
-        auto macro = fixture.parseProgram("func demo() { var b = __copy!(a.b.c) }");
-        REQUIRE(atCopy != nullptr);
-        REQUIRE(macro != nullptr);
-        CHECK(show(atCopy) == show(macro));
+        auto ast = fixture.parseProgram("func demo() { var b = @copy a.b.c }");
+        REQUIRE(ast != nullptr);
+        std::string text = show(ast);
+        CHECK(count(text, "(BackendCall") == 1);
+        // The whole `a.b.c` chain is the operand, not just `a`
+        CHECK(count(text, "(PathElem") == 3);
+        CHECK(count(text, "(BackendCall") == 1);
     }
 
     SUBCASE("as a call argument") {
-        auto atCopy = fixture.parseProgram("func demo() { take(@copy a) }");
-        auto macro = fixture.parseProgram("func demo() { take(__copy!(a)) }");
-        REQUIRE(atCopy != nullptr);
-        REQUIRE(macro != nullptr);
-        CHECK(show(atCopy) == show(macro));
+        auto ast = fixture.parseProgram("func demo() { take(@copy a, @copy b) }");
+        REQUIRE(ast != nullptr);
+        CHECK(count(show(ast), "(BackendCall") == 2);
+    }
+
+    SUBCASE("prefix operand") {
+        auto ast = fixture.parseProgram("func demo() { var b = @copy *a }");
+        REQUIRE(ast != nullptr);
+        std::string text = show(ast);
+        CHECK(count(text, "(BackendCall") == 1);
+        CHECK(count(text, "UnaryExpr") == 1);
     }
 }

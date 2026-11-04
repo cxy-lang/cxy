@@ -268,7 +268,7 @@ pub class YamlSerializer {
                 }
             }
             else {
-                _serializeScalar(__copy!(it))
+                _serializeScalar(@copy it)
             }
         }
         else #if (T.isOptional) {

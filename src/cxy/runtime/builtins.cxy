@@ -113,7 +113,7 @@ pub struct Optional[T] {
 
     @inline func `copy`() {
         #if (T.isClass || T.isDestructible)
-            return This{ ok: ok, val: __copy!(val) }
+            return This{ ok: ok, val: @copy val }
         else #if (has_member!(#T, "op__copy", #func() -> T))
             return This{ ok: ok, val: val.op__copy() }
         else

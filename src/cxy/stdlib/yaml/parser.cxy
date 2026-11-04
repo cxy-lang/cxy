@@ -549,7 +549,7 @@ pub class YamlParser {
             return String()
         }
         _hasTag = false
-        return __copy!(_pendingTag)
+        return @copy _pendingTag
     }
 
     // Reads the anchor and tag of a node, the tag becomes the pending tag and
@@ -565,7 +565,7 @@ pub class YamlParser {
 
     func _registerAnchor(anchor: String, value: &Value): void {
         if anchor.size() > 0 {
-            _anchors.[&&anchor] = __copy!(value)
+            _anchors.[&&anchor] = @copy value
         }
     }
 
@@ -866,7 +866,7 @@ pub class YamlParser {
             raise YamlError(f"Undefined alias '*{name}'", _line, _col)
         }
         var tmp = *anchored
-        return __copy!(tmp)
+        return @copy tmp
     }
 
     // ------------------------------------------------------------ block sequences
@@ -1097,7 +1097,7 @@ pub class YamlParser {
     func _keyToString(key: &const Value): String {
         if key.isString() {
             var s = key.getString()
-            return __copy!(*s)
+            return @copy *s
         }
         var text = f"{key}"
         return &&text

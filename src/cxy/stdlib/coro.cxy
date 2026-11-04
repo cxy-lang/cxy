@@ -1064,7 +1064,7 @@ pub class Task[T] {
     func _attach(cr: ^Coroutine) {
         _cr = cr
         cr.task = (this !: ^void)
-        _self = __copy!(this)
+        _self = @copy this
     }
 
     // Runs once on the child stack, after the task function and its wrapper

@@ -196,7 +196,7 @@ pub class DotEnv {
                 return value&.s()
             }
             else {
-                return __copy!(*value)
+                return @copy *value
             }
         }
         else #if T.isBoolean {
@@ -220,7 +220,7 @@ pub class DotEnv {
             vars.[key] = val
             return &&val
         }
-        return __copy!(*value)
+        return @copy *value
     }
 
     @inline

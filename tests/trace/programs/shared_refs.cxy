@@ -8,7 +8,7 @@ class Node {
 
 func main(): void {
     var a = Node(1)
-    var b = __copy!(a)
-    var c = __copy!(a)
+    var b = @copy a
+    var c = @copy a
     waitForHarness()
 }

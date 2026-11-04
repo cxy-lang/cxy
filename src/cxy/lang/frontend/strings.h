@@ -128,7 +128,6 @@ extern "C" {
     f(__construct1)             \
     f(__fwd)                    \
     f(__override_builtin)       \
-    f(__copy)                   \
     f(__destroy)                \
     f(__destructor_fwd)         \
     f(__tuple_dctor)            \
