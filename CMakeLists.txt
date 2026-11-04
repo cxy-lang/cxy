@@ -258,6 +258,8 @@ set(CXY_MIDDLE_SOURCES
         src/cxy/lang/middle/ir/lower/backend.c
         src/cxy/lang/middle/ir/lower/stmt.c
         src/cxy/lang/middle/ir/lower/loop.c
+        src/cxy/lang/middle/ir/lower/match.c
+        src/cxy/lang/middle/ir/lower/decl.c
         src/cxy/lang/middle/ir/reachability/reachability.c
         src/cxy/lang/middle/memory/manage.c
         src/cxy/lang/middle/memory/finalize.c

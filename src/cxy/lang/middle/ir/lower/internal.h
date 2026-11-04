@@ -197,6 +197,26 @@ IrNode *getOrCreateScopeReturnBlock(LowerContext *ctx,
                                     const FileLoc *loc);
 
 // ---------------------------------------------------------------------------
+// `switch` and `match` (match.c)
+// ---------------------------------------------------------------------------
+
+void lowerSwitchStmt(AstVisitor *visitor, AstNode *node);
+void lowerMatchStmt(AstVisitor *visitor, AstNode *node);
+
+// ---------------------------------------------------------------------------
+// Functions, types, the program and `asm` (decl.c)
+// ---------------------------------------------------------------------------
+
+void lowerProgram(AstVisitor *visitor, AstNode *node);
+void lowerFuncDecl(AstVisitor *visitor, AstNode *node);
+void lowerExternDecl(AstVisitor *visitor, AstNode *node);
+void lowerClassOrStructDecl(AstVisitor *visitor, AstNode *node);
+void lowerAsmStmt(AstVisitor *visitor, AstNode *node);
+
+// Runs after the whole program: copy and destructor glue of every type
+void finalizeLifecycleTypes(LowerContext *ctx);
+
+// ---------------------------------------------------------------------------
 // Declarations and statements (stmt.c)
 // ---------------------------------------------------------------------------
 
