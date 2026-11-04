@@ -227,6 +227,9 @@ static void visitAlloc(ConstIrVisitor *visitor, const IrNode *node)
                 markAndEnqueue(ctx, st->strct.dctorFwd);
             else if (st->strct.dctor)
                 markAndEnqueue(ctx, st->strct.dctor);
+            // The type's TypeInfo points at its edge visitor in trace builds
+            if (ctx->driver->options.withMemoryTrace && st->strct.visit)
+                markAndEnqueue(ctx, st->strct.visit);
         }
     }
     irConstVisitFallbackVisitAll(visitor, node);

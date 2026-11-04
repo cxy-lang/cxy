@@ -327,6 +327,75 @@ static void emitGlobalRef(ConstIrVisitor *visitor, const IrNode *node)
     format(&ctx->state, "{s}", (FormatArg[]){{.s = name ?: "global"}});
 }
 
+// Trace builds: edge code for the value of `type` stored at the C expression
+// `expr`. Owned references are reported from `obj`: class handles and closure
+// environments. References, raw pointers, unions and arrays are not owners as
+// far as this glue can tell; containers report their buffers and elements from
+// a `__visit` member.
+static void emitVisitValue(FormatState *out, const IrType *type, cstring expr, u32 depth)
+{
+    if (type == NULL || depth > 6)
+        return;
+
+    char sub[1024];
+    switch (type->category) {
+    case irTypeCatClass:
+        if (isIrPointerType(type)) {
+            format(out, "  __visit_edge(v, obj, {s});\n", (FormatArg[]){{.s = expr}});
+            return;
+        }
+        break; // an embedded base class: its fields follow
+    case irTypeCatClosure:
+        format(out,
+               "  if ({s}.dtor) __visit_edge(v, obj, {s}.env);\n",
+               (FormatArg[]){{.s = expr}, {.s = expr}});
+        return;
+    case irTypeCatOptional:
+        if (type->strct.count > 1) {
+            format(out, "  if ({s}.ok) {{\n", (FormatArg[]){{.s = expr}});
+            snprintf(sub, sizeof(sub), "%s.val", expr);
+            emitVisitValue(out, type->strct.fields[1].type, sub, depth + 1);
+            format(out, "  }\n", NULL);
+        }
+        return;
+    case irTypeCatStruct:
+    case irTypeCatTuple: break;
+    default: return;
+    }
+
+    for (u64 i = 0; i < type->strct.count; i++) {
+        const IrField *f = &type->strct.fields[i];
+        if (f->name)
+            snprintf(sub, sizeof(sub), "%s.%s", expr, f->name);
+        else
+            snprintf(sub, sizeof(sub), "%s._%u", expr, (unsigned)i);
+        emitVisitValue(out, f->type, sub, depth + 1);
+    }
+}
+
+// `static void __visit_<Class>(void *obj, void *v)`, the edge visitor stored in
+// the class's TypeInfo
+static void emitVisitFunction(CodegenContext *ctx, const IrType *st)
+{
+    FormatState *out = &ctx->typeInfos;
+    format(out, "static void __visit_{s}(void *obj, void *v) {{\n  ", (FormatArg[]){{.s = st->name}});
+    emitCTypeName(out, st);
+    format(out, " *o = obj;\n  (void)o;\n", NULL);
+
+    char expr[1024];
+    for (u64 i = 0; i < st->strct.count; i++) {
+        const IrField *f = &st->strct.fields[i];
+        if (f->name)
+            snprintf(expr, sizeof(expr), "o->%s", f->name);
+        else
+            snprintf(expr, sizeof(expr), "o->_%u", (unsigned)i);
+        emitVisitValue(out, f->type, expr, 0);
+    }
+    if (st->strct.visit)
+        format(out, "  {s}(o, v);\n", (FormatArg[]){{.s = st->strct.visit->function.name}});
+    format(out, "}\n", NULL);
+}
+
 // Emits the `const __TypeInfo` of a class once, under the symbol
 // `__ti_<type name>`. `dropFields` holds the whole destructor chain until the
 // allocation phase splits `deinit` from it.
@@ -341,6 +410,8 @@ static void emitTypeInfo(CodegenContext *ctx, const IrType *st)
     pushOnDynArray(&ctx->typeInfoTypes, &st);
 
     FormatState *out = &ctx->typeInfos;
+    if (ctx->memTraceEnabled)
+        emitVisitFunction(ctx, st);
     format(out, "static const __TypeInfo __ti_{s} = {{ .name = \"{s}\", .size = sizeof(",
            (FormatArg[]){{.s = st->name}, {.s = st->display ?: st->name}});
     emitCTypeName(out, st);
@@ -353,6 +424,8 @@ static void emitTypeInfo(CodegenContext *ctx, const IrType *st)
         format(out, "{s}", (FormatArg[]){{.s = st->strct.dctor->function.name}});
     else
         format(out, "nullptr", NULL);
+    if (ctx->memTraceEnabled)
+        format(out, ", .visit = __visit_{s}", (FormatArg[]){{.s = st->name}});
     format(out, " };\n", NULL);
 }
 

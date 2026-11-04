@@ -815,6 +815,104 @@ static void siteCountsReportFd(int fd, size_t limit)
     free(types);
 }
 
+/* ------------------------------------------------------------------- edges */
+
+/*
+ * `edges <ptr>`: the owned references of one object, as reported by its
+ * TypeInfo.visit glue (and the `__visit` member of containers). Only targets the
+ * registry knows are printed. The object is read while the program runs, so a
+ * concurrent free can make this report garbage: it is a debugging aid until the
+ * paused snapshot of the exact graph exists.
+ */
+typedef struct TraceVisitor {
+    void (*edge)(struct TraceVisitor *v, const void *from, const void *to);
+    void *ctx;
+} TraceVisitor;
+
+typedef struct {
+    int fd;
+    const void *self;
+    LiveEntry *sorted; // registry snapshot ordered by address
+    size_t count;
+    size_t edges;
+} EdgePrinter;
+
+static int compareByPtr(const void *lhs, const void *rhs)
+{
+    const void *l = ((const LiveEntry *)lhs)->ptr, *r = ((const LiveEntry *)rhs)->ptr;
+    return l < r ? -1 : (l > r ? 1 : 0);
+}
+
+static const LiveEntry *findEntry(const EdgePrinter *p, const void *ptr)
+{
+    LiveEntry key = {.ptr = (void *)ptr};
+    return bsearch(&key, p->sorted, p->count, sizeof(LiveEntry), compareByPtr);
+}
+
+static void printEdge(TraceVisitor *v, const void *from, const void *to)
+{
+    EdgePrinter *p = v->ctx;
+    const LiveEntry *target = findEntry(p, to);
+    if (target == NULL)
+        return;
+    const LiveEntry *source = from == p->self ? NULL : findEntry(p, from);
+    char src[64];
+    if (from == p->self)
+        snprintf(src, sizeof(src), "self");
+    else
+        snprintf(src, sizeof(src), "%s %p", source && source->buffer ? "buffer" : "object", from);
+    dprintf(p->fd,
+            "  %s -> %p %s size=%llu @ %s:%llu\n",
+            src,
+            to,
+            target->buffer ? "buffer" : "object",
+            (unsigned long long)target->size,
+            target->path ? target->path : "<unknown>",
+            (unsigned long long)target->line);
+    p->edges++;
+}
+
+#define HEADER_LEGACY_FLAG 0x08U
+
+static void edgesReportFd(int fd, const char *arg)
+{
+    if (arg == NULL) {
+        dprintf(fd, "usage: edges <ptr>\n");
+        return;
+    }
+    void *ptr = (void *)(uintptr_t)strtoull(arg, NULL, 0);
+
+    EdgePrinter p = {.fd = fd, .self = ptr};
+    p.sorted = liveSnapshot(0, &p.count);
+    qsort(p.sorted, p.count, sizeof(LiveEntry), compareByPtr);
+    const LiveEntry *entry = findEntry(&p, ptr);
+    if (entry == NULL) {
+        dprintf(fd, "no live allocation at %p\n", ptr);
+        free(p.sorted);
+        return;
+    }
+    if (entry->buffer) {
+        dprintf(fd, "%p is a buffer, its edges are reported by its owner (try `edges <owner>`)\n", ptr);
+        free(p.sorted);
+        return;
+    }
+
+    // The object header sits 16 bytes before the payload: strong, flags, type
+    const uint32_t *flags = (const uint32_t *)((const char *)ptr - OBJ_HEADER_SIZE + 4);
+    const TypeRecord *const *type = (const TypeRecord *const *)((const char *)ptr - 8);
+    if ((*flags & HEADER_LEGACY_FLAG) || *type == NULL || (*type)->visit == NULL) {
+        dprintf(fd, "%p has no edge visitor\n", ptr);
+        free(p.sorted);
+        return;
+    }
+
+    dprintf(fd, "edges of %p (%s)\n", ptr, (*type)->name ? (*type)->name : "<unknown>");
+    TraceVisitor visitor = {.edge = printEdge, .ctx = &p};
+    ((void (*)(void *, void *))(*type)->visit)(ptr, &visitor);
+    dprintf(fd, "Total: %llu edges\n", (unsigned long long)p.edges);
+    free(p.sorted);
+}
+
 /* ------------------------------------------------------------ query server */
 
 static void helpFd(int fd)
@@ -827,6 +925,7 @@ static void helpFd(int fd)
             "  leaks                full report, same as the exit-time leak report\n"
             "  ring <ptr>           lifecycle timeline of one pointer\n"
             "  mark                 remember the current allocation generation\n"
+            "  edges <ptr>          what this object owns (exact, from the visit glue)\n"
             "  types                cumulative allocs/frees/bytes per class\n"
             "  sitecounts [n]       cumulative allocations per allocation point\n"
             "  diff [n]             sites of allocations made since `mark` still alive\n"
@@ -1664,6 +1763,8 @@ static void handleCommand(int fd, char *line)
         liveReportFd(fd, 0, parseLimit(args[1]), sym, false);
     else if (strcmp(cmd, "leaks") == 0)
         liveReportFd(fd, 0, 0, sym, true);
+    else if (strcmp(cmd, "edges") == 0)
+        edgesReportFd(fd, args[1]);
     else if (strcmp(cmd, "types") == 0)
         typesReportFd(fd);
     else if (strcmp(cmd, "sitecounts") == 0)

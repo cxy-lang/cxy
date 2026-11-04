@@ -177,10 +177,29 @@ static void testConcurrentChurn(void)
     CHECK(live[0] == 0 && live[1] == 0 && live[2] == 0 && live[3] == 0);
 }
 
+static int edgeCount;
+
+static void countEdge(__Visitor *v, const void *from, const void *to)
+{
+    (void)v;
+    (void)from;
+    (void)to;
+    edgeCount++;
+}
+
+static void testVisitEdge(void)
+{
+    __Visitor v = {.edge = countEdge, .ctx = nullptr};
+    __visit_edge(&v, (void *)16, (void *)32);
+    __visit_edge(&v, (void *)16, nullptr); // null targets are not edges
+    CHECK(edgeCount == 1);
+}
+
 int main(void)
 {
     testBeforeStart();
     __cxy_mem_trace_start();
+    testVisitEdge();
     testObjects();
     testLegacyObjects();
     testBuffers();

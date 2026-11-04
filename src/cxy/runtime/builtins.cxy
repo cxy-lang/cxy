@@ -20,6 +20,10 @@
 @hint pub extern func __calloc_buffer(bytes: u64): ^void
 @hint pub extern func __realloc_buffer(ptr: ^void, bytes: u64): ^void
 @hint pub extern func __free_buffer(ptr: ^void): void
+
+// Reports an owned reference to the tracer. Only called from `__visit` members,
+// which exist for trace builds and are never emitted otherwise.
+@hint pub extern func __visit_edge(visitor: ^void, fro: ^void, to: ^void): void
 @hint pub extern func abort(): void;
 @hint pub extern func exit(code: i32): void
 @hint pub extern func printf(s: string, ...args: auto): i32
@@ -741,6 +745,12 @@ pub class String : OutputStream {
         }
     }
 
+    // Trace builds only: the data buffer
+    func __visit(v: ^void) {
+        if (_data != null)
+            __visit_edge(v, this !: ^void, _data !: ^void)
+    }
+
     @inline
     func `init`() {}
 
@@ -1032,6 +1042,12 @@ pub class BufferedOutputStream: OutputStream {
 
     virtual func flush(str: ^const void, size: u64): void
 
+    // Trace builds only
+    func __visit(v: ^void) {
+        if (_buffer != null)
+            __visit_edge(v, this !: ^void, _buffer !: ^void)
+    }
+
     func sync() {
         if (_size > 0) {
             flush(_buffer, _size)
@@ -1113,6 +1129,12 @@ pub class Bytes {
     func `deinit`() {
         if (_data != null)
             __free_buffer(_data !: ^void)
+    }
+
+    // Trace builds only
+    func __visit(v: ^void) {
+        if (_data != null)
+            __visit_edge(v, this !: ^void, _data !: ^void)
     }
 
     func `[]`(index: u64) {

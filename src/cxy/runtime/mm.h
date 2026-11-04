@@ -99,6 +99,20 @@ extern void __cxy_mem_trace_dump(void *ptr);
 extern void __cxy_mem_trace_count(uint32_t type, uint32_t site, uint64_t bytes);
 extern void __cxy_mem_trace_type_free(uint32_t type);
 
+// Edge visitors: a class's TypeInfo.visit reports every reference the object
+// owns as an edge, the trace library supplies the callback. Containers report
+// their buffer and elements through `__visit_edge` from a `__visit` member.
+typedef struct __Visitor {
+    void (*edge)(struct __Visitor *v, const void *from, const void *to);
+    void *ctx;
+} __Visitor;
+
+static inline void __visit_edge(void *visitor, void *from, void *to)
+{
+    if (to != nullptr)
+        ((__Visitor *)visitor)->edge((__Visitor *)visitor, from, to);
+}
+
 // Lets the trace library read refcounts without knowing the header layout
 __attribute__((used)) uint32_t __cxy_mem_header_refs(void *ptr)
 {

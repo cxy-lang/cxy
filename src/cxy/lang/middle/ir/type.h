@@ -115,6 +115,11 @@ struct IrType {
                 const struct AstNode *copyAst;
                 struct IrNode *copy;
             };
+            // Classes: the `__visit` member of containers (trace builds)
+            union {
+                const struct AstNode *visitAst;
+                struct IrNode *visit;
+            };
         } strct;
         struct {
             const IrType **params;

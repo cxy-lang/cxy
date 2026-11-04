@@ -127,6 +127,7 @@ extern "C" {
     f(__construct0)             \
     f(__construct1)             \
     f(__fwd)                    \
+    f(__visit)                  \
     f(__override_builtin)       \
     f(__copy)                   \
     f(__destroy)                \

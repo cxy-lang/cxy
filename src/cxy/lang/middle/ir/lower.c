@@ -786,9 +786,15 @@ const IrType *lowerType(LowerContext *ctx, const Type *type)
             findClassMember(type, S_CopyOverload);
         if (classCopy && classCopy->decl)
             ((IrType *)structType)->strct.copyAst = classCopy->decl;
+        const NamedTypeMember *classVisit =
+            findClassMember(type, S___visit);
+        if (classVisit && classVisit->decl)
+            ((IrType *)structType)->strct.visitAst = classVisit->decl;
         const IrType *ptrType =
             makeIrClassType(ctx->types, flgReferenceMembers, structType);
         ((IrType *)ptrType)->index = type->index;
+        ((IrType *)ptrType)->strct.visitAst =
+            ((IrType *)structType)->strct.visitAst;
         ((IrType *)ptrType)->strct.dctorAst =
             ((IrType *)structType)->strct.dctorAst;
         ((IrType *)ptrType)->strct.dctorFwdAst =
@@ -4684,6 +4690,7 @@ static void finalizeLifecycleTypes(LowerContext *ctx)
             const AstNode *dAst = type->strct.dctorAst;
             const AstNode *fAst = type->strct.dctorFwdAst;
             const AstNode *cAst = type->strct.copyAst;
+            const AstNode *vAst = type->strct.visitAst;
 
             if (dAst != NULL) {
                 csAssert(dAst->ir != NULL,
@@ -4717,6 +4724,10 @@ static void finalizeLifecycleTypes(LowerContext *ctx)
             else {
                 type->strct.copy = NULL;
             }
+
+            // Optional: a container's `__visit` is only lowered when it was
+            // reachable, the backend skips the type's edges when it is missing
+            type->strct.visit = vAst != NULL ? vAst->ir : NULL;
         }
     }
 }

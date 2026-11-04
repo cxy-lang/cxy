@@ -53,6 +53,16 @@ pub class Vector[T] {
         __free_buffer(_data !: ^void)
     }
 
+    // Trace builds only: the buffer and, for class elements, the elements
+    func __visit(v: ^void) {
+        __visit_edge(v, this !: ^void, _data !: ^void)
+        #if (T.isClass) {
+            for (const i: 0.._size) {
+                __visit_edge(v, _data !: ^void, _data.[i] !: ^void)
+            }
+        }
+    }
+
     @memtrace(callsite)
     func push(item: T) {
         grow()
