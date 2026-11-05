@@ -1,4 +1,6 @@
 #include "verify.h"
+#include "bitset.h"
+#include "cfg.h"
 #include "operands.h"
 
 #include "core/array.h"
@@ -590,6 +592,7 @@ typedef enum {
     ruleO8,
     ruleO10,
     ruleO13,
+    ruleO16,
     ruleB3,
     ruleB4
 } Rule;
@@ -603,6 +606,7 @@ static const char *const ruleNames[] = {[ruleO1] = "O1",
                                         [ruleO8] = "O8",
                                         [ruleO10] = "O10",
                                         [ruleO13] = "O13",
+                                        [ruleO16] = "O16",
                                         [ruleB3] = "B3",
                                         [ruleB4] = "B4"};
 
@@ -616,6 +620,7 @@ static const u8 ruleWarnings[] = {[ruleO1] = wrnOwnerLeak,
                                   [ruleO8] = wrnDropFlagMismatch,
                                   [ruleO10] = wrnTemporaryOwnership,
                                   [ruleO13] = wrnRedeclaredOwner,
+                                  [ruleO16] = wrnMovedGlobal,
                                   [ruleB3] = wrnReturnedBorrow,
                                   [ruleB4] = wrnDanglingBorrow};
 
@@ -647,6 +652,8 @@ static cstring declName(const IrNode *decl)
 {
     if (decl->tag == irFuncParam)
         return decl->funcParam.name;
+    if (decl->tag == irGlobalVar)
+        return decl->globalVar.name;
     return decl->varDecl.display ? decl->varDecl.display : decl->varDecl.name;
 }
 
@@ -1190,6 +1197,160 @@ static void verifyResultPayloads(FuncVerify *fv)
     }
 }
 
+// O16. A global is a place any function can read, so a function that moves one
+// out has to put a value back before it returns. A forward flow over the blocks,
+// with a bit per global moved in this function: set by a move, cleared by an
+// assignment.
+typedef struct GlobalMoves {
+    DynArray globals; // const IrNode *
+    DynArray locs;    // const FileLoc *, where each was first moved
+    HashTable index;
+} GlobalMoves;
+
+typedef void (*GlobalEventFn)(const IrNode *global, const FileLoc *loc, void *ctx);
+
+static bool isGlobalOwner(const IrNode *decl)
+{
+    return decl && decl->tag == irGlobalVar && isIrTypeDestructible(decl->type);
+}
+
+typedef struct GlobalWalk {
+    GlobalEventFn onMove;
+    void *ctx;
+} GlobalWalk;
+
+static void walkGlobalMoves(IrNode **slot, void *walkPtr)
+{
+    GlobalWalk *walk = walkPtr;
+    const IrNode *node = *slot;
+    if (node == NULL)
+        return;
+    const IrNode *moved = NULL;
+    if (node->tag == irMove)
+        moved = stripCasts(node->move.src);
+    else if (node->tag == irVarRef && irHasInfo(node, irInfoMoved))
+        moved = node;
+    if (moved && moved->tag == irVarRef && isGlobalOwner(moved->varRef.target))
+        walk->onMove(moved->varRef.target, &node->loc, walk->ctx);
+    irForEachOperandSlot((IrNode *)node, walkGlobalMoves, walk);
+}
+
+// The moves a statement makes, then the assignment that may put the value back
+static void statementGlobalEvents(const IrNode *stmt,
+                                  GlobalEventFn onMove,
+                                  GlobalEventFn onReplace,
+                                  void *ctx)
+{
+    GlobalWalk walk = {.onMove = onMove, .ctx = ctx};
+    IrNode *self = (IrNode *)stmt;
+    walkGlobalMoves(&self, &walk);
+
+    const IrNode *dst = NULL;
+    if (stmt->tag == irAssign)
+        dst = stripCasts(stmt->assign.lhs);
+    else if (stmt->tag == irCopy)
+        dst = stripCasts(stmt->copy.dst);
+    if (dst && dst->tag == irVarRef && isGlobalOwner(dst->varRef.target))
+        onReplace(dst->varRef.target, &stmt->loc, ctx);
+}
+
+
+static void noteGlobalMove(const IrNode *global, const FileLoc *loc, void *ctx)
+{
+    GlobalMoves *moves = ctx;
+    if (getPtrIndex(&moves->index, global) >= 0)
+        return;
+    putPtrIndex(&moves->index, global, (u32)moves->globals.size);
+    pushOnDynArray(&moves->globals, &global);
+    pushOnDynArray(&moves->locs, &loc);
+}
+
+static void ignoreGlobalEvent(const IrNode *global, const FileLoc *loc, void *ctx)
+{
+    (void)global;
+    (void)loc;
+    (void)ctx;
+}
+
+// What a block does to one global, the last event decides
+typedef struct BlockGlobalEffect {
+    const GlobalMoves *moves;
+    BitSet *gen;
+    BitSet *kill;
+} BlockGlobalEffect;
+
+static void blockMovesGlobal(const IrNode *global, const FileLoc *loc, void *ctx)
+{
+    (void)loc;
+    BlockGlobalEffect *effect = ctx;
+    i64 at = getPtrIndex(&effect->moves->index, global);
+    if (at >= 0)
+        bitSetSet(effect->gen, (u64)at);
+}
+
+static void blockReplacesGlobal(const IrNode *global, const FileLoc *loc, void *ctx)
+{
+    (void)loc;
+    BlockGlobalEffect *effect = ctx;
+    i64 at = getPtrIndex(&effect->moves->index, global);
+    if (at >= 0) {
+        bitSetReset(effect->gen, (u64)at);
+        bitSetSet(effect->kill, (u64)at);
+    }
+}
+
+static void verifyGlobalMoves(FuncVerify *fv)
+{
+    GlobalMoves moves = {.globals = newDynArray(sizeof(const IrNode *)),
+                         .locs = newDynArray(sizeof(const FileLoc *)),
+                         .index = newHashTable(sizeof(PtrIndex), &fv->pool)};
+    for (const IrNode *bb = fv->func->function.firstBlock; bb; bb = bb->next) {
+        if (bb->tag != irBasicBlock)
+            continue;
+        for (const IrNode *s = bb->basicBlock.first; s; s = s->next)
+            statementGlobalEvents(s, noteGlobalMove, ignoreGlobalEvent, &moves);
+    }
+    u64 varCount = moves.globals.size;
+    if (varCount == 0) {
+        freeDynArray(&moves.globals);
+        freeDynArray(&moves.locs);
+        return;
+    }
+
+    u64 blockCount = 0;
+    CfgBlockInfo **blocks = buildCfg(&fv->pool, (IrNode *)fv->func, varCount, &blockCount);
+    for (u64 i = 0; i < blockCount; i++) {
+        BlockGlobalEffect effect = {.moves = &moves, .gen = &blocks[i]->gen, .kill = &blocks[i]->kill};
+        for (const IrNode *s = blocks[i]->bb->basicBlock.first; s; s = s->next) {
+            // a move in a statement comes before the assignment it feeds
+            statementGlobalEvents(s, blockMovesGlobal, blockReplacesGlobal, &effect);
+        }
+    }
+    BitSet entry = makeBitSet(&fv->pool, varCount);
+    solveOwnership(&fv->pool, blocks, blockCount, varCount, &entry);
+
+    for (u64 i = 0; i < blockCount; i++) {
+        const IrNode *last = blocks[i]->bb->basicBlock.last;
+        if (last == NULL || last->tag != irReturn)
+            continue;
+        for (u64 g = 0; g < varCount; g++) {
+            if (!bitSetTest(&blocks[i]->mayOut, g))
+                continue;
+            const IrNode *global = dynArrayAt(const IrNode **, &moves.globals, g);
+            const FileLoc *loc = dynArrayAt(const FileLoc **, &moves.locs, g);
+            reportFinding(fv,
+                          ruleO16,
+                          bitSetTest(&blocks[i]->mustOut, g),
+                          global,
+                          loc,
+                          NULL,
+                          "is a global, it is moved out and not replaced before the function returns");
+        }
+    }
+    freeDynArray(&moves.globals);
+    freeDynArray(&moves.locs);
+}
+
 static void verifyTemporaries(FuncVerify *fv)
 {
     u32 count = 0;
@@ -1305,6 +1466,7 @@ static void verifyFunction(const OwnershipSnapshot *snap,
     reportReferenceMoves(&fv, snap);
     verifyTemporaries(&fv);
     verifyResultPayloads(&fv);
+    verifyGlobalMoves(&fv);
 
     if (!collectTrackedVars(&decls, fn))
         goto done;

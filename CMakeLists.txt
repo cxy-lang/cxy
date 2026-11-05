@@ -743,6 +743,12 @@ if (OPENSSL_ROOT_DIR)
     message(STATUS "OpenSSL options needed for tests: ${CXY_OPEN_SSL_OPTIONS}")
 endif ()
 
+# Debug builds verify ownership in every stdlib test, a finding fails the test
+set(CXY_TEST_WARNING_OPTIONS "")
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(CXY_TEST_WARNING_OPTIONS --warning-as-error=Ownership)
+endif ()
+
 foreach (CXY_SRC ${CXY_STD_LIB_TEST_SOURCES})
     if (IS_DIRECTORY "${CXY_SRC}")
         continue()
@@ -757,7 +763,7 @@ foreach (CXY_SRC ${CXY_STD_LIB_TEST_SOURCES})
     set(_TEST_DIR ${CMAKE_CURRENT_BINARY_DIR}/stdlib-tests/${_TEST_DIR_NAME})
     file(MAKE_DIRECTORY ${_TEST_DIR})
     add_test(NAME "${_FILE}"
-            COMMAND cxy test ${CXY_OPEN_SSL_OPTIONS} --no-progress
+            COMMAND cxy test ${CXY_OPEN_SSL_OPTIONS} ${CXY_TEST_WARNING_OPTIONS} --no-progress
             --stdlib ${CMAKE_SOURCE_DIR}/src/cxy
             --plugins-dir ${CMAKE_CURRENT_BINARY_DIR}/plugins ${CXY_SRC}
             WORKING_DIRECTORY ${_TEST_DIR})

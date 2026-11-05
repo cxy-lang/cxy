@@ -1,0 +1,33 @@
+name: Cxy Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  debug-tests:
+    name: Debug build and tests
+    runs-on: ubuntu-latest
+    container: suilteam/cxy-base:ubuntu
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      # Debug builds compile every stdlib test with --warning-as-error=Ownership
+      - name: Unit, runtime and stdlib tests
+        working-directory: build
+        run: ctest --output-on-failure --parallel 4
+
+      # tests/lang/mem suites also pass --warning-as-error=Ownership
+      - name: Snapshot tests
+        working-directory: build
+        run: bash ../tests/runner.sh --no-check

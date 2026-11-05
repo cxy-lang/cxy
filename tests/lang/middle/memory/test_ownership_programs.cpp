@@ -106,6 +106,63 @@ func main(): void {}
     CHECK_FALSE(reports(cc, "OwnerLeak"));
 }
 
+// O16: a global is a place, a function cannot leave it moved out
+TEST_CASE("Ownership programs: moving out of a global without a replacement is reported")
+{
+    TestCompiler cc(verified());
+    REQUIRE(cc.compile(std::string(program) + R"(
+var shared = Node(1)
+func moveOut() {
+    take(&&shared)
+}
+func main(): void {}
+)"));
+    CHECK(reports(cc, "MovedGlobal"));
+}
+
+TEST_CASE("Ownership programs: a global that is replaced on every path is not reported")
+{
+    TestCompiler cc(verified());
+    REQUIRE(cc.compile(std::string(program) + R"(
+var shared = Node(1)
+func replace() {
+    take(&&shared)
+    shared = Node(2)
+}
+func swap(flag: bool) {
+    if flag {
+        take(&&shared)
+    }
+    else {
+        take(@copy shared)
+    }
+    shared = Node(3)
+}
+func copyOut() {
+    take(shared)
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+    CHECK_FALSE(reports(cc, "MovedGlobal"));
+}
+
+TEST_CASE("Ownership programs: a global moved out and replaced on one path only is reported")
+{
+    TestCompiler cc(verified());
+    REQUIRE(cc.compile(std::string(program) + R"(
+var shared = Node(1)
+func sometimes(flag: bool) {
+    take(&&shared)
+    if flag {
+        shared = Node(2)
+    }
+}
+func main(): void {}
+)"));
+    CHECK(reports(cc, "MovedGlobal"));
+}
+
 TEST_CASE("Ownership programs: moving out of a reference into a variable is reported")
 {
     TestCompiler cc(verified());
