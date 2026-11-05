@@ -39,7 +39,7 @@ TEST_CASE("Lower result: `raise` sets the tag, stores the exception and unwinds"
     REQUIRE_IR_MATCHES(cc.function("mayFail").findBlock("IF0_then"), R"(
         (Block _L_IF0_then
             (ScopeEnter 1)
-            (VarDecl __t0 ^TestError :temporary)
+            (VarDecl __t0 ^TestError :temporary :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef TestError_op__initCover) _ :owned-position))
             (Call (GlobalRef builtins_Exception_push) (VarRef __t0) ...)
             (Assign (Member (VarRef __ret) tag) 1)
@@ -95,7 +95,7 @@ func main(): void {}
             (Block _L_entry
                 (ScopeEnter 0)
                 (VarDecl __ret i32 :returned)
-                (VarDecl __t0 !i32 :temporary)
+                (VarDecl __t0 !i32 :temporary :synthetic)
                 (Assign (VarRef __t0) (Call (GlobalRef mayFail) _ :owned-position))
                 (VarDecl __catch_res0 i32 :temporary)
                 (If (Binary == (Member (VarRef __t0) tag) 1) _L_catch_0 _L_cont_1))

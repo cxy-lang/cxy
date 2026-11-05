@@ -27,7 +27,7 @@ func main(): void {}
                 (VarDecl __cond0 bool :temporary)
                 (If (VarRef a) _L_AND0_rhs _L_AND0_false))
             (Block _L_AND0_rhs
-                (VarDecl __t0 bool :temporary)
+                (VarDecl __t0 bool :temporary :synthetic)
                 (Assign (VarRef __t0) (Call (GlobalRef check)))
                 (Assign (VarRef __cond0) (VarRef __t0))
                 (Goto _L_AND0_merge))
@@ -61,7 +61,7 @@ func main(): void {}
                 (Assign (VarRef __cond0) true)
                 (Goto _L_OR0_merge))
             (Block _L_OR0_rhs
-                (VarDecl __t0 bool :temporary)
+                (VarDecl __t0 bool :temporary :synthetic)
                 (Assign (VarRef __t0) (Call (GlobalRef check)))
                 (Assign (VarRef __cond0) (VarRef __t0))
                 (Goto _L_OR0_merge))

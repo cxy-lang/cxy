@@ -129,8 +129,8 @@ func main(): void {}
     }
     SUBCASE("a variable by prefix and index") {
         // the two hoisted member temporaries, in declaration order
-        REQUIRE_IR_MATCHES(demo.findVariable("__t", 0), "(VarDecl __t0 ^Node)");
-        REQUIRE_IR_MATCHES(demo.findVariable("__t", 1), "(VarDecl __t1 ^Node)");
+        REQUIRE_IR_MATCHES(demo.findVariable("__t", 0), "(VarDecl __t0 ^Node :synthetic)");
+        REQUIRE_IR_MATCHES(demo.findVariable("__t", 1), "(VarDecl __t1 ^Node :synthetic)");
         CHECK_FALSE(demo.findVariable("__t", 2));
     }
     SUBCASE("a variable in a nested block") {

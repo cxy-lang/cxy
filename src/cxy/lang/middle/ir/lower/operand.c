@@ -93,6 +93,7 @@ IrNode *flattenIrValue(LowerContext *ctx,
                                     tempName,
                                     val->type,
                                     ctx->currentScopeId);
+    irSetInfo(tempVar, irInfoSynthetic);
     emitTempDecl(ctx, tempVar);
     emitStmt(ctx,
              makeIrAssign(ctx->pool,

@@ -1,4 +1,5 @@
 #include "normalize.h"
+#include "classify.h"
 #include "operands.h"
 
 #include "lang/frontend/flag.h"
@@ -175,4 +176,5 @@ void normalizeFunction(MemMgmtContext *ctx, IrNode *func)
             stmt = next;
         }
     }
+    classifyTemporaries(ctx, func);
 }

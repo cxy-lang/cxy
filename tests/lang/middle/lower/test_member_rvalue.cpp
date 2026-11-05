@@ -49,7 +49,7 @@ func main(): void {}
             (Block _L_entry
                 (ScopeEnter 0)
                 (VarDecl __ret i32 :returned)
-                (VarDecl __t0 ^Node)
+                (VarDecl __t0 ^Node :synthetic)
                 (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
                 (Assign (VarRef __ret) (Member (VarRef __t0) id))
                 (Goto _L_exit))
@@ -69,9 +69,9 @@ func main(): void {}
         (Block _L_entry
             (ScopeEnter 0)
             (VarDecl __ret i32 :returned)
-            (VarDecl __t0 ^Node)
+            (VarDecl __t0 ^Node :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef next) :owned-position))
-            (VarDecl __t1 ^Node)
+            (VarDecl __t1 ^Node :synthetic)
             (Assign (VarRef __t1) (Call (GlobalRef make) :owned-position))
             (Assign (VarRef __ret)
                 (Binary + (Member (VarRef __t0) id) (Member (VarRef __t1) id)))

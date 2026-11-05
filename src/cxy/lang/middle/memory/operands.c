@@ -91,8 +91,11 @@ IrNode *makeClearPlace(MemPool *pool, const FileLoc *loc, IrNode *place)
 IrNode *makeOwnedTemp(MemMgmtContext *ctx, cstring prefix, const IrNode *place)
 {
     cstring name = makeStringf(ctx->strings, "%s%u", prefix, ctx->tempCounter++);
-    return makeIrVarDecl(
+    IrNode *decl = makeIrVarDecl(
         ctx->pool, &place->loc, flgTemporary, name, name, place->type, ctx->currentScopeId);
+    irSetInfo(decl, irInfoSynthetic);
+    irSetValueClass(decl, irClassInFlight);
+    return decl;
 }
 
 IrNode *stripMove(IrNode **moveRef)

@@ -68,7 +68,9 @@ static bool isTrackedDecl(const IrNode *decl)
 {
     if (decl == NULL || (decl->tag != irVarDecl && decl->tag != irFuncParam))
         return false;
-    if (hasFlag(decl, Temporary) || hasFlag(decl, Ephemeral) || hasFlag(decl, Returned))
+    // a temporary lowering made is not a variable the user can misuse
+    if (hasFlag(decl, Temporary) || hasFlag(decl, Ephemeral) || hasFlag(decl, Returned) ||
+        irHasInfo(decl, irInfoSynthetic))
         return false;
     return hasFlag(decl, ReferenceMembers) || isIrTypeDestructible(decl->type);
 }

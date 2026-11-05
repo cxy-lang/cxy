@@ -47,7 +47,7 @@ func main(): void {}
         (Block _L_entry
             (ScopeEnter 0)
             (VarDecl __ret i32 :returned)
-            (VarDecl __t0 ^Node)
+            (VarDecl __t0 ^Node :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
             (Assign (VarRef __ret) (Call (GlobalRef peek) (Cast &Node (Cast &Node (VarRef __t0)))))
             (Goto _L_exit))
@@ -90,7 +90,7 @@ func main(): void {}
             (ScopeEnter 0)
             (VarDecl __ret i32 :returned)
             (VarDecl r &Node)
-            (VarDecl __t0 ^Node)
+            (VarDecl __t0 ^Node :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
             (Assign (VarRef r) (Cast &Node (VarRef __t0) :user-written))
             (Assign (VarRef __ret) (Member (VarRef r) id))

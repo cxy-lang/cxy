@@ -184,3 +184,29 @@ func main(): void {}
               std::string::npos);
     }
 }
+
+TEST_CASE("IR info: a temporary lowering creates for an operand is synthetic")
+{
+    TestCompiler cc(lowered());
+    REQUIRE(cc.compile(std::string(program) + R"(
+func make(): Node => Node(1)
+func demo(): i32 {
+    var kept = make()
+    take(make())
+    return kept.id
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+
+    // the user's `kept` is not
+    REQUIRE_IR_MATCHES(cc.function("demo"), R"(
+        (Function demo (Ret i32)
+            (Block _L_entry
+                ...
+                (VarDecl kept ^Node)
+                ...
+                (VarDecl __t0 ^Node :temporary :synthetic)
+                ...)
+            ...))");
+}

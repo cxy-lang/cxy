@@ -218,6 +218,7 @@ void lowerExprStmt(AstVisitor *visitor, AstNode *node)
                                             tempName,
                                             expr->type,
                                             ctx->currentScopeId);
+            irSetInfo(tempVar, irInfoSynthetic);
             emitStmt(ctx, tempVar);
             emitStmt(ctx,
                      makeIrAssign(ctx->pool,

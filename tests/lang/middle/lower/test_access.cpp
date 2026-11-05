@@ -60,7 +60,7 @@ func main(): void {}
         (Block _L_entry
             (ScopeEnter 0)
             (VarDecl __ret i32 :returned)
-            (VarDecl __t0 i32 :temporary)
+            (VarDecl __t0 i32 :temporary :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef pick)))
             (Assign (VarRef __ret) (Index (VarRef a) (VarRef __t0)))
             (Goto _L_exit))

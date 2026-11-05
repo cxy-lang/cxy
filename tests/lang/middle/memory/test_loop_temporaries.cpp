@@ -57,7 +57,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(fn.findBlock("entry"), R"(
         (Block _L_entry
             ...
-            (VarDecl __t0 ^Node)
+            (VarDecl __t0 ^Node :synthetic)
             (Goto _L_WHILE0_cond))
     )");
     REQUIRE_IR_MATCHES(fn.findBlock("WHILE0_cond"), R"(
@@ -117,7 +117,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("loop").findBlock("WHILE0_body"), R"(
         (Block _L_WHILE0_body
             (ScopeEnter 1)
-            (VarDecl __t0 ^Node)
+            (VarDecl __t0 ^Node :synthetic)
             ...)
     )");
 }
