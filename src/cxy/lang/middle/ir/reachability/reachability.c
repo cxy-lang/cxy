@@ -323,8 +323,7 @@ void runReachabilityAnalysis(CompilerDriver *driver)
                 finiFunc = func;
             else if (finiKind == 2)
                 tfiniFunc = func;
-            else if (hasFlag(func, ModuleInit) || func->function.name == S___init ||
-                (func->function.name && strstr(func->function.name, "___init"))) {
+            else if (hasFlag(func, ModuleInit)) {
                 initFunc = func;
             }
         }

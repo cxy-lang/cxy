@@ -193,7 +193,7 @@ static void __closure_env24_op__destructor(__closure_env24 * this);
 static int32_t __closure_body25(__closure_env24 * this);
 static Result_void joined(User user);
 static Result_void _main();
-static void __init();
+__attribute__((constructor)) static void __init();
 
 static const __TypeInfo __ti_builtins_StdOutputStream = { .name = "builtins.StdOutputStream", .size = sizeof(builtins_StdOutputStream), .align = _Alignof(builtins_StdOutputStream), .index = 0, .dropFields = builtins_StdOutputStream_op__destructor_fwd };
 static const __TypeInfo __ti_builtins_String = { .name = "builtins.String", .size = sizeof(builtins_String), .align = _Alignof(builtins_String), .index = 1, .dropFields = builtins_String_op__destructor_fwd };
@@ -989,7 +989,7 @@ _L_exit:;
   return __ret;
 }
 
-static void __init() {
+__attribute__((constructor)) static void __init() {
 _L_entry:;
   detachedDone = atomic_AtomicI_i32E_op__initCoverI_E();
   goto _L_exit;

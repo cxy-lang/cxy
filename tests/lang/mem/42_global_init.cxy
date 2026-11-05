@@ -1,0 +1,15 @@
+// @TEST_ARGS: ~--without-builtins
+// A global of a class type is constructed before `main` runs, and released at exit
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() {}
+}
+
+var shared = Node(7)
+var other = Node(8)
+
+func main(): void {
+    println(shared.id)
+    println(other.id)
+}

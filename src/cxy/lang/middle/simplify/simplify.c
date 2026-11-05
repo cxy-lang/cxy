@@ -341,7 +341,7 @@ static void createModuleInit(AstVisitor *visitor, AstNode *program)
         makeVoidAstNode(
             ctx->pool, builtinLoc(), flgNone, NULL, makeVoidType(ctx->types)),
         makeBlockStmt(ctx->pool, builtinLoc(), ctx->init.first, NULL, NULL),
-        flgTopLevelDecl | flgPublic | flgConstructor,
+        flgTopLevelDecl | flgPublic | flgConstructor | flgModuleInit,
         NULL,
         NULL);
 

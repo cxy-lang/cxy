@@ -1786,7 +1786,7 @@ static void emitExternFunctionAttrs(FormatState *state, const IrNode *func)
 
 static void emitFunctionLinkage(FormatState *state, const IrNode *func)
 {
-    if (hasFlag(func, ModuleInit) || (func->function.name && strstr(func->function.name, "___init")))
+    if (hasFlag(func, ModuleInit))
         format(state, "__attribute__((constructor)) static ", NULL);
     else
         format(state, "static ", NULL);
