@@ -232,6 +232,14 @@ static void computeIntraBlockGenKill(MemMgmtContext *ctx, CfgBlockInfo *block)
             if (var && !var->isTemporary)
                 blockEffectsApply(&effects, var->varIndex, flowKill);
         }
+        else if (stmt->tag == irScopeExit) {
+            // what the scope declared is gone
+            for (u64 v = 0; v < ctx->trackedVarList.size; v++) {
+                TrackedVar *var = ((TrackedVar **)ctx->trackedVarList.elems)[v];
+                if (var && var->scopeId == stmt->scopeExit.scopeId && !var->isTemporary)
+                    blockEffectsApply(&effects, var->varIndex, flowKill);
+            }
+        }
     }
     blockEffectsFinish(&effects, block, ctx->trackedVarList.size);
 }
@@ -254,84 +262,21 @@ static void runDataflowAnalysis(MemMgmtContext *ctx, CfgBlockInfo **blocks, u64 
     solveOwnership(ctx->localPool, blocks, count, varCount, &entryOwned);
 }
 
-typedef struct MoveDropFlagContext {
-    MemMgmtContext *ctx;
-    BitSet *currMay;
-    BitSet *currMust;
-} MoveDropFlagContext;
-
-static void onMoveInDropFlagId(IrNode *src, void *ctxPtr)
-{
-    MoveDropFlagContext *data = ctxPtr;
-    IrNode *rhsDecl = findMovedVarDecl(src);
-    TrackedVar *rhsVar = getTrackedVar(data->ctx, rhsDecl);
-    if (rhsVar && !rhsVar->isTemporary) {
-        applyEvent(data->currMay, data->currMust, rhsVar->varIndex, flowKill);
-    }
-}
-
+// A variable that is owned on some of the paths into a block and not on the
+// others needs a drop flag. Inside a block every event stores or kills on all
+// paths at once, so a block start is the only place a variable can be partly owned.
 static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks, u64 count)
 {
     u64 varCount = ctx->trackedVarList.size;
-    BitSet currMay = makeBitSet(ctx->localPool, varCount);
-    BitSet currMust = makeBitSet(ctx->localPool, varCount);
-
     for (u64 i = 0; i < count; i++) {
-        CfgBlockInfo *block = blocks[i];
-        bitSetCopy(&currMay, &block->mayIn);
-        bitSetCopy(&currMust, &block->mustIn);
-
         for (u64 v = 0; v < varCount; v++) {
-            if (bitSetTest(&currMay, v) && !bitSetTest(&currMust, v)) {
-                TrackedVar *var = ((TrackedVar **)ctx->trackedVarList.elems)[v];
-                if (var && !var->isTemporary && !var->needsDropFlag) {
-                    var->needsDropFlag = true;
-                    var->dropFlagIndex = (u32)ctx->dropFlagVars.size;
-                    pushOnDynArray(&ctx->dropFlagVars, &var);
-                }
-            }
-        }
-
-        for (IrNode *stmt = block->bb->basicBlock.first; stmt; stmt = stmt->next) {
-            if (stmt->tag == irAssign) {
-                IrNode *lhsDecl = findVarDeclInNode(stmt->assign.lhs);
-                TrackedVar *lhsVar = getTrackedVar(ctx, lhsDecl);
-                if (lhsVar && !lhsVar->isTemporary) {
-                    if (stmt->assign.lhs->tag == irVarRef && bitSetTest(&currMay, lhsVar->varIndex) && !bitSetTest(&currMust, lhsVar->varIndex)) {
-                        if (!lhsVar->needsDropFlag) {
-                            lhsVar->needsDropFlag = true;
-                            lhsVar->dropFlagIndex = (u32)ctx->dropFlagVars.size;
-                            pushOnDynArray(&ctx->dropFlagVars, &lhsVar);
-                        }
-                    }
-                    if (isEmptyValue(stmt->assign.rhs)) {
-                        if (stmt->assign.lhs->tag == irVarRef) {
-                            applyEvent(&currMay, &currMust, lhsVar->varIndex, flowKill);
-                        }
-                    }
-                    else {
-                        applyEvent(&currMay, &currMust, lhsVar->varIndex, flowDef);
-                    }
-                }
-
-                MoveDropFlagContext moveCtx = {.ctx = ctx, .currMay = &currMay, .currMust = &currMust};
-                forEachMovedSource(stmt, onMoveInDropFlagId, &moveCtx);
-            }
-            else if (stmt->tag == irScopeExit) {
-                u32 exitingScope = stmt->scopeExit.scopeId;
-                for (u64 v = 0; v < varCount; v++) {
-                    TrackedVar *var = ((TrackedVar **)ctx->trackedVarList.elems)[v];
-                    if (var && var->scopeId == exitingScope && !var->isTemporary) {
-                        if (bitSetTest(&currMay, v) && !bitSetTest(&currMust, v)) {
-                            if (!var->needsDropFlag) {
-                                var->needsDropFlag = true;
-                                var->dropFlagIndex = (u32)ctx->dropFlagVars.size;
-                                pushOnDynArray(&ctx->dropFlagVars, &var);
-                            }
-                        }
-                        applyEvent(&currMay, &currMust, v, flowKill);
-                    }
-                }
+            if (!bitSetTest(&blocks[i]->mayIn, v) || bitSetTest(&blocks[i]->mustIn, v))
+                continue;
+            TrackedVar *var = ((TrackedVar **)ctx->trackedVarList.elems)[v];
+            if (var && !var->isTemporary && !var->needsDropFlag) {
+                var->needsDropFlag = true;
+                var->dropFlagIndex = (u32)ctx->dropFlagVars.size;
+                pushOnDynArray(&ctx->dropFlagVars, &var);
             }
         }
     }
@@ -603,6 +548,83 @@ static bool shouldPromoteAssignToCopy(const IrNode *lhsDecl, const IrNode *lhs, 
     return inner->tag == irMember || inner->tag == irIndex;
 }
 
+static void insertAfterStmt(IrNode *stmt, IrNode **nextRef, IrNode *node)
+{
+    node->next = *nextRef;
+    stmt->next = node;
+    *nextRef = node;
+}
+
+// What storing into `target` does: the old value of an element or field is
+// dropped, so is the old value of an owned variable (guarded by its flag when only
+// some paths own it). The variable is owned afterwards, or not when nothing is
+// stored. Shared by an assignment and a user `@copy`.
+static void elaborateStoreTarget(MemMgmtContext *ctx,
+                                 IrNode *bb,
+                                 IrNode **prevRef,
+                                 IrNode *stmt,
+                                 IrNode *target,
+                                 bool storesNothing,
+                                 IrNode **nextRef,
+                                 BitSet *currMay,
+                                 BitSet *currMust)
+{
+    if (target->tag == irIndex && isIrTypeDestructible(target->type)) {
+        IrNode *base = target->index.target;
+        // Do not auto-drop if indexing into a raw pointer buffer (^T)
+        if (base && base->type && !isIrPointerType(base->type))
+            insertBeforeStmt(bb, prevRef, stmt, makeIrDrop(ctx->pool, &stmt->loc, target));
+    }
+    else if (target->tag == irMember && isIrTypeDestructible(target->type)) {
+        IrNode *baseDecl = findVarDeclInNode(target);
+        bool shouldDrop = true;
+        if (baseDecl && baseDecl->tag == irVarDecl) {
+            TrackedVar *baseVar = getTrackedVar(ctx, baseDecl);
+            shouldDrop = baseVar && !baseVar->isTemporary && bitSetTest(currMust, baseVar->varIndex);
+        }
+        if (shouldDrop)
+            insertBeforeStmt(bb, prevRef, stmt, makeIrDrop(ctx->pool, &stmt->loc, target));
+    }
+
+    TrackedVar *var = getTrackedVar(ctx, findVarDeclInNode(target));
+    if (var == NULL)
+        return;
+
+    // ephemerals are dropped right after the store, so they are never live across statements
+    if (var->isEphemeral) {
+        if (isIrTypeDestructible(var->type))
+            insertAfterStmt(stmt, nextRef, makeIrDrop(ctx->pool, &stmt->loc, target));
+        return;
+    }
+    if (var->isTemporary)
+        return;
+
+    if (target->tag == irVarRef && bitSetTest(currMay, var->varIndex)) {
+        if (var->needsDropFlag && !bitSetTest(currMust, var->varIndex)) {
+            IrNode *flagAccess = makeDropFlagAccess(ctx, &stmt->loc, var);
+            insertBeforeStmt(bb, prevRef, stmt, makeIrDropIf(ctx->pool, &stmt->loc, target, flagAccess));
+        }
+        else if (bitSetTest(currMust, var->varIndex)) {
+            insertBeforeStmt(bb, prevRef, stmt, makeIrDrop(ctx->pool, &stmt->loc, target));
+        }
+    }
+
+    if (storesNothing) {
+        if (target->tag != irVarRef)
+            return;
+        applyEvent(currMay, currMust, var->varIndex, flowKill);
+    }
+    else {
+        applyEvent(currMay, currMust, var->varIndex, flowDef);
+    }
+
+    if (target->tag == irVarRef && var->needsDropFlag) {
+        IrNode *flag = makeDropFlagAssign(ctx, &stmt->loc, var, !storesNothing);
+        if (flag)
+            insertAfterStmt(stmt, nextRef, flag);
+    }
+}
+
 static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **blocks, u64 count)
 {
     u64 varCount = ctx->trackedVarList.size;
@@ -620,99 +642,9 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
             IrNode *next = stmt->next;
 
             if (stmt->tag == irAssign && !hasFlag(stmt, Unmanaged)) {
-                if (stmt->assign.lhs->tag == irIndex && isIrTypeDestructible(stmt->assign.lhs->type)) {
-                    IrNode *base = stmt->assign.lhs->index.target;
-                    // Do not auto-drop if indexing into a raw pointer buffer (^T)
-                    if (base && base->type && !isIrPointerType(base->type)) {
-                        IrNode *dropStmt = makeIrDrop(ctx->pool, &stmt->loc, stmt->assign.lhs);
-                        dropStmt->next = stmt;
-                        if (prev)
-                            prev->next = dropStmt;
-                        else
-                            bb->basicBlock.first = dropStmt;
-                        prev = dropStmt;
-                    }
-                }
-                else if (stmt->assign.lhs->tag == irMember && isIrTypeDestructible(stmt->assign.lhs->type)) {
-                    IrNode *baseDecl = findVarDeclInNode(stmt->assign.lhs);
-                    bool shouldDrop = true;
-                    if (baseDecl && baseDecl->tag == irVarDecl) {
-                        TrackedVar *baseVar = getTrackedVar(ctx, baseDecl);
-                        shouldDrop = (baseVar && !baseVar->isTemporary && bitSetTest(&currMust, baseVar->varIndex));
-                    }
-                    if (shouldDrop) {
-                        IrNode *dropStmt = makeIrDrop(ctx->pool, &stmt->loc, stmt->assign.lhs);
-                        dropStmt->next = stmt;
-                        if (prev)
-                            prev->next = dropStmt;
-                        else
-                            bb->basicBlock.first = dropStmt;
-                        prev = dropStmt;
-                    }
-                }
-
-                IrNode *lhsDecl = findVarDeclInNode(stmt->assign.lhs);
-                TrackedVar *lhsVar = getTrackedVar(ctx, lhsDecl);
                 IrNode *rhs = stmt->assign.rhs;
-
-                // ephemerals are dropped right after the assignment, so they are never live across statements
-                if (lhsVar && !lhsVar->isTemporary && !lhsVar->isEphemeral) {
-                    if (stmt->assign.lhs->tag == irVarRef && bitSetTest(&currMay, lhsVar->varIndex)) {
-                        if (lhsVar->needsDropFlag && !bitSetTest(&currMust, lhsVar->varIndex)) {
-                            IrNode *flagAccess = makeDropFlagAccess(ctx, &stmt->loc, lhsVar);
-                            IrNode *dropStmt = makeIrDropIf(ctx->pool, &stmt->loc, stmt->assign.lhs, flagAccess);
-                            dropStmt->next = stmt;
-                            if (prev)
-                                prev->next = dropStmt;
-                            else
-                                bb->basicBlock.first = dropStmt;
-                            prev = dropStmt;
-                        }
-                        else if (bitSetTest(&currMust, lhsVar->varIndex)) {
-                            IrNode *dropStmt = makeIrDrop(ctx->pool, &stmt->loc, stmt->assign.lhs);
-                            dropStmt->next = stmt;
-                            if (prev)
-                                prev->next = dropStmt;
-                            else
-                                bb->basicBlock.first = dropStmt;
-                            prev = dropStmt;
-                        }
-                    }
-
-                    if (isEmptyValue(rhs)) {
-                        if (stmt->assign.lhs->tag == irVarRef) {
-                            applyEvent(&currMay, &currMust, lhsVar->varIndex, flowKill);
-                            if (lhsVar->needsDropFlag) {
-                                IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, lhsVar, false);
-                                if (clearFlag) {
-                                    clearFlag->next = next;
-                                    stmt->next = clearFlag;
-                                    next = clearFlag;
-                                }
-                            }
-                        }
-                    }
-                    else {
-                        applyEvent(&currMay, &currMust, lhsVar->varIndex, flowDef);
-
-                        if (stmt->assign.lhs->tag == irVarRef && lhsVar->needsDropFlag) {
-                            IrNode *setFlag = makeDropFlagAssign(ctx, &stmt->loc, lhsVar, true);
-                            if (setFlag) {
-                                setFlag->next = next;
-                                stmt->next = setFlag;
-                                next = setFlag;
-                            }
-                        }
-                    }
-                }
-                else if (lhsVar && lhsVar->isEphemeral) {
-                    if (isIrTypeDestructible(lhsVar->type)) {
-                        IrNode *dropTemp = makeIrDrop(ctx->pool, &stmt->loc, stmt->assign.lhs);
-                        dropTemp->next = next;
-                        stmt->next = dropTemp;
-                        next = dropTemp;
-                    }
-                }
+                elaborateStoreTarget(ctx, bb, &prev, stmt, stmt->assign.lhs, isEmptyValue(rhs), &next, &currMay, &currMust);
+                IrNode *lhsDecl = findVarDeclInNode(stmt->assign.lhs);
 
                 IrNode **rhsMove = rhs ? moveSlot(&stmt->assign.rhs) : NULL;
                 if (rhs) {
@@ -761,6 +693,9 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         stmt->copy.dst = lhs;
                     }
                 }
+            }
+            else if (stmt->tag == irCopy && !hasFlag(stmt, Unmanaged)) {
+                elaborateStoreTarget(ctx, bb, &prev, stmt, stmt->copy.dst, false, &next, &currMay, &currMust);
             }
             else if (stmt->tag == irDrop && !hasFlag(stmt, Unmanaged)) {
                 IrNode *target = stmt->drop.target;

@@ -4,7 +4,6 @@ typedef struct ResourceA ResourceA;
 typedef struct ResourceB ResourceB;
 typedef union Union_ResourceA_ResourceB_i32_val Union_ResourceA_ResourceB_i32_val;
 typedef struct Union_ResourceA_ResourceB_i32 Union_ResourceA_ResourceB_i32;
-typedef struct __drop_flags_testMatchUnion_t __drop_flags_testMatchUnion_t;
 
 struct builtins_Exception {
   builtins_Exception_VTable * vtable;
@@ -34,12 +33,6 @@ union Union_ResourceA_ResourceB_i32_val {
 struct Union_ResourceA_ResourceB_i32 {
   uint32_t tag;
   Union_ResourceA_ResourceB_i32_val val;
-};
-
-struct __drop_flags_testMatchUnion_t {
-  uint64_t local: 1;
-  uint64_t local_1: 1;
-  uint64_t local_2: 1;
 };
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex);
@@ -168,12 +161,10 @@ _L_exit:;
 }
 
 static void testMatchUnion(Union_ResourceA_ResourceB_i32 u) {
-  __drop_flags_testMatchUnion_t __drop_flags;
   ResourceA * local;
   ResourceB * local_1;
   ResourceA * local_2;
 _L_entry:;
-  memset(&(__drop_flags), 0, sizeof(__drop_flags_testMatchUnion_t));
   switch (u.tag) {
     case 0U: goto _L_MATCH0_case_0;
     case 1U: goto _L_MATCH0_case_1;
@@ -182,21 +173,15 @@ _L_entry:;
   }
 _L_MATCH0_case_0:;
   local = ResourceA_op__initCover((u.val._0->id + 10));
-  __drop_flags.local = 1ULL;
   __smart_ptr_drop(local);
-  __drop_flags.local = 0ULL;
   goto _L_exit;
 _L_MATCH0_case_1:;
   local_1 = ResourceB_op__initCover(u.val._1->tag);
-  __drop_flags.local_1 = 1ULL;
   __smart_ptr_drop(local_1);
-  __drop_flags.local_1 = 0ULL;
   goto _L_exit;
 _L_MATCH0_case_2:;
   local_2 = ResourceA_op__initCover(u.val._2);
-  __drop_flags.local_2 = 1ULL;
   __smart_ptr_drop(local_2);
-  __drop_flags.local_2 = 0ULL;
   goto _L_exit;
 _L_exit:;
   __union_dctor_145(&(u));

@@ -59,7 +59,6 @@ struct Tuple_Page_i8 {
 
 struct __drop_flags_testConditional_t {
   uint64_t keys: 1;
-  uint64_t props: 1;
 };
 
 struct Slice_Page {
@@ -329,9 +328,7 @@ _L_IF0_then:;
   __drop_flags.keys = 0ULL;
   __t12 = Page_op__initCover(keys);
   props = (Props){.page = __t12, .tag = 4};
-  __drop_flags.props = 1ULL;
   Props_op__destructor(&(props));
-  __drop_flags.props = 0ULL;
   goto _L_exit;
 _L_exit:;
   if (__drop_flags.keys) __smart_ptr_drop(keys);

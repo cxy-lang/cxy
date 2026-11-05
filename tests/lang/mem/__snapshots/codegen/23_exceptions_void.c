@@ -4,7 +4,6 @@ typedef struct String String;
 typedef struct HeavyResource HeavyResource;
 typedef struct VoidError VoidError;
 typedef struct Result_void Result_void;
-typedef struct __drop_flags_testVoidCatch_t __drop_flags_testVoidCatch_t;
 
 struct builtins_Exception_VTable {
   uint64_t __tid;
@@ -35,10 +34,6 @@ struct VoidError {
 struct Result_void {
   uint32_t tag;
   builtins_Exception * val;
-};
-
-struct __drop_flags_testVoidCatch_t {
-  uint64_t dummy: 1;
 };
 
 static void builtins_Exception_op__init(builtins_Exception * this, char * name);
@@ -317,7 +312,6 @@ _L_exit:;
 }
 
 static void testVoidCatch() {
-  __drop_flags_testVoidCatch_t __drop_flags;
   Result_void __t6;
   Result_void __t7;
   Result_void __t8;
@@ -325,7 +319,6 @@ static void testVoidCatch() {
   HeavyResource * dummy;
   String * __t10;
 _L_entry:;
-  memset(&(__drop_flags), 0, sizeof(__drop_flags_testVoidCatch_t));
   __t6 = performVoidWork(false);
   if (__t6.tag == 1U) goto _L_catch_0; else goto _L_merge_1;
 _L_catch_0:;
@@ -355,9 +348,7 @@ _L_merge_3:;
 _L_catch_3:;
   __t10 = String_op__initCover("handled_in_catch");
   dummy = HeavyResource_op__initCover(__t10);
-  __drop_flags.dummy = 1ULL;
   __smart_ptr_drop(dummy);
-  __drop_flags.dummy = 0ULL;
   __smart_ptr_drop(__t9.val);
   __t9.val = nullptr;
   __t9.tag = 0U;

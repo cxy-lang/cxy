@@ -95,10 +95,9 @@ func main(): void {}
     CHECK_FALSE(contains(fn.findBlock("entry").sexpr(), "(GlobalRef next)"));
 }
 
-// Open. The elaboration does not treat a `@copy` written by the user as a store
-// into its destination, so the old value is not dropped first. Fixed by making the
-// three copies of the ownership rules agree on which statements store (memory-pass.md)
-TEST_CASE("Known bug: `x = @copy r` drops the old value of `x` first" * doctest::skip())
+// A `@copy` written by the user is a store: the old value of the destination is
+// dropped first, like for an assignment.
+TEST_CASE("Fixed bug: `x = @copy r` drops the old value of `x` first")
 {
     TestCompiler cc(memoryStage());
     REQUIRE(cc.compile(std::string(program) + R"(

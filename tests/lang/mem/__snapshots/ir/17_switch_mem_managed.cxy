@@ -62,8 +62,6 @@ _L_exit:
 
 func testSwitchCaseScopes(val: i32): void {
 _L_entry:
-  var __drop_flags: __drop_flags_testSwitchCaseScopes_t
-  zeromem __drop_flags
   scope.enter 0
   var outer: ^Resource
   outer = Resource_op__initCover(<i32>(1))
@@ -80,33 +78,26 @@ _L_SWITCH0_case_0:
   scope.enter 1
   var case0: ^Resource
   case0 = Resource_op__initCover(<i32>(10))
-  __drop_flags.case0 = 1
   drop case0
-  __drop_flags.case0 = 0
   scope.exit 1
   goto _L_SWITCH0_exit
 _L_SWITCH0_case_1:
   scope.enter 2
   var case1: ^Resource
   case1 = Resource_op__initCover(<i32>(20))
-  __drop_flags.case1 = 1
   if val == 1 goto _L_IF0_then else goto _L_IF0_end
 _L_SWITCH0_case_3:
   scope.enter 4
   var case23: ^Resource
   case23 = Resource_op__initCover(<i32>(30))
-  __drop_flags.case23 = 1
   drop case23
-  __drop_flags.case23 = 0
   scope.exit 4
   goto _L_SWITCH0_exit
 _L_SWITCH0_case_4:
   scope.enter 5
   var caseDef: ^Resource
   caseDef = Resource_op__initCover(<i32>(40))
-  __drop_flags.caseDef = 1
   drop caseDef
-  __drop_flags.caseDef = 0
   scope.exit 5
   goto _L_SWITCH0_exit
 _L_IF0_then:
@@ -114,12 +105,10 @@ _L_IF0_then:
   goto _L_UNWIND2_return
 _L_IF0_end:
   drop case1
-  __drop_flags.case1 = 0
   scope.exit 2
   goto _L_SWITCH0_exit
 _L_UNWIND2_return:
   drop case1
-  __drop_flags.case1 = 0
   scope.exit 2
   goto _L_exit
 _L_exit:

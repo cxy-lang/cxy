@@ -62,8 +62,6 @@ _L_exit:
 
 func nested(condBreak: bool, condRet: bool): void {
 _L_entry:
-  var __drop_flags: __drop_flags_nested_t
-  zeromem __drop_flags
   scope.enter 0
   var i: i8
   i = 0
@@ -73,9 +71,7 @@ _L_FOR0_cond:
 _L_FOR0_body:
   scope.enter 1
   var outer: ^Item
-  drop-if outer, __drop_flags.outer
   outer = Item_op__initCover(<i32>(i))
-  __drop_flags.outer = 1
   var j: i8
   j = 0
   goto _L_FOR1_cond
@@ -89,9 +85,7 @@ _L_FOR1_cond:
 _L_FOR1_body:
   scope.enter 2
   var inner: ^Item
-  drop-if inner, __drop_flags.inner
   inner = Item_op__initCover(<i32>(i * 10 + j))
-  __drop_flags.inner = 1
   var __cond1: bool
   if j == 1 goto _L_AND0_rhs else goto _L_AND0_false
 _L_FOR1_update:
@@ -99,7 +93,6 @@ _L_FOR1_update:
   goto _L_FOR1_cond
 _L_FOR1_exit:
   drop outer
-  __drop_flags.outer = 0
   scope.exit 1
   goto _L_FOR0_update
 _L_AND0_rhs:
@@ -114,7 +107,6 @@ _L_IF0_then:
   scope.enter 3
   scope.exit 3
   drop inner
-  __drop_flags.inner = 0
   scope.exit 2
   goto _L_FOR1_exit
 _L_IF0_end:
@@ -142,17 +134,14 @@ _L_IF1_then:
   goto _L_UNWIND2_return
 _L_IF1_end:
   drop inner
-  __drop_flags.inner = 0
   scope.exit 2
   goto _L_FOR1_update
 _L_UNWIND2_return:
   drop inner
-  __drop_flags.inner = 0
   scope.exit 2
   goto _L_UNWIND1_return
 _L_UNWIND1_return:
   drop outer
-  __drop_flags.outer = 0
   scope.exit 1
   goto _L_exit
 _L_exit:

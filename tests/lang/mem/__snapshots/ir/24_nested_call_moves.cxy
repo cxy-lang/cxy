@@ -315,9 +315,7 @@ _L_IF0_then:
   __drop_flags.keys = 0
   __t12 = Page_op__initCover(keys)
   props = Props {page: __t12, tag: 4}
-  __drop_flags.props = 1
   drop props
-  __drop_flags.props = 0
   scope.exit 1
   goto _L_IF0_end
 _L_IF0_end:

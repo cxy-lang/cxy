@@ -1,7 +1,6 @@
 typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct Resource Resource;
-typedef struct __drop_flags_testSwitchCaseScopes_t __drop_flags_testSwitchCaseScopes_t;
 
 struct builtins_Exception {
   builtins_Exception_VTable * vtable;
@@ -16,13 +15,6 @@ struct builtins_Exception_VTable {
 
 struct Resource {
   int32_t id;
-};
-
-struct __drop_flags_testSwitchCaseScopes_t {
-  uint64_t case0: 1;
-  uint64_t case1: 1;
-  uint64_t case23: 1;
-  uint64_t caseDef: 1;
 };
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex);
@@ -98,14 +90,12 @@ _L_exit:;
 }
 
 static void testSwitchCaseScopes(int32_t val) {
-  __drop_flags_testSwitchCaseScopes_t __drop_flags;
   Resource * outer;
   Resource * case0;
   Resource * case1;
   Resource * case23;
   Resource * caseDef;
 _L_entry:;
-  memset(&(__drop_flags), 0, sizeof(__drop_flags_testSwitchCaseScopes_t));
   outer = Resource_op__initCover(((int32_t)(1)));
   switch (val) {
     case 0: goto _L_SWITCH0_case_0;
@@ -116,33 +106,24 @@ _L_entry:;
   }
 _L_SWITCH0_case_0:;
   case0 = Resource_op__initCover(((int32_t)(10)));
-  __drop_flags.case0 = 1ULL;
   __smart_ptr_drop(case0);
-  __drop_flags.case0 = 0ULL;
   goto _L_exit;
 _L_SWITCH0_case_1:;
   case1 = Resource_op__initCover(((int32_t)(20)));
-  __drop_flags.case1 = 1ULL;
   if (val == 1) goto _L_UNWIND2_return; else goto _L_IF0_end;
 _L_SWITCH0_case_3:;
   case23 = Resource_op__initCover(((int32_t)(30)));
-  __drop_flags.case23 = 1ULL;
   __smart_ptr_drop(case23);
-  __drop_flags.case23 = 0ULL;
   goto _L_exit;
 _L_SWITCH0_case_4:;
   caseDef = Resource_op__initCover(((int32_t)(40)));
-  __drop_flags.caseDef = 1ULL;
   __smart_ptr_drop(caseDef);
-  __drop_flags.caseDef = 0ULL;
   goto _L_exit;
 _L_IF0_end:;
   __smart_ptr_drop(case1);
-  __drop_flags.case1 = 0ULL;
   goto _L_exit;
 _L_UNWIND2_return:;
   __smart_ptr_drop(case1);
-  __drop_flags.case1 = 0ULL;
   goto _L_exit;
 _L_exit:;
   __smart_ptr_drop(outer);

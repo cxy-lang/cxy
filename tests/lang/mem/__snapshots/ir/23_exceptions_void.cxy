@@ -211,8 +211,6 @@ _L_exit:
 
 func testVoidCatch(): void {
 _L_entry:
-  var __drop_flags: __drop_flags_testVoidCatch_t
-  zeromem __drop_flags
   scope.enter 0
   var __t6: !void
   __t6 = performVoidWork(false)
@@ -262,9 +260,7 @@ _L_catch_3:
   var __t10: ^String
   __t10 = String_op__initCover("handled_in_catch")
   dummy = HeavyResource_op__initCover(__t10)
-  __drop_flags.dummy = 1
   drop dummy
-  __drop_flags.dummy = 0
   scope.exit 4
   drop __t9.val
   __t9.val = null

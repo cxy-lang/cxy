@@ -1,7 +1,6 @@
 typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct Item Item;
-typedef struct __drop_flags_nested_t __drop_flags_nested_t;
 
 struct builtins_Exception {
   builtins_Exception_VTable * vtable;
@@ -16,11 +15,6 @@ struct builtins_Exception_VTable {
 
 struct Item {
   int32_t id;
-};
-
-struct __drop_flags_nested_t {
-  uint64_t outer: 1;
-  uint64_t inner: 1;
 };
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex);
@@ -95,7 +89,6 @@ _L_exit:;
 }
 
 static void nested(bool condBreak, bool condRet) {
-  __drop_flags_nested_t __drop_flags;
   int8_t i;
   Item * outer;
   int8_t j;
@@ -104,15 +97,12 @@ static void nested(bool condBreak, bool condRet) {
   bool __cond2;
   bool __cond3;
 _L_entry:;
-  memset(&(__drop_flags), 0, sizeof(__drop_flags_nested_t));
   i = 0;
   goto _L_FOR0_cond;
 _L_FOR0_cond:;
   if (i < 3) goto _L_FOR0_body; else goto _L_exit;
 _L_FOR0_body:;
-  if (__drop_flags.outer) __smart_ptr_drop(outer);
   outer = Item_op__initCover(((int32_t)(i)));
-  __drop_flags.outer = 1ULL;
   j = 0;
   goto _L_FOR1_cond;
 _L_FOR0_update:;
@@ -121,16 +111,13 @@ _L_FOR0_update:;
 _L_FOR1_cond:;
   if (j < 3) goto _L_FOR1_body; else goto _L_FOR1_exit;
 _L_FOR1_body:;
-  if (__drop_flags.inner) __smart_ptr_drop(inner);
   inner = Item_op__initCover(((int32_t)(((i * 10) + j))));
-  __drop_flags.inner = 1ULL;
   if (j == 1) goto _L_AND0_rhs; else goto _L_AND0_false;
 _L_FOR1_update:;
   j = (j + 1);
   goto _L_FOR1_cond;
 _L_FOR1_exit:;
   __smart_ptr_drop(outer);
-  __drop_flags.outer = 0ULL;
   goto _L_FOR0_update;
 _L_AND0_rhs:;
   __cond1 = condBreak;
@@ -142,7 +129,6 @@ _L_AND0_merge:;
   if (__cond1) goto _L_IF0_then; else goto _L_IF0_end;
 _L_IF0_then:;
   __smart_ptr_drop(inner);
-  __drop_flags.inner = 0ULL;
   goto _L_FOR1_exit;
 _L_IF0_end:;
   if (i == 2) goto _L_AND1_rhs; else goto _L_AND1_false;
@@ -164,15 +150,12 @@ _L_AND2_merge:;
   if (__cond3) goto _L_UNWIND2_return; else goto _L_IF1_end;
 _L_IF1_end:;
   __smart_ptr_drop(inner);
-  __drop_flags.inner = 0ULL;
   goto _L_FOR1_update;
 _L_UNWIND2_return:;
   __smart_ptr_drop(inner);
-  __drop_flags.inner = 0ULL;
   goto _L_UNWIND1_return;
 _L_UNWIND1_return:;
   __smart_ptr_drop(outer);
-  __drop_flags.outer = 0ULL;
   goto _L_exit;
 _L_exit:;
   return;

@@ -118,8 +118,6 @@ _L_exit:
 
 func testMatchUnion(u: ^ResourceA | ^ResourceB | i32): void {
 _L_entry:
-  var __drop_flags: __drop_flags_testMatchUnion_t
-  zeromem __drop_flags
   scope.enter 0
   switch u.tag {
     0 -> _L_MATCH0_case_0
@@ -133,27 +131,21 @@ _L_MATCH0_case_0:
   scope.enter 1
   var local: ^ResourceA
   local = ResourceA_op__initCover(u.val._0.id + 10)
-  __drop_flags.local = 1
   drop local
-  __drop_flags.local = 0
   scope.exit 1
   goto _L_MATCH0_exit
 _L_MATCH0_case_1:
   scope.enter 2
   var local: ^ResourceB
   local_1 = ResourceB_op__initCover(u.val._1.tag)
-  __drop_flags.local_1 = 1
   drop local_1
-  __drop_flags.local_1 = 0
   scope.exit 2
   goto _L_MATCH0_exit
 _L_MATCH0_case_2:
   scope.enter 3
   var local: ^ResourceA
   local_2 = ResourceA_op__initCover(u.val._2)
-  __drop_flags.local_2 = 1
   drop local_2
-  __drop_flags.local_2 = 0
   scope.exit 3
   goto _L_MATCH0_exit
 _L_MATCH0_default:
