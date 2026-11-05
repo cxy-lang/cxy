@@ -145,15 +145,15 @@ _L_entry:
   var __ret: !void
   var total: i32
   total = 0
+  var __t4: ^Node
+  var __t5: Closure_442
+  var __t6: i32
   goto _L_WHILE0_cond
 _L_WHILE0_cond:
-  var __t4: ^Node
   __t4 = Node_op__initCover(<i32>(1))
-  var __t5: Closure_442
   drop-if __t5, __drop_flags.__t5
   __t5 = adder(__t4)
   __drop_flags.__t5 = 1
-  var __t6: i32
   __t6 = __t5.fn(__t5.env, total)
   if __t6 < 3 goto _L_WHILE0_body else goto _L_WHILE0_exit
 _L_WHILE0_body:

@@ -39,6 +39,9 @@ typedef struct LowerContext {
     IrModule *module;
     IrFunction *currentFunc;
     IrNode *currentBlock;
+    // Where the temporaries of a loop condition are declared: they live across
+    // iterations, so they are declared once, before the loop
+    IrNode *tempDeclBlock;
     IrNode *funcExitBlock;
     IrNode *funcRetVar;
     const Type *funcRetAstType;

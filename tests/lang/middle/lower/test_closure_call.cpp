@@ -122,7 +122,6 @@ func main(): void {}
     IrNodeWrapper fn = cc.function("loopCall");
     REQUIRE_IR_MATCHES(fn.findBlock("WHILE0_cond"), R"(
         (Block _L_WHILE0_cond
-            (VarDecl __t0 _)
             (Assign (VarRef __t0) (Call (GlobalRef adder) _ :owned-position))
             ...
             (If _ _L_WHILE0_body _L_WHILE0_exit))

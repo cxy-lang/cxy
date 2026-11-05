@@ -97,9 +97,9 @@ _L_entry:
   r = CustomRange {limit: 5}
   var __it4: RangeIterator
   __it4 = CustomRange_op__range(&r)
+  var __t4: bool
   goto _L_WHILE0_cond
 _L_WHILE0_cond:
-  var __t4: bool
   __t4 = RangeIterator_op__truthy(&__it4)
   if __t4 goto _L_WHILE0_body else goto _L_WHILE0_exit
 _L_WHILE0_body:
@@ -124,9 +124,9 @@ _L_entry:
   c = InlineCollection {s: "hello"}
   var __it6: __Iterator3
   __it6 = InlineCollection_op__range(&c)
+  var __t5: bool
   goto _L_WHILE0_cond
 _L_WHILE0_cond:
-  var __t5: bool
   __t5 = __Iterator3_op__truthy(&__it6)
   if __t5 goto _L_WHILE0_body else goto _L_WHILE0_exit
 _L_WHILE0_body:

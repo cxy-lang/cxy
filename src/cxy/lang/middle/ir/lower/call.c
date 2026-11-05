@@ -286,7 +286,7 @@ void lowerCallExpr(AstVisitor *visitor, AstNode *node)
                                        tempName,
                                        resIrType,
                                        ctx->currentScopeId);
-        emitStmt(ctx, resVar);
+        emitTempDecl(ctx, resVar);
         emitStmt(ctx,
                  makeIrAssign(ctx->pool,
                               &node->loc,

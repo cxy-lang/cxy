@@ -3,9 +3,7 @@ set(CXY_VERSION 0.1.0 CACHE STRING "The version of cxy")
 string(REPLACE v "" ${CXY_VERSION} CXY_VERSION)
 project(cxy
         VERSION ${CXY_VERSION}
-        DESCRIPTION
-          "Cxy is a transpiler for a high level "
-          "programming language that tries to simplify C"
+        DESCRIPTION "Cxy is a transpiler for a high level programming language that tries to simplify C"
         LANGUAGES C CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -68,42 +66,42 @@ add_subdirectory(src/3rdParty/msgpack)
 add_subdirectory(src/3rdParty/libyaml)
 
 include_directories(
-  src/cxy
-  src/3rdParty
+        src/cxy
+        src/3rdParty
 )
 
 add_executable(amalgamate
-  src/tools/amalgamate.c
-  src/cxy/core/utils.c
+        src/tools/amalgamate.c
+        src/cxy/core/utils.c
 )
 
 target_compile_definitions(amalgamate PRIVATE -DNO_EXEC_UTIL)
 
 CxyAmalgamate(builtins
-  OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
-  FILES
-  src/cxy/runtime/builtins.cxy)
+        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+        FILES
+        src/cxy/runtime/builtins.cxy)
 
 CxyAmalgamate(prologue
-  OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
-  FILES
-  src/cxy/runtime/prologue.h)
+        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+        FILES
+        src/cxy/runtime/prologue.h)
 
 CxyAmalgamate(mm
-  OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
-  FILES
-  src/cxy/runtime/mm.h)
+        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+        FILES
+        src/cxy/runtime/mm.h)
 
 # Only added to the generated C in builds with memory trace
 CxyAmalgamate(mm_trace
-  OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
-  FILES
-  src/cxy/runtime/mm_trace.h)
+        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+        FILES
+        src/cxy/runtime/mm_trace.h)
 
 CxyAmalgamate(epilogue
-  OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
-  FILES
-  src/cxy/runtime/epilogue.h)
+        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+        FILES
+        src/cxy/runtime/epilogue.h)
 
 set(CXY_CORE_SOURCES
         src/cxy/core/args.c
@@ -349,7 +347,8 @@ set(CXY_PLUGIN_LIB_HEADERS
 # (eval/path.c and sema/path.c) end up as ambiguous members of a static library
 # and the debug map of the executable loses their debug info. Those sources are
 # compiled through uniquely named wrappers that #include the original file, the
-# line tables still point at the original file. Generated sources are kept as is.
+# line tables still point at the original file. Generated sources are kept as
+# is.
 function(cxy_unique_object_names OUT)
     set(abs_sources)
     foreach (src IN LISTS ARGN)
@@ -410,8 +409,8 @@ file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/include/cxy/core)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/lib)
 
 # The compiler as a library for tests and tools: compile in-process, keep the
-# program, look nodes up and dump them (src/cxy/testing). Not part of the compiler
-# binary.
+# program, look nodes up and dump them (src/cxy/testing). Not part of the
+# compiler binary.
 add_library(cxy-testing STATIC
         src/cxy/testing/compiler.cpp
         src/cxy/testing/ast_find.c)
@@ -463,10 +462,19 @@ if (ENABLE_LLVM_BACKEND)
             Passes
             Support
     )
-    target_link_libraries(cxy-core msgpack-c yaml ${llvm_libs} ${CLANG_LIBS} CURL::libcurl)
+    target_link_libraries(cxy-core
+            msgpack-c
+            yaml
+            ${llvm_libs}
+            ${CLANG_LIBS}
+            CURL::libcurl)
     target_link_libraries(cxy cxy-core)
 else ()
-    target_link_libraries(cxy-core msgpack-c yaml ${CLANG_LIBS} CURL::libcurl)
+    target_link_libraries(cxy-core
+            msgpack-c
+            yaml
+            ${CLANG_LIBS}
+            CURL::libcurl)
     target_link_libraries(cxy cxy-core)
 endif ()
 
@@ -535,11 +543,15 @@ set(CXY_STDLIB_PLUGINS
 
 if (NOT TARGET FileCheck)
     # Download the LLVM FileCheck utility for tests.
-    set(FILE_CHECK_SRC_PATH "llvmorg-${LLVM_PACKAGE_VERSION}/llvm/utils/FileCheck/FileCheck.cpp")
-    set(FILE_CHECK_SRC_URL "https://raw.githubusercontent.com/llvm/llvm-project/${FILE_CHECK_SRC_PATH}")
-    set(FILE_CHECK_SRC_FILE "${CMAKE_CURRENT_BINARY_DIR}/${FILE_CHECK_SRC_PATH}")
+    set(FILE_CHECK_SRC_PATH
+      "llvmorg-${LLVM_PACKAGE_VERSION}/llvm/utils/FileCheck/FileCheck.cpp")
+    set(FILE_CHECK_SRC_URL
+      "https://raw.githubusercontent.com/llvm/llvm-project/${FILE_CHECK_SRC_PATH}")
+    set(FILE_CHECK_SRC_FILE
+      "${CMAKE_CURRENT_BINARY_DIR}/${FILE_CHECK_SRC_PATH}")
     if (NOT EXISTS "${FILE_CHECK_SRC_FILE}")
-        message(STATUS "Downloading LLVM FileCheck source from ${FILE_CHECK_SRC_URL}")
+        message(STATUS
+          "Downloading LLVM FileCheck source from ${FILE_CHECK_SRC_URL}")
         file(DOWNLOAD "${FILE_CHECK_SRC_URL}" "${FILE_CHECK_SRC_FILE}")
     endif ()
     add_executable(FileCheck ${FILE_CHECK_SRC_FILE})
@@ -587,7 +599,8 @@ set_target_properties(parser-plugin
 foreach (CXY_PLUGIN ${CXY_STDLIB_PLUGINS})
     get_filename_component(_PLUGIN ${CXY_PLUGIN} NAME_WE)
     message(STATUS "Adding cxy plugin target ${_PLUGIN} '${CXY_PLUGIN}'")
-    add_library(${_PLUGIN} SHARED ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/plugins/${CXY_PLUGIN})
+    add_library(${_PLUGIN} SHARED
+            ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/plugins/${CXY_PLUGIN})
     target_include_directories(
             ${_PLUGIN}
             PRIVATE ${CMAKE_BINARY_DIR}/install/include
@@ -624,8 +637,9 @@ enable_testing()
 
 # Add doctest C++ testing framework
 if (ENABLE_UNIT_TESTS)
-    # Helpers shared by test executables: AST and IR matching. Built once, on top
-    # of cxy-testing, so a test only compiles its own sources.
+    # Helpers shared by test executables: AST and IR matching.
+    # Built once, on top of cxy-testing, so a test only compiles
+    # its own sources.
     add_library(cxy-test STATIC
             tests/utils/ast.cpp
             tests/utils/ir.cpp
@@ -646,6 +660,7 @@ if (ENABLE_UNIT_TESTS)
             tests/utils/test_ast.cpp
             tests/lang/middle/test_ir_sexp.cpp
             tests/lang/middle/memory/test_operands.cpp
+            tests/lang/middle/memory/test_loop_temporaries.cpp
             tests/lang/middle/lower/test_info.cpp
             tests/lang/middle/lower/test_access.cpp
             tests/lang/middle/lower/test_reference.cpp
@@ -701,7 +716,8 @@ if (ENABLE_UNIT_TESTS)
     # Add unit test to CTest
     add_test(NAME unit_tests COMMAND cxy_unit_tests)
 
-    # Runtime memory manager tests, variants are listed in tests/runtime/variants.cfg
+    # Runtime memory manager tests, variants are listed in
+    # tests/runtime/variants.cfg
     add_test(NAME runtime_rc_tests
             COMMAND ${CMAKE_SOURCE_DIR}/tests/runtime/run.sh)
 endif ()
@@ -710,7 +726,9 @@ endif ()
 set(CXY_OPEN_SSL_OPTIONS "")
 if (OPENSSL_ROOT_DIR)
     find_package(OpenSSL REQUIRED)
-    set(CXY_OPEN_SSL_OPTIONS --c-header-dir ${OPENSSL_INCLUDE_DIR} --c-lib-dir ${OPENSSL_ROOT_DIR}/lib)
+    set(CXY_OPEN_SSL_OPTIONS
+            --c-header-dir ${OPENSSL_INCLUDE_DIR}
+            --c-lib-dir ${OPENSSL_ROOT_DIR}/lib)
     message(STATUS "OpenSSL options needed for tests: ${CXY_OPEN_SSL_OPTIONS}")
 endif ()
 

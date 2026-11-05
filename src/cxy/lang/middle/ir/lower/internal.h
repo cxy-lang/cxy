@@ -44,6 +44,16 @@ static inline void emitStmt(LowerContext *ctx, IrNode *stmt)
     }
 }
 
+// Declares a temporary. Inside a loop condition it goes before the loop, once.
+static inline void emitTempDecl(LowerContext *ctx, IrNode *decl)
+{
+    IrNode *block = ctx->currentBlock;
+    if (ctx->tempDeclBlock)
+        ctx->currentBlock = ctx->tempDeclBlock;
+    emitStmt(ctx, decl);
+    ctx->currentBlock = block;
+}
+
 static inline IrNode *createBlock(LowerContext *ctx, cstring name)
 {
     cstring blockName = makeStringf(ctx->strings, "_L_%s", name ?: "bb");

@@ -151,6 +151,7 @@ void lowerFuncDecl(AstVisitor *visitor, AstNode *node)
         func->function.attrs |= irFuncAttrCallSite;
 
     ctx->currentFunc = func;
+    ctx->tempDeclBlock = NULL;
     ctx->nextBlockId = 0;
     ctx->nextForId = 0;
     ctx->nextWhileId = 0;

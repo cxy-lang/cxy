@@ -86,7 +86,6 @@ func main(): void {}
     IrNodeWrapper fn = cc.function("loopIdx");
     REQUIRE_IR_MATCHES(fn.findBlock("WHILE0_cond"), R"(
         (Block _L_WHILE0_cond
-            (VarDecl __t0 i32 :temporary)
             (Assign (VarRef __t0) (Call (GlobalRef pick)))
             (If (Binary < (Index (VarRef a) (VarRef __t0)) 3) _L_WHILE0_body _L_WHILE0_exit))
     )");

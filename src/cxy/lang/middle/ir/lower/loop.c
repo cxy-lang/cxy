@@ -26,10 +26,19 @@ void lowerWhileStmt(AstVisitor *visitor, AstNode *node)
     IrNode *exitBB =
         createBlock(ctx, makeStringf(ctx->strings, "WHILE%u_exit", whileId));
 
-    emitBranchIfNotTerminated(ctx, condBB);
-
+    // What the condition needs is declared before the loop, in the block that
+    // enters it, and assigned again on every iteration
+    IrNode *enterBB = ctx->currentBlock;
+    IrNode *prevDeclBlock = ctx->tempDeclBlock;
+    ctx->tempDeclBlock = enterBB;
     setBlock(ctx, condBB);
     IrNode *cond = lowerConditionOperand(ctx, visitor, node->whileStmt.cond);
+    ctx->tempDeclBlock = prevDeclBlock;
+
+    IrNode *condEndBB = ctx->currentBlock;
+    setBlock(ctx, enterBB);
+    emitBranchIfNotTerminated(ctx, condBB);
+    setBlock(ctx, condEndBB);
     emitStmt(ctx, makeIrBranchIf(ctx->pool, &node->loc, cond, bodyBB, exitBB));
 
     setBlock(ctx, bodyBB);

@@ -114,7 +114,6 @@ func main(): void {}
     IrNodeWrapper fn = cc.function("loop");
     REQUIRE_IR_MATCHES(fn.findBlock("WHILE0_cond"), R"(
         (Block _L_WHILE0_cond
-            (VarDecl __t0 ^Node)
             (Assign (VarRef __t0) (Call (GlobalRef next) :owned-position))
             (If (Binary < (Member (VarRef __t0) id) 4) _L_WHILE0_body _L_WHILE0_exit))
     )");
@@ -142,7 +141,6 @@ func main(): void {}
     // last one when the loop ends
     REQUIRE_IR_MATCHES(cc.function("loop").findBlock("WHILE0_cond"), R"(
         (Block _L_WHILE0_cond
-            (VarDecl __t0 ^Node)
             (DropIf (VarRef __t0) _)
             (Assign (VarRef __t0) (Call (GlobalRef next) :owned-position))
             ...)

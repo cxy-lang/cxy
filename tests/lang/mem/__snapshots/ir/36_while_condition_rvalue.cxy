@@ -93,9 +93,9 @@ _L_entry:
   var __ret: !void
   var total: i8
   total = 0
+  var __t1: ^Node
   goto _L_WHILE0_cond
 _L_WHILE0_cond:
-  var __t1: ^Node
   drop-if __t1, __drop_flags.__t1
   __t1 = next()
   __drop_flags.__t1 = 1
