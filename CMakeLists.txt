@@ -268,6 +268,7 @@ set(CXY_MIDDLE_SOURCES
         src/cxy/lang/middle/ir/reachability/reachability.c
         src/cxy/lang/middle/memory/cfg.c
         src/cxy/lang/middle/memory/flow.c
+        src/cxy/lang/middle/memory/normalize.c
         src/cxy/lang/middle/memory/manage.c
         src/cxy/lang/middle/memory/finalize.c
         src/cxy/lang/middle/memory/verify.c
