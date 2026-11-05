@@ -98,84 +98,6 @@ static IrNode *findVarDeclInNode(const IrNode *node)
     return NULL;
 }
 
-static CfgBlockInfo *getCfgBlock(CfgBlockInfo **blocks, u64 count, const IrNode *bb)
-{
-    if (bb == NULL)
-        return NULL;
-    for (u64 i = 0; i < count; i++) {
-        if (blocks[i]->bb == bb)
-            return blocks[i];
-    }
-    return NULL;
-}
-
-static void addCfgEdge(CfgBlockInfo *src, CfgBlockInfo *dst)
-{
-    if (src == NULL || dst == NULL)
-        return;
-    for (size_t i = 0; i < src->succs.size; i++) {
-        if (dynArrayAt(CfgBlockInfo **, &src->succs, i) == dst)
-            return;
-    }
-    pushOnDynArray(&src->succs, &dst);
-    pushOnDynArray(&dst->preds, &src);
-}
-
-static CfgBlockInfo **buildFunctionCfg(MemMgmtContext *ctx, IrNode *func, u64 *outCount)
-{
-    u64 count = 0;
-    for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
-        if (bb->tag == irBasicBlock)
-            count++;
-    }
-
-    *outCount = count;
-    if (count == 0)
-        return NULL;
-
-    CfgBlockInfo **blocks = allocFromMemPool(ctx->localPool, sizeof(CfgBlockInfo *) * count);
-    u64 idx = 0;
-    u64 numVars = ctx->trackedVarList.size;
-
-    for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
-        if (bb->tag != irBasicBlock)
-            continue;
-        CfgBlockInfo *info = allocFromMemPool(ctx->localPool, sizeof(CfgBlockInfo));
-        info->bb = bb;
-        info->gen = makeBitSet(ctx->localPool, numVars);
-        info->kill = makeBitSet(ctx->localPool, numVars);
-        info->mayIn = makeBitSet(ctx->localPool, numVars);
-        info->mayOut = makeBitSet(ctx->localPool, numVars);
-        info->mustIn = makeBitSet(ctx->localPool, numVars);
-        info->mustOut = makeBitSet(ctx->localPool, numVars);
-        info->preds = newDynArray(sizeof(CfgBlockInfo *));
-        info->succs = newDynArray(sizeof(CfgBlockInfo *));
-        blocks[idx++] = info;
-    }
-
-    for (u64 i = 0; i < count; i++) {
-        CfgBlockInfo *src = blocks[i];
-        for (IrNode *stmt = src->bb->basicBlock.first; stmt; stmt = stmt->next) {
-            if (stmt->tag == irBranch) {
-                addCfgEdge(src, getCfgBlock(blocks, count, stmt->branch.target));
-            }
-            else if (stmt->tag == irBranchIf) {
-                addCfgEdge(src, getCfgBlock(blocks, count, stmt->branchIf.trueTarget));
-                addCfgEdge(src, getCfgBlock(blocks, count, stmt->branchIf.falseTarget));
-            }
-            else if (stmt->tag == irSwitch) {
-                for (u64 c = 0; c < stmt->switchStmt.casesCount; c++) {
-                    addCfgEdge(src, getCfgBlock(blocks, count, stmt->switchStmt.cases[c].target));
-                }
-                if (stmt->switchStmt.defaultTarget)
-                    addCfgEdge(src, getCfgBlock(blocks, count, stmt->switchStmt.defaultTarget));
-            }
-        }
-    }
-
-    return blocks;
-}
-
 static IrNode *rebuildCastChain(MemPool *pool, const IrNode *castTree, IrNode *newRoot)
 {
     if (castTree == NULL || castTree->tag != irCast)
@@ -326,108 +248,17 @@ static void runDataflowAnalysis(MemMgmtContext *ctx, CfgBlockInfo **blocks, u64 
     if (count == 0 || varCount == 0)
         return;
 
-    for (u64 i = 0; i < count; i++) {
+    for (u64 i = 0; i < count; i++)
         computeIntraBlockGenKill(ctx, blocks[i]);
-    }
 
-    CfgBlockInfo *entry = blocks[0];
+    // A parameter is owned when the function is entered
+    BitSet entryOwned = makeBitSet(ctx->localPool, varCount);
     for (u64 i = 0; i < ctx->trackedVarList.size; i++) {
         TrackedVar *v = ((TrackedVar **)ctx->trackedVarList.elems)[i];
-        if (v && v->decl && v->decl->tag == irFuncParam) {
-            bitSetSet(&entry->mayIn, v->varIndex);
-            bitSetSet(&entry->mustIn, v->varIndex);
-        }
+        if (v && v->decl && v->decl->tag == irFuncParam)
+            bitSetSet(&entryOwned, v->varIndex);
     }
-
-    bitSetCopy(&entry->mayOut, &entry->mayIn);
-    for (u64 v = 0; v < varCount; v++) {
-        if (bitSetTest(&entry->kill, v))
-            bitSetReset(&entry->mayOut, v);
-    }
-    bitSetUnion(&entry->mayOut, &entry->gen);
-
-    bitSetCopy(&entry->mustOut, &entry->mustIn);
-    for (u64 v = 0; v < varCount; v++) {
-        if (bitSetTest(&entry->kill, v))
-            bitSetReset(&entry->mustOut, v);
-    }
-    bitSetUnion(&entry->mustOut, &entry->gen);
-
-    for (u64 i = 1; i < count; i++) {
-        bitSetClearAll(&blocks[i]->mayIn);
-        bitSetCopy(&blocks[i]->mayOut, &blocks[i]->gen);
-
-        bitSetSetAll(&blocks[i]->mustIn);
-        bitSetCopy(&blocks[i]->mustOut, &blocks[i]->mustIn);
-        for (u64 v = 0; v < varCount; v++) {
-            if (bitSetTest(&blocks[i]->kill, v))
-                bitSetReset(&blocks[i]->mustOut, v);
-        }
-        bitSetUnion(&blocks[i]->mustOut, &blocks[i]->gen);
-    }
-
-    BitSet tempMay = makeBitSet(ctx->localPool, varCount);
-    BitSet tempMust = makeBitSet(ctx->localPool, varCount);
-    bool changed = true;
-
-    while (changed) {
-        changed = false;
-        for (u64 i = 0; i < count; i++) {
-            CfgBlockInfo *block = blocks[i];
-            if (block->preds.size > 0) {
-                bitSetClearAll(&tempMay);
-                bitSetSetAll(&tempMust);
-
-                for (size_t p = 0; p < block->preds.size; p++) {
-                    CfgBlockInfo *pred = dynArrayAt(CfgBlockInfo **, &block->preds, p);
-                    bitSetUnion(&tempMay, &pred->mayOut);
-                    bitSetIntersect(&tempMust, &pred->mustOut);
-                }
-
-                if (i == 0) {
-                    for (u64 v = 0; v < varCount; v++) {
-                        TrackedVar *tv = ((TrackedVar **)ctx->trackedVarList.elems)[v];
-                        if (tv && tv->decl && tv->decl->tag == irFuncParam) {
-                            bitSetSet(&tempMay, v);
-                            bitSetSet(&tempMust, v);
-                        }
-                    }
-                }
-
-                if (!bitSetEquals(&block->mayIn, &tempMay)) {
-                    bitSetCopy(&block->mayIn, &tempMay);
-                    changed = true;
-                }
-                if (!bitSetEquals(&block->mustIn, &tempMust)) {
-                    bitSetCopy(&block->mustIn, &tempMust);
-                    changed = true;
-                }
-            }
-
-            bitSetCopy(&tempMay, &block->mayIn);
-            for (u64 v = 0; v < varCount; v++) {
-                if (bitSetTest(&block->kill, v))
-                    bitSetReset(&tempMay, v);
-            }
-            bitSetUnion(&tempMay, &block->gen);
-
-            bitSetCopy(&tempMust, &block->mustIn);
-            for (u64 v = 0; v < varCount; v++) {
-                if (bitSetTest(&block->kill, v))
-                    bitSetReset(&tempMust, v);
-            }
-            bitSetUnion(&tempMust, &block->gen);
-
-            if (!bitSetEquals(&block->mayOut, &tempMay)) {
-                bitSetCopy(&block->mayOut, &tempMay);
-                changed = true;
-            }
-            if (!bitSetEquals(&block->mustOut, &tempMust)) {
-                bitSetCopy(&block->mustOut, &tempMust);
-                changed = true;
-            }
-        }
-    }
+    solveOwnership(ctx->localPool, blocks, count, varCount, &entryOwned);
 }
 
 typedef struct MoveDropFlagContext {
@@ -1077,7 +908,7 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
     collectScopeVariables(ctx, func);
 
     u64 blockCount = 0;
-    CfgBlockInfo **blocks = buildFunctionCfg(ctx, func, &blockCount);
+    CfgBlockInfo **blocks = buildCfg(ctx->localPool, func, ctx->trackedVarList.size, &blockCount);
 
     if (blockCount > 0) {
         if (ctx->trackedVarList.size > 0) {
