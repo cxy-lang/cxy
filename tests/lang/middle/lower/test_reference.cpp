@@ -54,7 +54,7 @@ func main(): void {}
     )");
 }
 
-TEST_CASE("Lower reference: the local of a borrowed rvalue is dropped")
+TEST_CASE("Lower reference: the local of a borrowed rvalue is dropped after the call")
 {
     TestCompiler cc(stage("MemoryMgmt"));
     REQUIRE(cc.compile(std::string(program) + R"(
@@ -65,11 +65,12 @@ func main(): void {}
 )"));
     INFO(cc.diagnostics());
 
-    REQUIRE_IR_MATCHES(cc.function("viaCall").findBlock("exit"), R"(
-        (Block _L_exit
+    REQUIRE_IR_MATCHES(cc.function("viaCall").findBlock("entry"), R"(
+        (Block _L_entry
+            ...
+            (Assign (VarRef __ret) (Call (GlobalRef peek) ...))
             (Drop (VarRef __t0))
-            (ScopeExit 0)
-            (Return (VarRef __ret)))
+            (Goto _L_exit))
     )");
 }
 

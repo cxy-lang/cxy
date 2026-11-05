@@ -87,8 +87,6 @@ _L_exit:
 
 func main(): !void {
 _L_entry:
-  var __drop_flags: __drop_flags__main_t
-  zeromem __drop_flags
   scope.enter 0
   var __ret: !void
   var total: i8
@@ -96,10 +94,11 @@ _L_entry:
   var __t1: ^Node
   goto _L_WHILE0_cond
 _L_WHILE0_cond:
-  drop-if __t1, __drop_flags.__t1
   __t1 = next()
-  __drop_flags.__t1 = 1
-  if __t1.id < 4 goto _L_WHILE0_body else goto _L_WHILE0_exit
+  var __v0: bool
+  __v0 = __t1.id < 4
+  drop __t1
+  if __v0 goto _L_WHILE0_body else goto _L_WHILE0_exit
 _L_WHILE0_body:
   scope.enter 1
   total = total + 1
@@ -110,8 +109,6 @@ _L_WHILE0_exit:
   __ret.tag = 0
   goto _L_exit
 _L_exit:
-  drop __t1
-  __drop_flags.__t1 = 0
   scope.exit 0
   return __ret
 }

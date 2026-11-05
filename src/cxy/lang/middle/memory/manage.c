@@ -357,13 +357,8 @@ static void elaborateStoreTarget(ElabCursor *c, IrNode *target, bool storesNothi
     if (var == NULL)
         return;
 
-    // ephemerals are dropped right after the store, so they are never live across statements
-    if (var->isEphemeral) {
-        if (isIrTypeDestructible(var->type))
-            insertAfter(c, makeIrDrop(ctx->pool, &c->stmt->loc, target));
-        return;
-    }
-    if (var->isTemporary)
+    // a temporary or an ephemeral is not live across statements, normalize drops it
+    if (!isOwnedVar(var))
         return;
 
     if (target->tag == irVarRef && bitSetTest(c->may, var->varIndex)) {

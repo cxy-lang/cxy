@@ -668,6 +668,7 @@ if (ENABLE_UNIT_TESTS)
             tests/lang/middle/memory/test_flow.cpp
             tests/lang/middle/memory/test_operands.cpp
             tests/lang/middle/memory/test_normalize.cpp
+            tests/lang/middle/memory/test_statement_temporaries.cpp
             tests/lang/middle/memory/test_loop_temporaries.cpp
             tests/lang/middle/lower/test_info.cpp
             tests/lang/middle/lower/test_access.cpp

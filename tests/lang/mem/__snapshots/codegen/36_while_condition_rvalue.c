@@ -6,7 +6,6 @@ typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct builtins_StdOutputStream builtins_StdOutputStream;
 typedef struct Node Node;
 typedef struct Result_void Result_void;
-typedef struct __drop_flags__main_t __drop_flags__main_t;
 
 struct builtins_OutputStream_VTable {
   uint64_t __tid;
@@ -45,10 +44,6 @@ struct Node {
 struct Result_void {
   uint32_t tag;
   builtins_Exception * val;
-};
-
-struct __drop_flags__main_t {
-  uint64_t __t1: 1;
 };
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex);
@@ -332,19 +327,18 @@ _L_exit:;
 }
 
 static Result_void _main() {
-  __drop_flags__main_t __drop_flags;
   Result_void __ret;
   int8_t total;
   Node * __t1;
+  bool __v0;
 _L_entry:;
-  memset(&(__drop_flags), 0, sizeof(__drop_flags__main_t));
   total = 0;
   goto _L_WHILE0_cond;
 _L_WHILE0_cond:;
-  if (__drop_flags.__t1) __smart_ptr_drop(__t1);
   __t1 = next();
-  __drop_flags.__t1 = 1ULL;
-  if (__t1->id < 4) goto _L_WHILE0_body; else goto _L_WHILE0_exit;
+  __v0 = (__t1->id < 4);
+  __smart_ptr_drop(__t1);
+  if (__v0) goto _L_WHILE0_body; else goto _L_WHILE0_exit;
 _L_WHILE0_body:;
   total = (total + 1);
   goto _L_WHILE0_cond;
@@ -353,8 +347,6 @@ _L_WHILE0_exit:;
   __ret.tag = 0U;
   goto _L_exit;
 _L_exit:;
-  __smart_ptr_drop(__t1);
-  __drop_flags.__t1 = 0ULL;
   return __ret;
 }
 

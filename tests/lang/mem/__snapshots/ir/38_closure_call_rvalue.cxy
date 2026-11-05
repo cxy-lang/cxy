@@ -139,8 +139,6 @@ _L_exit:
 
 func main(): !void {
 _L_entry:
-  var __drop_flags: __drop_flags__main_t
-  zeromem __drop_flags
   scope.enter 0
   var __ret: !void
   var total: i32
@@ -151,10 +149,9 @@ _L_entry:
   goto _L_WHILE0_cond
 _L_WHILE0_cond:
   __t4 = Node_op__initCover(<i32>(1))
-  drop-if __t5, __drop_flags.__t5
   __t5 = adder(__t4)
-  __drop_flags.__t5 = 1
   __t6 = __t5.fn(__t5.env, total)
+  drop __t5
   if __t6 < 3 goto _L_WHILE0_body else goto _L_WHILE0_exit
 _L_WHILE0_body:
   scope.enter 1
@@ -169,13 +166,11 @@ _L_WHILE0_exit:
   __t8 = adder(__t7)
   var __t9: i32
   __t9 = __t8.fn(__t8.env, 5)
+  drop __t8
   printlnI_i32E(__t9)
   __ret.tag = 0
   goto _L_exit
 _L_exit:
-  drop __t8
-  drop __t5
-  __drop_flags.__t5 = 0
   scope.exit 0
   return __ret
 }

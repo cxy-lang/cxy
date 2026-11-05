@@ -8,7 +8,6 @@ typedef struct Node Node;
 typedef struct __closure_env14 __closure_env14;
 typedef struct Closure_442 Closure_442;
 typedef struct Result_void Result_void;
-typedef struct __drop_flags__main_t __drop_flags__main_t;
 
 struct builtins_OutputStream_VTable {
   uint64_t __tid;
@@ -57,10 +56,6 @@ struct Closure_442 {
 struct Result_void {
   uint32_t tag;
   builtins_Exception * val;
-};
-
-struct __drop_flags__main_t {
-  uint64_t __t5: 1;
 };
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex);
@@ -370,7 +365,6 @@ _L_exit:;
 }
 
 static Result_void _main() {
-  __drop_flags__main_t __drop_flags;
   Result_void __ret;
   int32_t total;
   Node * __t4;
@@ -380,15 +374,13 @@ static Result_void _main() {
   Closure_442 __t8;
   int32_t __t9;
 _L_entry:;
-  memset(&(__drop_flags), 0, sizeof(__drop_flags__main_t));
   total = 0;
   goto _L_WHILE0_cond;
 _L_WHILE0_cond:;
   __t4 = Node_op__initCover(((int32_t)(1)));
-  if (__drop_flags.__t5) if (__t5.dtor) __t5.dtor(__t5.env);
   __t5 = adder(__t4);
-  __drop_flags.__t5 = 1ULL;
   __t6 = __t5.fn(__t5.env, total);
+  if (__t5.dtor) __t5.dtor(__t5.env);
   if (__t6 < 3) goto _L_WHILE0_body; else goto _L_WHILE0_exit;
 _L_WHILE0_body:;
   total = (total + 1);
@@ -398,13 +390,11 @@ _L_WHILE0_exit:;
   __t7 = Node_op__initCover(((int32_t)(10)));
   __t8 = adder(__t7);
   __t9 = __t8.fn(__t8.env, 5);
+  if (__t8.dtor) __t8.dtor(__t8.env);
   printlnI_i32E(__t9);
   __ret.tag = 0U;
   goto _L_exit;
 _L_exit:;
-  if (__t8.dtor) __t8.dtor(__t8.env);
-  if (__t5.dtor) __t5.dtor(__t5.env);
-  __drop_flags.__t5 = 0ULL;
   return __ret;
 }
 

@@ -308,9 +308,9 @@ TEST_CASE("Normalize classes: a temporary that is only read is a statement tempo
 {
     TestCompiler cc;
     REQUIRE(cc.compile(classProgram));
-    CHECK(tempDecl(cc, "readOnly") == "(VarDecl __t0 ^Node :class-statement :synthetic)");
-    CHECK(tempDecl(cc, "borrowedArg") == "(VarDecl __t0 ^Node :class-statement :synthetic)");
-    CHECK(tempDecl(cc, "inCondition") == "(VarDecl __t0 ^Node :class-statement :synthetic)");
+    CHECK(tempDecl(cc, "readOnly") == "(VarDecl __t0 ^Node :ephemeral :class-statement :synthetic)");
+    CHECK(tempDecl(cc, "borrowedArg") == "(VarDecl __t0 ^Node :ephemeral :class-statement :synthetic)");
+    CHECK(tempDecl(cc, "inCondition") == "(VarDecl __t0 ^Node :ephemeral :class-statement :synthetic)");
 }
 
 TEST_CASE("Normalize classes: a discarded value has no use, it is a statement temporary")

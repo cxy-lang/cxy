@@ -89,9 +89,9 @@ _L_entry:
   var __t1: ^Node
   __t1 = make(<i32>(1))
   __ret = peek(<^Node>(<^Node>(__t1)))
+  drop __t1
   goto _L_exit
 _L_exit:
-  drop __t1
   scope.exit 0
   return __ret
 }

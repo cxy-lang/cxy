@@ -322,9 +322,9 @@ static int32_t viaCall() {
 _L_entry:;
   __t1 = make(((int32_t)(1)));
   __ret = peek(((Node *)(((Node *)(__t1)))));
+  __smart_ptr_drop(__t1);
   goto _L_exit;
 _L_exit:;
-  __smart_ptr_drop(__t1);
   return __ret;
 }
 

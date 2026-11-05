@@ -79,7 +79,7 @@ func main(): void {}
     )");
 }
 
-TEST_CASE("Lower member: the temporary is dropped at the end of the function")
+TEST_CASE("Lower member: the temporary is dropped after the statement that reads it")
 {
     TestCompiler cc(stage("MemoryMgmt"));
     REQUIRE(cc.compile(std::string(program) + R"(
@@ -88,11 +88,12 @@ func main(): void {}
 )"));
     INFO(cc.diagnostics());
 
-    REQUIRE_IR_MATCHES(cc.function("first").findBlock("exit"), R"(
-        (Block _L_exit
+    REQUIRE_IR_MATCHES(cc.function("first").findBlock("entry"), R"(
+        (Block _L_entry
+            ...
+            (Assign (VarRef __ret) (Member (VarRef __t0) id))
             (Drop (VarRef __t0))
-            (ScopeExit 0)
-            (Return (VarRef __ret)))
+            (Goto _L_exit))
     )");
 }
 
@@ -137,12 +138,13 @@ func main(): void {}
 )"));
     INFO(cc.diagnostics());
 
-    // the previous iteration's object goes before the next call, and the
-    // last one when the loop ends
+    // the object dies once the condition is computed, on every iteration
     REQUIRE_IR_MATCHES(cc.function("loop").findBlock("WHILE0_cond"), R"(
         (Block _L_WHILE0_cond
-            (DropIf (VarRef __t0) _)
             (Assign (VarRef __t0) (Call (GlobalRef next) :owned-position))
-            ...)
+            (VarDecl __v0 bool :synthetic)
+            (Assign (VarRef __v0) (Binary < (Member (VarRef __t0) id) 4))
+            (Drop (VarRef __t0))
+            (If (VarRef __v0) _L_WHILE0_body _L_WHILE0_exit))
     )");
 }
