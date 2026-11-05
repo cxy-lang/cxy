@@ -59,6 +59,13 @@ func testReraiseDestructible(x: i32): !String {
     return res
 }
 
+func testRaiseCaught(x: i32): !String {
+    var res = produceString(x) catch as err {
+        raise err
+    }
+    return res
+}
+
 func main(): void {
     testDirectSuccess()
     testDirectFailure()
@@ -66,4 +73,6 @@ func main(): void {
     testHandleBubbleUp()
     var r1 = testReraiseDestructible(10) catch String("reraised_caught")
     var r2 = testReraiseDestructible(-10) catch String("reraised_caught")
+    var r3 = testRaiseCaught(10) catch String("raised_caught")
+    var r4 = testRaiseCaught(-10) catch String("raised_caught")
 }

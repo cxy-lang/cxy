@@ -432,14 +432,16 @@ void lowerReturnIntoResult(AstVisitor *visitor, AstNode *node)
         IrNode *errVal = lowerFlattenedOperand(visitor, retExpr);
         emitExceptionTracePush(ctx, &node->loc, errVal);
         emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, tagSlot, makeIrIntConst(ctx->pool, &node->loc, 1, false, u32Type)));
+        // `raise e` of a caught exception gives it up, the result no longer holds it
+        IrNode *raised = isOwnedResultPayload(errVal) ? makeTakeFrom(ctx, &node->loc, errVal) : errVal;
         if (valFieldType->tag == irTypeUntaggedUnion) {
             const Type *baseExType = findBuiltinType(S_Exception);
             const IrType *exIrType = baseExType ? lowerType(ctx, baseExType) : getIrPrimitiveType(ctx->types, irTypeOpaque);
             IrNode *errSlot = makeIrMember(ctx->pool, &node->loc, valMember, 1, NULL, exIrType);
-            emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, errSlot, errVal));
+            emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, errSlot, raised));
         }
         else {
-            emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, valMember, errVal));
+            emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, valMember, raised));
         }
     }
     else {

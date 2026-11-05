@@ -70,6 +70,33 @@ static void captureMovedPlace(NormalizeCursor *c, IrNode **move, IrNode *src)
     *move = ref;
 }
 
+// N1b: the payload of a `!T` call result that a consumer takes is written as
+// `&&res.val`, so the result does not keep a second hold on it
+static void moveResultPayload(IrNode **slot, void *cursor)
+{
+    NormalizeCursor *c = cursor;
+    IrNode *val = *slot;
+    if (val == NULL || irHasInfo(val, irInfoMoved) || moveSlot(slot) ||
+        !isIrTypeDestructible(val->type))
+        return;
+
+    IrNode **inner = slot;
+    while ((*inner)->tag == irCast)
+        inner = &(*inner)->cast.expr;
+    IrNode *place = *inner;
+    if (!isPlaceNode(place) || !isUnwrappedCallResult(place))
+        return;
+
+    IrNode *move = makeIrMove(c->ctx->pool, &place->loc, place);
+    move->next = place->next;
+    place->next = NULL;
+    if (inner == slot) {
+        irClearInfo(place, irInfoOwnedPosition);
+        irSetInfo(move, irInfoOwnedPosition);
+    }
+    *inner = move;
+}
+
 // What is left of a `&&` is the value itself, the operand is marked `:moved` so
 // it is not copied
 static void normalizeMovedOperand(IrNode **slot, void *cursor)
@@ -99,7 +126,7 @@ static bool needsOwnedCopy(const IrNode *inner)
         const IrNode *target = inner->varRef.target;
         return target && !irIsConsumedTemp(target) && !irIsReturnSlot(target);
     }
-    return isPlaceNode(inner) && !isUnwrappedCallResult(inner);
+    return isPlaceNode(inner);
 }
 
 // N3: a place in an owned position (a call argument, a literal element) becomes
@@ -158,12 +185,14 @@ static void normalizeStmt(NormalizeCursor *c)
     IrNode *stmt = c->stmt;
     if (stmt->tag == irCall) {
         dropBorrowedMoves(stmt);
+        forEachOwnedSlot(stmt, moveResultPayload, c);
         forEachOwnedSlot(stmt, normalizeMovedOperand, c);
         forEachOwnedSlot(stmt, copyOwnedOperand, c);
     }
     else if (stmt->tag == irAssign && !hasFlag(stmt, Unmanaged)) {
         if (stmt->assign.rhs && stmt->assign.rhs->tag == irCall)
             dropBorrowedMoves(stmt->assign.rhs);
+        forEachOwnedSlot(stmt, moveResultPayload, c);
         forEachOwnedSlot(stmt, normalizeMovedOperand, c);
 
         IrNode *rhs = stmt->assign.rhs;

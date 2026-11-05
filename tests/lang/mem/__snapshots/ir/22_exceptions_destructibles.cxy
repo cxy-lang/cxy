@@ -328,7 +328,10 @@ _L_call_err_0:
   __ret.val.1 = __mv3
   goto _L_exit
 _L_call_cont_1:
-  s = __call_res_17.val.0
+  var __mv4: ^String
+  __mv4 = __call_res_17.val.0
+  __call_res_17.val.0 = null
+  s = __mv4
   __drop_flags.s = 1
   __ret.tag = 0
   copy s -> __ret.val.0
@@ -357,10 +360,10 @@ _L_catch_0:
   __t18.val.1 = null
   goto _L_merge_1
 _L_cont_1:
-  var __mv4: ^String
-  __mv4 = __t18.val.0
+  var __mv5: ^String
+  __mv5 = __t18.val.0
   __t18.val.0 = null
-  __catch_res19 = __mv4
+  __catch_res19 = __mv5
   goto _L_merge_1
 _L_merge_1:
   res1 = __catch_res19
@@ -377,10 +380,10 @@ _L_catch_1:
   __t21.val.1 = null
   goto _L_merge_2
 _L_cont_2:
-  var __mv5: ^String
-  __mv5 = __t21.val.0
+  var __mv6: ^String
+  __mv6 = __t21.val.0
   __t21.val.0 = null
-  __catch_res22 = __mv5
+  __catch_res22 = __mv6
   goto _L_merge_2
 _L_merge_2:
   res2 = __catch_res22
@@ -409,16 +412,16 @@ _L_catch_0:
   scope.enter 1
   __ret.tag = 1
   builtins_Exception_push(__t24.val.1, "main", "", "testReraiseDestructible", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/22_exceptions_destructibles.cxy", 57)
-  var __mv6: ^Exception
-  __mv6 = __t24.val.1
+  var __mv7: ^Exception
+  __mv7 = __t24.val.1
   __t24.val.1 = null
-  __ret.val.1 = __mv6
+  __ret.val.1 = __mv7
   goto _L_exit
 _L_cont_1:
-  var __mv7: ^String
-  __mv7 = __t24.val.0
+  var __mv8: ^String
+  __mv8 = __t24.val.0
   __t24.val.0 = null
-  __catch_res25 = __mv7
+  __catch_res25 = __mv8
   goto _L_merge_1
 _L_merge_1:
   res = __catch_res25
@@ -434,6 +437,45 @@ _L_exit:
   return __ret
 }
 
+func testRaiseCaught(x: i32): !^String {
+_L_entry:
+  var __drop_flags: __drop_flags_testRaiseCaught_t
+  zeromem __drop_flags
+  scope.enter 0
+  var __ret: !^String
+  var res: ^String
+  var __t26: !^String
+  __t26 = produceString(x)
+  var __catch_res27: ^String
+  if __t26.tag == 1 goto _L_catch_0 else goto _L_cont_1
+_L_catch_0:
+  scope.enter 1
+  builtins_Exception_push(__t26.val.1, "main", "", "testRaiseCaught", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/22_exceptions_destructibles.cxy", 64)
+  __ret.tag = 1
+  var __mv9: ^Exception
+  __mv9 = __t26.val.1
+  __t26.val.1 = null
+  __ret.val.1 = __mv9
+  goto _L_exit
+_L_cont_1:
+  var __mv10: ^String
+  __mv10 = __t26.val.0
+  __t26.val.0 = null
+  __catch_res27 = __mv10
+  goto _L_merge_1
+_L_merge_1:
+  res = __catch_res27
+  __drop_flags.res = 1
+  __ret.tag = 0
+  copy res -> __ret.val.0
+  goto _L_exit
+_L_exit:
+  drop-if res, __drop_flags.res
+  __drop_flags.res = 0
+  scope.exit 0
+  return __ret
+}
+
 func main(): void {
 _L_entry:
   scope.enter 0
@@ -442,47 +484,89 @@ _L_entry:
   testYieldDestructible()
   testHandleBubbleUp()
   var r1: ^String
-  var __t26: !^String
-  __t26 = testReraiseDestructible(<i32>(10))
-  var __catch_res27: ^String
-  if __t26.tag == 1 goto _L_catch_0 else goto _L_cont_1
+  var __t28: !^String
+  __t28 = testReraiseDestructible(<i32>(10))
+  var __catch_res29: ^String
+  if __t28.tag == 1 goto _L_catch_0 else goto _L_cont_1
 _L_catch_0:
-  var __t28: ^String
-  __t28 = String_op__initCover("reraised_caught")
-  __catch_res27 = __t28
-  drop __t26.val.1
-  __t26.val.1 = null
+  var __t30: ^String
+  __t30 = String_op__initCover("reraised_caught")
+  __catch_res29 = __t30
+  drop __t28.val.1
+  __t28.val.1 = null
   goto _L_merge_1
 _L_cont_1:
-  var __mv8: ^String
-  __mv8 = __t26.val.0
-  __t26.val.0 = null
-  __catch_res27 = __mv8
+  var __mv11: ^String
+  __mv11 = __t28.val.0
+  __t28.val.0 = null
+  __catch_res29 = __mv11
   goto _L_merge_1
 _L_merge_1:
-  r1 = __catch_res27
+  r1 = __catch_res29
   var r2: ^String
-  var __t29: !^String
-  __t29 = testReraiseDestructible(<i32>(-10))
-  var __catch_res30: ^String
-  if __t29.tag == 1 goto _L_catch_1 else goto _L_cont_2
+  var __t31: !^String
+  __t31 = testReraiseDestructible(<i32>(-10))
+  var __catch_res32: ^String
+  if __t31.tag == 1 goto _L_catch_1 else goto _L_cont_2
 _L_catch_1:
-  var __t31: ^String
-  __t31 = String_op__initCover("reraised_caught")
-  __catch_res30 = __t31
-  drop __t29.val.1
-  __t29.val.1 = null
+  var __t33: ^String
+  __t33 = String_op__initCover("reraised_caught")
+  __catch_res32 = __t33
+  drop __t31.val.1
+  __t31.val.1 = null
   goto _L_merge_2
 _L_cont_2:
-  var __mv9: ^String
-  __mv9 = __t29.val.0
-  __t29.val.0 = null
-  __catch_res30 = __mv9
+  var __mv12: ^String
+  __mv12 = __t31.val.0
+  __t31.val.0 = null
+  __catch_res32 = __mv12
   goto _L_merge_2
 _L_merge_2:
-  r2 = __catch_res30
+  r2 = __catch_res32
+  var r3: ^String
+  var __t34: !^String
+  __t34 = testRaiseCaught(<i32>(10))
+  var __catch_res35: ^String
+  if __t34.tag == 1 goto _L_catch_2 else goto _L_cont_3
+_L_catch_2:
+  var __t36: ^String
+  __t36 = String_op__initCover("raised_caught")
+  __catch_res35 = __t36
+  drop __t34.val.1
+  __t34.val.1 = null
+  goto _L_merge_3
+_L_cont_3:
+  var __mv13: ^String
+  __mv13 = __t34.val.0
+  __t34.val.0 = null
+  __catch_res35 = __mv13
+  goto _L_merge_3
+_L_merge_3:
+  r3 = __catch_res35
+  var r4: ^String
+  var __t37: !^String
+  __t37 = testRaiseCaught(<i32>(-10))
+  var __catch_res38: ^String
+  if __t37.tag == 1 goto _L_catch_3 else goto _L_cont_4
+_L_catch_3:
+  var __t39: ^String
+  __t39 = String_op__initCover("raised_caught")
+  __catch_res38 = __t39
+  drop __t37.val.1
+  __t37.val.1 = null
+  goto _L_merge_4
+_L_cont_4:
+  var __mv14: ^String
+  __mv14 = __t37.val.0
+  __t37.val.0 = null
+  __catch_res38 = __mv14
+  goto _L_merge_4
+_L_merge_4:
+  r4 = __catch_res38
   goto _L_exit
 _L_exit:
+  drop r4
+  drop r3
   drop r2
   drop r1
   scope.exit 0

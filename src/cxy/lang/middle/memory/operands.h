@@ -39,8 +39,8 @@ IrNode *findVarDeclInNode(const IrNode *node);
 // holds references
 bool isIrVarDestructible(const IrNode *decl);
 
-// A member of a call result temporary holds nothing else on success, so its
-// ownership moves to the consumer instead of being copied
+// A place inside a call result temporary: the payload or the exception. A
+// consumer takes it with a move, the result temporary is never dropped
 bool isUnwrappedCallResult(const IrNode *src);
 
 // A value that owns what it holds, a consumer takes it over

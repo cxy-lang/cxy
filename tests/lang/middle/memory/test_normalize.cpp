@@ -380,6 +380,39 @@ func main(): void {}
     )");
 }
 
+TEST_CASE("Normalize N2: the payload of a `!T` call in an owned position is moved out of its result")
+{
+    CompileOptions options;
+    options.withBuiltins = true;
+    TestCompiler cc(options);
+    REQUIRE(cc.compile(std::string(program) + R"(
+exception TestError(msg: string) => msg
+func make(x: i32): !Node {
+    if (x < 0) {
+        raise TestError("negative")
+    }
+    return Node(x)
+}
+func payload(): !void {
+    var n = make(1)
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+    normalize(cc, "payload");
+
+    // the payload is taken like `&&res.val`, the result is not left holding it
+    REQUIRE_IR_MATCHES(cc.function("payload").findBlock("call_cont_1"), R"(
+        (Block _L_call_cont_1
+            (VarDecl __mv1 ^Node :class-in-flight :synthetic)
+            (Assign (VarRef __mv1) (Member (Member (VarRef __call_res_0) val) 0 :owned-position)
+                    :unmanaged :implicit :synthetic)
+            (Assign (Member (Member (VarRef __call_res_0) val) 0) null :unmanaged :synthetic)
+            (Assign (VarRef n) (VarRef __mv1 :owned-position :moved))
+            ...)
+    )");
+}
+
 TEST_CASE("Normalize classes: the result of a `!T` call is a result temporary")
 {
     CompileOptions options;

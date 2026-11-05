@@ -157,6 +157,31 @@ func main(): void {}
     CHECK(text.find("builtins_Exception_push") != std::string::npos);
 }
 
+TEST_CASE("Lower result: `raise e` of a caught exception moves it out of its result")
+{
+    TestCompiler cc(withBuiltins());
+    REQUIRE(cc.compile(std::string(program) + R"(
+func reraise(): !i32 {
+    mayFail(-1) catch as e {
+        raise e
+    }
+    return 1
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+
+    REQUIRE_IR_MATCHES(cc.function("reraise").findBlock("catch_0"), R"(
+        (Block _L_catch_0
+            (ScopeEnter 1)
+            (Call (GlobalRef builtins_Exception_push) ...)
+            (Assign (Member (VarRef __ret) tag) 1)
+            (Assign (Member (Member (VarRef __ret) val) 1)
+                    (Move (Member (Member (VarRef __t0) val) 1) :owned-position))
+            ...)
+    )");
+}
+
 TEST_CASE("Lower result: the error of a call is moved out of its result, nothing writes the tag")
 {
     TestCompiler cc(withBuiltins());
