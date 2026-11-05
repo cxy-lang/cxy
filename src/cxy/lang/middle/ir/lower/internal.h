@@ -95,6 +95,15 @@ typedef struct TypeMapping {
 
 const IrType *lowerClosureFnPtrType(LowerContext *ctx, const Type *closureType);
 
+// A variable the compiler makes, as opposed to one the user wrote. The creator
+// says here what it is: its class is what the memory pass acts on.
+static inline IrNode *markCompilerVar(IrNode *decl, IrValueClass cls)
+{
+    irSetInfo(decl, irInfoSynthetic);
+    irSetValueClass(decl, cls);
+    return decl;
+}
+
 // ---------------------------------------------------------------------------
 // Operands (operand.c)
 // ---------------------------------------------------------------------------

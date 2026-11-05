@@ -23,11 +23,11 @@ func main(): void {}
         (Function andOp (Param a bool) (Ret bool)
             (Block _L_entry
                 (ScopeEnter 0)
-                (VarDecl __ret bool :returned)
-                (VarDecl __cond0 bool :temporary)
+                (VarDecl __ret bool :class-return-slot :synthetic)
+                (VarDecl __cond0 bool :class-transient :synthetic)
                 (If (VarRef a) _L_AND0_rhs _L_AND0_false))
             (Block _L_AND0_rhs
-                (VarDecl __t0 bool :synthetic)
+                (VarDecl __t0 bool :class-pending :synthetic)
                 (Assign (VarRef __t0) (Call (GlobalRef check)))
                 (Assign (VarRef __cond0) (VarRef __t0))
                 (Goto _L_AND0_merge))
@@ -54,14 +54,14 @@ func main(): void {}
         (Function orOp (Param a bool) (Ret bool)
             (Block _L_entry
                 (ScopeEnter 0)
-                (VarDecl __ret bool :returned)
-                (VarDecl __cond0 bool :temporary)
+                (VarDecl __ret bool :class-return-slot :synthetic)
+                (VarDecl __cond0 bool :class-transient :synthetic)
                 (If (VarRef a) _L_OR0_true _L_OR0_rhs))
             (Block _L_OR0_true
                 (Assign (VarRef __cond0) true)
                 (Goto _L_OR0_merge))
             (Block _L_OR0_rhs
-                (VarDecl __t0 bool :synthetic)
+                (VarDecl __t0 bool :class-pending :synthetic)
                 (Assign (VarRef __t0) (Call (GlobalRef check)))
                 (Assign (VarRef __cond0) (VarRef __t0))
                 (Goto _L_OR0_merge))
@@ -84,8 +84,8 @@ func main(): void {}
         (Function coalesce (Param a i32?) (Param b i32) (Ret i32)
             (Block _L_entry
                 (ScopeEnter 0)
-                (VarDecl __ret i32 :returned)
-                (VarDecl __t0 i32 :temporary)
+                (VarDecl __ret i32 :class-return-slot :synthetic)
+                (VarDecl __t0 i32 :class-transient :synthetic)
                 (If (Member (VarRef a) ok) _L_COALESCE0_then _L_COALESCE0_else))
             (Block _L_COALESCE0_then
                 (Assign (VarRef __t0) (Member (VarRef a) val))

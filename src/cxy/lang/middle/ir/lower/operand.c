@@ -77,8 +77,7 @@ IrNode *flattenIrValue(LowerContext *ctx, AstNode *node, IrNode *val)
     Flags flags = flgNone;
     if (isIrTypeDestructible(val->type))
         flags |= flgReferenceMembers;
-    if (val->type && val->type->category == irTypeCatResult)
-        flags |= flgTemporary;
+
     IrNode *tempVar = makeIrVarDecl(ctx->pool,
                                     &node->loc,
                                     flags,
@@ -86,7 +85,9 @@ IrNode *flattenIrValue(LowerContext *ctx, AstNode *node, IrNode *val)
                                     tempName,
                                     val->type,
                                     ctx->currentScopeId);
-    irSetInfo(tempVar, irInfoSynthetic);
+    markCompilerVar(tempVar,
+                    val->type && val->type->category == irTypeCatResult ? irClassResult
+                                                                         : irClassPending);
     emitTempDecl(ctx, tempVar);
     emitStmt(ctx,
              makeIrAssign(ctx->pool,
@@ -220,11 +221,12 @@ void lowerSliceIntoTarget(LowerContext *ctx,
             makeStringf(ctx->strings, "__arr%u", ctx->tempCounter++);
         IrNode *arrVar = makeIrVarDecl(ctx->pool,
                                        &expr->loc,
-                                       flgTemporary,
+                                       flgNone,
                                        arrTempName,
                                        arrTempName,
                                        fixedArrType,
                                        ctx->currentScopeId);
+        markCompilerVar(arrVar, irClassTransient);
         emitStmt(ctx, arrVar);
 
         u64 idx = 0;

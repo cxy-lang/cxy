@@ -217,6 +217,12 @@ typedef enum IrValueClass {
     irClassExtended,
     irClassResult,
     irClassReturnSlot,
+    // lowering made it for an operand and does not know what it is for, normalize
+    // decides from its uses
+    irClassPending,
+    // made by the compiler with a lifetime its creator vouches for: consumed by the
+    // next operation or owning nothing. The memory pass leaves it alone.
+    irClassTransient,
 } IrValueClass;
 
 typedef enum IrInfo {
@@ -255,6 +261,29 @@ static inline IrValueClass irValueClass(const IrNode *node)
 static inline void irSetValueClass(IrNode *node, IrValueClass cls)
 {
     node->info = (node->info & ~(u32)irInfoClassMask) | (u32)cls;
+}
+
+// What the memory pass does with a variable is told by its class. These are the
+// questions it asks.
+
+// Consumed by its consumer or transient by its creator: never tracked, never
+// dropped at scope exit, never copied
+static inline bool irIsConsumedTemp(const IrNode *decl)
+{
+    IrValueClass cls = irValueClass(decl);
+    return cls == irClassInFlight || cls == irClassTransient || cls == irClassResult;
+}
+
+// Dropped right after the last statement that reads it
+static inline bool irIsStatementTemp(const IrNode *decl)
+{
+    return irValueClass(decl) == irClassStatement;
+}
+
+// The slot a function returns through, its owner is the caller
+static inline bool irIsReturnSlot(const IrNode *decl)
+{
+    return irValueClass(decl) == irClassReturnSlot;
 }
 
 IrNode *makeIrNode(MemPool *pool, const FileLoc *loc, u64 flags, IrTag tag, const IrType *type);

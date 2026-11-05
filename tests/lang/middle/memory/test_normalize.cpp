@@ -28,7 +28,7 @@ func peek(n: &Node) {}
 std::string withoutTemporaryMarkers(std::string text)
 {
     for (const char *marker : {" :class-in-flight", " :class-statement", " :class-extended",
-                               " :class-result", " :temporary", " :ephemeral"}) {
+                               " :class-result", " :class-pending", " :class-transient"}) {
         for (size_t at; (at = text.find(marker)) != std::string::npos;)
             text.erase(at, strlen(marker));
     }
@@ -115,7 +115,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("fromField").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __mv0 ^Node :temporary :class-in-flight :synthetic)
+            (VarDecl __mv0 ^Node :class-in-flight :synthetic)
             (Assign (VarRef __mv0) (Member (VarRef b) n :owned-position) :unmanaged :implicit :synthetic)
             (Assign (Member (VarRef b) n) null :unmanaged :synthetic)
             (Call (GlobalRef take) (VarRef __mv0 :owned-position :moved))
@@ -138,7 +138,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("owned").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __copy0 ^Node :temporary :class-in-flight :synthetic)
+            (VarDecl __copy0 ^Node :class-in-flight :synthetic)
             (Copy (VarRef a :owned-position) (VarRef __copy0) :synthetic)
             (Call (GlobalRef take) (VarRef __copy0 :owned-position :moved))
             (Goto _L_exit))
@@ -201,7 +201,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("fresh").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __t0 ^Node :temporary :class-in-flight :synthetic)
+            (VarDecl __t0 ^Node :class-in-flight :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
             (Call (GlobalRef take) (VarRef __t0 :owned-position))
             (Goto _L_exit))
@@ -265,9 +265,9 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("nested").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __t0 ^Node :synthetic)
+            (VarDecl __t0 ^Node :class-pending :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
-            (VarDecl __t1 ^Node :synthetic)
+            (VarDecl __t1 ^Node :class-pending :synthetic)
             (Assign (VarRef __t1) (Call (GlobalRef pass) (VarRef __t0 :owned-position) :owned-position))
             (Call (GlobalRef take) (VarRef __t1 :owned-position))
             (Goto _L_exit))
@@ -327,23 +327,23 @@ TEST_CASE("Normalize classes: a temporary with one owned use is in flight")
 {
     TestCompiler cc;
     REQUIRE(cc.compile(classProgram));
-    REQUIRE(tempDecl(cc, "inFlight") == "(VarDecl __t0 ^Node :temporary :class-in-flight :synthetic)");
+    REQUIRE(tempDecl(cc, "inFlight") == "(VarDecl __t0 ^Node :class-in-flight :synthetic)");
 }
 
 TEST_CASE("Normalize classes: a temporary that is only read is a statement temporary")
 {
     TestCompiler cc;
     REQUIRE(cc.compile(classProgram));
-    CHECK(tempDecl(cc, "readOnly") == "(VarDecl __t0 ^Node :ephemeral :class-statement :synthetic)");
-    CHECK(tempDecl(cc, "borrowedArg") == "(VarDecl __t0 ^Node :ephemeral :class-statement :synthetic)");
-    CHECK(tempDecl(cc, "inCondition") == "(VarDecl __t0 ^Node :ephemeral :class-statement :synthetic)");
+    CHECK(tempDecl(cc, "readOnly") == "(VarDecl __t0 ^Node :class-statement :synthetic)");
+    CHECK(tempDecl(cc, "borrowedArg") == "(VarDecl __t0 ^Node :class-statement :synthetic)");
+    CHECK(tempDecl(cc, "inCondition") == "(VarDecl __t0 ^Node :class-statement :synthetic)");
 }
 
 TEST_CASE("Normalize classes: a discarded value has no use, it is a statement temporary")
 {
     TestCompiler cc;
     REQUIRE(cc.compile(classProgram));
-    REQUIRE(tempDecl(cc, "discarded") == "(VarDecl __t0 ^Node :ephemeral :class-statement :synthetic)");
+    REQUIRE(tempDecl(cc, "discarded") == "(VarDecl __t0 ^Node :class-statement :synthetic)");
 }
 
 TEST_CASE("Normalize classes: a temporary a reference is bound to is extended")
@@ -375,7 +375,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("fails").findBlock("IF0_then"), R"(
         (Block _L_IF0_then
             (ScopeEnter 1)
-            (VarDecl __t0 ^TestError :temporary :class-in-flight :synthetic)
+            (VarDecl __t0 ^TestError :class-in-flight :synthetic)
             ...)
     )");
 }
@@ -402,7 +402,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("catchDefault").findBlock("entry"), R"(
         (Block _L_entry
             ...
-            (VarDecl __t0 !i32 :temporary :class-result :synthetic)
+            (VarDecl __t0 !i32 :class-result :synthetic)
             ...)
     )");
 }

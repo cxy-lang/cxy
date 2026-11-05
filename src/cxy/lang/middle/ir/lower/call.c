@@ -66,11 +66,12 @@ static IrNode *lowerCallArguments(LowerContext *ctx,
                 makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
             IrNode *sliceTemp = makeIrVarDecl(ctx->pool,
                                               &arg->loc,
-                                              flgTemporary,
+                                              flgNone,
                                               tempName,
                                               tempName,
                                               sliceIrType,
                                               ctx->currentScopeId);
+            markCompilerVar(sliceTemp, irClassTransient);
             emitStmt(ctx, sliceTemp);
             lowerSliceIntoTarget(ctx,
                                  visitor,
@@ -129,11 +130,12 @@ static void lowerOptionalCallExpr(AstVisitor *visitor,
     cstring tempName = makeStringf(ctx->strings, "__opt%u", ctx->tempCounter++);
     IrNode *resVar = makeIrVarDecl(ctx->pool,
                                    &node->loc,
-                                   flgTemporary,
+                                   flgNone,
                                    tempName,
                                    tempName,
                                    resIrType,
                                    ctx->currentScopeId);
+    markCompilerVar(resVar, irClassTransient);
     emitStmt(ctx, resVar);
     IrNode *resVarRef = makeIrVarRef(ctx->pool, &node->loc, resVar);
 
@@ -276,7 +278,7 @@ void lowerCallExpr(AstVisitor *visitor, AstNode *node)
         const IrType *resIrType = callRetIrType;
         cstring tempName =
             makeStringf(ctx->strings, "__call_res_%u", ctx->tempCounter++);
-        Flags flags = flgTemporary;
+        Flags flags = flgNone;
         if (isIrTypeDestructible(resIrType))
             flags |= flgReferenceMembers;
         IrNode *resVar = makeIrVarDecl(ctx->pool,
@@ -286,6 +288,7 @@ void lowerCallExpr(AstVisitor *visitor, AstNode *node)
                                        tempName,
                                        resIrType,
                                        ctx->currentScopeId);
+        markCompilerVar(resVar, irClassResult);
         emitTempDecl(ctx, resVar);
         emitStmt(ctx,
                  makeIrAssign(ctx->pool,

@@ -433,7 +433,7 @@ static void infoMarkers(SexpContext *ctx, const IrNode *node)
 {
     static const cstring classNames[] = {
         NULL, "class-in-flight", "class-statement", "class-extended",
-        "class-result", "class-return-slot"};
+        "class-result", "class-return-slot", "class-pending", "class-transient"};
     static const struct {
         u32 bit;
         cstring name;
@@ -501,12 +501,7 @@ static void stmtVarDecl(SexpContext *ctx, const IrNode *node)
     atom(ctx, varName(ctx, node->varDecl.name ?: "?"));
     space(ctx);
     typeAtom(ctx, node->type);
-    if (hasFlag(node, Temporary))
-        marker(ctx, "temporary");
-    if (hasFlag(node, Ephemeral))
-        marker(ctx, "ephemeral");
-    if (hasFlag(node, Returned))
-        marker(ctx, "returned");
+
     close(ctx);
 }
 

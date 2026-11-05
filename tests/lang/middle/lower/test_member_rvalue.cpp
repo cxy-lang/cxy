@@ -48,8 +48,8 @@ func main(): void {}
         (Function first (Ret i32)
             (Block _L_entry
                 (ScopeEnter 0)
-                (VarDecl __ret i32 :returned)
-                (VarDecl __t0 ^Node :synthetic)
+                (VarDecl __ret i32 :class-return-slot :synthetic)
+                (VarDecl __t0 ^Node :class-pending :synthetic)
                 (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
                 (Assign (VarRef __ret) (Member (VarRef __t0) id))
                 (Goto _L_exit))
@@ -68,10 +68,10 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("both").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __ret i32 :returned)
-            (VarDecl __t0 ^Node :synthetic)
+            (VarDecl __ret i32 :class-return-slot :synthetic)
+            (VarDecl __t0 ^Node :class-pending :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef next) :owned-position))
-            (VarDecl __t1 ^Node :synthetic)
+            (VarDecl __t1 ^Node :class-pending :synthetic)
             (Assign (VarRef __t1) (Call (GlobalRef make) :owned-position))
             (Assign (VarRef __ret)
                 (Binary + (Member (VarRef __t0) id) (Member (VarRef __t1) id)))

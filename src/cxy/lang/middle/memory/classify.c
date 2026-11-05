@@ -41,15 +41,14 @@ static TempUse *findUse(UseScan *scan, const IrNode *decl)
     return findInHashTable(&scan->table, &probe, hashDecl(decl), sizeof(TempUse), compareTempUse);
 }
 
-// The temporaries that have the class `wanted`. None are the ones lowering made, a
-// pass created the others and gave them a class already.
+// The owning temporaries that have the class `wanted`. A reference owns nothing.
+// Pending ones are what lowering made for an operand and left open.
 static void declareTemporaries(UseScan *scan, IrNode *func, IrValueClass wanted)
 {
     for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
         if (bb->tag != irBasicBlock)
             continue;
         for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
-            // a reference owns nothing
             if (stmt->tag != irVarDecl || !irHasInfo(stmt, irInfoSynthetic) ||
                 irValueClass(stmt) != wanted || !isIrVarDestructible(stmt) ||
                 (stmt->type && stmt->type->category == irTypeCatReference))
@@ -127,9 +126,6 @@ static void scanStatement(UseScan *scan, IrNode *stmt)
 
 static IrValueClass classOf(const TempUse *use)
 {
-    // the tag and payload of a `!T` call are read by the checks
-    if (use->decl->type && use->decl->type->category == irTypeCatResult)
-        return irClassResult;
     // reads before the single taker are fine, the owner is still handed over once
     if (use->ownedUses == 1)
         return irClassInFlight;
@@ -267,7 +263,7 @@ static bool dropAfterLastUse(TempUse *use, MemMgmtContext *ctx)
         return false;
 
     IrNode *decl = (IrNode *)use->decl;
-    decl->flags |= flgEphemeral;
+
     IrNode *drop = makeIrDrop(ctx->pool, &anchor->loc, makeIrVarRef(ctx->pool, &anchor->loc, decl));
     drop->flags |= flgUnmanaged;
     irSetInfo(drop, irInfoSynthetic);
@@ -295,12 +291,29 @@ static bool scanFunction(UseScan *scan, IrNode *func, IrValueClass wanted)
     return true;
 }
 
-// What a temporary is used for fixes its class, and the class its flags: an
-// in-flight owner or a result is `Temporary`, nobody drops it but its consumer
+// A pending temporary that owns nothing has no class to decide
+static void settleNonOwning(IrNode *func)
+{
+    for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
+        if (bb->tag != irBasicBlock)
+            continue;
+        for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
+            if (stmt->tag != irVarDecl || irValueClass(stmt) != irClassPending)
+                continue;
+            bool owns = isIrVarDestructible(stmt) &&
+                        !(stmt->type && stmt->type->category == irTypeCatReference);
+            if (!owns)
+                irSetValueClass(stmt, irClassNone);
+        }
+    }
+}
+
+// What a pending temporary is used for fixes its class
 void classifyTemporaries(MemMgmtContext *ctx, IrNode *func)
 {
+    settleNonOwning(func);
     UseScan scan = {.ctx = ctx, .table = newTempHashTable(sizeof(TempUse))};
-    if (scanFunction(&scan, func, irClassNone)) {
+    if (scanFunction(&scan, func, irClassPending)) {
         for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
             if (bb->tag != irBasicBlock)
                 continue;
@@ -310,8 +323,6 @@ void classifyTemporaries(MemMgmtContext *ctx, IrNode *func)
                     continue;
                 IrValueClass cls = classOf(use);
                 irSetValueClass(stmt, cls);
-                if (cls == irClassInFlight || cls == irClassResult)
-                    stmt->flags |= flgTemporary;
             }
         }
     }

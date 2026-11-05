@@ -209,11 +209,12 @@ void lowerMemberExpr(AstVisitor *visitor, AstNode *node)
             makeStringf(ctx->strings, "__opt%u", ctx->tempCounter++);
         IrNode *resVar = makeIrVarDecl(ctx->pool,
                                        &node->loc,
-                                       flgTemporary,
+                                       flgNone,
                                        tempName,
                                        tempName,
                                        resIrType,
                                        ctx->currentScopeId);
+        markCompilerVar(resVar, irClassTransient);
         emitStmt(ctx, resVar);
         IrNode *resVarRef = makeIrVarRef(ctx->pool, &node->loc, resVar);
 

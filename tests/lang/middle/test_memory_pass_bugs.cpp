@@ -163,7 +163,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("demo").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __t0 ^Node :ephemeral :class-statement :synthetic)
+            (VarDecl __t0 ^Node :class-statement :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
             (Drop (VarRef __t0) :synthetic)
             (Goto _L_exit))

@@ -207,11 +207,12 @@ void lowerBackendCall(AstVisitor *visitor, AstNode *node)
                 makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
             IrNode *tempVar = makeIrVarDecl(ctx->pool,
                                             &node->loc,
-                                            flgTemporary,
+                                            flgNone,
                                             tempName,
                                             tempName,
                                             elemType,
                                             ctx->currentScopeId);
+            markCompilerVar(tempVar, irClassTransient);
             emitStmt(ctx, tempVar);
             IrNode *dst = makeIrVarRef(ctx->pool, &node->loc, tempVar);
             emitStmt(ctx,

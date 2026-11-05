@@ -22,7 +22,7 @@ func main(): void {}
         (Function pick (Param c bool) (Param a i32) (Param b i32) (Ret i32)
             (Block _L_entry
                 (ScopeEnter 0)
-                (VarDecl __ret i32 :returned)
+                (VarDecl __ret i32 :class-return-slot :synthetic)
                 (VarDecl _if0 i32)
                 (If (VarRef c) _L_IF0_then _L_IF0_else))
             (Block _L_IF0_then

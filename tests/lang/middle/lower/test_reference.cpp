@@ -46,8 +46,8 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("viaCall").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __ret i32 :returned)
-            (VarDecl __t0 ^Node :synthetic)
+            (VarDecl __ret i32 :class-return-slot :synthetic)
+            (VarDecl __t0 ^Node :class-pending :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
             (Assign (VarRef __ret) (Call (GlobalRef peek) (Cast &Node (Cast &Node (VarRef __t0)))))
             (Goto _L_exit))
@@ -89,9 +89,9 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("viaRef").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __ret i32 :returned)
+            (VarDecl __ret i32 :class-return-slot :synthetic)
             (VarDecl r &Node)
-            (VarDecl __t0 ^Node :synthetic)
+            (VarDecl __t0 ^Node :class-pending :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
             (Assign (VarRef r) (Cast &Node (VarRef __t0) :user-written))
             (Assign (VarRef __ret) (Member (VarRef r) id))
@@ -133,7 +133,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("viaPlace").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __ret i32 :returned)
+            (VarDecl __ret i32 :class-return-slot :synthetic)
             (Assign (VarRef __ret) (Call (GlobalRef peek) (Cast &Node (VarRef a) :user-written)))
             (Goto _L_exit))
     )");

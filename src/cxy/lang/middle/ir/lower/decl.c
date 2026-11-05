@@ -181,11 +181,12 @@ void lowerFuncDecl(AstVisitor *visitor, AstNode *node)
     if (hasRet) {
         ctx->funcRetVar = makeIrVarDecl(ctx->pool,
                                         &node->loc,
-                                        flgReturned,
+                                        flgNone,
                                         "__ret",
                                         "__ret",
                                         funcType->func.ret,
                                         0);
+        markCompilerVar(ctx->funcRetVar, irClassReturnSlot);
         ctx->funcRetAstType =
             typeIs(node->type, Func) ? node->type->func.retType : NULL;
         emitStmt(ctx, ctx->funcRetVar);

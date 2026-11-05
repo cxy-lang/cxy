@@ -97,7 +97,7 @@ static bool needsOwnedCopy(const IrNode *inner)
         return false;
     if (inner->tag == irVarRef) {
         const IrNode *target = inner->varRef.target;
-        return target && !hasFlag(target, Temporary) && !hasFlag(target, Returned);
+        return target && !irIsConsumedTemp(target) && !irIsReturnSlot(target);
     }
     return isPlaceNode(inner) && !isUnwrappedCallResult(inner);
 }
@@ -141,9 +141,9 @@ static void promoteAssignToCopy(IrNode *stmt)
     // `<Base>x` (a class up/down cast) still refers to `x`, so it is copied
     const IrNode *inner = unwrapCastsConst(rhs);
     IrNode *rhsDecl = findVarDeclInNode(inner);
-    if (rhsDecl && hasFlag(rhsDecl, Temporary))
+    if (rhsDecl && irIsConsumedTemp(rhsDecl))
         return;
-    bool isPlace = inner->tag == irVarRef ? inner->varRef.target && !hasFlag(inner->varRef.target, Temporary)
+    bool isPlace = inner->tag == irVarRef ? inner->varRef.target && !irIsConsumedTemp(inner->varRef.target)
                                           : isPlaceNode(inner);
     if (!isPlace)
         return;

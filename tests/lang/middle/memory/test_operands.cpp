@@ -53,7 +53,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("args").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __copy0 ^Node :temporary :class-in-flight :synthetic)
+            (VarDecl __copy0 ^Node :class-in-flight :synthetic)
             (Copy (VarRef a :owned-position) (VarRef __copy0) :synthetic)
             (Call (GlobalRef take) (VarRef __copy0 :owned-position :moved))
             (Call (GlobalRef take) (VarRef b :owned-position :moved))
@@ -110,7 +110,7 @@ func main(): void {}
         (Block _L_entry
             (ScopeEnter 0)
             (VarDecl h Holder)
-            (VarDecl __copy0 ^Node :temporary :class-in-flight :synthetic)
+            (VarDecl __copy0 ^Node :class-in-flight :synthetic)
             (Copy (VarRef a :owned-position) (VarRef __copy0) :synthetic)
             (Assign (VarRef h) (Struct Holder (Field n (VarRef __copy0 :owned-position :moved)) :owned-position))
             (Goto _L_exit))
@@ -175,7 +175,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("memberMove").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __mv0 ^Node :temporary :class-in-flight :synthetic)
+            (VarDecl __mv0 ^Node :class-in-flight :synthetic)
             (Assign (VarRef __mv0) (Member (VarRef h) n ...) :unmanaged :implicit :synthetic)
             (Assign (Member (VarRef h) n) null :unmanaged :synthetic)
             (Call (GlobalRef take) (VarRef __mv0 :owned-position :moved))

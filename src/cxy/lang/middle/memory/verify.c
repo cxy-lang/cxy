@@ -79,8 +79,7 @@ static bool isUserVariable(const IrNode *decl)
 {
     if (decl == NULL || (decl->tag != irVarDecl && decl->tag != irFuncParam))
         return false;
-    return !hasFlag(decl, Temporary) && !hasFlag(decl, Ephemeral) &&
-           !hasFlag(decl, Returned) && !irHasInfo(decl, irInfoSynthetic);
+    return !irHasInfo(decl, irInfoSynthetic);
 }
 
 static bool isTrackedDecl(const IrNode *decl)
@@ -151,7 +150,7 @@ static bool isOwningStorage(const IrNode *decl)
 {
     if (decl == NULL || (decl->tag != irVarDecl && decl->tag != irFuncParam))
         return false;
-    if (hasFlag(decl, Temporary) || hasFlag(decl, Ephemeral) || hasFlag(decl, Returned))
+    if (irIsConsumedTemp(decl) || irIsStatementTemp(decl) || irIsReturnSlot(decl))
         return false;
     return decl->type && decl->type->category != irTypeCatReference;
 }
@@ -269,7 +268,7 @@ static void visitAssign(IrVisitor *v, IrNode *node)
 
     IrNode *lhs = node->assign.lhs;
     const IrNode *lhsRoot = rootOf(lhs);
-    if (hasFlag(lhsRoot, Returned)) {
+    if (lhsRoot && irIsReturnSlot(lhsRoot)) {
         const IrNode *borrowed = borrowedLocal(node->assign.rhs);
         if (borrowed)
             emit(c, oevEscape, borrowed, &node->loc, 0, 0);

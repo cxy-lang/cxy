@@ -40,7 +40,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("exprIdx").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __ret i32 :returned)
+            (VarDecl __ret i32 :class-return-slot :synthetic)
             (Assign (VarRef __ret) (Index (VarRef a) (Binary + (VarRef i) 1)))
             (Goto _L_exit))
     )");
@@ -59,8 +59,8 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("callIdx").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __ret i32 :returned)
-            (VarDecl __t0 i32 :synthetic)
+            (VarDecl __ret i32 :class-return-slot :synthetic)
+            (VarDecl __t0 i32 :class-pending :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef pick)))
             (Assign (VarRef __ret) (Index (VarRef a) (VarRef __t0)))
             (Goto _L_exit))

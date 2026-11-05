@@ -50,8 +50,8 @@ static TrackedVar *addTrackedVar(MemMgmtContext *ctx, IrNode *decl, cstring name
         .varIndex = index,
         .dropFlagIndex = 0,
         .needsDropFlag = false,
-        .isTemporary = (decl && hasFlag(decl, Temporary)),
-        .isEphemeral = (decl && hasFlag(decl, Ephemeral)),
+        .isTemporary = (decl && irIsConsumedTemp(decl)),
+        .isEphemeral = (decl && irIsStatementTemp(decl)),
         .type = type,
         .state = irVarUninitialized
     };

@@ -36,11 +36,12 @@ void lowerClosureValue(AstVisitor *visitor, AstNode *node)
                 makeStringf(ctx->strings, "__env%u", ctx->tempCounter++);
             IrNode *envVar = makeIrVarDecl(ctx->pool,
                                            &node->loc,
-                                           flgTemporary,
+                                           flgNone,
                                            tempName,
                                            tempName,
                                            envPtrType,
                                            ctx->currentScopeId);
+            markCompilerVar(envVar, irClassTransient);
             emitStmt(ctx, envVar);
             emitStmt(ctx,
                      makeIrAssign(ctx->pool,

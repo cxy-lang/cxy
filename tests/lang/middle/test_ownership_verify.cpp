@@ -507,7 +507,9 @@ TEST_CASE("Ownership verifier: B3 returned borrow of a local")
 {
     Builder b;
     IrNode *bb = b.block("entry");
-    IrNode *retVar = b.refVar(bb, "__ret", flgReturned);
+    IrNode *retVar = b.refVar(bb, "__ret");
+    irSetInfo(retVar, irInfoSynthetic);
+    irSetValueClass(retVar, irClassReturnSlot);
     IrNode *x = b.var(bb, "x");
     irAppendBlockStmt(bb, b.assign(x, b.value()));
     irAppendBlockStmt(bb, b.assign(retVar, b.borrow(x)));

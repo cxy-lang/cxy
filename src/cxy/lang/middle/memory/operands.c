@@ -20,7 +20,7 @@ IrNode *findVarDeclInNode(const IrNode *node)
 
 bool isIrVarDestructible(const IrNode *decl)
 {
-    if (decl == NULL || hasFlag(decl, Returned))
+    if (decl == NULL || irIsReturnSlot(decl))
         return false;
     return hasFlag(decl, ReferenceMembers) || isIrTypeDestructible(decl->type);
 }
@@ -28,8 +28,7 @@ bool isIrVarDestructible(const IrNode *decl)
 bool isUnwrappedCallResult(const IrNode *src)
 {
     IrNode *decl = findVarDeclInNode(src);
-    return decl && hasFlag(decl, Temporary) && decl->type &&
-           decl->type->category == irTypeCatResult;
+    return decl && irValueClass(decl) == irClassResult;
 }
 
 bool isOwnerConsumingValue(const IrNode *rhs)
@@ -92,7 +91,7 @@ IrNode *makeOwnedTemp(MemMgmtContext *ctx, cstring prefix, const IrNode *place)
 {
     cstring name = makeStringf(ctx->strings, "%s%u", prefix, ctx->tempCounter++);
     IrNode *decl = makeIrVarDecl(
-        ctx->pool, &place->loc, flgTemporary, name, name, place->type, ctx->currentScopeId);
+        ctx->pool, &place->loc, flgNone, name, name, place->type, ctx->currentScopeId);
     irSetInfo(decl, irInfoSynthetic);
     irSetValueClass(decl, irClassInFlight);
     return decl;

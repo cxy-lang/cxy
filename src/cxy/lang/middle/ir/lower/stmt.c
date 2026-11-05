@@ -84,7 +84,8 @@ void lowerVarDecl(AstVisitor *visitor, AstNode *node)
 
     cstring displayName = getDeclarationName(node);
     cstring cName = makeUniqueVarName(ctx, displayName);
-    Flags flags = node->flags;
+    // the AST flag is how sema and simplify say it, the class says it from here on
+    Flags flags = node->flags & ~flgTemporary;
     if (!isReferenceType(varAstType) && !isPointerType(varAstType) &&
         isDestructible(varAstType)) {
         flags |= flgReferenceMembers;
@@ -96,6 +97,10 @@ void lowerVarDecl(AstVisitor *visitor, AstNode *node)
                                     displayName,
                                     irType,
                                     ctx->currentScopeId);
+    // sema and simplify flag the variables they make `Temporary`, the user cannot:
+    // they are transient, nothing manages them
+    if (hasFlag(node, Temporary))
+        markCompilerVar(varDecl, irClassTransient);
     varDecl->varDecl.reg = getRegisterAttr(node);
     node->ir = varDecl;
     if (node->varDecl.names)
@@ -213,12 +218,12 @@ void lowerExprStmt(AstVisitor *visitor, AstNode *node)
                 makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
             IrNode *tempVar = makeIrVarDecl(ctx->pool,
                                             &node->loc,
-                                            flgEphemeral | flgReferenceMembers,
+                                            flgReferenceMembers,
                                             tempName,
                                             tempName,
                                             expr->type,
                                             ctx->currentScopeId);
-            irSetInfo(tempVar, irInfoSynthetic);
+            markCompilerVar(tempVar, irClassPending);
             emitStmt(ctx, tempVar);
             emitStmt(ctx,
                      makeIrAssign(ctx->pool,

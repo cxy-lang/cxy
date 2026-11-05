@@ -78,11 +78,14 @@ void lowerForStmt(AstVisitor *visitor, AstNode *node)
         cstring cName = makeUniqueVarName(ctx, displayName);
         IrNode *varDecl = makeIrVarDecl(ctx->pool,
                                         &loopVarNode->loc,
-                                        loopVarNode->flags,
+                                        loopVarNode->flags & ~flgTemporary,
                                         cName,
                                         displayName,
                                         varType,
                                         ctx->currentScopeId);
+        // sema and simplify flag the variables they make `Temporary`, they are transient
+        if (hasFlag(loopVarNode, Temporary))
+            markCompilerVar(varDecl, irClassTransient);
         loopVarNode->ir = varDecl;
         emitStmt(ctx, varDecl);
         emitStmt(

@@ -1,0 +1,176 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/40_construct_copy_move.cxy
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func main.Node.op__init(this: ^Node, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__deinit(this: ^Node): void {
+_L_entry:
+  scope.enter 0
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__destructor(this: ^Node): void {
+_L_entry:
+  scope.enter 0
+  Node_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Node_op__destructor(<^Node>(<^Node>(ptr)))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__initCover(id: i32): ^Node {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Node
+  var __obj13: ^Node
+  var __t0: ^Node
+  __t0 = alloc(^Node)
+  __obj13 = <^Node>(__t0)
+  zeromem __obj13
+  Node_op__init(<^Node>(__obj13), id)
+  __ret = __obj13
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func make(): ^Node {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Node
+  __ret = Node_op__initCover(<i32>(1))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func take(n: ^Node): i32 {
+_L_entry:
+  scope.enter 0
+  var __ret: i32
+  __ret = n.id
+  goto _L_exit
+_L_exit:
+  drop n
+  scope.exit 0
+  return __ret
+}
+
+func peek(n: ^Node): i32 {
+_L_entry:
+  scope.enter 0
+  var __ret: i32
+  __ret = n.id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func demo(flag: bool, r: ^Node): i32 {
+_L_entry:
+  var __drop_flags: __drop_flags_demo_t
+  zeromem __drop_flags
+  scope.enter 0
+  var __ret: i32
+  var a: ^Node
+  a = Node_op__initCover(<i32>(1))
+  var b: ^Node
+  copy a -> b
+  __drop_flags.b = 1
+  if flag goto _L_IF0_then else goto _L_IF0_end
+_L_IF0_then:
+  scope.enter 1
+  __drop_flags.b = 0
+  take(b)
+  scope.exit 1
+  goto _L_IF0_end
+_L_IF0_end:
+  var c: ^Node
+  copy r -> c
+  var __t1: i32
+  __t1 = peek(<^Node>(a))
+  var __t2: ^Node
+  __t2 = make()
+  __ret = __t1 + __t2.id + c.id
+  drop __t2
+  goto _L_exit
+_L_exit:
+  drop c
+  drop-if b, __drop_flags.b
+  __drop_flags.b = 0
+  drop a
+  scope.exit 0
+  return __ret
+}
+
+func main.OutputStream.op__lshiftI_i32E(this: ^OutputStream, val: i32): ^OutputStream {
+_L_entry:
+  scope.enter 0
+  var __ret: ^OutputStream
+  builtins_OutputStream_appendSignedInt(this, <i128>(val))
+  __ret = this
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func printlnI_i32E(args: i32): void {
+_L_entry:
+  scope.enter 0
+  builtins_OutputStream_op__lshiftI_i32E(<^OutputStream>(builtins_stdout), args)
+  builtins_OutputStream_op__lshiftI_wE(<^OutputStream>(builtins_stdout), '\n')
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  var __t3: ^Node
+  __t3 = Node_op__initCover(<i32>(2))
+  var __t4: i32
+  __t4 = demo(true, <^Node>(__t3))
+  drop __t3
+  printlnI_i32E(__t4)
+  var __t5: ^Node
+  __t5 = Node_op__initCover(<i32>(3))
+  var __t6: i32
+  __t6 = demo(false, <^Node>(__t5))
+  drop __t5
+  printlnI_i32E(__t6)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}

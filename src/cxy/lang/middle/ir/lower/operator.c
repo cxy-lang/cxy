@@ -78,11 +78,12 @@ static void lowerLogicalAnd(AstVisitor *visitor, AstNode *node)
         makeStringf(ctx->strings, "__cond%u", ctx->tempCounter++);
     IrNode *condVar = makeIrVarDecl(ctx->pool,
                                     &node->loc,
-                                    flgTemporary,
+                                    flgNone,
                                     condName,
                                     condName,
                                     boolType,
                                     ctx->currentScopeId);
+    markCompilerVar(condVar, irClassTransient);
     emitStmt(ctx, condVar);
 
     u32 logicId = ctx->nextLogicId++;
@@ -128,11 +129,12 @@ static void lowerLogicalOr(AstVisitor *visitor, AstNode *node)
         makeStringf(ctx->strings, "__cond%u", ctx->tempCounter++);
     IrNode *condVar = makeIrVarDecl(ctx->pool,
                                     &node->loc,
-                                    flgTemporary,
+                                    flgNone,
                                     condName,
                                     condName,
                                     boolType,
                                     ctx->currentScopeId);
+    markCompilerVar(condVar, irClassTransient);
     emitStmt(ctx, condVar);
 
     u32 logicId = ctx->nextLogicId++;
@@ -179,11 +181,12 @@ static void lowerCoalesce(AstVisitor *visitor, AstNode *node)
         makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
     IrNode *resVar = makeIrVarDecl(ctx->pool,
                                    &node->loc,
-                                   flgTemporary,
+                                   flgNone,
                                    tempName,
                                    tempName,
                                    resIrType,
                                    ctx->currentScopeId);
+    markCompilerVar(resVar, irClassTransient);
     emitStmt(ctx, resVar);
 
     u32 optId = ctx->nextOptId++;

@@ -210,8 +210,7 @@ bool isOwnedResultPayload(const IrNode *expr)
     while (root->tag == irMember)
         root = root->member.target;
     const IrNode *decl = root->tag == irVarRef ? root->varRef.target : NULL;
-    return decl && hasFlag(decl, Temporary) && decl->type &&
-           decl->type->category == irTypeCatResult;
+    return decl && irValueClass(decl) == irClassResult;
 }
 
 // The success payload of a result value, `targetType` is the unwrapped type
@@ -389,7 +388,7 @@ void lowerCatchExpr(AstVisitor *visitor, AstNode *node)
         cstring varName =
             makeStringf(ctx->strings, "__catch_res%u", ctx->tempCounter++);
         const IrType *irTargetType = lowerType(ctx, targetType);
-        Flags flags = flgTemporary;
+        Flags flags = flgNone;
         if (isIrTypeDestructible(irTargetType))
             flags |= flgReferenceMembers;
         targetVar = makeIrVarDecl(ctx->pool,
@@ -399,6 +398,7 @@ void lowerCatchExpr(AstVisitor *visitor, AstNode *node)
                                   varName,
                                   irTargetType,
                                   ctx->currentScopeId);
+        markCompilerVar(targetVar, irClassTransient);
         emitStmt(ctx, targetVar);
     }
 

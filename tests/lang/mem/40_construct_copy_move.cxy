@@ -1,0 +1,28 @@
+// @TEST_ARGS: ~--without-builtins
+// A constructor, an implicit copy, a conditional move, a copy made from a
+// reference, and a temporary read by a borrower. Each object is dropped once: a
+// double drop panics, a missed one is a leak.
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() {}
+}
+
+func make(): Node => Node(1)
+func take(n: Node): i32 => n.id
+func peek(n: &Node): i32 => n.id
+
+func demo(flag: bool, r: &Node): i32 {
+    var a = Node(1)
+    var b = a
+    if flag {
+        take(&&b)
+    }
+    var c = @copy r
+    return peek(&a) + make().id + c.id
+}
+
+func main(): void {
+    println(demo(true, &Node(2)))
+    println(demo(false, &Node(3)))
+}
