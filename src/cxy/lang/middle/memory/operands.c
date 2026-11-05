@@ -1,7 +1,7 @@
 #include "operands.h"
 
 #include "lang/frontend/flag.h"
-#include "lang/frontend/strings.h"
+
 #include "lang/middle/ir/visitor.h"
 
 IrNode *findVarDeclInNode(const IrNode *node)
@@ -38,7 +38,8 @@ bool isResultPayloadPlace(const IrNode *node)
         node->member.name != NULL || !isIrTypeDestructible(node->type))
         return false;
     const IrNode *val = node->member.target;
-    if (val == NULL || val->tag != irMember || val->member.index != 1 || val->member.name != S_val)
+    if (val == NULL || val->tag != irMember || val->member.index != 1 || val->type == NULL ||
+        val->type->tag != irTypeUntaggedUnion)
         return false;
     const IrNode *root = val->member.target;
     return root && root->tag == irVarRef && root->varRef.target &&

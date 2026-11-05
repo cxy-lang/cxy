@@ -1,4 +1,5 @@
 #include "verify.h"
+#include "operands.h"
 
 #include "core/array.h"
 #include "core/hash.h"
@@ -1152,6 +1153,43 @@ static void checkTemporary(FuncVerify *fv, const TempFacts *f)
         reportTemporary(fv, f, "is read after it was dropped");
 }
 
+// O10, the payload of a `!T` call. Whoever reads it takes it first: normalize moves it
+// into an owner. One that is still read in place is never dropped, so it leaks.
+static void checkPayloadReads(IrNode **slot, void *fvPtr)
+{
+    FuncVerify *fv = fvPtr;
+    const IrNode *node = *slot;
+    if (node == NULL)
+        return;
+    if (isResultPayloadPlace(node)) {
+        const IrNode *root = rootOf(node);
+        reportFinding(fv,
+                      ruleO10,
+                      true,
+                      root,
+                      &node->loc,
+                      NULL,
+                      "holds a payload that is read in place, nobody takes it or drops it");
+        return;
+    }
+    irForEachOperandSlot((IrNode *)node, checkPayloadReads, fv);
+}
+
+static void verifyResultPayloads(FuncVerify *fv)
+{
+    for (const IrNode *bb = fv->func->function.firstBlock; bb; bb = bb->next) {
+        if (bb->tag != irBasicBlock)
+            continue;
+        for (const IrNode *s = bb->basicBlock.first; s; s = s->next) {
+            // taking the payload out reads and clears it, a drop empties it
+            if (s->tag == irDrop || s->tag == irZeromem || s->tag == irVarDecl ||
+                (s->tag == irAssign && (s->flags & flgUnmanaged)))
+                continue;
+            irForEachOperandSlot((IrNode *)s, checkPayloadReads, fv);
+        }
+    }
+}
+
 static void verifyTemporaries(FuncVerify *fv)
 {
     u32 count = 0;
@@ -1266,6 +1304,7 @@ static void verifyFunction(const OwnershipSnapshot *snap,
     fv.varIndex = newHashTable(sizeof(PtrIndex), &fv.pool);
     reportReferenceMoves(&fv, snap);
     verifyTemporaries(&fv);
+    verifyResultPayloads(&fv);
 
     if (!collectTrackedVars(&decls, fn))
         goto done;

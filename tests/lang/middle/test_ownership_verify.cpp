@@ -433,6 +433,76 @@ TEST_CASE("Ownership verifier: O10 a transient temporary is the creator's word, 
     CHECK(verifyTemporary(irClassTransient, [](Builder &, IrNode *, IrNode *) {}).empty());
 }
 
+namespace {
+
+// `use` gets the payload `res.val.0` of a call result temporary, the way lowering
+// writes it: a result struct whose `val` field is an untagged union
+std::vector<Found> verifyPayload(
+    const std::function<IrNode *(Builder &, IrNode *payload)> &statement)
+{
+    Builder b;
+    IrNode *bb = b.block("entry");
+    IrNode *res = b.var(bb, "__call_res_0");
+    irSetInfo(res, irInfoSynthetic);
+    irSetValueClass(res, irClassResult);
+
+    IrField fields[] = {{"0", b.cls, 0, 0, 0}, {"1", b.cls, 0, 1, 0}};
+    const IrType *payloads =
+        makeIrUntaggedUnionType(b.types, flgNone, {}, "payloads", "payloads", fields, 2);
+    FileLoc loc = b.at();
+    IrNode *val = makeIrMember(&b.pool, &loc, b.ref(res), 1, "val", payloads);
+    IrNode *payload = makeIrMember(&b.pool, &loc, val, 0, nullptr, b.cls);
+    irAppendBlockStmt(bb, statement(b, payload));
+    irAppendBlockStmt(bb, b.ret());
+
+    OwnershipSnapshot *snap = ownershipSnapshot(b.module);
+    auto found = b.verify(snap);
+    freeOwnershipSnapshot(snap);
+    return found;
+}
+
+} // namespace
+
+TEST_CASE("Ownership verifier: O10 a call result payload is taken or dropped, never read in place")
+{
+    SUBCASE("read by a borrower")
+    {
+        auto found = verifyPayload([](Builder &b, IrNode *payload) { return b.call(payload); });
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O10");
+        CHECK(found[0].var == "__call_res_0");
+        CHECK(found[0].definite);
+    }
+
+    SUBCASE("returned directly")
+    {
+        auto found = verifyPayload([](Builder &b, IrNode *payload) {
+            FileLoc loc = b.at();
+            return makeIrReturn(&b.pool, &loc, payload);
+        });
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O10");
+    }
+
+    SUBCASE("copied from")
+    {
+        auto found = verifyPayload([](Builder &b, IrNode *payload) {
+            FileLoc loc = b.at();
+            return makeIrCopy(&b.pool, &loc, payload, b.ref(b.func->function.firstBlock->basicBlock.first));
+        });
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O10");
+    }
+
+    SUBCASE("dropped in place")
+    {
+        CHECK(verifyPayload([](Builder &b, IrNode *payload) {
+                  FileLoc loc = b.at();
+                  return makeIrDrop(&b.pool, &loc, payload);
+              }).empty());
+    }
+}
+
 TEST_CASE("Ownership verifier: O1 leak at exit")
 {
     SUBCASE("local never dropped")
