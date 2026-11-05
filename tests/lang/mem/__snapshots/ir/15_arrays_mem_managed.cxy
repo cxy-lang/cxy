@@ -106,8 +106,10 @@ _L_entry:
   __t7 = Resource_op__initCover(<i32>(200))
   arr = [__t6, __t7]
   var r: ^Resource
-  r = arr[1]
+  var __mv0: ^Resource
+  __mv0 = arr[1]
   arr[1] = null
+  r = __mv0
   goto _L_exit
 _L_exit:
   drop r

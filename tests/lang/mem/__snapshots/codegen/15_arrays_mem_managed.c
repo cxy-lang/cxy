@@ -143,13 +143,15 @@ static void testArrayMoveElement() {
   Resource * __t6;
   Resource * __t7;
   Resource * r;
+  Resource * __mv0;
 _L_entry:;
   __t6 = Resource_op__initCover(((int32_t)(100)));
   __t7 = Resource_op__initCover(((int32_t)(200)));
   arr[0] = __t6;
   arr[1] = __t7;
-  r = arr[1];
+  __mv0 = arr[1];
   arr[1] = nullptr;
+  r = __mv0;
   goto _L_exit;
 _L_exit:;
   __smart_ptr_drop(r);

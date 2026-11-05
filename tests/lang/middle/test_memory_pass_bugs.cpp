@@ -116,3 +116,32 @@ func main(): void {}
             ...)
     )");
 }
+
+// `x = &&x.next` read `x.next` after the old `x` was dropped. The value is taken
+// out first, then the old value is dropped, then it is stored.
+TEST_CASE("Fixed bug: `x = &&x.next` reads the field before dropping `x`")
+{
+    TestCompiler cc(memoryStage());
+    REQUIRE(cc.compile(R"(
+class Link {
+    next: Link
+    func `init`() {}
+    func `deinit`() {}
+}
+func pop(head: Link) {
+    var h = &&head
+    h = &&h.next
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+    REQUIRE_IR_MATCHES(cc.function("pop").findBlock("entry"), R"(
+        (Block _L_entry
+            ...
+            (Assign (VarRef __mv0) (Member (VarRef h) next ...) :unmanaged)
+            (Assign (Member (VarRef h) next) null :unmanaged)
+            (Drop (VarRef h))
+            (Assign (VarRef h) (VarRef __mv0 :owned-position :moved))
+            ...)
+    )");
+}

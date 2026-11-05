@@ -85,6 +85,34 @@ func main(): void {}
     )");
 }
 
+TEST_CASE("Normalize N2: `&&p.f` is read into a temporary and the field is emptied")
+{
+    TestCompiler cc;
+    REQUIRE(cc.compile(std::string(program) + R"(
+class Box {
+    n: Node
+    func `init`() {}
+    func `deinit`() {}
+}
+func fromField(b: &Box) {
+    take(&&b.n)
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+    normalize(cc, "fromField");
+
+    REQUIRE_IR_MATCHES(cc.function("fromField").findBlock("entry"), R"(
+        (Block _L_entry
+            (ScopeEnter 0)
+            (VarDecl __mv0 ^Node :temporary)
+            (Assign (VarRef __mv0) (Member (VarRef b) n :owned-position) :unmanaged)
+            (Assign (Member (VarRef b) n) null :unmanaged)
+            (Call (GlobalRef take) (VarRef __mv0 :owned-position :moved))
+            (Goto _L_exit))
+    )");
+}
+
 TEST_CASE("Normalize N4: `&&x` passed to a `&T` parameter is a borrow, nothing is moved")
 {
     TestCompiler cc;

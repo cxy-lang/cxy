@@ -178,7 +178,7 @@ func main(): void {}
             (VarDecl __mv0 ^Node :temporary)
             (Assign (VarRef __mv0) (Member (VarRef h) n ...) :unmanaged)
             (Assign (Member (VarRef h) n) null :unmanaged)
-            (Call (GlobalRef take) (VarRef __mv0))
+            (Call (GlobalRef take) (VarRef __mv0 :owned-position :moved))
             (Goto _L_exit))
     )");
 }

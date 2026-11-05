@@ -17,6 +17,40 @@ IrNode **moveSlot(IrNode **slot)
     return (slot && *slot && (*slot)->tag == irMove) ? slot : NULL;
 }
 
+bool isPlaceNode(const IrNode *node)
+{
+    return node && (node->tag == irMember || node->tag == irIndex);
+}
+
+bool isPointerLikeType(const IrType *type)
+{
+    return type && (type->tag == irTypePointer || type->category == irTypeCatClass);
+}
+
+bool isMovablePlace(const IrNode *node)
+{
+    return isPlaceNode(node) && (isPointerLikeType(node->type) || isIrTypeDestructible(node->type));
+}
+
+IrNode *makeClearPlace(MemPool *pool, const FileLoc *loc, IrNode *place)
+{
+    IrNode *clear = NULL;
+    if (isPointerLikeType(place->type))
+        clear = makeIrAssign(pool, loc, place, makeIrNullConst(pool, loc, place->type));
+    else if (isIrTypeDestructible(place->type))
+        clear = makeIrZeromem(pool, loc, place);
+    if (clear)
+        clear->flags |= flgUnmanaged;
+    return clear;
+}
+
+IrNode *makeOwnedTemp(MemMgmtContext *ctx, cstring prefix, const IrNode *place)
+{
+    cstring name = makeStringf(ctx->strings, "%s%u", prefix, ctx->tempCounter++);
+    return makeIrVarDecl(
+        ctx->pool, &place->loc, flgTemporary, name, name, place->type, ctx->currentScopeId);
+}
+
 IrNode *stripMove(IrNode **moveRef)
 {
     IrNode *mv = *moveRef;
