@@ -11,8 +11,10 @@ TIMEOUT="${RC_TEST_TIMEOUT:-120}"
 ONLY=""
 
 # Test sources, with the extra files each one links
-# (graph_tests.c includes the trace library source itself)
-TESTS=("rc_tests.c" "trace_tests.c:$ROOT/src/cxy/stdlib/trace/mem.c" "graph_tests.c")
+# (graph_tests.c includes the trace library source itself, json_tests.c parses what
+# the writer produced with the cJSON of the compiler)
+TESTS=("rc_tests.c" "trace_tests.c:$ROOT/src/cxy/stdlib/trace/mem.c" "graph_tests.c"
+       "json_tests.c:$ROOT/src/3rdParty/cJSON.c")
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -36,7 +38,7 @@ run_variant() { # <name> <test spec> <flags...>
     echo "Running runtime tests [$label]"
     # shellcheck disable=SC2068
     if ! "$CC" -std=gnu11 -Wall -Wno-unused-function -DCXY_RUNTIME_TEST $@ \
-        -I"$ROOT/src/cxy/runtime" -I"$ROOT/src/cxy" -o "$bin" "$src" $extra -lpthread; then
+        -I"$ROOT/src/cxy/runtime" -I"$ROOT/src/cxy" -I"$ROOT/src" -o "$bin" "$src" $extra -lpthread -lm; then
         echo "  FAILED: build of [$label]"
         return 1
     fi

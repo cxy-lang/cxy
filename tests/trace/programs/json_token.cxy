@@ -1,0 +1,12 @@
+import { waitForHarness } from "./_harness.cxy"
+
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+func main(): void {
+    var n = Node(1)
+    waitForHarness()
+}

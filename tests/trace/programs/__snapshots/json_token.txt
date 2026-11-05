@@ -1,0 +1,13 @@
+$ bogus json
+{"error":"unknown command","command":"bogus"}
+$ json
+{"error":"no command"}
+$ help json
+{"error":"no json output for this command","command":"help"}
+$ summary
+live: 1 allocations, 4 bytes
+buffers: 0 live, 0 bytes
+allocations since start: 1
+trace events: 1
+mark: 0
+$ program output

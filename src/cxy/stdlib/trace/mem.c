@@ -16,6 +16,8 @@
 #include <dlfcn.h>
 #include <execinfo.h>
 
+#include "trace_json.h"
+
 /*
  * Memory tracing runtime. The generated program (mm_trace.h) only calls the
  * __cxy_mem_trace_* hooks below; all trace state lives here.
@@ -2258,17 +2260,81 @@ static void graphCommand(int fd, const char *cmd, const char *arg1, const char *
     }
 }
 
+/* -------------------------------------------------------------------- json */
+
+/*
+ * `json` after a command asks for the answer as one JSON document on one line.
+ * Commands get a JSON form one at a time, the others answer with an error that
+ * says so, so a client can tell "not converted yet" from "unknown".
+ */
+static const char *const knownCommands[] = {
+    "summary", "sites",   "list",     "leaks", "zombies",  "types",  "sitecounts", "ring",
+    "mark",    "diff",    "difflist", "holders", "path",   "contains", "retained",
+    "cycles",  "tree",    "edges",    "roots", "dangling", "help",   NULL};
+
+static bool isKnownCommand(const char *cmd)
+{
+    for (int i = 0; knownCommands[i] != NULL; i++) {
+        if (strcmp(cmd, knownCommands[i]) == 0)
+            return true;
+    }
+    return false;
+}
+
+// Ends a reply: the document is complete and valid, then the line ends
+static void jsonReplyEnd(JsonWriter *w, int fd)
+{
+    if (jsonFinish(w))
+        (void)!write(fd, "\n", 1);
+}
+
+static void jsonErrorFd(int fd, const char *message, const char *cmd)
+{
+    JsonWriter w;
+    jsonInitFd(&w, fd);
+    jsonBeginObject(&w);
+    jsonFieldString(&w, "error", message);
+    if (cmd != NULL)
+        jsonFieldString(&w, "command", cmd);
+    jsonEndObject(&w);
+    jsonReplyEnd(&w, fd);
+}
+
+// Answers `cmd` as JSON. False when the command has no JSON form (yet).
+static bool jsonCommand(int fd, const char *cmd, char *args[])
+{
+    (void)args;
+    if (cmd == NULL) {
+        jsonErrorFd(fd, "no command", NULL);
+        return true;
+    }
+    if (!isKnownCommand(cmd)) {
+        jsonErrorFd(fd, "unknown command", cmd);
+        return true;
+    }
+    return false;
+}
+
 static void handleCommand(int fd, char *line)
 {
     char *args[4] = {NULL};
     int nargs = 0;
     bool sym = true;
+    bool json = false;
     for (char *tok = strtok(line, " \t\r\n"); tok; tok = strtok(NULL, " \t\r\n")) {
         if (strcmp(tok, "nosym") == 0)
             sym = false;
+        else if (strcmp(tok, "json") == 0)
+            json = true;
         else if (nargs < 4)
             args[nargs++] = tok;
     }
+    if (json && !jsonCommand(fd, nargs > 0 ? args[0] : NULL, args)) {
+        jsonErrorFd(fd, "no json output for this command", args[0]);
+        return;
+    }
+    if (json)
+        return;
     if (nargs == 0 || strcmp(args[0], "help") == 0) {
         helpFd(fd);
         return;
@@ -2324,6 +2390,13 @@ static void removeSocketAtExit(void)
 
 static void *queryServer(void *arg)
 {
+    // A client that goes away while the answer is written must not kill the program
+    // being debugged: the write fails with EPIPE, the writer notices and stops
+    sigset_t noPipe;
+    sigemptyset(&noPipe);
+    sigaddset(&noPipe, SIGPIPE);
+    pthread_sigmask(SIG_BLOCK, &noPipe, NULL);
+
     int listener = (int)(intptr_t)arg;
     for (;;) {
         int client = accept(listener, NULL, NULL);

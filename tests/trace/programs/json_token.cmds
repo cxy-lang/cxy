@@ -1,0 +1,7 @@
+# `json` after a command asks for a JSON answer on one line. A command that has
+# none answers with a JSON error, so a client can tell it from an unknown command.
+bogus json
+json
+help json
+# without the token nothing changes
+summary
