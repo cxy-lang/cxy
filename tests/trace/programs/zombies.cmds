@@ -1,0 +1,15 @@
+# a node with two weak references is live, not a zombie
+summary
+zombies
+@next
+# destroyed: the object is gone from the live reports, the block is a zombie
+summary
+zombies
+list 5
+@next
+# one weak reference is left
+zombies
+@next
+# the last one frees the block
+summary
+zombies

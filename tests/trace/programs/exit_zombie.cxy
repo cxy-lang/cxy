@@ -1,0 +1,21 @@
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+// `keeper` is leaked: it owns itself. Its weak reference keeps the block of a
+// destroyed node, so the exit report shows both
+class Keeper {
+    watched: Weak[Node]
+    self: Keeper
+    func `init`(n: &Node) { watched = Weak[Node](n) }
+    func `deinit`() { }
+}
+
+func main(): void {
+    var n = Node(1)
+    var keeper = Keeper(n)
+    keeper.self = @copy keeper
+    n = Node(2)
+}

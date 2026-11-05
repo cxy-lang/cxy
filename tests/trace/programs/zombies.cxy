@@ -1,0 +1,22 @@
+import { waitForHarness } from "./_harness.cxy"
+
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+func main(): void {
+    var n = Node(1)
+    var w = Weak[Node](n)
+    var w2 = @copy w
+    waitForHarness()
+    // the first node is destroyed, the weak references keep its block
+    n = Node(2)
+    waitForHarness()
+    // one weak reference goes, one is left
+    w = Weak[Node]()
+    waitForHarness()
+    w2 = Weak[Node]()
+    waitForHarness()
+}

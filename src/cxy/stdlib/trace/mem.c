@@ -84,6 +84,9 @@ typedef struct {
  */
 #define KIND_OBJECT 0
 #define KIND_BUFFER 1
+// A destroyed object whose block weak references still keep. It stays on its list
+// until the block is freed but is not live: reports and the graph skip it.
+#define KIND_ZOMBIE 2
 
 struct TraceList;
 typedef struct __attribute__((aligned(16))) TraceRec {
@@ -108,6 +111,7 @@ typedef struct TraceList {
     struct TraceList *next; // every list, push-only: a finished thread keeps its entries
     uint64_t objects, objectBytes;
     uint64_t buffers, bufferBytes;
+    uint64_t zombies, zombieBytes;
     uint64_t objectAllocs; // objects registered since start
     uint64_t lastHookNs;   // when the thread last allocated or freed, for pausing
     bool parked;           // waiting at a safepoint, under pauseLock
@@ -338,7 +342,7 @@ static void resumeThreads(void)
 
 static inline void *recPayload(const TraceRec *rec)
 {
-    return (char *)rec + sizeof(TraceRec) + (rec->kind == KIND_OBJECT ? OBJ_HEADER_SIZE : 0);
+    return (char *)rec + sizeof(TraceRec) + (rec->kind != KIND_BUFFER ? OBJ_HEADER_SIZE : 0);
 }
 
 // Called by mm.h after the block is allocated, nothing is registered before
@@ -393,12 +397,48 @@ void __cxy_mem_trace_unregister(TraceRec *rec)
         list->buffers--;
         list->bufferBytes -= rec->size;
     }
+    else if (rec->kind == KIND_ZOMBIE) {
+        list->zombies--;
+        list->zombieBytes -= rec->size;
+    }
     else {
         list->objects--;
         list->objectBytes -= rec->size;
     }
     pthread_mutex_unlock(&list->lock);
     rec->list = NULL;
+}
+
+// The object was destroyed but weak references keep the block: it is no longer live.
+// Called before the owners' weak count is released, so the block is still there.
+void __cxy_mem_trace_zombie(TraceRec *rec)
+{
+    TraceList *list = rec->list;
+    if (list == NULL)
+        return;
+    pthread_mutex_lock(&list->lock);
+    if (rec->kind == KIND_OBJECT) {
+        rec->kind = KIND_ZOMBIE;
+        list->objects--;
+        list->objectBytes -= rec->size;
+        list->zombies++;
+        list->zombieBytes += rec->size;
+    }
+    pthread_mutex_unlock(&list->lock);
+}
+
+// Destroyed objects that weak references still keep: count and bytes
+void __cxy_mem_trace_zombies(uint64_t out[2])
+{
+    out[0] = out[1] = 0;
+    pthread_mutex_lock(&listsLock);
+    for (TraceList *l = allLists; l != NULL; l = l->next) {
+        pthread_mutex_lock(&l->lock);
+        out[0] += l->zombies;
+        out[1] += l->zombieBytes;
+        pthread_mutex_unlock(&l->lock);
+    }
+    pthread_mutex_unlock(&listsLock);
 }
 
 // Locks every list, in registration order, so a fork sees consistent lists
@@ -465,7 +505,7 @@ static LiveEntry *liveSnapshot(uint64_t minGen, size_t *count)
     for (TraceList *l = allLists; l != NULL; l = l->next) {
         pthread_mutex_lock(&l->lock);
         for (const TraceRec *rec = l->head; rec != NULL; rec = rec->next) {
-            if (rec->birthTick > minGen)
+            if (rec->birthTick > minGen && rec->kind != KIND_ZOMBIE)
                 snapshotAppend(&snap, &n, &cap, rec);
         }
         pthread_mutex_unlock(&l->lock);
@@ -697,6 +737,48 @@ static void sitesReportFd(int fd, uint64_t minGen, size_t limit)
     free(snap);
 }
 
+/*
+ * Destroyed objects whose block weak references still keep, newest registration
+ * first on each list. At exit one is a weak reference that was never released.
+ * `weak` is how many weak references are left.
+ */
+static void zombiesReportFd(int fd, size_t limit, bool exitStyle)
+{
+    uint64_t total[2];
+    __cxy_mem_trace_zombies(total);
+    if (exitStyle && total[0] == 0)
+        return;
+    if (exitStyle)
+        dprintf(fd, "=== Weak references keep destroyed objects alive ===\n");
+
+    size_t shown = 0;
+    pthread_mutex_lock(&listsLock);
+    for (TraceList *l = allLists; l != NULL; l = l->next) {
+        pthread_mutex_lock(&l->lock);
+        for (const TraceRec *rec = l->head; rec != NULL; rec = rec->next) {
+            if (rec->kind != KIND_ZOMBIE || (limit != 0 && shown >= limit))
+                continue;
+            // weakFlags is the second word of the header in front of the payload
+            const uint32_t *flags = (const uint32_t *)((const char *)recPayload(rec) - OBJ_HEADER_SIZE + 4);
+            dprintf(fd,
+                    "%sptr=%p size=%llu weak=%u @ %s:%llu\n",
+                    exitStyle ? "[ZOMBIE] " : "",
+                    recPayload(rec),
+                    (unsigned long long)rec->size,
+                    (unsigned)(*flags >> 8),
+                    rec->site ? rec->site->file : "<unknown>",
+                    (unsigned long long)(rec->site ? rec->site->line : 0));
+            shown++;
+        }
+        pthread_mutex_unlock(&l->lock);
+    }
+    pthread_mutex_unlock(&listsLock);
+    dprintf(fd,
+            "Total: %llu zombies (%llu bytes)\n",
+            (unsigned long long)total[0],
+            (unsigned long long)total[1]);
+}
+
 static void summaryFd(int fd)
 {
     uint64_t count = 0, bytes = 0, gen = 0, buffers = 0, bufferBytes = 0;
@@ -711,9 +793,21 @@ static void summaryFd(int fd)
         pthread_mutex_unlock(&l->lock);
     }
     pthread_mutex_unlock(&listsLock);
+
+    // only shown when there is one, programs without weak references print what they did
+    uint64_t zombies[2];
+    char zombieLine[96] = "";
+    __cxy_mem_trace_zombies(zombies);
+    if (zombies[0] > 0)
+        snprintf(zombieLine,
+                 sizeof(zombieLine),
+                 "zombies: %llu destroyed, %llu bytes\n",
+                 (unsigned long long)zombies[0],
+                 (unsigned long long)zombies[1]);
     dprintf(fd,
             "live: %llu allocations, %llu bytes\n"
             "buffers: %llu live, %llu bytes\n"
+            "%s"
             "allocations since start: %llu\n"
             "trace events: %u\n"
             "mark: %llu\n",
@@ -721,6 +815,7 @@ static void summaryFd(int fd)
             (unsigned long long)bytes,
             (unsigned long long)buffers,
             (unsigned long long)bufferBytes,
+            zombieLine,
             (unsigned long long)gen,
             (unsigned)__atomic_load_n(&ringIdx, __ATOMIC_RELAXED),
             (unsigned long long)__atomic_load_n(&markGen, __ATOMIC_RELAXED));
@@ -1175,6 +1270,7 @@ static void helpFd(int fd)
             "  edges <ptr>          what this object owns (exact, from the visit glue)\n"
             "  roots                global variables that own something, and what they own\n"
             "  dangling             `&T` fields whose target was destroyed\n"
+            "  zombies [n]          destroyed objects that weak references still keep\n"
             "  types                cumulative allocs/frees/bytes per class\n"
             "  sitecounts [n]       cumulative allocations per allocation point\n"
             "  diff [n]             sites of allocations made since `mark` still alive\n"
@@ -1367,6 +1463,9 @@ static bool graphBuild(Graph *g)
 {
     for (const TraceList *l = allLists; l != NULL; l = l->next) {
         for (const TraceRec *rec = l->head; rec != NULL; rec = rec->next) {
+            // a zombie owns nothing any more, its fields were dropped
+            if (rec->kind == KIND_ZOMBIE)
+                continue;
             GraphNode node = {.start = (uintptr_t)recPayload(rec),
                               .size = rec->size,
                               .path = rec->site ? rec->site->file : NULL,
@@ -2166,6 +2265,8 @@ static void handleCommand(int fd, char *line)
         liveReportFd(fd, 0, parseLimit(args[1]), sym, false, NULL);
     else if (strcmp(cmd, "leaks") == 0)
         liveReportFd(fd, 0, 0, sym, true, NULL);
+    else if (strcmp(cmd, "zombies") == 0)
+        zombiesReportFd(fd, parseLimit(args[1]), false);
     else if (strcmp(cmd, "types") == 0)
         typesReportFd(fd);
     else if (strcmp(cmd, "sitecounts") == 0)
@@ -2429,6 +2530,7 @@ void __cxy_mem_trace_report(void)
         if (leaks > 0)
             dprintf(STDOUT_FILENO, "(%llu blocks owned by named globals are not counted)\n", (unsigned long long)retained);
     }
+    zombiesReportFd(STDOUT_FILENO, 0, true);
     free(reached);
     free(comp);
     free(compSize);

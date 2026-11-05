@@ -1,0 +1,8 @@
+$ program output
+
+=== CXY Memory Leak Summary ===
+[LEAK] ptr=PTR size=16 refs=1 @ <ROOT>/tests/trace/programs/exit_zombie.cxy:18  <- owns itself
+Total: 1 active allocations (16 bytes leaked)
+=== Weak references keep destroyed objects alive ===
+[ZOMBIE] ptr=PTR size=4 weak=1 @ <ROOT>/tests/trace/programs/exit_zombie.cxy:17
+Total: 1 zombies (4 bytes)

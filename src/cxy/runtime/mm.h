@@ -78,6 +78,8 @@ _Static_assert(_Alignof(__ObjHeader) == 16, "object header must be 16-byte align
 #define __MM_PREFIX 64
 static inline void __mm_trace_alloc(void *base, uint64_t size, const __Site *site);
 static inline void __mm_trace_destroy(__ObjHeader *h);
+static inline void __mm_trace_zombie(__ObjHeader *h);
+static inline void __mm_trace_free(__ObjHeader *h);
 static inline void __mm_trace_dump(void *ptr);
 static inline void __mm_trace_report(void);
 #else
@@ -90,6 +92,14 @@ static inline void __mm_trace_alloc(void *base, uint64_t size, const __Site *sit
     (void)site;
 }
 static inline void __mm_trace_destroy(__ObjHeader *h)
+{
+    (void)h;
+}
+static inline void __mm_trace_zombie(__ObjHeader *h)
+{
+    (void)h;
+}
+static inline void __mm_trace_free(__ObjHeader *h)
 {
     (void)h;
 }
@@ -219,6 +229,7 @@ static inline void __mm_poison_payload(__ObjHeader *h)
 // Frees an object block. Debug builds poison it and delay the real free.
 static inline void __mm_free_block(__ObjHeader *h)
 {
+    __mm_trace_free(h);
     void *base = (char *)h - __MM_PREFIX;
 #if !defined(NDEBUG)
     __mm_poison_payload(h);
@@ -252,7 +263,12 @@ static inline void __mm_destroy(__ObjHeader *h, void *obj)
     __mm_poison_payload(h);
 #endif
     // The owners are gone: give up their weak count. The block is freed now unless a
-    // weak reference is still around, the last one to go frees it.
+    // weak reference is still around, the last one to go frees it. With one around
+    // the entry in the registry becomes a zombie first: after the release below the
+    // block may already be gone. With none, none can appear (no owner is left to
+    // make one), so the count read here cannot grow.
+    if ((__atomic_load_n(&h->weakFlags, __ATOMIC_RELAXED) >> __MM_WEAK_SHIFT) > 1)
+        __mm_trace_zombie(h);
     uint32_t old = __atomic_fetch_sub(&h->weakFlags, __MM_WEAK_ONE, __ATOMIC_ACQ_REL);
     if ((old >> __MM_WEAK_SHIFT) == 1)
         __mm_free_block(h);

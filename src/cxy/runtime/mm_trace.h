@@ -25,6 +25,7 @@ _Static_assert(_Alignof(__TraceHeader) == 16, "trace header must be 16-byte alig
 
 #define __MM_KIND_OBJECT 0
 #define __MM_KIND_BUFFER 1
+#define __MM_KIND_ZOMBIE 2
 #define __MM_TRACE(h) ((__TraceHeader *)((char *)(h) - sizeof(__TraceHeader)))
 
 // Implemented in stdlib/trace/mem.c (libcxy-trace)
@@ -32,6 +33,8 @@ extern void __cxy_mem_trace_start(void);
 // Entries are registered after the allocation and unregistered before the free
 extern void __cxy_mem_trace_register(__TraceHeader *th);
 extern void __cxy_mem_trace_unregister(__TraceHeader *th);
+// A destroyed object whose block weak references still keep: no longer live
+extern void __cxy_mem_trace_zombie(__TraceHeader *th);
 extern void __cxy_mem_trace_event(void *ptr, const char *op, uint32_t refs, const char *path, uint64_t line);
 extern void __cxy_mem_trace_dump(void *ptr);
 extern void __cxy_mem_trace_report(void);
@@ -52,10 +55,21 @@ static inline void __mm_trace_alloc(void *base, uint64_t size, const __Site *sit
     __cxy_mem_trace_register(th);
 }
 
+// The object is destroyed. Its entry stays until the block is freed, see below.
 static inline void __mm_trace_destroy(__ObjHeader *h)
 {
     if (!(h->weakFlags & __MM_F_LEGACY) && h->type != nullptr)
         __cxy_mem_trace_type_free(h->type->index);
+}
+
+static inline void __mm_trace_zombie(__ObjHeader *h)
+{
+    __cxy_mem_trace_zombie(__MM_TRACE(h));
+}
+
+// The block is about to be freed
+static inline void __mm_trace_free(__ObjHeader *h)
+{
     __cxy_mem_trace_unregister(__MM_TRACE(h));
 }
 

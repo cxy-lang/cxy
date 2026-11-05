@@ -11,6 +11,8 @@
 extern int pthread_create(void *thread, const void *attr, void *(*fn)(void *), void *arg);
 extern int pthread_join(void *thread, void **ret);
 extern void __cxy_mem_trace_stats(uint64_t out[4]);
+// Destroyed objects whose block weak references still keep: count, bytes
+extern void __cxy_mem_trace_zombies(uint64_t out[2]);
 
 static int failures = 0;
 
@@ -52,6 +54,13 @@ static void stats(void)
     __cxy_mem_trace_stats(live);
 }
 
+static uint64_t zombies[2];
+
+static void zombieStats(void)
+{
+    __cxy_mem_trace_zombies(zombies);
+}
+
 static void testBeforeStart(void)
 {
     // Not started: blocks work, nothing is registered
@@ -80,6 +89,114 @@ static void testObjects(void)
     __mm_release(b);
     stats();
     CHECK(live[0] == 0 && live[1] == 0);
+}
+
+// A destroyed object that weak references keep is not live, it is a zombie until
+// the last weak reference goes
+static void testZombies(void)
+{
+    void *obj = __mm_alloc(&testType, &testSite);
+    __mm_weak_retain(obj);
+    __mm_weak_retain(obj);
+    stats();
+    zombieStats();
+    CHECK(live[0] == 1 && live[1] == 24);
+    CHECK(zombies[0] == 0 && zombies[1] == 0);
+
+    __mm_release(obj);
+    stats();
+    zombieStats();
+    CHECK(live[0] == 0 && live[1] == 0);
+    CHECK(zombies[0] == 1 && zombies[1] == 24);
+
+    __mm_weak_release(obj);
+    zombieStats();
+    CHECK(zombies[0] == 1);
+    __mm_weak_release(obj);
+    zombieStats();
+    CHECK(zombies[0] == 0 && zombies[1] == 0);
+    stats();
+    CHECK(live[0] == 0);
+
+    // no weak reference: freed at once, never a zombie
+    void *plain = __mm_alloc(&testType, &testSite);
+    __mm_release(plain);
+    zombieStats();
+    CHECK(zombies[0] == 0);
+}
+
+// Several zombies, each counted with its own size
+static void testSeveralZombies(void)
+{
+    void *a = __mm_alloc(&testType, &testSite);
+    void *b = __smart_ptr_alloc(40, nullptr);
+    __mm_weak_retain(a);
+    __mm_weak_retain(b);
+    __mm_release(a);
+    __smart_ptr_drop(b);
+    zombieStats();
+    CHECK(zombies[0] == 2 && zombies[1] == 24 + 40);
+    __mm_weak_release(a);
+    zombieStats();
+    CHECK(zombies[0] == 1 && zombies[1] == 40);
+    __mm_weak_release(b);
+    zombieStats();
+    CHECK(zombies[0] == 0);
+}
+
+// A weak reference released on another thread frees the block and the entry
+static void *releaseWeakOther(void *arg)
+{
+    __mm_weak_release(arg);
+    return nullptr;
+}
+
+static void testZombieFreedOnOtherThread(void)
+{
+    void *obj = __mm_alloc(&testType, &testSite);
+    __mm_weak_retain(obj);
+    __mm_release(obj);
+    zombieStats();
+    CHECK(zombies[0] == 1);
+
+    void *thread;
+    CHECK(pthread_create(&thread, nullptr, releaseWeakOther, obj) == 0);
+    pthread_join(thread, nullptr);
+    zombieStats();
+    CHECK(zombies[0] == 0 && zombies[1] == 0);
+    stats();
+    CHECK(live[0] == 0);
+}
+
+static void *upgradeChurn(void *arg)
+{
+    for (int i = 0; i < ITERATIONS / 10; i++) {
+        void *strong = __mm_upgrade(arg);
+        if (strong != nullptr)
+            __mm_release(strong);
+    }
+    __mm_weak_release(arg);
+    return nullptr;
+}
+
+// Whoever ends up freeing the block, no entry is left behind
+static void testZombieChurn(void)
+{
+    for (int round = 0; round < 20; round++) {
+        void *obj = __mm_alloc(&testType, &testSite);
+        void *threads[THREADS];
+        for (int i = 0; i < THREADS; i++)
+            __mm_weak_retain(obj);
+        for (int i = 0; i < THREADS; i++)
+            CHECK(pthread_create(&threads[i], nullptr, upgradeChurn, obj) == 0);
+        __mm_release(obj);
+        for (int i = 0; i < THREADS; i++)
+            pthread_join(threads[i], nullptr);
+    }
+    stats();
+    zombieStats();
+    CHECK(live[0] == 0 && live[1] == 0);
+    CHECK(zombies[0] == 0 && zombies[1] == 0);
 }
 
 static void testLegacyObjects(void)
@@ -240,6 +357,10 @@ int main(void)
     __cxy_mem_trace_start();
     testVisitEdge();
     testObjects();
+    testZombies();
+    testSeveralZombies();
+    testZombieFreedOnOtherThread();
+    testZombieChurn();
     testLegacyObjects();
     testBuffers();
     testCrossThreadFree();
