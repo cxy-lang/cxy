@@ -7,12 +7,16 @@
 #include "core/strpool.h"
 #include "driver/driver.h"
 #include "driver/options.h"
+#include "lang/backend/c/codegen.h"
 #include "lang/middle/dump/sexp.h"
 #include "lang/middle/ir/dump/sexp.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
+#include <string>
+#include <unistd.h>
 
 #ifndef CXY_TESTING_STDLIB_DIR
 #error "CXY_TESTING_STDLIB_DIR must be defined to the stdlib of the source tree"
@@ -154,6 +158,9 @@ struct TestCompiler::Impl {
 
     bool driverReady = false;
     mutable std::string diagnosticsText;
+    // `<outputBase>.c` is where the backend writes the program
+    std::string outputBase;
+    mutable std::string generatedText;
 
     explicit Impl(const CompileOptions &opts) : options(opts)
     {
@@ -182,11 +189,18 @@ struct TestCompiler::Impl {
             args.push_back("--without-builtins");
         for (const std::string &arg : options.extraArgs)
             args.push_back(arg);
+        if (options.keepGeneratedC) {
+            outputBase = "/tmp/cxy-testing-" + std::to_string(getpid());
+            args.push_back("-o");
+            args.push_back(outputBase);
+        }
         args.push_back("test.cxy");
     }
 
     ~Impl()
     {
+        if (!outputBase.empty())
+            std::remove((outputBase + ".c").c_str());
         if (driverReady)
             deinitCompilerDriver(&driver);
         freeFormatState(&diagnosticsState);
@@ -225,6 +239,25 @@ bool TestCompiler::compile(const std::string &source)
     if (!impl_->init())
         return false;
     return compileString(&impl_->driver, source.c_str(), source.size(), "test.cxy");
+}
+
+const std::string &TestCompiler::generatedC() const
+{
+    impl_->generatedText.clear();
+    if (impl_->outputBase.empty())
+        return impl_->generatedText;
+    // The backend keeps the file open until the driver goes, what it wrote may still be buffered
+    if (impl_->driver.backend != nullptr && ((CBackend *)impl_->driver.backend)->output != nullptr)
+        fflush(((CBackend *)impl_->driver.backend)->output);
+    FILE *f = fopen((impl_->outputBase + ".c").c_str(), "r");
+    if (f == nullptr)
+        return impl_->generatedText;
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        impl_->generatedText.append(buf, n);
+    fclose(f);
+    return impl_->generatedText;
 }
 
 const std::string &TestCompiler::diagnostics() const

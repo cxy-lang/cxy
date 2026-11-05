@@ -41,6 +41,8 @@ struct CompileOptions {
     std::string stdlibDir;
     // Any other command line option for `cxy dev`
     std::vector<std::string> extraArgs;
+    // Keep the C the backend writes, for `generatedC()`. Needs stage `Codegen`.
+    bool keepGeneratedC = false;
 };
 
 /**
@@ -139,6 +141,10 @@ public:
 
     // `ir().findFunction(name)`
     IrNodeWrapper function(const std::string &name) const;
+
+    // The C source of the program, with `keepGeneratedC` and stage `Codegen`.
+    // Empty otherwise.
+    const std::string &generatedC() const;
 
     // The compiler driver, for a test that needs something not wrapped yet
     CompilerDriver *driver() const;

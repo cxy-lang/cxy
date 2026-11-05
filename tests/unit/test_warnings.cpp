@@ -49,6 +49,20 @@ TEST_CASE("Warning lists: `~` removes a warning")
           BIT(wrnRedundantStmt));
 }
 
+TEST_CASE("Warning lists: every ownership rule is in the `Ownership` group, off by default")
+{
+    LogFixture f;
+    for (u64 warning : {(u64)wrnOwnerLeak, (u64)wrnUseAfterMove, (u64)wrnDoubleDrop,
+                        (u64)wrnUnclearedMove, (u64)wrnOverwrittenOwner, (u64)wrnDropFlagMismatch,
+                        (u64)wrnRedeclaredOwner, (u64)wrnReturnedBorrow, (u64)wrnDanglingBorrow,
+                        (u64)wrnMoveOfReference, (u64)wrnTemporaryOwnership, (u64)wrnMovedGlobal}) {
+        CHECK((wrnOwnership & BIT(warning)) != 0);
+        CHECK((wrnDefault & BIT(warning)) == 0);
+    }
+    CHECK(f.parse("MovedGlobal", wrnNone) == BIT(wrnMovedGlobal));
+    CHECK(f.parse("Ownership|~MovedGlobal", wrnNone) == (wrnOwnership & ~BIT(wrnMovedGlobal)));
+}
+
 TEST_CASE("Warning lists: spaces and empty tokens")
 {
     LogFixture f;
