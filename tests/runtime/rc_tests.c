@@ -161,6 +161,21 @@ static void testRetainDying(void)
 }
 
 #if !defined(__MM_ASAN)
+// A borrow of a destroyed object is caught where it is loaded, a live one is not
+static void testDanglingBorrow(void)
+{
+    resetState();
+    unsigned char *obj = __smart_ptr_alloc(32, countingDtor);
+    CHECK(__mm_ref(obj, "t.cxy", 1) == obj);
+    CHECK(faultCount == 0);
+    CHECK(__mm_ref((unsigned char *)nullptr, "t.cxy", 2) == nullptr);
+    CHECK(faultCount == 0);
+
+    __smart_ptr_drop(obj);
+    __mm_ref(obj, "t.cxy", 3);
+    CHECK(faultCount == 1 && lastFault == __MM_FAULT_DANGLING_REF);
+}
+
 static void testPoisonAndQuarantine(void)
 {
     resetState();
@@ -278,6 +293,7 @@ int main(void)
     testRetainDying();
 #if !defined(__MM_ASAN)
     testPoisonAndQuarantine();
+    testDanglingBorrow();
 #endif
 #endif
     testConcurrentCounts();

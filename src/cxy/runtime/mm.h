@@ -49,6 +49,7 @@ typedef struct __attribute__((aligned(16))) __ObjHeader {
 #define __MM_FAULT_OVERFLOW 1
 #define __MM_FAULT_UNDERFLOW 2
 #define __MM_FAULT_RETAIN_DYING 3
+#define __MM_FAULT_DANGLING_REF 4
 
 // Layout checks: the trace library and generated code assume these offsets
 _Static_assert(sizeof(__ObjHeader) == 16, "object header must stay 16 bytes");
@@ -294,6 +295,36 @@ static inline bool __mm_release(void *obj)
         __atomic_store_n(&h->strong, __MM_RC_SATURATED, __ATOMIC_RELAXED);
     return false;
 }
+
+/* ------------------------------------------------- borrowed references */
+
+// A `&T` read from a field or returned by a call carries no count. Debug builds
+// check the header before the borrow is used, release builds read it as is.
+#ifndef NDEBUG
+__attribute__((noinline, cold)) static void __mm_dangling(void *obj, const char *file, uint64_t line)
+{
+#if defined(CXY_RUNTIME_TEST)
+    if (__mm_fault_hook != nullptr) {
+        __mm_fault_hook(__MM_FAULT_DANGLING_REF, obj);
+        return;
+    }
+#endif
+    __cxy_panic_mem(obj, file, line, "borrowed reference used after its owner was destroyed");
+}
+
+static inline void *__mm_check_live(void *obj, const char *file, uint64_t line)
+{
+    if (obj == nullptr)
+        return obj;
+    __ObjHeader *h = __MM_HEADER(obj);
+    if (unlikely((h->weakFlags & __MM_CANARY_MASK) != __MM_CANARY))
+        __mm_dangling(obj, file, line);
+    return obj;
+}
+#define __mm_ref(p, file, line) ((__typeof__(p))__mm_check_live((p), (file), (line)))
+#else
+#define __mm_ref(p, file, line) (p)
+#endif
 
 /* ------------------------------------------------- container storage */
 

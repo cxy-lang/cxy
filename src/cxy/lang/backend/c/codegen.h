@@ -41,6 +41,8 @@ typedef struct CodegenContext {
     bool hasTestCases;
     bool memTraceEnabled;
     bool inLoop;
+    // a call used as a statement, its result is discarded so it needs no check
+    const struct IrNode *discardedCall;
 
     struct {
         bool enabled;

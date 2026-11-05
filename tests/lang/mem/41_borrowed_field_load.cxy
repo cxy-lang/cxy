@@ -1,0 +1,22 @@
+// @TEST_ARGS: ~--without-builtins
+// A `&T` loaded from a field or returned by a call is checked before it is used
+// (debug builds). The owner is alive here, so nothing is reported.
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() {}
+}
+
+class View {
+    src: &Node
+    func `init`(n: &Node) { this.src = n }
+    func get(): &Node => src
+    func read(): i32 => src.id
+}
+
+func main(): void {
+    var n = Node(1)
+    var v = View(&n)
+    println(v.read())
+    println(v.get().id)
+}

@@ -682,10 +682,28 @@ static void emitAlloc(ConstIrVisitor *visitor, const IrNode *node)
     }
 }
 
+// A `&T` of a class that was loaded from a field or returned by a call has no count
+// to vouch for it. Debug builds check its header before it is used.
+static bool isBorrowedClass(const IrType *type)
+{
+    return type && type->tag == irTypePointer && type->category == irTypeCatReference &&
+           type->pointer.pointee && type->pointer.pointee->category == irTypeCatClass;
+}
+
 static void emitMember(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
-    irConstVisit(visitor, node->member.target);
+    const IrNode *target = node->member.target;
+    if (target && target->tag == irMember && isBorrowedClass(target->type)) {
+        format(&ctx->state, "__mm_ref(", NULL);
+        irConstVisit(visitor, target);
+        format(&ctx->state,
+               ", \"{s}\", {u64})",
+               (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
+    }
+    else {
+        irConstVisit(visitor, target);
+    }
     if (node->member.target && isIrPointerType(node->member.target->type))
         format(&ctx->state, "->", NULL);
     else
@@ -781,7 +799,7 @@ static cstring bufferAllocatorName(const CodegenContext *ctx, const IrNode *call
     return NULL;
 }
 
-static void emitCall(ConstIrVisitor *visitor, const IrNode *node)
+static void emitCallExpr(ConstIrVisitor *visitor, const IrNode *node)
 {
     CodegenContext *ctx = getConstIrVisitorContext(visitor);
     const IrNode *callee = node->call.callee;
@@ -811,6 +829,21 @@ static void emitCall(ConstIrVisitor *visitor, const IrNode *node)
             format(&ctx->state, ", ", NULL);
     }
     format(&ctx->state, ")", NULL);
+}
+
+// A `&T` a call returns is checked before it is used, see `isBorrowedClass`
+static void emitCall(ConstIrVisitor *visitor, const IrNode *node)
+{
+    CodegenContext *ctx = getConstIrVisitorContext(visitor);
+    if (!isBorrowedClass(node->type) || ctx->discardedCall == node) {
+        emitCallExpr(visitor, node);
+        return;
+    }
+    format(&ctx->state, "__mm_ref(", NULL);
+    emitCallExpr(visitor, node);
+    format(&ctx->state,
+           ", \"{s}\", {u64})",
+           (FormatArg[]){{.s = node->loc.fileName ?: ""}, {.u64 = node->loc.begin.row}});
 }
 
 static void emitAddrOf(ConstIrVisitor *visitor, const IrNode *node)
@@ -1656,6 +1689,7 @@ static void emitBasicBlock(ConstIrVisitor *visitor, const IrNode *node)
             continue;
         emitLineDirective(ctx, &stmt->loc);
         if (stmt->tag == irCall || stmt->tag == irUnary || stmt->tag == irBinary) {
+            ctx->discardedCall = stmt;
             format(&ctx->state, "  ", NULL);
             irConstVisit(visitor, stmt);
             format(&ctx->state, ";\n", NULL);
