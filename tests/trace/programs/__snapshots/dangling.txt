@@ -2,11 +2,11 @@ $ dangling
 Total: 0 dangling borrows
 @next
 $ dangling
-dangling: View PTR @ <ROOT>/tests/trace/programs/dangling.cxy:16 borrows PTR, which is no longer live
+dangling: View PTR @ <ROOT>/tests/trace/programs/dangling.cxy:25 borrows PTR, which is no longer live
 
 --- Lifecycle Timeline for PTR in __cxy_mem_ring ---
-  [1] alloc refs=1   @ <ROOT>/tests/trace/programs/dangling.cxy:15
-  [2] drop  refs=1   @ <ROOT>/tests/trace/programs/dangling.cxy:18
+  [1] alloc refs=1   @ <ROOT>/tests/trace/programs/dangling.cxy:24
+  [2] drop  refs=1   @ <ROOT>/tests/trace/programs/dangling.cxy:27
 ---------------------------------------------------
 
 Total: 1 dangling borrows

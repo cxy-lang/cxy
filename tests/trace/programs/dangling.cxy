@@ -1,3 +1,4 @@
+import { Vector } from "stdlib/vector.cxy"
 import { waitForHarness } from "./_harness.cxy"
 
 class Node {
@@ -6,9 +7,17 @@ class Node {
     func `deinit`() { }
 }
 
+// Owns an object and a container as well as the borrow: the scan walks all of it
 class View {
     src: &Node
-    func `init`(n: &Node) { this.src = n }
+    owned: Node
+    items: Vector[Node]
+    func `init`(n: &Node) {
+        this.src = n
+        this.owned = Node(9)
+        this.items = Vector[Node]()
+        this.items.push(Node(10))
+    }
 }
 
 func main(): void {

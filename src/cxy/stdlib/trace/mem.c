@@ -1186,12 +1186,31 @@ static void reportDanglingBorrow(TraceVisitor *v, const void *from, const void *
     scan->found++;
 }
 
+// The scan reads borrows only: owned references and buffers are visited too, they
+// have to be answered but are not looked at
+static void ignoreEdge(TraceVisitor *v, const void *from, const void *to)
+{
+    (void)v;
+    (void)from;
+    (void)to;
+}
+
+static uint64_t noBufferBytes(TraceVisitor *v, const void *ptr)
+{
+    (void)v;
+    (void)ptr;
+    return 0;
+}
+
 static void danglingReportFd(int fd)
 {
     DanglingScan scan = {.printer = {.fd = fd}};
     scan.printer.sorted = liveSnapshot(0, &scan.printer.count);
     qsort(scan.printer.sorted, scan.printer.count, sizeof(LiveEntry), compareByPtr);
-    TraceVisitor visitor = {.borrow = reportDanglingBorrow, .ctx = &scan};
+    TraceVisitor visitor = {.edge = ignoreEdge,
+                            .bufferBytes = noBufferBytes,
+                            .borrow = reportDanglingBorrow,
+                            .ctx = &scan};
     for (size_t i = 0; i < scan.printer.count; i++) {
         const LiveEntry *entry = &scan.printer.sorted[i];
         if (entry->buffer)
