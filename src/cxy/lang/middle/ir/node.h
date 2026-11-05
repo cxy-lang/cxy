@@ -233,6 +233,9 @@ typedef enum IrInfo {
     irInfoGlue = BIT(6),
     // a statement or variable created by a pass, not written by the user
     irInfoSynthetic = BIT(7),
+    // an owned-position operand whose variable a `move x` statement before it
+    // already took out of play, so the consumer owns it with no copy
+    irInfoMoved = BIT(8),
 } IrInfo;
 
 static inline bool irHasInfo(const IrNode *node, u32 bits)

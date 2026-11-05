@@ -293,7 +293,7 @@ func main(): void {}
                 (Block _L_IF0_then
                     ...
                     (Assign (Member (VarRef __drop_flags) a) 0)
-                    (Call (GlobalRef take) (VarRef a))
+                    (Call (GlobalRef take) (VarRef a :owned-position :moved))
                     ...)
                 ...
                 (Block _L_exit

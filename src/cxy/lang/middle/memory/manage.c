@@ -1,6 +1,7 @@
 #include "memory.h"
 #include "flow.h"
 #include "normalize.h"
+#include "operands.h"
 #include "core/hash.h"
 #include "lang/frontend/flag.h"
 #include "lang/middle/ir/visitor.h"
@@ -108,61 +109,6 @@ static IrNode *rebuildCastChain(MemPool *pool, const IrNode *castTree, IrNode *n
     return makeIrCast(pool, &castTree->loc, inner, castTree->type);
 }
 
-static inline IrNode *unwrapCasts(IrNode *node)
-{
-    while (node && node->tag == irCast)
-        node = node->cast.expr;
-    return node;
-}
-
-static inline const IrNode *unwrapCastsConst(const IrNode *node)
-{
-    while (node && node->tag == irCast)
-        node = node->cast.expr;
-    return node;
-}
-
-static inline IrNode *findMovedVarDecl(const IrNode *src)
-{
-    src = unwrapCastsConst(src);
-    if (src && src->tag == irVarRef)
-        return src->varRef.target;
-    return NULL;
-}
-
-// The single definition of "this operand is a move": returns the slot holding an
-// irMove, looking through casts (`<Base>(&&x)`), or NULL.
-static IrNode **moveSlot(IrNode **slot)
-{
-    while (slot && *slot && (*slot)->tag == irCast)
-        slot = &(*slot)->cast.expr;
-    return (slot && *slot && (*slot)->tag == irMove) ? slot : NULL;
-}
-
-
-// Lowering marks every operand a consumer takes ownership of with
-// `:owned-position`. These walk the operands under a node and call `cb` with the
-// slot of each marked one, so a move in any position is found, whatever holds it.
-typedef struct OwnedSlotWalk {
-    void (*cb)(IrNode **slot, void *ctx);
-    void *ctx;
-} OwnedSlotWalk;
-
-static void walkOperandSlot(IrNode **slot, void *walkPtr)
-{
-    OwnedSlotWalk *walk = walkPtr;
-    if (*slot == NULL)
-        return;
-    if (irHasInfo(*slot, irInfoOwnedPosition))
-        walk->cb(slot, walk->ctx);
-    irForEachOperandSlot(*slot, walkOperandSlot, walk);
-}
-
-static void forEachOwnedSlot(IrNode *node, void (*cb)(IrNode **slot, void *ctx), void *cbCtx)
-{
-    OwnedSlotWalk walk = {.cb = cb, .ctx = cbCtx};
-    irForEachOperandSlot(node, walkOperandSlot, &walk);
-}
 
 typedef struct MovedSourceVisit {
     void (*cb)(IrNode *src, void *ctx);
@@ -222,6 +168,9 @@ static void computeIntraBlockGenKill(MemMgmtContext *ctx, CfgBlockInfo *block)
         }
         else if (stmt->tag == irCall) {
             forEachMovedSource(stmt, onMoveInGenKill, &data);
+        }
+        else if (stmt->tag == irMove) {
+            onMoveInGenKill(stmt->move.src, &data);
         }
         else if (stmt->tag == irCopy) {
             TrackedVar *dstVar = getTrackedVar(ctx, findVarDeclInNode(stmt->copy.dst));
@@ -360,22 +309,6 @@ static bool isUnwrappedCallResult(const IrNode *src)
            decl->type->category == irTypeCatResult;
 }
 
-static void insertBeforeStmt(IrNode *bb, IrNode **prevRef, IrNode *stmt, IrNode *node)
-{
-    node->next = stmt;
-    if (*prevRef)
-        (*prevRef)->next = node;
-    else
-        bb->basicBlock.first = node;
-    *prevRef = node;
-}
-
-static void insertAfterStmt(IrNode *stmt, IrNode **nextRef, IrNode *node)
-{
-    node->next = *nextRef;
-    stmt->next = node;
-    *nextRef = node;
-}
 
 // The statement being elaborated, the new statements go before it (`prev` is the
 // last one before it) or after it (`next` is the first one after it)
@@ -387,6 +320,7 @@ typedef struct ElabCursor {
     IrNode *next;
     BitSet *may;
     BitSet *must;
+    bool removed; // the statement was taken out of the block
 } ElabCursor;
 
 static void insertBefore(ElabCursor *c, IrNode *node)
@@ -411,15 +345,6 @@ static void insertDropBefore(ElabCursor *c, IrNode *target)
     insertBefore(c, makeIrDrop(c->ctx->pool, &c->stmt->loc, target));
 }
 
-// Replaces a `move src` operand by `src` itself and returns it
-static IrNode *stripMove(IrNode **moveRef)
-{
-    IrNode *mv = *moveRef;
-    IrNode *src = mv->move.src;
-    src->next = mv->next;
-    *moveRef = src;
-    return src;
-}
 
 static bool isPlaceNode(const IrNode *node)
 {
@@ -475,9 +400,9 @@ static IrNode *declareOwnedTemp(ElabCursor *c, cstring prefix, const IrNode *pla
     return decl;
 }
 
-// `x` is no longer owned. Its drop flag is cleared before the statement (an operand
-// still reads the variable, only ownership moves) or after it (an assignment).
-static void killMovedVar(ElabCursor *c, IrNode *decl, bool flagBefore)
+// `x` is no longer owned. Its drop flag is cleared where the move is, the
+// statement that uses `x` still reads it, only ownership has moved.
+static void killMovedVar(ElabCursor *c, IrNode *decl)
 {
     TrackedVar *var = getTrackedVar(c->ctx, decl);
     if (var == NULL || var->isTemporary)
@@ -487,12 +412,19 @@ static void killMovedVar(ElabCursor *c, IrNode *decl, bool flagBefore)
         return;
 
     IrNode *clearFlag = makeDropFlagAssign(c->ctx, &c->stmt->loc, var, false);
-    if (clearFlag == NULL)
-        return;
-    if (flagBefore)
+    if (clearFlag)
         insertBefore(c, clearFlag);
+}
+
+// A `move x` statement is only a marker for the analysis, it is gone afterwards
+static void elaborateMoveStmt(ElabCursor *c)
+{
+    killMovedVar(c, findMovedVarDecl(c->stmt->move.src));
+    if (c->prev)
+        c->prev->next = c->next;
     else
-        insertAfter(c, clearFlag);
+        c->bb->basicBlock.first = c->next;
+    c->removed = true;
 }
 
 // `__mv = src; src = null;` then the operand is `__mv`
@@ -514,19 +446,14 @@ static void captureMovedPlace(ElabCursor *c, IrNode **moveRef, IrNode *src)
     *moveRef = tempRef;
 }
 
-// Moves take effect when the operand is evaluated, i.e. before the statement.
-// Clearing after it is wrong once the parent can resume mid-call (async).
+// Variables were moved by statements, what is left is a field or an element
 static void elaborateMovedOperand(ElabCursor *c, IrNode **moveRef)
 {
     IrNode *src = (*moveRef)->move.src;
-    IrNode *srcDecl = findMovedVarDecl(src);
-    if (srcDecl == NULL && isMovablePlace(src)) {
+    if (isMovablePlace(src))
         captureMovedPlace(c, moveRef, src);
-        return;
-    }
-    stripMove(moveRef);
-    if (srcDecl)
-        killMovedVar(c, srcDecl, true);
+    else
+        stripMove(moveRef);
 }
 
 // A place that is not a temporary or a call result is still owned by someone else
@@ -559,7 +486,7 @@ static void elaborateOwnedOperand(IrNode **slot, void *cursor)
 {
     ElabCursor *c = cursor;
     IrNode *val = *slot;
-    if (val == NULL)
+    if (val == NULL || irHasInfo(val, irInfoMoved))
         return;
 
     IrNode **moveRef = moveSlot(slot);
@@ -574,18 +501,6 @@ static void elaborateOwnedOperand(IrNode **slot, void *cursor)
         copyIntoTemp(c, slot, val, inner);
 }
 
-// A `&&x` for a parameter that only borrows is not a move: `x` stays owned, so
-// the move is dropped and the operand is the borrow itself
-static void dropBorrowedMoves(IrNode *call)
-{
-    for (IrNode **arg = &call->call.args; *arg; arg = &(*arg)->next) {
-        if (irHasInfo(*arg, irInfoOwnedPosition))
-            continue;
-        IrNode **mv = moveSlot(arg);
-        if (mv)
-            stripMove(mv);
-    }
-}
 
 // Moves and copies for every operand of a call or a literal that a consumer takes
 // ownership of, found by the `:owned-position` bit, in evaluation order
@@ -593,13 +508,13 @@ static void injectOperandCopies(ElabCursor *c, IrNode *value)
 {
     if (value == NULL)
         return;
-    if (value->tag == irCall)
-        dropBorrowedMoves(value);
     forEachOwnedSlot(value, elaborateOwnedOperand, c);
 }
 
 static bool shouldPromoteAssignToCopy(const IrNode *lhsDecl, const IrNode *lhs, const IrNode *rhs)
 {
+    if (irHasInfo(rhs, irInfoMoved))
+        return false;
     if (!isIrVarDestructible(lhsDecl) && !isIrTypeDestructible(lhs->type))
         return false;
     // `<Base>x` (a class up/down cast) still refers to `x`, so it is copied
@@ -667,15 +582,11 @@ static void elaborateStoreTarget(ElabCursor *c, IrNode *target, bool storesNothi
         insertFlagAfter(c, var, !storesNothing);
 }
 
-// `x = &&y`: the move is stripped, `y` is no longer owned, or the field it was
-// taken from is cleared
+// `x = &&p.f`: the move is stripped and the field it was taken from is cleared
 static void elaborateAssignMove(ElabCursor *c, IrNode **moveRef)
 {
     IrNode *src = stripMove(moveRef);
-    IrNode *srcDecl = findMovedVarDecl(src);
-    if (srcDecl)
-        killMovedVar(c, srcDecl, false);
-    else if (isPlaceNode(src))
+    if (isPlaceNode(src))
         nullifyMovedPlace(c, src);
 }
 
@@ -772,6 +683,8 @@ static void elaborateStmt(ElabCursor *c)
         injectOperandCopies(c, stmt);
     else if (stmt->tag == irScopeExit)
         elaborateScopeExit(c);
+    else if (stmt->tag == irMove)
+        elaborateMoveStmt(c);
 }
 
 static void elaborateBlock(MemMgmtContext *ctx, CfgBlockInfo *block, BitSet *may, BitSet *must)
@@ -785,7 +698,9 @@ static void elaborateBlock(MemMgmtContext *ctx, CfgBlockInfo *block, BitSet *may
         c.stmt = stmt;
         c.next = stmt->next;
         elaborateStmt(&c);
-        c.prev = stmt;
+        if (!c.removed)
+            c.prev = stmt;
+        c.removed = false;
     }
 
     IrNode *lastStmt = NULL;

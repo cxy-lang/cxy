@@ -439,6 +439,7 @@ static void infoMarkers(SexpContext *ctx, const IrNode *node)
         cstring name;
     } bits[] = {
         {irInfoOwnedPosition, "owned-position"},
+        {irInfoMoved, "moved"},
         {irInfoUserWritten, "user-written"},
         {irInfoImplicit, "implicit"},
         {irInfoGlue, "glue"},

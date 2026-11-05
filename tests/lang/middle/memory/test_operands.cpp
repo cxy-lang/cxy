@@ -56,7 +56,7 @@ func main(): void {}
             (VarDecl __copy0 ^Node :temporary)
             (Copy (VarRef a :owned-position) (VarRef __copy0))
             (Call (GlobalRef take) (VarRef __copy0))
-            (Call (GlobalRef take) (VarRef b))
+            (Call (GlobalRef take) (VarRef b :owned-position :moved))
             (Goto _L_exit))
     )");
     // `a` is still owned at the end, `b` went to `take`
