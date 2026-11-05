@@ -1,5 +1,10 @@
 // @TEST_ARGS: ~--without-builtins
 import "stdlib/thread.cxy"
+import { Atomic } from "stdlib/atomic.cxy"
+
+// Nothing joins a detached thread, so it says when it has printed. Without it the
+// output order, or whether it is printed at all, depends on the scheduler.
+var detachedDone = Atomic[i32]()
 
 struct User {
     name: String
@@ -10,6 +15,7 @@ func detached(user: User): !void {
     // The thread owns the closure env, it must outlive this function
     launch {
         println(user.age)
+        detachedDone.store(1)
     }
 }
 
@@ -22,5 +28,6 @@ func joined(user: User): !void {
 
 func main(): !void {
     detached(User{name: "a".S, age: 1})
+    while detachedDone.load() == 0 {}
     joined(User{name: "b".S, age: 2})
 }
