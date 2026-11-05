@@ -51,6 +51,13 @@ void irConstVisitManyNodes(ConstIrVisitor *visitor, const IrNode *node);
 void irVisitFallbackVisitAll(IrVisitor *visitor, IrNode *node);
 void irConstVisitFallbackVisitAll(ConstIrVisitor *visitor, const IrNode *node);
 
+// Calls `cb` with the slot of every operand of `node`, in evaluation order. A
+// slot is the pointer that holds the operand, so `cb` can replace it. Operands
+// of a list (call arguments, literal elements) are visited one by one.
+void irForEachOperandSlot(IrNode *node,
+                          void (*cb)(IrNode **slot, void *ctx),
+                          void *ctx);
+
 void irVisitSkip(IrVisitor *visitor, IrNode *node);
 void irConstVisitSkip(ConstIrVisitor *visitor, const IrNode *node);
 

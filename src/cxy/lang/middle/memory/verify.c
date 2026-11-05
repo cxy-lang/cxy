@@ -28,7 +28,8 @@ typedef enum {
     oevZeroPart,   // a field of x is cleared or refilled
     oevEscape,     // decl: a local whose borrow is returned
     oevBind,       // decl: a reference variable, other: the owner it borrows
-    oevRefUse      // decl: a reference variable is read
+    oevRefUse,     // decl: a reference variable is read
+    oevRefMove     // decl: a reference variable under a `&&` the user wrote
 } OwnEventKind;
 
 typedef struct OwnEvent {
@@ -168,6 +169,13 @@ static bool isReferenceVar(const IrNode *decl)
            decl->type->category == irTypeCatReference;
 }
 
+// A variable or a parameter of reference type
+static bool isReferenceDecl(const IrNode *decl)
+{
+    return decl && (decl->tag == irVarDecl || decl->tag == irFuncParam) &&
+           decl->type && decl->type->category == irTypeCatReference;
+}
+
 static const IrNode *flagMemberDecl(const Collector *c, const IrNode *node)
 {
     node = stripCasts(node);
@@ -191,6 +199,13 @@ static void visitVarRef(IrVisitor *v, IrNode *node)
 static void visitMove(IrVisitor *v, IrNode *node)
 {
     Collector *c = getIrVisitorContext(v);
+    // Only a `&&` the user wrote: a move the compiler inserts is not theirs
+    const IrNode *moved = stripCasts(node->move.src);
+    if (irHasInfo(node, irInfoUserWritten) && moved && moved->tag == irVarRef &&
+        isReferenceDecl(moved->varRef.target)) {
+        emit(c, oevRefMove, moved->varRef.target, &node->loc, 0, 0);
+        return;
+    }
     const IrNode *decl = trackedVarRef(node->move.src);
     if (decl) {
         emit(c, oevMove, decl, &node->loc, 0, 0);
@@ -486,12 +501,13 @@ typedef struct BlockInfo {
     bool reached;
 } BlockInfo;
 
-typedef enum { ruleO1, ruleO2, ruleO3, ruleO5, ruleO7, ruleO8, ruleO13, ruleB3, ruleB4 } Rule;
+typedef enum { ruleO1, ruleO2, ruleO3, ruleO5, ruleO6, ruleO7, ruleO8, ruleO13, ruleB3, ruleB4 } Rule;
 
 static const char *const ruleNames[] = {[ruleO1] = "O1",
                                         [ruleO2] = "O2",
                                         [ruleO3] = "O3",
                                         [ruleO5] = "O5",
+                                        [ruleO6] = "O6",
                                         [ruleO7] = "O7",
                                         [ruleO8] = "O8",
                                         [ruleO13] = "O13",
@@ -503,6 +519,7 @@ static const u8 ruleWarnings[] = {[ruleO1] = wrnOwnerLeak,
                                   [ruleO2] = wrnUseAfterMove,
                                   [ruleO3] = wrnDoubleDrop,
                                   [ruleO5] = wrnUnclearedMove,
+                                  [ruleO6] = wrnMoveOfReference,
                                   [ruleO7] = wrnOverwrittenOwner,
                                   [ruleO8] = wrnDropFlagMismatch,
                                   [ruleO13] = wrnRedeclaredOwner,
@@ -624,6 +641,8 @@ static void applyEvent(FuncVerify *fv, VarState *vars, const OwnEvent *ev, bool 
                           "is borrowed and the borrow is returned, but it dies at function exit");
         return;
     case oevBind:
+        return;
+    case oevRefMove: // reported by reportReferenceMoves, it needs no state
         return;
     case oevRefUse: {
         i64 owner = getPtrIndex(&fv->bindIndex, ev->decl);
@@ -917,6 +936,31 @@ static void findFlags(FuncVerify *fv, const IrNode *fn)
     }
 }
 
+// O6 needs no flow: a `&&` the user wrote on a reference is wrong wherever it is,
+// also in a function that owns nothing
+static void reportReferenceMoves(FuncVerify *fv, const OwnershipSnapshot *snap)
+{
+    for (const IrNode *bb = fv->func->function.firstBlock; bb; bb = bb->next) {
+        if (bb->tag != irBasicBlock)
+            continue;
+        for (const IrNode *s = bb->basicBlock.first; s; s = s->next) {
+            const StmtEntry *known = findStmtEntry(&snap->stmts, s);
+            for (u32 k = 0; known && k < known->count; k++) {
+                const OwnEvent *ev = &known->events[k];
+                if (ev->kind == oevRefMove)
+                    reportFinding(fv,
+                                  ruleO6,
+                                  true,
+                                  ev->decl,
+                                  ev->loc,
+                                  NULL,
+                                  "is a reference, it cannot be moved out of: write "
+                                  "`@copy` to take an owner");
+            }
+        }
+    }
+}
+
 static void verifyFunction(const OwnershipSnapshot *snap,
                            IrNode *fn,
                            OwnershipReporter reporter,
@@ -932,6 +976,7 @@ static void verifyFunction(const OwnershipSnapshot *snap,
         .reported = newDynArray(sizeof(Finding)),
     };
     fv.varIndex = newHashTable(sizeof(PtrIndex), &fv.pool);
+    reportReferenceMoves(&fv, snap);
 
     if (!collectTrackedVars(&decls, fn))
         goto done;

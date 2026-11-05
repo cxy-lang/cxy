@@ -603,3 +603,54 @@ TEST_CASE("Ownership verifier: O5 field moved out and not cleared")
         CHECK(found[0].var == "x");
     }
 }
+
+TEST_CASE("Ownership verifier: O6 a reference cannot be moved out of")
+{
+    SUBCASE("a `&&r` the user wrote")
+    {
+        Builder b;
+        IrNode *bb = b.block("entry");
+        IrNode *r = b.refVar(bb, "r");
+        IrNode *mv = b.move(r);
+        irSetInfo(mv, irInfoUserWritten);
+        irAppendBlockStmt(bb, b.call(mv));
+        irAppendBlockStmt(bb, b.ret());
+
+        OwnershipSnapshot *snap = ownershipSnapshot(b.module);
+        auto found = b.verify(snap);
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O6");
+        CHECK(found[0].var == "r");
+        CHECK(found[0].definite);
+        freeOwnershipSnapshot(snap);
+    }
+
+    SUBCASE("the same move inserted by the compiler is not the user's")
+    {
+        Builder b;
+        IrNode *bb = b.block("entry");
+        IrNode *r = b.refVar(bb, "r");
+        irAppendBlockStmt(bb, b.call(b.move(r)));
+        irAppendBlockStmt(bb, b.ret());
+
+        OwnershipSnapshot *snap = ownershipSnapshot(b.module);
+        CHECK(b.verify(snap).empty());
+        freeOwnershipSnapshot(snap);
+    }
+
+    SUBCASE("a `&&x` of an owner is fine")
+    {
+        Builder b;
+        IrNode *bb = b.block("entry");
+        IrNode *x = b.var(bb, "x");
+        irAppendBlockStmt(bb, b.assign(x, b.value()));
+        IrNode *mv = b.move(x);
+        irSetInfo(mv, irInfoUserWritten);
+        irAppendBlockStmt(bb, b.call(mv));
+        irAppendBlockStmt(bb, b.ret());
+
+        OwnershipSnapshot *snap = ownershipSnapshot(b.module);
+        CHECK(b.verify(snap).empty());
+        freeOwnershipSnapshot(snap);
+    }
+}

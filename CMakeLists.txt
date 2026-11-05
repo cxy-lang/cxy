@@ -3,9 +3,12 @@ set(CXY_VERSION 0.1.0 CACHE STRING "The version of cxy")
 string(REPLACE v "" ${CXY_VERSION} CXY_VERSION)
 project(cxy
         VERSION ${CXY_VERSION}
-        DESCRIPTION "Cxy is a transpiler for a high level programming language that tries to simplify C"
+        DESCRIPTION
+          "Cxy is a transpiler for a high level "
+          "programming language that tries to simplify C"
         LANGUAGES C CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CXY_BUILD_ID 0 CACHE STRING "The build id of cxy")
 # Configure path for loading project cmake scripts
 set(CMAKE_MODULE_PATH
@@ -28,20 +31,24 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if (NOT CMAKE_BUILD_TYPE)
-    # default build key is Debug
-    set(CMAKE_BUILD_TYPE Debug)
+  # default build key is Debug
+  set(CMAKE_BUILD_TYPE Debug)
 endif ()
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-c99-designator -Wno-reorder -fno-rtti")
+set(CMAKE_CXX_FLAGS
+  "${CMAKE_CXX_FLAGS} -Wno-c99-designator -Wno-reorder -fno-rtti")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
 
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
 
 if (CMAKE_BUILD_TYPE MATCHES "asan")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS_DEBUG} -fsanitize=address -fno-omit-frame-pointer -g")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address -fno-omit-frame-pointer -g")
-    set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
+  set(CMAKE_C_FLAGS "
+    ${CMAKE_C_FLAGS_DEBUG} -fsanitize=address -fno-omit-frame-pointer -g")
+  set(CMAKE_CXX_FLAGS "
+    ${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address -fno-omit-frame-pointer -g")
+  set(CMAKE_LINKER_FLAGS "
+    ${CMAKE_LINKER_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
 endif ()
 
 option(ENABLE_TESTS "Enable CMake tests" ON)
@@ -61,42 +68,42 @@ add_subdirectory(src/3rdParty/msgpack)
 add_subdirectory(src/3rdParty/libyaml)
 
 include_directories(
-        src/cxy
-        src/3rdParty
+  src/cxy
+  src/3rdParty
 )
 
 add_executable(amalgamate
-        src/tools/amalgamate.c
-        src/cxy/core/utils.c
+  src/tools/amalgamate.c
+  src/cxy/core/utils.c
 )
 
 target_compile_definitions(amalgamate PRIVATE -DNO_EXEC_UTIL)
 
 CxyAmalgamate(builtins
-        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
-        FILES
-        src/cxy/runtime/builtins.cxy)
+  OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+  FILES
+  src/cxy/runtime/builtins.cxy)
 
 CxyAmalgamate(prologue
-        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
-        FILES
-        src/cxy/runtime/prologue.h)
+  OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+  FILES
+  src/cxy/runtime/prologue.h)
 
 CxyAmalgamate(mm
-        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
-        FILES
-        src/cxy/runtime/mm.h)
+  OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+  FILES
+  src/cxy/runtime/mm.h)
 
 # Only added to the generated C in builds with memory trace
 CxyAmalgamate(mm_trace
-        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
-        FILES
-        src/cxy/runtime/mm_trace.h)
+  OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+  FILES
+  src/cxy/runtime/mm_trace.h)
 
 CxyAmalgamate(epilogue
-        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
-        FILES
-        src/cxy/runtime/epilogue.h)
+  OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+  FILES
+  src/cxy/runtime/epilogue.h)
 
 set(CXY_CORE_SOURCES
         src/cxy/core/args.c
@@ -638,6 +645,7 @@ if (ENABLE_UNIT_TESTS)
     add_executable(cxy_unit_tests
             tests/utils/test_ast.cpp
             tests/lang/middle/test_ir_sexp.cpp
+            tests/lang/middle/memory/test_operands.cpp
             tests/lang/middle/lower/test_info.cpp
             tests/lang/middle/lower/test_access.cpp
             tests/lang/middle/lower/test_reference.cpp

@@ -260,6 +260,105 @@ void irConstVisitFallbackVisitAll(ConstIrVisitor *visitor, const IrNode *node)
     }
 }
 
+static void forEachListSlot(IrNode **first,
+                            void (*cb)(IrNode **slot, void *ctx),
+                            void *ctx)
+{
+    for (IrNode **slot = first; *slot; slot = &(*slot)->next)
+        cb(slot, ctx);
+}
+
+void irForEachOperandSlot(IrNode *node,
+                          void (*cb)(IrNode **slot, void *ctx),
+                          void *ctx)
+{
+    if (node == NULL)
+        return;
+
+    switch (node->tag) {
+    case irAssign:
+        cb(&node->assign.lhs, ctx);
+        cb(&node->assign.rhs, ctx);
+        break;
+    case irBranchIf:
+        cb(&node->branchIf.cond, ctx);
+        break;
+    case irSwitch:
+        cb(&node->switchStmt.cond, ctx);
+        break;
+    case irReturn:
+        if (node->returnStmt.value)
+            cb(&node->returnStmt.value, ctx);
+        break;
+    case irCall:
+        cb(&node->call.callee, ctx);
+        forEachListSlot(&node->call.args, cb, ctx);
+        break;
+    case irUnary:
+        cb(&node->unary.operand, ctx);
+        break;
+    case irBinary:
+        cb(&node->binary.lhs, ctx);
+        cb(&node->binary.rhs, ctx);
+        break;
+    case irCast:
+        cb(&node->cast.expr, ctx);
+        break;
+    case irMember:
+        cb(&node->member.target, ctx);
+        break;
+    case irIndex:
+        cb(&node->index.target, ctx);
+        cb(&node->index.index, ctx);
+        break;
+    case irAddrOf:
+        cb(&node->addrOf.target, ctx);
+        break;
+    case irDeref:
+        cb(&node->deref.target, ctx);
+        break;
+    case irAlias:
+        cb(&node->alias.expr, ctx);
+        break;
+    case irOptionalValue:
+        if (node->optionalValue.hasValue)
+            cb(&node->optionalValue.value, ctx);
+        break;
+    case irUnionValue:
+        if (node->unionValue.value)
+            cb(&node->unionValue.value, ctx);
+        break;
+    case irClosureValue:
+        if (node->closureValue.env)
+            cb(&node->closureValue.env, ctx);
+        break;
+    case irCopy:
+        cb(&node->copy.src, ctx);
+        cb(&node->copy.dst, ctx);
+        break;
+    case irMove:
+        cb(&node->move.src, ctx);
+        break;
+    case irDrop:
+        cb(&node->drop.target, ctx);
+        break;
+    case irZeromem:
+        cb(&node->zeromem.target, ctx);
+        break;
+    case irFieldConst:
+        cb(&node->fieldConst.value, ctx);
+        break;
+    case irStructConst:
+        forEachListSlot(&node->structConst.fields, cb, ctx);
+        break;
+    case irArrayConst:
+        forEachListSlot(&node->arrayConst.elements, cb, ctx);
+        break;
+    default:
+        break;
+    }
+}
+
 void irVisitSkip(IrVisitor *visitor, IrNode *node) { (void)visitor; (void)node; }
 void irConstVisitSkip(ConstIrVisitor *visitor, const IrNode *node) { (void)visitor; (void)node; }
 

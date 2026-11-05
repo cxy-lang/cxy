@@ -2,11 +2,20 @@
 
 #include <string.h>
 
+// A move, also behind casts (`<Base>(&&x)`)
+static bool isMoveOperand(const IrNode *node)
+{
+    while (node && node->tag == irCast)
+        node = node->cast.expr;
+    return node && node->tag == irMove;
+}
+
 // The constructors of nodes that consume an operand mark it, so the pass reads
-// one bit instead of knowing the shape. Values that own nothing are not marked.
+// one bit instead of knowing the shape. A value that owns nothing is not marked,
+// but a move always is: the pass has to find it to take the variable out of play.
 static void markOwnedOperand(IrNode *operand)
 {
-    if (operand && isIrTypeDestructible(operand->type))
+    if (operand && (isIrTypeDestructible(operand->type) || isMoveOperand(operand)))
         irSetInfo(operand, irInfoOwnedPosition);
 }
 

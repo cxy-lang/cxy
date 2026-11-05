@@ -216,40 +216,28 @@ static IrNode **moveSlot(IrNode **slot)
 }
 
 
-// Visits every slot through which a value is handed over (assign rhs itself,
-// call args, composite payloads).
-static void forEachOwningSlot(IrNode **slot, void (*cb)(IrNode **slot, void *ctx), void *cbCtx)
+// Lowering marks every operand a consumer takes ownership of with
+// `:owned-position`. These walk the operands under a node and call `cb` with the
+// slot of each marked one, so a move in any position is found, whatever holds it.
+typedef struct OwnedSlotWalk {
+    void (*cb)(IrNode **slot, void *ctx);
+    void *ctx;
+} OwnedSlotWalk;
+
+static void walkOperandSlot(IrNode **slot, void *walkPtr)
 {
-    IrNode *v = slot ? *slot : NULL;
-    if (v == NULL)
+    OwnedSlotWalk *walk = walkPtr;
+    if (*slot == NULL)
         return;
-    switch (v->tag) {
-    case irUnionValue:
-        cb(&v->unionValue.value, cbCtx);
-        break;
-    case irOptionalValue:
-        if (v->optionalValue.hasValue)
-            cb(&v->optionalValue.value, cbCtx);
-        break;
-    case irStructConst:
-        for (IrNode **f = &v->structConst.fields; *f; f = &(*f)->next)
-            cb(((*f)->tag == irFieldConst) ? &(*f)->fieldConst.value : f, cbCtx);
-        break;
-    case irArrayConst:
-        for (IrNode **e = &v->arrayConst.elements; *e; e = &(*e)->next)
-            cb(e, cbCtx);
-        break;
-    case irClosureValue:
-        cb(&v->closureValue.env, cbCtx);
-        break;
-    case irCall:
-        for (IrNode **a = &v->call.args; *a; a = &(*a)->next)
-            cb(a, cbCtx);
-        break;
-    default:
-        cb(slot, cbCtx);
-        break;
-    }
+    if (irHasInfo(*slot, irInfoOwnedPosition))
+        walk->cb(slot, walk->ctx);
+    irForEachOperandSlot(*slot, walkOperandSlot, walk);
+}
+
+static void forEachOwnedSlot(IrNode *node, void (*cb)(IrNode **slot, void *ctx), void *cbCtx)
+{
+    OwnedSlotWalk walk = {.cb = cb, .ctx = cbCtx};
+    irForEachOperandSlot(node, walkOperandSlot, &walk);
 }
 
 typedef struct MovedSourceVisit {
@@ -257,7 +245,7 @@ typedef struct MovedSourceVisit {
     void *ctx;
 } MovedSourceVisit;
 
-static void onOwningSlotMovedSource(IrNode **slot, void *ctxPtr)
+static void onOwnedSlotMovedSource(IrNode **slot, void *ctxPtr)
 {
     MovedSourceVisit *visit = ctxPtr;
     IrNode **mv = moveSlot(slot);
@@ -265,10 +253,11 @@ static void onOwningSlotMovedSource(IrNode **slot, void *ctxPtr)
         visit->cb((*mv)->move.src, visit->ctx);
 }
 
-static void forEachMovedSource(IrNode *rhs, void (*cb)(IrNode *src, void *ctx), void *cbCtx)
+// `stmt` is an assignment or a call
+static void forEachMovedSource(IrNode *stmt, void (*cb)(IrNode *src, void *ctx), void *cbCtx)
 {
     MovedSourceVisit visit = {.cb = cb, .ctx = cbCtx};
-    forEachOwningSlot(&rhs, onOwningSlotMovedSource, &visit);
+    forEachOwnedSlot(stmt, onOwnedSlotMovedSource, &visit);
 }
 
 typedef struct MoveGenKillContext {
@@ -307,7 +296,7 @@ static void computeIntraBlockGenKill(MemMgmtContext *ctx, CfgBlockInfo *block)
             }
 
             MoveGenKillContext moveCtx = {.ctx = ctx, .block = block};
-            forEachMovedSource(stmt->assign.rhs, onMoveInGenKill, &moveCtx);
+            forEachMovedSource(stmt, onMoveInGenKill, &moveCtx);
         }
         else if (stmt->tag == irCall) {
             MoveGenKillContext moveCtx = {.ctx = ctx, .block = block};
@@ -505,7 +494,7 @@ static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks
                 }
 
                 MoveDropFlagContext moveCtx = {.ctx = ctx, .currMay = &currMay, .currMust = &currMust};
-                forEachMovedSource(stmt->assign.rhs, onMoveInDropFlagId, &moveCtx);
+                forEachMovedSource(stmt, onMoveInDropFlagId, &moveCtx);
             }
             else if (stmt->tag == irScopeExit) {
                 u32 exitingScope = stmt->scopeExit.scopeId;
@@ -605,17 +594,6 @@ static bool isUnwrappedCallResult(const IrNode *src)
            decl->type->category == irTypeCatResult;
 }
 
-static void processPayloadItem(MemMgmtContext *ctx,
-                               IrNode *bb,
-                               IrNode **prevRef,
-                               IrNode *stmt,
-                               IrNode **itemRef,
-                               IrNode **afterStmtRef,
-                               BitSet *currMay,
-                               BitSet *currMust);
-
-
-// Splices `node` in front of `stmt`; `*prevRef` tracks the node before `stmt`
 static void insertBeforeStmt(IrNode *bb, IrNode **prevRef, IrNode *stmt, IrNode *node)
 {
     node->next = stmt;
@@ -624,60 +602,6 @@ static void insertBeforeStmt(IrNode *bb, IrNode **prevRef, IrNode *stmt, IrNode 
     else
         bb->basicBlock.first = node;
     *prevRef = node;
-}
-
-static void injectCallArgumentCopies(MemMgmtContext *ctx,
-                                     IrNode *bb,
-                                     IrNode **prevRef,
-                                     IrNode *callStmt,
-                                     IrNode *call,
-                                     IrNode **afterStmtRef,
-                                     BitSet *currMay,
-                                     BitSet *currMust)
-{
-    if (call == NULL || call->tag != irCall || call->call.callee == NULL)
-        return;
-
-    const IrType *calleeType = call->call.callee->type;
-    if (calleeType && calleeType->tag == irTypeFunc) {
-        IrNode **argRef = &call->call.args;
-        u64 i = 0;
-
-        for (; *argRef && i < calleeType->func.count; i++) {
-            const IrType *paramType = calleeType->func.params[i];
-            csAssert(paramType != NULL, "Compiler error: paramType is NULL in call argument processing");
-            if (paramType->category == irTypeCatReference) {
-                // References don't own: drop the move, keep any outer casts
-                IrNode **mvRef = moveSlot(argRef);
-                if (mvRef) {
-                    IrNode *src = (*mvRef)->move.src;
-                    src->next = (*mvRef)->next;
-                    *mvRef = src;
-                }
-                argRef = &(*argRef)->next;
-                continue;
-            }
-
-            processPayloadItem(ctx, bb, prevRef, callStmt, argRef, afterStmtRef, currMay, currMust);
-            argRef = &(*argRef)->next;
-        }
-
-        // Variadic arguments have no declared parameter: manage them by their own
-        // type (values are copied/moved, references are passed as-is).
-        for (; *argRef; argRef = &(*argRef)->next) {
-            const IrType *argType = (*argRef)->type;
-            if (argType && argType->category == irTypeCatReference) {
-                IrNode **mvRef = moveSlot(argRef);
-                if (mvRef) {
-                    IrNode *src = (*mvRef)->move.src;
-                    src->next = (*mvRef)->next;
-                    *mvRef = src;
-                }
-                continue;
-            }
-            processPayloadItem(ctx, bb, prevRef, callStmt, argRef, afterStmtRef, currMay, currMust);
-        }
-    }
 }
 
 static void processPayloadItem(MemMgmtContext *ctx,
@@ -792,40 +716,57 @@ static void processPayloadItem(MemMgmtContext *ctx,
     }
 }
 
-static void injectCompositePayloadCopies(MemMgmtContext *ctx,
-                                         IrNode *bb,
-                                         IrNode **prevRef,
-                                         IrNode *stmt,
-                                         IrNode *rhs,
-                                         IrNode **afterStmtRef,
-                                         BitSet *currMay,
-                                         BitSet *currMust)
+// A `&&x` for a parameter that only borrows is not a move: `x` stays owned, so
+// the move is dropped and the operand is the borrow itself
+static void dropBorrowedMoves(IrNode *call)
 {
-    if (rhs == NULL)
-        return;
+    for (IrNode **arg = &call->call.args; *arg; arg = &(*arg)->next) {
+        if (irHasInfo(*arg, irInfoOwnedPosition))
+            continue;
+        IrNode **mv = moveSlot(arg);
+        if (mv) {
+            IrNode *src = (*mv)->move.src;
+            src->next = (*mv)->next;
+            *mv = src;
+        }
+    }
+}
 
-    if (rhs->tag == irUnionValue) {
-        processPayloadItem(ctx, bb, prevRef, stmt, &rhs->unionValue.value, afterStmtRef, currMay, currMust);
-    }
-    else if (rhs->tag == irOptionalValue) {
-        processPayloadItem(ctx, bb, prevRef, stmt, &rhs->optionalValue.value, afterStmtRef, currMay, currMust);
-    }
-    else if (rhs->tag == irStructConst) {
-        for (IrNode **fld = &rhs->structConst.fields; *fld; fld = &(*fld)->next) {
-            IrNode **item = ((*fld)->tag == irFieldConst) ? &(*fld)->fieldConst.value : fld;
-            processPayloadItem(ctx, bb, prevRef, stmt, item, afterStmtRef, currMay, currMust);
-        }
-    }
-    else if (rhs->tag == irArrayConst) {
-        for (IrNode **elem = &rhs->arrayConst.elements; *elem; elem = &(*elem)->next) {
-            processPayloadItem(ctx, bb, prevRef, stmt, elem, afterStmtRef, currMay, currMust);
-        }
-    }
-    else if (rhs->tag == irClosureValue) {
-        if (rhs->closureValue.env) {
-            processPayloadItem(ctx, bb, prevRef, stmt, &rhs->closureValue.env, afterStmtRef, currMay, currMust);
-        }
-    }
+typedef struct OperandCopyContext {
+    MemMgmtContext *ctx;
+    IrNode *bb;
+    IrNode **prevRef;
+    IrNode *stmt;
+    IrNode **afterStmtRef;
+    BitSet *currMay;
+    BitSet *currMust;
+} OperandCopyContext;
+
+static void onOwnedOperand(IrNode **slot, void *ctxPtr)
+{
+    OperandCopyContext *c = ctxPtr;
+    processPayloadItem(c->ctx, c->bb, c->prevRef, c->stmt, slot, c->afterStmtRef,
+                       c->currMay, c->currMust);
+}
+
+// Moves and copies for every operand of a call or a literal that a consumer takes
+// ownership of, found by the `:owned-position` bit, in evaluation order
+static void injectOperandCopies(MemMgmtContext *ctx,
+                                IrNode *bb,
+                                IrNode **prevRef,
+                                IrNode *stmt,
+                                IrNode *value,
+                                IrNode **afterStmtRef,
+                                BitSet *currMay,
+                                BitSet *currMust)
+{
+    if (value == NULL)
+        return;
+    if (value->tag == irCall)
+        dropBorrowedMoves(value);
+
+    OperandCopyContext operands = {ctx, bb, prevRef, stmt, afterStmtRef, currMay, currMust};
+    forEachOwnedSlot(value, onOwnedOperand, &operands);
 }
 
 static bool shouldPromoteAssignToCopy(const IrNode *lhsDecl, const IrNode *lhs, const IrNode *rhs)
@@ -994,11 +935,8 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                             }
                         }
                     }
-                    else if (rhs->tag == irCall) {
-                        injectCallArgumentCopies(ctx, bb, &prev, stmt, rhs, &next, &currMay, &currMust);
-                    }
-                    else if (rhs->tag == irUnionValue || rhs->tag == irOptionalValue || rhs->tag == irStructConst || rhs->tag == irArrayConst || rhs->tag == irClosureValue) {
-                        injectCompositePayloadCopies(ctx, bb, &prev, stmt, rhs, &next, &currMay, &currMust);
+                    else if (rhs->tag == irCall || rhs->tag == irUnionValue || rhs->tag == irOptionalValue || rhs->tag == irStructConst || rhs->tag == irArrayConst || rhs->tag == irClosureValue) {
+                        injectOperandCopies(ctx, bb, &prev, stmt, rhs, &next, &currMay, &currMust);
                     }
                     else if (shouldPromoteAssignToCopy(lhsDecl, stmt->assign.lhs, rhs)) {
                         IrNode *lhs = stmt->assign.lhs;
@@ -1027,7 +965,7 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                 }
             }
             else if (stmt->tag == irCall) {
-                injectCallArgumentCopies(ctx, bb, &prev, stmt, stmt, &next, &currMay, &currMust);
+                injectOperandCopies(ctx, bb, &prev, stmt, stmt, &next, &currMay, &currMust);
             }
             else if (stmt->tag == irScopeExit) {
                 u32 exitingScope = stmt->scopeExit.scopeId;
