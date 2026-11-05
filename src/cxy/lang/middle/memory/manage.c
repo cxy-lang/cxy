@@ -369,185 +369,6 @@ static void insertBeforeStmt(IrNode *bb, IrNode **prevRef, IrNode *stmt, IrNode 
     *prevRef = node;
 }
 
-static void processPayloadItem(MemMgmtContext *ctx,
-                               IrNode *bb,
-                               IrNode **prevRef,
-                               IrNode *stmt,
-                               IrNode **itemRef,
-                               IrNode **afterStmtRef,
-                               BitSet *currMay,
-                               BitSet *currMust)
-{
-    IrNode *val = *itemRef;
-    if (val == NULL)
-        return;
-
-    // Moves take effect when the operand is evaluated, i.e. before `stmt`.
-    // Clearing after `stmt` is wrong once the parent can resume mid-call (async).
-    (void)afterStmtRef;
-    IrNode **mvRef = moveSlot(itemRef);
-    if (mvRef) {
-        IrNode *mv = *mvRef;
-        IrNode *src = mv->move.src;
-        IrNode *rhsDecl = findMovedVarDecl(src);
-        bool isPtrLike = src && src->type &&
-                         (src->type->tag == irTypePointer ||
-                          src->type->category == irTypeCatClass);
-        bool isMemberSrc =
-            src && (src->tag == irMember || src->tag == irIndex) &&
-            (isPtrLike || isIrTypeDestructible(src->type));
-
-        if (rhsDecl) {
-            src->next = mv->next;
-            *mvRef = src;
-            TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
-            if (rhsVar && !rhsVar->isTemporary) {
-                applyEvent(currMay, currMust, rhsVar->varIndex, flowKill);
-                if (rhsVar->needsDropFlag) {
-                    // The operand still reads the variable; only ownership moves
-                    IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, rhsVar, false);
-                    if (clearFlag)
-                        insertBeforeStmt(bb, prevRef, stmt, clearFlag);
-                }
-            }
-        }
-        else if (isMemberSrc) {
-            // __mv = src; src = null; then pass __mv
-            cstring tempName = makeStringf(ctx->strings, "__mv%u", ctx->tempCounter++);
-            IrNode *tempVar = makeIrVarDecl(ctx->pool, &src->loc, flgTemporary, tempName, tempName, src->type, ctx->currentScopeId);
-            TrackedVar *tv = addTrackedVar(ctx, tempVar, tempName, ctx->currentScopeId, src->type);
-            if (tv)
-                tv->state = irVarMoved;
-
-            IrNode *capture = makeIrAssign(
-                ctx->pool, &src->loc, makeIrVarRef(ctx->pool, &src->loc, tempVar), src);
-            capture->flags |= flgUnmanaged;
-
-            IrNode *srcClone = cloneIrNode(ctx->pool, src);
-            IrNode *nullify =
-                isPtrLike
-                    ? makeIrAssign(ctx->pool, &stmt->loc, srcClone, makeIrNullConst(ctx->pool, &stmt->loc, src->type))
-                    : makeIrZeromem(ctx->pool, &stmt->loc, srcClone);
-            nullify->flags |= flgUnmanaged;
-
-            insertBeforeStmt(bb, prevRef, stmt, tempVar);
-            insertBeforeStmt(bb, prevRef, stmt, capture);
-            insertBeforeStmt(bb, prevRef, stmt, nullify);
-
-            IrNode *tempRef = makeIrVarRef(ctx->pool, &src->loc, tempVar);
-            tempRef->next = mv->next;
-            *mvRef = tempRef;
-        }
-        else {
-            src->next = mv->next;
-            *mvRef = src;
-        }
-        return;
-    }
-
-    if (isIrTypeDestructible(val->type)) {
-        IrNode *inner = unwrapCasts(val);
-        bool needsCopy = false;
-        if (inner && inner->tag == irVarRef) {
-            needsCopy = inner->varRef.target && !hasFlag(inner->varRef.target, Temporary) && !hasFlag(inner->varRef.target, Returned);
-        }
-        else if (inner && (inner->tag == irMember || inner->tag == irIndex)) {
-            needsCopy = !isUnwrappedCallResult(inner);
-        }
-
-        if (needsCopy) {
-            cstring tempName = makeStringf(ctx->strings, "__copy%u", ctx->tempCounter++);
-            IrNode *tempVar = makeIrVarDecl(ctx->pool, &inner->loc, flgTemporary, tempName, tempName, inner->type, ctx->currentScopeId);
-            TrackedVar *tv = addTrackedVar(ctx, tempVar, tempName, ctx->currentScopeId, inner->type);
-            if (tv)
-                tv->state = irVarMoved;
-
-            IrNode *dstRef = makeIrVarRef(ctx->pool, &inner->loc, tempVar);
-            IrNode *copyStmt = makeIrCopy(ctx->pool, &inner->loc, inner, dstRef);
-
-            tempVar->next = copyStmt;
-            copyStmt->next = stmt;
-            if (*prevRef)
-                (*prevRef)->next = tempVar;
-            else
-                bb->basicBlock.first = tempVar;
-            *prevRef = copyStmt;
-
-            IrNode *finalArg = rebuildCastChain(ctx->pool, val, dstRef);
-            finalArg->next = val->next;
-            *itemRef = finalArg;
-        }
-    }
-}
-
-// A `&&x` for a parameter that only borrows is not a move: `x` stays owned, so
-// the move is dropped and the operand is the borrow itself
-static void dropBorrowedMoves(IrNode *call)
-{
-    for (IrNode **arg = &call->call.args; *arg; arg = &(*arg)->next) {
-        if (irHasInfo(*arg, irInfoOwnedPosition))
-            continue;
-        IrNode **mv = moveSlot(arg);
-        if (mv) {
-            IrNode *src = (*mv)->move.src;
-            src->next = (*mv)->next;
-            *mv = src;
-        }
-    }
-}
-
-typedef struct OperandCopyContext {
-    MemMgmtContext *ctx;
-    IrNode *bb;
-    IrNode **prevRef;
-    IrNode *stmt;
-    IrNode **afterStmtRef;
-    BitSet *currMay;
-    BitSet *currMust;
-} OperandCopyContext;
-
-static void onOwnedOperand(IrNode **slot, void *ctxPtr)
-{
-    OperandCopyContext *c = ctxPtr;
-    processPayloadItem(c->ctx, c->bb, c->prevRef, c->stmt, slot, c->afterStmtRef,
-                       c->currMay, c->currMust);
-}
-
-// Moves and copies for every operand of a call or a literal that a consumer takes
-// ownership of, found by the `:owned-position` bit, in evaluation order
-static void injectOperandCopies(MemMgmtContext *ctx,
-                                IrNode *bb,
-                                IrNode **prevRef,
-                                IrNode *stmt,
-                                IrNode *value,
-                                IrNode **afterStmtRef,
-                                BitSet *currMay,
-                                BitSet *currMust)
-{
-    if (value == NULL)
-        return;
-    if (value->tag == irCall)
-        dropBorrowedMoves(value);
-
-    OperandCopyContext operands = {ctx, bb, prevRef, stmt, afterStmtRef, currMay, currMust};
-    forEachOwnedSlot(value, onOwnedOperand, &operands);
-}
-
-static bool shouldPromoteAssignToCopy(const IrNode *lhsDecl, const IrNode *lhs, const IrNode *rhs)
-{
-    if (!isIrVarDestructible(lhsDecl) && !isIrTypeDestructible(lhs->type))
-        return false;
-    // `<Base>x` (a class up/down cast) still refers to `x`, so it is copied
-    const IrNode *inner = unwrapCastsConst(rhs);
-    IrNode *rhsDecl = findVarDeclInNode(inner);
-    if (rhsDecl && hasFlag(rhsDecl, Temporary))
-        return false;
-    if (inner->tag == irVarRef) {
-        return inner->varRef.target && !hasFlag(inner->varRef.target, Temporary);
-    }
-    return inner->tag == irMember || inner->tag == irIndex;
-}
-
 static void insertAfterStmt(IrNode *stmt, IrNode **nextRef, IrNode *node)
 {
     node->next = *nextRef;
@@ -587,6 +408,208 @@ static void insertFlagAfter(ElabCursor *c, TrackedVar *var, bool value)
 static void insertDropBefore(ElabCursor *c, IrNode *target)
 {
     insertBefore(c, makeIrDrop(c->ctx->pool, &c->stmt->loc, target));
+}
+
+// Replaces a `move src` operand by `src` itself and returns it
+static IrNode *stripMove(IrNode **moveRef)
+{
+    IrNode *mv = *moveRef;
+    IrNode *src = mv->move.src;
+    src->next = mv->next;
+    *moveRef = src;
+    return src;
+}
+
+static bool isPlaceNode(const IrNode *node)
+{
+    return node && (node->tag == irMember || node->tag == irIndex);
+}
+
+static bool isPointerLikeType(const IrType *type)
+{
+    return type && (type->tag == irTypePointer || type->category == irTypeCatClass);
+}
+
+// A place whose owner can be moved out: it is cleared afterwards
+static bool isMovablePlace(const IrNode *node)
+{
+    return isPlaceNode(node) && (isPointerLikeType(node->type) || isIrTypeDestructible(node->type));
+}
+
+// The statement that empties `place`: null for a pointer or class, zeroed memory
+// for a struct. Unmanaged, so the pass does not elaborate it again.
+static IrNode *makeClearPlace(ElabCursor *c, IrNode *place)
+{
+    MemPool *pool = c->ctx->pool;
+    const FileLoc *loc = &c->stmt->loc;
+    IrNode *clear = NULL;
+    if (isPointerLikeType(place->type))
+        clear = makeIrAssign(pool, loc, place, makeIrNullConst(pool, loc, place->type));
+    else if (isIrTypeDestructible(place->type))
+        clear = makeIrZeromem(pool, loc, place);
+    if (clear)
+        clear->flags |= flgUnmanaged;
+    return clear;
+}
+
+// The place an owner was moved out of is cleared, so its destructor finds nothing
+static void nullifyMovedPlace(ElabCursor *c, IrNode *src)
+{
+    IrNode *clear = makeClearPlace(c, src);
+    if (clear)
+        insertAfter(c, clear);
+}
+
+// A temporary the pass creates to hold an owner. It starts as moved-out, so it is
+// owned only once something is stored into it.
+static IrNode *declareOwnedTemp(ElabCursor *c, cstring prefix, const IrNode *place)
+{
+    MemMgmtContext *ctx = c->ctx;
+    cstring name = makeStringf(ctx->strings, "%s%u", prefix, ctx->tempCounter++);
+    IrNode *decl = makeIrVarDecl(
+        ctx->pool, &place->loc, flgTemporary, name, name, place->type, ctx->currentScopeId);
+    TrackedVar *tracked = addTrackedVar(ctx, decl, name, ctx->currentScopeId, place->type);
+    if (tracked)
+        tracked->state = irVarMoved;
+    return decl;
+}
+
+// `x` is no longer owned. Its drop flag is cleared before the statement (an operand
+// still reads the variable, only ownership moves) or after it (an assignment).
+static void killMovedVar(ElabCursor *c, IrNode *decl, bool flagBefore)
+{
+    TrackedVar *var = getTrackedVar(c->ctx, decl);
+    if (var == NULL || var->isTemporary)
+        return;
+    applyEvent(c->may, c->must, var->varIndex, flowKill);
+    if (!var->needsDropFlag)
+        return;
+
+    IrNode *clearFlag = makeDropFlagAssign(c->ctx, &c->stmt->loc, var, false);
+    if (clearFlag == NULL)
+        return;
+    if (flagBefore)
+        insertBefore(c, clearFlag);
+    else
+        insertAfter(c, clearFlag);
+}
+
+// `__mv = src; src = null;` then the operand is `__mv`
+static void captureMovedPlace(ElabCursor *c, IrNode **moveRef, IrNode *src)
+{
+    MemPool *pool = c->ctx->pool;
+    IrNode *mv = *moveRef;
+    IrNode *tempVar = declareOwnedTemp(c, "__mv", src);
+    IrNode *capture = makeIrAssign(pool, &src->loc, makeIrVarRef(pool, &src->loc, tempVar), src);
+    capture->flags |= flgUnmanaged;
+    IrNode *clear = makeClearPlace(c, cloneIrNode(pool, src));
+
+    insertBefore(c, tempVar);
+    insertBefore(c, capture);
+    insertBefore(c, clear);
+
+    IrNode *tempRef = makeIrVarRef(pool, &src->loc, tempVar);
+    tempRef->next = mv->next;
+    *moveRef = tempRef;
+}
+
+// Moves take effect when the operand is evaluated, i.e. before the statement.
+// Clearing after it is wrong once the parent can resume mid-call (async).
+static void elaborateMovedOperand(ElabCursor *c, IrNode **moveRef)
+{
+    IrNode *src = (*moveRef)->move.src;
+    IrNode *srcDecl = findMovedVarDecl(src);
+    if (srcDecl == NULL && isMovablePlace(src)) {
+        captureMovedPlace(c, moveRef, src);
+        return;
+    }
+    stripMove(moveRef);
+    if (srcDecl)
+        killMovedVar(c, srcDecl, true);
+}
+
+// A place that is not a temporary or a call result is still owned by someone else
+static bool needsOwnedCopy(const IrNode *inner)
+{
+    if (inner == NULL)
+        return false;
+    if (inner->tag == irVarRef) {
+        const IrNode *target = inner->varRef.target;
+        return target && !hasFlag(target, Temporary) && !hasFlag(target, Returned);
+    }
+    return isPlaceNode(inner) && !isUnwrappedCallResult(inner);
+}
+
+// `__copy = @copy inner`, the operand is `__copy` under the same casts
+static void copyIntoTemp(ElabCursor *c, IrNode **slot, IrNode *val, IrNode *inner)
+{
+    MemPool *pool = c->ctx->pool;
+    IrNode *tempVar = declareOwnedTemp(c, "__copy", inner);
+    IrNode *dstRef = makeIrVarRef(pool, &inner->loc, tempVar);
+    insertBefore(c, tempVar);
+    insertBefore(c, makeIrCopy(pool, &inner->loc, inner, dstRef));
+
+    IrNode *finalArg = rebuildCastChain(pool, val, dstRef);
+    finalArg->next = val->next;
+    *slot = finalArg;
+}
+
+static void elaborateOwnedOperand(IrNode **slot, void *cursor)
+{
+    ElabCursor *c = cursor;
+    IrNode *val = *slot;
+    if (val == NULL)
+        return;
+
+    IrNode **moveRef = moveSlot(slot);
+    if (moveRef) {
+        elaborateMovedOperand(c, moveRef);
+        return;
+    }
+    if (!isIrTypeDestructible(val->type))
+        return;
+    IrNode *inner = unwrapCasts(val);
+    if (needsOwnedCopy(inner))
+        copyIntoTemp(c, slot, val, inner);
+}
+
+// A `&&x` for a parameter that only borrows is not a move: `x` stays owned, so
+// the move is dropped and the operand is the borrow itself
+static void dropBorrowedMoves(IrNode *call)
+{
+    for (IrNode **arg = &call->call.args; *arg; arg = &(*arg)->next) {
+        if (irHasInfo(*arg, irInfoOwnedPosition))
+            continue;
+        IrNode **mv = moveSlot(arg);
+        if (mv)
+            stripMove(mv);
+    }
+}
+
+// Moves and copies for every operand of a call or a literal that a consumer takes
+// ownership of, found by the `:owned-position` bit, in evaluation order
+static void injectOperandCopies(ElabCursor *c, IrNode *value)
+{
+    if (value == NULL)
+        return;
+    if (value->tag == irCall)
+        dropBorrowedMoves(value);
+    forEachOwnedSlot(value, elaborateOwnedOperand, c);
+}
+
+static bool shouldPromoteAssignToCopy(const IrNode *lhsDecl, const IrNode *lhs, const IrNode *rhs)
+{
+    if (!isIrVarDestructible(lhsDecl) && !isIrTypeDestructible(lhs->type))
+        return false;
+    // `<Base>x` (a class up/down cast) still refers to `x`, so it is copied
+    const IrNode *inner = unwrapCastsConst(rhs);
+    IrNode *rhsDecl = findVarDeclInNode(inner);
+    if (rhsDecl && hasFlag(rhsDecl, Temporary))
+        return false;
+    if (inner->tag == irVarRef) {
+        return inner->varRef.target && !hasFlag(inner->varRef.target, Temporary);
+    }
+    return inner->tag == irMember || inner->tag == irIndex;
 }
 
 // What storing into `target` does: the old value of an element or field is
@@ -643,39 +666,16 @@ static void elaborateStoreTarget(ElabCursor *c, IrNode *target, bool storesNothi
         insertFlagAfter(c, var, !storesNothing);
 }
 
-// The place an owner was moved out of is cleared, so its destructor finds nothing
-static void nullifyMovedPlace(ElabCursor *c, IrNode *src)
-{
-    MemMgmtContext *ctx = c->ctx;
-    IrNode *clear = NULL;
-    if (src->type && (src->type->tag == irTypePointer || src->type->category == irTypeCatClass))
-        clear = makeIrAssign(ctx->pool, &c->stmt->loc, src, makeIrNullConst(ctx->pool, &c->stmt->loc, src->type));
-    else if (isIrTypeDestructible(src->type))
-        clear = makeIrZeromem(ctx->pool, &c->stmt->loc, src);
-    if (clear == NULL)
-        return;
-    clear->flags |= flgUnmanaged;
-    insertAfter(c, clear);
-}
-
 // `x = &&y`: the move is stripped, `y` is no longer owned, or the field it was
 // taken from is cleared
 static void elaborateAssignMove(ElabCursor *c, IrNode **moveRef)
 {
-    IrNode *src = (*moveRef)->move.src;
-    *moveRef = src;
+    IrNode *src = stripMove(moveRef);
     IrNode *srcDecl = findMovedVarDecl(src);
-    if (srcDecl) {
-        TrackedVar *var = getTrackedVar(c->ctx, srcDecl);
-        if (var && !var->isTemporary) {
-            applyEvent(c->may, c->must, var->varIndex, flowKill);
-            if (var->needsDropFlag)
-                insertFlagAfter(c, var, false);
-        }
-    }
-    else if (src && (src->tag == irMember || src->tag == irIndex)) {
+    if (srcDecl)
+        killMovedVar(c, srcDecl, false);
+    else if (isPlaceNode(src))
         nullifyMovedPlace(c, src);
-    }
 }
 
 static bool isOwnerConsumingValue(const IrNode *rhs)
@@ -697,7 +697,7 @@ static void elaborateAssign(ElabCursor *c)
         elaborateAssignMove(c, rhsMove);
     }
     else if (isOwnerConsumingValue(rhs)) {
-        injectOperandCopies(c->ctx, c->bb, &c->prev, stmt, rhs, &c->next, c->may, c->must);
+        injectOperandCopies(c, rhs);
     }
     else {
         IrNode *lhs = stmt->assign.lhs;
@@ -768,7 +768,7 @@ static void elaborateStmt(ElabCursor *c)
     else if (stmt->tag == irDrop && managed)
         elaborateDrop(c);
     else if (stmt->tag == irCall)
-        injectOperandCopies(c->ctx, c->bb, &c->prev, stmt, stmt, &c->next, c->may, c->must);
+        injectOperandCopies(c, stmt);
     else if (stmt->tag == irScopeExit)
         elaborateScopeExit(c);
 }
