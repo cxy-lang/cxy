@@ -43,6 +43,10 @@ bool isIrVarDestructible(const IrNode *decl);
 // consumer takes it with a move, the result temporary is never dropped
 bool isUnwrappedCallResult(const IrNode *src);
 
+// The success payload of a call result temporary, `res.val.0`: an owner nobody has
+// taken until a consumer moves it out
+bool isResultPayloadPlace(const IrNode *node);
+
 // A value that owns what it holds, a consumer takes it over
 bool isOwnerConsumingValue(const IrNode *rhs);
 

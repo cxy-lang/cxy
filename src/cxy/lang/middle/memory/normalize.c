@@ -3,6 +3,7 @@
 #include "operands.h"
 
 #include "lang/frontend/flag.h"
+#include "lang/middle/ir/visitor.h"
 
 typedef struct NormalizeCursor {
     MemMgmtContext *ctx;
@@ -180,7 +181,37 @@ static void promoteAssignToCopy(IrNode *stmt)
     stmt->copy.dst = lhs;
 }
 
-static void normalizeStmt(NormalizeCursor *c)
+// N2b: a payload that no consumer takes is only read, `peek(make())`. Nobody owns
+// it, so it is moved into a statement temporary that the call ends.
+static void takeBorrowedPayload(IrNode **slot, void *cursor)
+{
+    NormalizeCursor *c = cursor;
+    IrNode *place = *slot;
+    if (place == NULL || place->tag == irMove)
+        return;
+    if (!isResultPayloadPlace(place)) {
+        irForEachOperandSlot(place, takeBorrowedPayload, c);
+        return;
+    }
+
+    MemPool *pool = c->ctx->pool;
+    IrNode *temp = makeOwnedTemp(c->ctx, "__p", place);
+    irSetValueClass(temp, irClassStatement);
+    IrNode *ref = makeIrVarRef(pool, &place->loc, temp);
+    ref->next = place->next;
+    place->next = NULL;
+
+    IrNode *clear = makeClearPlace(pool, &c->stmt->loc, cloneIrNode(pool, place));
+    IrNode *capture = makeIrAssign(pool, &place->loc, makeIrVarRef(pool, &place->loc, temp), place);
+    capture->flags |= flgUnmanaged;
+    irSetInfo(capture, irInfoImplicit);
+    insertSynthetic(c, temp);
+    insertSynthetic(c, capture);
+    insertSynthetic(c, clear);
+    *slot = ref;
+}
+
+static void normalizeOwnership(NormalizeCursor *c)
 {
     IrNode *stmt = c->stmt;
     if (stmt->tag == irCall) {
@@ -203,6 +234,17 @@ static void normalizeStmt(NormalizeCursor *c)
         else
             promoteAssignToCopy(stmt);
     }
+}
+
+static void normalizeStmt(NormalizeCursor *c)
+{
+    normalizeOwnership(c);
+
+    IrNode *stmt = c->stmt;
+    bool reads = stmt->tag == irCall || stmt->tag == irBranchIf || stmt->tag == irSwitch ||
+                 (stmt->tag == irAssign && !hasFlag(stmt, Unmanaged));
+    if (reads)
+        irForEachOperandSlot(stmt, takeBorrowedPayload, c);
 }
 
 void normalizeFunction(MemMgmtContext *ctx, IrNode *func)

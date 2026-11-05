@@ -413,6 +413,40 @@ func main(): void {}
     )");
 }
 
+TEST_CASE("Normalize N2b: a payload that is only borrowed is taken into a statement temporary")
+{
+    CompileOptions options;
+    options.withBuiltins = true;
+    TestCompiler cc(options);
+    REQUIRE(cc.compile(std::string(program) + R"(
+exception TestError(msg: string) => msg
+func make(x: i32): !Node {
+    if (x < 0) {
+        raise TestError("negative")
+    }
+    return Node(x)
+}
+func borrowed(): !void {
+    peek(make(3))
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+    normalize(cc, "borrowed");
+
+    // nobody owns the payload, so it is dropped when the call that borrowed it ends
+    REQUIRE_IR_MATCHES(cc.function("borrowed").findBlock("call_cont_1"), R"(
+        (Block _L_call_cont_1
+            (VarDecl __p0 ^Node :class-statement :synthetic)
+            (Assign (VarRef __p0) (Member (Member (VarRef __call_res_0) val) 0 :owned-position)
+                    :unmanaged :implicit :synthetic)
+            (Assign (Member (Member (VarRef __call_res_0) val) 0) null :unmanaged :synthetic)
+            (Call (GlobalRef peek) ...)
+            (Drop (VarRef __p0) :synthetic)
+            ...)
+    )");
+}
+
 TEST_CASE("Normalize classes: the result of a `!T` call is a result temporary")
 {
     CompileOptions options;

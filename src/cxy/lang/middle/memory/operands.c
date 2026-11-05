@@ -1,6 +1,7 @@
 #include "operands.h"
 
 #include "lang/frontend/flag.h"
+#include "lang/frontend/strings.h"
 #include "lang/middle/ir/visitor.h"
 
 IrNode *findVarDeclInNode(const IrNode *node)
@@ -29,6 +30,19 @@ bool isUnwrappedCallResult(const IrNode *src)
 {
     IrNode *decl = findVarDeclInNode(src);
     return decl && irValueClass(decl) == irClassResult;
+}
+
+bool isResultPayloadPlace(const IrNode *node)
+{
+    if (node == NULL || node->tag != irMember || node->member.index != 0 ||
+        node->member.name != NULL || !isIrTypeDestructible(node->type))
+        return false;
+    const IrNode *val = node->member.target;
+    if (val == NULL || val->tag != irMember || val->member.index != 1 || val->member.name != S_val)
+        return false;
+    const IrNode *root = val->member.target;
+    return root && root->tag == irVarRef && root->varRef.target &&
+           irValueClass(root->varRef.target) == irClassResult;
 }
 
 bool isOwnerConsumingValue(const IrNode *rhs)

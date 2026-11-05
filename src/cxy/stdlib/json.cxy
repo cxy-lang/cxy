@@ -727,7 +727,8 @@ pub func fromJSON[T](parser: &JsonParser): !T {
 
             while (parser.currentToken() != JsonToken.RightBrace) {
                 var pos = parser.tag()
-                var key = parser.expectString().s()
+                var keyStr = parser.expectString()
+                var key = keyStr.s()
                 parser.expectToken(JsonToken.Colon)
                 parser.advance()
                 #if (pa)
@@ -768,7 +769,8 @@ pub func fromJSON[T](parser: &JsonParser): !T {
                     parser.expectToken(JsonToken.Comma)
                     parser.advance()
                 }
-                var key = parser.expectString().s()
+                var keyStr = parser.expectString()
+                var key = keyStr.s()
                 parser.expectToken(JsonToken.Colon)
                 parser.advance()
                 tmp.[String(key)] = fromJSON[T.ValueType](parser)
