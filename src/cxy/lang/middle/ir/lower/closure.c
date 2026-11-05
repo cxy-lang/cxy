@@ -74,6 +74,8 @@ void lowerClosureValue(AstVisitor *visitor, AstNode *node)
                                            envVarName,
                                            envStructType,
                                            ctx->currentScopeId);
+            // owned by this scope, the pass drops it at scope exit like a local
+            markCompilerVar(envVar, irClassNone);
             emitStmt(ctx, envVar);
             emitStmt(ctx,
                      makeIrAssign(ctx->pool,

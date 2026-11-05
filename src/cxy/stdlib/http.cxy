@@ -744,6 +744,11 @@ pub class Request {
     const func qparams() {
         return &_qparams
     }
+
+    @inline
+    func takeSocket() {
+        return &&_sock
+    }
 }
 
 func requestParserOnMessageBegin(p: ^parser.llhttp_t) {
@@ -1217,13 +1222,13 @@ class Connection[Middlewares] {
     }
 
     func handle() {
-        req = Request(sock.address(), ptrof HTTP_PARSER_SETTINGS, sock)
+        req = Request(sock.address(), ptrof HTTP_PARSER_SETTINGS, &&sock)
         resp = Response()
-        while (!_close && !!sock) {
+        while (!_close && req.isConnected()) {
             handleConnection()
             if (resp.upgrade() != null) {
                 var up = resp.upgrade()
-                up.start(&&sock) catch {
+                up.start(req.takeSocket()) catch {
                     WRN!("Unhandled upgrade error: " << ex!.what())
                 }
                 break

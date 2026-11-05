@@ -267,6 +267,48 @@ TEST_CASE("Ownership verifier: clean functions")
     }
 }
 
+// What the verifier follows is told by the class: a variable the pass drops at
+// scope exit is an owner whoever made it, one it never drops is not
+TEST_CASE("Ownership verifier: what is tracked depends on the class, not on who made it")
+{
+    auto leak = [](IrValueClass cls) {
+        Builder b;
+        IrNode *bb = b.block("entry");
+        IrNode *x = b.var(bb, "env");
+        irSetInfo(x, irInfoSynthetic);
+        irSetValueClass(x, cls);
+        irAppendBlockStmt(bb, b.assign(x, b.value()));
+        irAppendBlockStmt(bb, b.ret());
+
+        OwnershipSnapshot *snap = ownershipSnapshot(b.module);
+        auto found = b.verify(snap);
+        freeOwnershipSnapshot(snap);
+        return found;
+    };
+
+    SUBCASE("a compiler variable with an ordinary lifetime is an owner")
+    {
+        auto found = leak(irClassNone);
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O1");
+        CHECK(found[0].var == "env");
+    }
+
+    SUBCASE("a temporary that outlives its statement is an owner")
+    {
+        CHECK(leak(irClassExtended).size() == 1);
+    }
+
+    SUBCASE("a transient, in flight, statement, result or return slot variable is not")
+    {
+        CHECK(leak(irClassTransient).empty());
+        CHECK(leak(irClassInFlight).empty());
+        CHECK(leak(irClassStatement).empty());
+        CHECK(leak(irClassResult).empty());
+        CHECK(leak(irClassReturnSlot).empty());
+    }
+}
+
 TEST_CASE("Ownership verifier: O1 leak at exit")
 {
     SUBCASE("local never dropped")
@@ -614,6 +656,7 @@ TEST_CASE("Ownership verifier: O5 on the normalized form, a captured field must 
         IrNode *x = b.var(bb, "x");
         IrNode *held = b.var(bb, "held");
         irSetInfo(held, irInfoSynthetic);
+        irSetValueClass(held, irClassInFlight);
         irAppendBlockStmt(bb, b.assign(x, b.value()));
 
         // `held = x.f` then `x.f = null`, what normalize writes for `&&x.f`

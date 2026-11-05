@@ -26,6 +26,10 @@ func peek(n: &Node): i32 => n.id
 func adder(n: i32): func(i32) -> i32 {
     return (x: i32) => x + n
 }
+func localLambda(n: i32): i32 {
+    var f = (x: i32) => x + n
+    return f(1)
+}
 func coalesce(a: i32?, b: i32): i32 => a ?? b
 func both(a: bool, b: bool): bool => a && b || a
 func mayFail(x: i32): !i32 {

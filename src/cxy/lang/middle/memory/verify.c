@@ -82,9 +82,20 @@ static bool isUserVariable(const IrNode *decl)
     return !irHasInfo(decl, irInfoSynthetic);
 }
 
+// An owner the memory pass drops at scope exit, whoever made it: a variable of the
+// user, a closure environment on the stack, a temporary that outlives its statement.
+// The class tells, the other classes are consumed, dropped by a statement or returned.
+static bool isManagedOwner(const IrNode *decl)
+{
+    if (decl == NULL || (decl->tag != irVarDecl && decl->tag != irFuncParam))
+        return false;
+    IrValueClass cls = irValueClass(decl);
+    return cls == irClassNone || cls == irClassExtended;
+}
+
 static bool isTrackedDecl(const IrNode *decl)
 {
-    return isUserVariable(decl) &&
+    return isManagedOwner(decl) &&
            (hasFlag(decl, ReferenceMembers) || isIrTypeDestructible(decl->type));
 }
 

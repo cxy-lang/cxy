@@ -482,6 +482,7 @@ static void lowerTypeCoercion(AstVisitor *visitor,
                                           tempName,
                                           sliceIrType,
                                           ctx->currentScopeId);
+        markCompilerVar(sliceTemp, irClassNone);
         emitStmt(ctx, sliceTemp);
         lowerSliceIntoTarget(ctx,
                              visitor,
