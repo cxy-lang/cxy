@@ -23,10 +23,12 @@ func take(n: Node) {}
 func peek(n: &Node) {}
 )";
 
-// The classes normalize writes on temporaries are not a rewrite of the code
-std::string withoutClasses(std::string text)
+// The class and the flags normalize writes on a temporary are not a rewrite of the
+// code, the statements are what a rewrite changes
+std::string withoutTemporaryMarkers(std::string text)
 {
-    for (const char *marker : {" :class-in-flight", " :class-statement", " :class-extended"}) {
+    for (const char *marker : {" :class-in-flight", " :class-statement", " :class-extended",
+                               " :class-result", " :temporary", " :ephemeral"}) {
         for (size_t at; (at = text.find(marker)) != std::string::npos;)
             text.erase(at, strlen(marker));
     }
@@ -183,6 +185,29 @@ func main(): void {}
     CHECK_FALSE(cc.function("moved").findBlock("entry").sexpr().find("__copy") != std::string::npos);
 }
 
+TEST_CASE("Normalize N3: a temporary lowering made for an owned argument is not copied")
+{
+    TestCompiler cc;
+    REQUIRE(cc.compile(std::string(program) + R"(
+func make(): Node => Node(1)
+func fresh() {
+    take(make())
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+    normalize(cc, "fresh");
+
+    REQUIRE_IR_MATCHES(cc.function("fresh").findBlock("entry"), R"(
+        (Block _L_entry
+            (ScopeEnter 0)
+            (VarDecl __t0 ^Node :temporary :class-in-flight :synthetic)
+            (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
+            (Call (GlobalRef take) (VarRef __t0 :owned-position))
+            (Goto _L_exit))
+    )");
+}
+
 TEST_CASE("Normalize N4: `&&x` passed to a `&T` parameter is a borrow, nothing is moved")
 {
     TestCompiler cc;
@@ -216,7 +241,7 @@ func main(): void {}
     INFO(cc.diagnostics());
     std::string before = cc.function("plain").sexpr();
     normalize(cc, "plain");
-    REQUIRE(withoutClasses(cc.function("plain").sexpr()) == before);
+    REQUIRE(withoutTemporaryMarkers(cc.function("plain").sexpr()) == withoutTemporaryMarkers(before));
 }
 
 TEST_CASE("Normalize N5: lowering already names a call or literal nested in an owned operand")
@@ -240,9 +265,9 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("nested").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (VarDecl __t0 ^Node :temporary :synthetic)
+            (VarDecl __t0 ^Node :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
-            (VarDecl __t1 ^Node :temporary :synthetic)
+            (VarDecl __t1 ^Node :synthetic)
             (Assign (VarRef __t1) (Call (GlobalRef pass) (VarRef __t0 :owned-position) :owned-position))
             (Call (GlobalRef take) (VarRef __t1 :owned-position))
             (Goto _L_exit))
@@ -257,7 +282,8 @@ func main(): void {}
     std::string before = cc.function("nested").sexpr() + cc.function("literal").sexpr();
     normalize(cc, "nested");
     normalize(cc, "literal");
-    REQUIRE(withoutClasses(cc.function("nested").sexpr() + cc.function("literal").sexpr()) == before);
+    REQUIRE(withoutTemporaryMarkers(cc.function("nested").sexpr() + cc.function("literal").sexpr()) ==
+            withoutTemporaryMarkers(before));
 }
 
 namespace {

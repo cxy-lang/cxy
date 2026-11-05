@@ -102,15 +102,10 @@ const IrType *lowerClosureFnPtrType(LowerContext *ctx, const Type *closureType);
 bool isIrPureValueExpr(const IrNode *node);
 
 // Stores `val` in a fresh temporary and returns a reference to it
-IrNode *flattenIrValue(LowerContext *ctx,
-                       AstNode *node,
-                       IrNode *val,
-                       bool borrowed);
+IrNode *flattenIrValue(LowerContext *ctx, AstNode *node, IrNode *val);
 
 // An operand evaluated once, in order, before the statement
 IrNode *lowerFlattenedOperand(AstVisitor *visitor, AstNode *node);
-// Same, for a consumer that only reads it
-IrNode *lowerBorrowedOperand(AstVisitor *visitor, AstNode *node);
 // An element of a struct, tuple or array literal
 IrNode *lowerCompositeElement(AstVisitor *visitor, AstNode *node);
 IrNode *lowerConditionOperand(LowerContext *ctx,

@@ -338,8 +338,8 @@ void lowerBinaryExpr(AstVisitor *visitor, AstNode *node)
         break;
     }
 
-    IrNode *lhs = lowerBorrowedOperand(visitor, node->binaryExpr.lhs);
-    IrNode *rhs = lowerBorrowedOperand(visitor, node->binaryExpr.rhs);
+    IrNode *lhs = lowerFlattenedOperand(visitor, node->binaryExpr.lhs);
+    IrNode *rhs = lowerFlattenedOperand(visitor, node->binaryExpr.rhs);
 
     if ((op == opEq || op == opNe) &&
         lowerClosureNullCompare(ctx, node, lhs, rhs))
@@ -372,11 +372,9 @@ IrNode *markUserWritten(const AstNode *ast, IrNode *ir)
 void lowerUnaryExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
-    // `&x` and `^x` only borrow, an rvalue lives in a local of the scope
     bool borrows =
         node->unaryExpr.op == opPtrof || node->unaryExpr.op == opRefof;
-    IrNode *operand = borrows ? lowerBorrowedOperand(visitor, node->unaryExpr.operand)
-                              : lowerFlattenedOperand(visitor, node->unaryExpr.operand);
+    IrNode *operand = lowerFlattenedOperand(visitor, node->unaryExpr.operand);
     const IrType *irType = lowerType(ctx, node->type);
     if (borrows) {
         const Type *opType = node->unaryExpr.operand->type;

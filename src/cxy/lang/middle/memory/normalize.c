@@ -163,6 +163,8 @@ static void normalizeStmt(NormalizeCursor *c)
 
 void normalizeFunction(MemMgmtContext *ctx, IrNode *func)
 {
+    // the rules read the flags of a temporary, so its class comes first
+    classifyTemporaries(ctx, func);
     for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
         if (bb->tag != irBasicBlock)
             continue;
@@ -176,5 +178,5 @@ void normalizeFunction(MemMgmtContext *ctx, IrNode *func)
             stmt = next;
         }
     }
-    classifyTemporaries(ctx, func);
+    dropStatementTemporaries(ctx, func);
 }

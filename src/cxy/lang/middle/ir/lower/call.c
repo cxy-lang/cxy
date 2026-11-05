@@ -229,7 +229,7 @@ void lowerCallExpr(AstVisitor *visitor, AstNode *node)
     // variable is evaluated once, into a local
     IrNode *callee = NULL;
     if (isClosureType(calleeType)) {
-        callee = lowerBorrowedOperand(visitor, node->callExpr.callee);
+        callee = lowerFlattenedOperand(visitor, node->callExpr.callee);
     }
     else {
         astVisit(visitor, node->callExpr.callee);

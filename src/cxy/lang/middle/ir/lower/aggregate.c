@@ -63,7 +63,7 @@ void lowerTupleExpr(AstVisitor *visitor, AstNode *node)
         if (elemVal && elemVal->tag == irOptionalValue &&
             elemVal->optionalValue.hasValue && ctx->currentFunc &&
             isIrTypeDestructible(elemVal->type))
-            elemVal = flattenIrValue(ctx, elem, elemVal, false);
+            elemVal = flattenIrValue(ctx, elem, elemVal);
         if (elemsLast) {
             elemsLast->next = elemVal;
             elemsLast = elemVal;
@@ -106,7 +106,7 @@ void lowerStructExpr(AstVisitor *visitor, AstNode *node)
         if (fVal && fVal->tag == irOptionalValue &&
             fVal->optionalValue.hasValue && ctx->currentFunc &&
             isIrTypeDestructible(fVal->type))
-            fVal = flattenIrValue(ctx, f->fieldExpr.value, fVal, false);
+            fVal = flattenIrValue(ctx, f->fieldExpr.value, fVal);
         const IrType *fType = fVal ? fVal->type : NULL;
         IrNode *fieldNode = makeIrFieldConst(ctx->pool, &f->loc, name, index, fVal, fType);
         if (fieldsLast) {

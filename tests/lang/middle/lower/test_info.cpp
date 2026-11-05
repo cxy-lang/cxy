@@ -206,7 +206,7 @@ func main(): void {}
                 ...
                 (VarDecl kept ^Node)
                 ...
-                (VarDecl __t0 ^Node :temporary :synthetic)
+                (VarDecl __t0 ^Node :synthetic)
                 ...)
             ...))");
 }

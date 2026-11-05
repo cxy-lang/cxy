@@ -180,7 +180,7 @@ void lowerMemberExpr(AstVisitor *visitor, AstNode *node)
         return;
     }
 
-    IrNode *target = lowerBorrowedOperand(visitor, node->memberExpr.target);
+    IrNode *target = lowerFlattenedOperand(visitor, node->memberExpr.target);
     const Type *targetAstType = node->memberExpr.target->type;
     if (node->memberExpr.isRedirect && isOptionalType(targetAstType)) {
         const IrType *valType = target->type->strct.fields[1].type;
@@ -370,7 +370,7 @@ void lowerPointerOf(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
     // `&x` and `^x` only borrow, an rvalue lives in a local of the scope
-    IrNode *operand = lowerBorrowedOperand(visitor, node->unaryExpr.operand);
+    IrNode *operand = lowerFlattenedOperand(visitor, node->unaryExpr.operand);
     const Type *opType = node->unaryExpr.operand->type;
     const IrType *irType = lowerType(ctx, node->type);
     bool isRefOf = nodeIs(node, ReferenceOf);

@@ -39,7 +39,7 @@ TEST_CASE("Lower result: `raise` sets the tag, stores the exception and unwinds"
     REQUIRE_IR_MATCHES(cc.function("mayFail").findBlock("IF0_then"), R"(
         (Block _L_IF0_then
             (ScopeEnter 1)
-            (VarDecl __t0 ^TestError :temporary :synthetic)
+            (VarDecl __t0 ^TestError :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef TestError_op__initCover) _ :owned-position))
             (Call (GlobalRef builtins_Exception_push) (VarRef __t0) ...)
             (Assign (Member (VarRef __ret) tag) 1)

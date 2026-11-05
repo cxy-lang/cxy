@@ -79,7 +79,7 @@ func main(): void {}
         (Block _L_entry
             (ScopeEnter 0)
             (VarDecl __ret i32 :returned)
-            (VarDecl __t0 _ :temporary :synthetic)
+            (VarDecl __t0 _ :synthetic)
             (Assign (VarRef __t0) (Closure null (GlobalRef _)))
             (Assign (VarRef __ret)
                 (Call (Member (VarRef __t0) fn) (Member (VarRef __t0) env) 4))

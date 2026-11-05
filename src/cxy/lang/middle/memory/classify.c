@@ -41,15 +41,17 @@ static TempUse *findUse(UseScan *scan, const IrNode *decl)
     return findInHashTable(&scan->table, &probe, hashDecl(decl), sizeof(TempUse), compareTempUse);
 }
 
-static void declareTemporaries(UseScan *scan, IrNode *func)
+// The temporaries that have the class `wanted`. None are the ones lowering made, a
+// pass created the others and gave them a class already.
+static void declareTemporaries(UseScan *scan, IrNode *func, IrValueClass wanted)
 {
     for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
         if (bb->tag != irBasicBlock)
             continue;
         for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
-            // one the pass created already has its class, a reference owns nothing
+            // a reference owns nothing
             if (stmt->tag != irVarDecl || !irHasInfo(stmt, irInfoSynthetic) ||
-                irValueClass(stmt) != irClassNone || !isIrVarDestructible(stmt) ||
+                irValueClass(stmt) != wanted || !isIrVarDestructible(stmt) ||
                 (stmt->type && stmt->type->category == irTypeCatReference))
                 continue;
             TempUse use = {.decl = stmt};
@@ -274,43 +276,61 @@ static bool dropAfterLastUse(TempUse *use, MemMgmtContext *ctx)
     return true;
 }
 
+// The uses of the temporaries of class `wanted`. False when there are none.
+static bool scanFunction(UseScan *scan, IrNode *func, IrValueClass wanted)
+{
+    declareTemporaries(scan, func, wanted);
+    if (scan->table.size == 0)
+        return false;
+
+    for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
+        if (bb->tag != irBasicBlock)
+            continue;
+        scan->block = bb;
+        for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next)
+            scanStatement(scan, stmt);
+    }
+    return true;
+}
+
+// What a temporary is used for fixes its class, and the class its flags: an
+// in-flight owner or a result is `Temporary`, nobody drops it but its consumer
 void classifyTemporaries(MemMgmtContext *ctx, IrNode *func)
 {
     UseScan scan = {.ctx = ctx, .table = newTempHashTable(sizeof(TempUse))};
-    declareTemporaries(&scan, func);
-    if (scan.table.size == 0) {
-        freeHashTable(&scan.table);
-        return;
-    }
-
-    for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
-        if (bb->tag != irBasicBlock)
-            continue;
-        scan.block = bb;
-        for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next)
-            scanStatement(&scan, stmt);
-    }
-
-    for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
-        if (bb->tag != irBasicBlock)
-            continue;
-        for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
-            TempUse *use = stmt->tag == irVarDecl ? findUse(&scan, stmt) : NULL;
-            if (use)
-                irSetValueClass(stmt, classOf(use));
+    if (scanFunction(&scan, func, irClassNone)) {
+        for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
+            if (bb->tag != irBasicBlock)
+                continue;
+            for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
+                TempUse *use = stmt->tag == irVarDecl ? findUse(&scan, stmt) : NULL;
+                if (use == NULL)
+                    continue;
+                IrValueClass cls = classOf(use);
+                irSetValueClass(stmt, cls);
+                if (cls == irClassInFlight || cls == irClassResult)
+                    stmt->flags |= flgTemporary;
+            }
         }
     }
+    freeHashTable(&scan.table);
+}
 
-    hoistTerminators(&scan, func);
+void dropStatementTemporaries(MemMgmtContext *ctx, IrNode *func)
+{
+    UseScan scan = {.ctx = ctx, .table = newTempHashTable(sizeof(TempUse))};
+    if (scanFunction(&scan, func, irClassStatement)) {
+        hoistTerminators(&scan, func);
 
-    for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
-        if (bb->tag != irBasicBlock)
-            continue;
-        for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
-            TempUse *use = stmt->tag == irVarDecl ? findUse(&scan, stmt) : NULL;
-            // one that cannot end with its statement lives to the end of its scope
-            if (use && irValueClass(stmt) == irClassStatement && !dropAfterLastUse(use, ctx))
-                irSetValueClass(stmt, irClassExtended);
+        for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
+            if (bb->tag != irBasicBlock)
+                continue;
+            for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
+                TempUse *use = stmt->tag == irVarDecl ? findUse(&scan, stmt) : NULL;
+                // one that cannot end with its statement lives to the end of its scope
+                if (use && !dropAfterLastUse(use, ctx))
+                    irSetValueClass(stmt, irClassExtended);
+            }
         }
     }
     freeHashTable(&scan.table);

@@ -68,24 +68,17 @@ bool isIrPureValueExpr(const IrNode *node)
     return false;
 }
 
-// Stores `val` in a fresh temporary and returns a reference to it.
-// `borrowed` consumers only read the value, so an owned rvalue must be
-// tracked (and dropped) as a regular local instead of an unowned temporary.
-IrNode *flattenIrValue(LowerContext *ctx,
-                       AstNode *node,
-                       IrNode *val,
-                       bool borrowed)
+// Stores `val` in a fresh temporary and returns a reference to it. What the
+// temporary is for is not decided here, the memory pass classifies it from how it
+// is used. Only the result of a `!T` call is known by its type.
+IrNode *flattenIrValue(LowerContext *ctx, AstNode *node, IrNode *val)
 {
     cstring tempName = makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
-    Flags flags = flgTemporary;
+    Flags flags = flgNone;
     if (isIrTypeDestructible(val->type))
         flags |= flgReferenceMembers;
-    if (borrowed && node->type) {
-        const Type *astType = resolveUnThisUnwrapType(node->type);
-        if (astType && !isReferenceType(astType) && !isPointerType(astType) &&
-            isDestructible(astType))
-            flags = flgReferenceMembers;
-    }
+    if (val->type && val->type->category == irTypeCatResult)
+        flags |= flgTemporary;
     IrNode *tempVar = makeIrVarDecl(ctx->pool,
                                     &node->loc,
                                     flags,
@@ -103,7 +96,8 @@ IrNode *flattenIrValue(LowerContext *ctx,
     return makeIrVarRef(ctx->pool, &node->loc, tempVar);
 }
 
-static IrNode *lowerFlattenedOperandEx(AstVisitor *visitor, AstNode *node, bool borrowed)
+// An operand evaluated once, in order, before the statement
+IrNode *lowerFlattenedOperand(AstVisitor *visitor, AstNode *node)
 {
     if (node == NULL)
         return NULL;
@@ -115,7 +109,7 @@ static IrNode *lowerFlattenedOperandEx(AstVisitor *visitor, AstNode *node, bool 
     if (isIrLValueOrConst(val) || (isIrPureValueExpr(val) && !isIrTypeDestructible(val->type)))
         return val;
 
-    return flattenIrValue(getAstVisitorContext(visitor), node, val, borrowed);
+    return flattenIrValue(getAstVisitorContext(visitor), node, val);
 }
 
 // An element of a struct, tuple or array literal. A call, or a nested literal
@@ -129,18 +123,8 @@ IrNode *lowerCompositeElement(AstVisitor *visitor, AstNode *node)
     if (val && ctx->currentFunc &&
         (val->tag == irCall ||
          (val->tag == irStructConst && isIrTypeDestructible(val->type))))
-        return flattenIrValue(ctx, node, val, false);
+        return flattenIrValue(ctx, node, val);
     return val;
-}
-
-IrNode *lowerFlattenedOperand(AstVisitor *visitor, AstNode *node)
-{
-    return lowerFlattenedOperandEx(visitor, node, false);
-}
-
-IrNode *lowerBorrowedOperand(AstVisitor *visitor, AstNode *node)
-{
-    return lowerFlattenedOperandEx(visitor, node, true);
 }
 
 IrNode *lowerConditionOperand(LowerContext *ctx,
@@ -148,7 +132,7 @@ IrNode *lowerConditionOperand(LowerContext *ctx,
                               AstNode *condNode)
 {
     const Type *astType = condNode->type;
-    IrNode *cond = lowerBorrowedOperand(visitor, condNode);
+    IrNode *cond = lowerFlattenedOperand(visitor, condNode);
     if (cond == NULL) {
         return makeIrBoolConst(ctx->pool,
                                &condNode->loc,
