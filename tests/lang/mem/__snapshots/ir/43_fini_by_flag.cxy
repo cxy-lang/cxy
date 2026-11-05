@@ -1,0 +1,154 @@
+
+// Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/43_fini_by_flag.cxy
+global shared: ^Node = null
+
+extern func __smart_ptr_get(ptr: ^void): ^void
+
+extern func __smart_ptr_drop(ptr: ^void): bool
+
+func main.OutputStream.op__lshiftI_i32E(this: ^OutputStream, val: i32): ^OutputStream {
+_L_entry:
+  scope.enter 0
+  var __ret: ^OutputStream
+  builtins_OutputStream_appendSignedInt(this, <i128>(val))
+  __ret = this
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func printlnI_si32sE(args: ^char, args1: i32, args2: ^char): void {
+_L_entry:
+  scope.enter 0
+  builtins_OutputStream_op__lshiftI_sE(<^OutputStream>(builtins_stdout), args)
+  builtins_OutputStream_op__lshiftI_i32E(<^OutputStream>(builtins_stdout), args1)
+  builtins_OutputStream_op__lshiftI_sE(<^OutputStream>(builtins_stdout), args2)
+  builtins_OutputStream_op__lshiftI_wE(<^OutputStream>(builtins_stdout), '\n')
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__init(this: ^Node, id: i32): void {
+_L_entry:
+  scope.enter 0
+  this.id = id
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__deinit(this: ^Node): void {
+_L_entry:
+  scope.enter 0
+  printlnI_si32sE("node ", this.id, " destroyed")
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__destructor(this: ^Node): void {
+_L_entry:
+  scope.enter 0
+  Node_op__deinit(this)
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__destructor_fwd(ptr: ^void): void {
+_L_entry:
+  scope.enter 0
+  Node_op__destructor(<^Node>(<^Node>(ptr)))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main.Node.op__initCover(id: i32): ^Node {
+_L_entry:
+  scope.enter 0
+  var __ret: ^Node
+  var __obj13: ^Node
+  var __t0: ^Node
+  __t0 = alloc(^Node)
+  __obj13 = <^Node>(__t0)
+  zeromem __obj13
+  Node_op__init(<^Node>(__obj13), id)
+  __ret = __obj13
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
+func printlnI_sE(args: ^char): void {
+_L_entry:
+  scope.enter 0
+  builtins_OutputStream_op__lshiftI_sE(<^OutputStream>(builtins_stdout), args)
+  builtins_OutputStream_op__lshiftI_wE(<^OutputStream>(builtins_stdout), '\n')
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func __fini_cache(): void {
+_L_entry:
+  scope.enter 0
+  printlnI_sE("user function ran")
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func printlnI_si32E(args: ^char, args1: i32): void {
+_L_entry:
+  scope.enter 0
+  builtins_OutputStream_op__lshiftI_sE(<^OutputStream>(builtins_stdout), args)
+  builtins_OutputStream_op__lshiftI_i32E(<^OutputStream>(builtins_stdout), args1)
+  builtins_OutputStream_op__lshiftI_wE(<^OutputStream>(builtins_stdout), '\n')
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func main(): void {
+_L_entry:
+  scope.enter 0
+  printlnI_si32E("main ", shared.id)
+  __fini_cache()
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func __init(): void {
+_L_entry:
+  scope.enter 0
+  shared = Node_op__initCover(<i32>(1))
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}
+
+func __fini(): void {
+_L_entry:
+  scope.enter 0
+  drop shared
+  shared = null
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return
+}

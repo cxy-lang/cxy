@@ -47,7 +47,7 @@ extern "C" {
     f(Temporary,            30)                 \
     f(Unsafe,               31)                 \
     f(FunctionPtr,          32)                 \
-    f(Returned,             33)                 \
+    f(ModuleFini,           33)                 \
     f(ComptimeIterable,     34)                 \
     f(Define,               35)                 \
     f(UnsafeCast,           36)                 \
@@ -77,7 +77,7 @@ extern "C" {
     f(Constructor,          60)                 \
     f(TestContext,          61)                 \
     f(Annotation,           62)                 \
-    f(Ephemeral,            63)
+    f(ModuleThreadFini,     63)
 
 // clang-format on
 static const u64 flgNone = 0;

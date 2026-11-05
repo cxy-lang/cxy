@@ -1,0 +1,17 @@
+// @TEST_ARGS: ~--without-builtins
+// A `@thread` global is destroyed by the thread finalizer when its thread ends, a
+// plain global by the process finalizer at exit
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { println("node ", this.id, " destroyed") }
+}
+
+var shared = Node(1)
+
+@thread
+var local = Node(2)
+
+func main(): void {
+    println("main ", shared.id, " ", local.id)
+}

@@ -75,27 +75,13 @@ IrNode *makeIrFuncParam(MemPool *pool,
     return node;
 }
 
-// Matches `<token>` at the start or after '_' (module prefix), ending at '\0' or '_'
-static bool hasFiniToken(cstring name, const char *token)
-{
-    size_t len = strlen(token);
-    for (const char *p = strstr(name, token); p; p = strstr(p + 1, token)) {
-        bool startOk = p == name || p[-1] == '_';
-        bool endOk = p[len] == '\0' || p[len] == '_';
-        if (startOk && endOk)
-            return true;
-    }
-    return false;
-}
-
 int irModuleFiniKind(const IrNode *func)
 {
-    if (func == NULL || func->tag != irFunction || func->function.name == NULL)
+    if (func == NULL || func->tag != irFunction)
         return 0;
-    cstring name = func->function.name;
-    if (hasFiniToken(name, "__fini"))
+    if (hasFlag(func, ModuleFini))
         return 1;
-    if (hasFiniToken(name, "__tfini"))
+    if (hasFlag(func, ModuleThreadFini))
         return 2;
     return 0;
 }

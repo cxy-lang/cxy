@@ -367,10 +367,12 @@ static void createModuleInit(AstVisitor *visitor, AstNode *program)
 }
 
 // Teardown counterpart of createModuleInit: __fini_<module> (process exit) or
-// __tfini_<module> (thread exit). Detected by name in the backend.
+// __tfini_<module> (thread exit). `kind` is flgModuleFini or flgModuleThreadFini,
+// the flag is what tells the backend, the name does not.
 static void createModuleFini(AstVisitor *visitor,
                              AstNode *program,
                              cstring prefix,
+                             Flags kind,
                              AstNodeList *stmts)
 {
     SimplifyContext *ctx = getAstVisitorContext(visitor);
@@ -389,7 +391,7 @@ static void createModuleFini(AstVisitor *visitor,
         makeVoidAstNode(
             ctx->pool, builtinLoc(), flgNone, NULL, makeVoidType(ctx->types)),
         makeBlockStmt(ctx->pool, builtinLoc(), stmts->first, NULL, NULL),
-        flgTopLevelDecl | flgPublic,
+        flgTopLevelDecl | flgPublic | kind,
         NULL,
         NULL);
 
@@ -514,9 +516,9 @@ static void visitProgram(AstVisitor *visitor, AstNode *node)
         createModuleInit(visitor, node);
     }
     if (ctx->fini.first != NULL)
-        createModuleFini(visitor, node, "__fini", &ctx->fini);
+        createModuleFini(visitor, node, "__fini", flgModuleFini, &ctx->fini);
     if (ctx->tfini.first != NULL)
-        createModuleFini(visitor, node, "__tfini", &ctx->tfini);
+        createModuleFini(visitor, node, "__tfini", flgModuleThreadFini, &ctx->tfini);
 
     if (isBuiltinsInitialized()) {
         externals.last->next = node->program.decls;
