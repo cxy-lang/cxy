@@ -12,6 +12,7 @@
 #include "lang/middle/ir/dump/dump.h"
 #include "lang/middle/ir/dump/sexp.h"
 #include "lang/middle/memory/memory.h"
+#include "lang/middle/memory/normalize.h"
 #include "lang/middle/memory/verify.h"
 
 #include <inttypes.h>
@@ -254,6 +255,8 @@ static AstNode *executeMemoryManagement(CompilerDriver *driver, AstNode *node)
                  NULL);
         return NULL;
     }
+
+    runNormalization(driver, node->metadata.ir);
 
     // The verifier runs only when one of its warnings is enabled
     OwnershipSnapshot *snapshot =

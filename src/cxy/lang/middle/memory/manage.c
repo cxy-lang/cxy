@@ -1,6 +1,6 @@
 #include "memory.h"
 #include "flow.h"
-#include "normalize.h"
+
 #include "operands.h"
 #include "core/hash.h"
 #include "lang/frontend/flag.h"
@@ -519,7 +519,6 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
     ctx->dropFlagVars = newDynArray(sizeof(TrackedVar *));
     ctx->dropFlagsDecl = NULL;
 
-    normalizeFunction(ctx, func);
     collectScopeVariables(ctx, func);
 
     u64 blockCount = 0;

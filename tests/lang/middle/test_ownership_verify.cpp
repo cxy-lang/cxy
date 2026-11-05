@@ -604,6 +604,51 @@ TEST_CASE("Ownership verifier: O5 field moved out and not cleared")
     }
 }
 
+TEST_CASE("Ownership verifier: O5 on the normalized form, a captured field must be cleared")
+{
+    auto build = [](bool clearField) {
+        Builder b;
+        IrNode *bb = b.block("entry");
+        IrNode *x = b.var(bb, "x");
+        IrNode *held = b.var(bb, "held");
+        irSetInfo(held, irInfoSynthetic);
+        irAppendBlockStmt(bb, b.assign(x, b.value()));
+
+        // `held = x.f` then `x.f = null`, what normalize writes for `&&x.f`
+        IrNode *capture = b.assign(held, b.field(x));
+        irSetInfo(capture, irInfoImplicit);
+        capture->flags |= flgUnmanaged;
+        irAppendBlockStmt(bb, capture);
+        if (clearField) {
+            FileLoc loc = b.at();
+            IrNode *zero = makeIrAssign(&b.pool, &loc, b.field(x), makeIrNullConst(&b.pool, &loc, b.cls));
+            zero->flags |= flgUnmanaged;
+            irAppendBlockStmt(bb, zero);
+        }
+        IrNode *r = b.ret();
+        irAppendBlockStmt(bb, r);
+
+        OwnershipSnapshot *snap = ownershipSnapshot(b.module);
+        Builder::insertBefore(bb, r, b.drop(x));
+        auto found = b.verify(snap);
+        freeOwnershipSnapshot(snap);
+        return found;
+    };
+
+    SUBCASE("field cleared after it was read")
+    {
+        CHECK(build(true).empty());
+    }
+
+    SUBCASE("field left in place")
+    {
+        auto found = build(false);
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O5");
+        CHECK(found[0].var == "x");
+    }
+}
+
 TEST_CASE("Ownership verifier: O6 a reference cannot be moved out of")
 {
     SUBCASE("a `&&r` the user wrote")

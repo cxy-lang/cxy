@@ -92,7 +92,7 @@ func main(): void {}
         (Block _L_entry
             ...
             (Assign (VarRef __ret) (Member (VarRef __t0) id))
-            (Drop (VarRef __t0))
+            (Drop (VarRef __t0) :synthetic)
             (Goto _L_exit))
     )");
 }
@@ -143,8 +143,8 @@ func main(): void {}
         (Block _L_WHILE0_cond
             (Assign (VarRef __t0) (Call (GlobalRef next) :owned-position))
             (VarDecl __v0 bool :synthetic)
-            (Assign (VarRef __v0) (Binary < (Member (VarRef __t0) id) 4))
-            (Drop (VarRef __t0))
+            (Assign (VarRef __v0) (Binary < (Member (VarRef __t0) id) 4) :synthetic)
+            (Drop (VarRef __t0) :synthetic)
             (If (VarRef __v0) _L_WHILE0_body _L_WHILE0_exit))
     )");
 }

@@ -65,7 +65,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("args").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (Move (VarRef b))
+            (Move (VarRef b) :user-written :synthetic)
             (Call (GlobalRef take) (VarRef b :owned-position :moved))
             (Goto _L_exit))
     )");
@@ -89,7 +89,7 @@ func main(): void {}
             (ScopeEnter 0)
             (VarDecl x _)
             (Assign (VarRef x) (Call ...))
-            (Move (VarRef a))
+            (Move (VarRef a) :user-written :synthetic)
             (Assign (VarRef x) (VarRef a :owned-position :moved))
             (Goto _L_exit))
     )");
@@ -116,8 +116,8 @@ func main(): void {}
         (Block _L_entry
             (ScopeEnter 0)
             (VarDecl __mv0 ^Node :temporary :class-in-flight :synthetic)
-            (Assign (VarRef __mv0) (Member (VarRef b) n :owned-position) :unmanaged)
-            (Assign (Member (VarRef b) n) null :unmanaged)
+            (Assign (VarRef __mv0) (Member (VarRef b) n :owned-position) :unmanaged :implicit :synthetic)
+            (Assign (Member (VarRef b) n) null :unmanaged :synthetic)
             (Call (GlobalRef take) (VarRef __mv0 :owned-position :moved))
             (Goto _L_exit))
     )");
@@ -139,7 +139,7 @@ func main(): void {}
         (Block _L_entry
             (ScopeEnter 0)
             (VarDecl __copy0 ^Node :temporary :class-in-flight :synthetic)
-            (Copy (VarRef a :owned-position) (VarRef __copy0))
+            (Copy (VarRef a :owned-position) (VarRef __copy0) :synthetic)
             (Call (GlobalRef take) (VarRef __copy0 :owned-position :moved))
             (Goto _L_exit))
     )");
@@ -223,7 +223,7 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("borrowed").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (Call (GlobalRef peek) (Cast &Node (Cast &Node (VarRef a) :user-written)))
+            (Call (GlobalRef peek) (Cast &Node (Cast &Node (VarRef a :user-written) :user-written)))
             (Goto _L_exit))
     )");
 }

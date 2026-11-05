@@ -54,7 +54,7 @@ func main(): void {}
                 (VarDecl __t0 ^Node :ephemeral :class-statement :synthetic)
                 (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
                 (Assign (VarRef __ret) (Member (VarRef __t0) id))
-                (Drop (VarRef __t0))
+                (Drop (VarRef __t0) :synthetic)
                 (Goto _L_exit))
             (Block _L_exit
                 (ScopeExit 0)
@@ -75,7 +75,7 @@ func main(): void {}
         (Block _L_entry
             ...
             (Assign (VarRef __ret) (Call (GlobalRef peek) ...))
-            (Drop (VarRef __t0))
+            (Drop (VarRef __t0) :synthetic)
             (Goto _L_exit))
     )");
     REQUIRE_IR_MATCHES(cc.function("borrowed").findBlock("exit"),
@@ -103,8 +103,8 @@ func main(): void {}
             (VarDecl __t0 ^Node :ephemeral :class-statement :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
             (VarDecl __v0 bool :synthetic)
-            (Assign (VarRef __v0) (Binary > (Member (VarRef __t0) id) 0))
-            (Drop (VarRef __t0))
+            (Assign (VarRef __v0) (Binary > (Member (VarRef __t0) id) 0) :synthetic)
+            (Drop (VarRef __t0) :synthetic)
             (If (VarRef __v0) _L_IF0_then _L_IF0_end))
     )");
     REQUIRE_IR_MATCHES(cc.function("inCondition").findBlock("exit"),
@@ -130,8 +130,8 @@ func main(): void {}
         (Block _L_WHILE0_cond
             (Assign (VarRef __t0) (Call (GlobalRef next) :owned-position))
             (VarDecl __v0 bool :synthetic)
-            (Assign (VarRef __v0) (Binary < (Member (VarRef __t0) id) 3))
-            (Drop (VarRef __t0))
+            (Assign (VarRef __v0) (Binary < (Member (VarRef __t0) id) 3) :synthetic)
+            (Drop (VarRef __t0) :synthetic)
             (If (VarRef __v0) _L_WHILE0_body _))
     )");
 }
@@ -149,8 +149,8 @@ func main(): void {}
         (Block _L_entry
             ...
             (Assign (VarRef __ret) (Binary + ...))
-            (Drop (VarRef __t1))
-            (Drop (VarRef __t0))
+            (Drop (VarRef __t1) :synthetic)
+            (Drop (VarRef __t0) :synthetic)
             (Goto _L_exit))
     )");
 }

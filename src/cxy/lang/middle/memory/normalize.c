@@ -11,6 +11,13 @@ typedef struct NormalizeCursor {
     IrNode *stmt;
 } NormalizeCursor;
 
+// A statement normalize adds is synthetic, the user did not write it
+static void insertSynthetic(NormalizeCursor *c, IrNode *node)
+{
+    irSetInfo(node, irInfoSynthetic);
+    insertBeforeStmt(c->bb, &c->prev, c->stmt, node);
+}
+
 // N4: a `&&x` for a parameter that only borrows is not a move, `x` stays owned,
 // so the move goes and the operand is the borrow itself
 static void dropBorrowedMoves(IrNode *call)
@@ -19,8 +26,13 @@ static void dropBorrowedMoves(IrNode *call)
         if (irHasInfo(*arg, irInfoOwnedPosition))
             continue;
         IrNode **move = moveSlot(arg);
-        if (move)
-            stripMove(move);
+        if (move == NULL)
+            continue;
+        // what remains still says the user wrote a `&&`, the verifier reads it
+        bool userWritten = irHasInfo(*move, irInfoUserWritten);
+        IrNode *src = stripMove(move);
+        if (userWritten)
+            irSetInfo(src, irInfoUserWritten);
     }
 }
 
@@ -31,8 +43,10 @@ static void hoistVariableMove(NormalizeCursor *c, IrNode **move, IrNode *decl)
     MemPool *pool = c->ctx->pool;
     const FileLoc *loc = &(*move)->loc;
     IrNode *moved = makeIrMove(pool, loc, makeIrVarRef(pool, loc, decl));
+    if (irHasInfo(*move, irInfoUserWritten))
+        irSetInfo(moved, irInfoUserWritten);
     stripMove(move);
-    insertBeforeStmt(c->bb, &c->prev, c->stmt, moved);
+    insertSynthetic(c, moved);
 }
 
 // N2: `&&p.f` becomes `__mv = p.f; p.f = null` before the statement, and the
@@ -44,11 +58,12 @@ static void captureMovedPlace(NormalizeCursor *c, IrNode **move, IrNode *src)
     IrNode *temp = makeOwnedTemp(c->ctx, "__mv", src);
     IrNode *capture = makeIrAssign(pool, &src->loc, makeIrVarRef(pool, &src->loc, temp), src);
     capture->flags |= flgUnmanaged;
+    irSetInfo(capture, irInfoImplicit);
     IrNode *clear = makeClearPlace(pool, &c->stmt->loc, cloneIrNode(pool, src));
 
-    insertBeforeStmt(c->bb, &c->prev, c->stmt, temp);
-    insertBeforeStmt(c->bb, &c->prev, c->stmt, capture);
-    insertBeforeStmt(c->bb, &c->prev, c->stmt, clear);
+    insertSynthetic(c, temp);
+    insertSynthetic(c, capture);
+    insertSynthetic(c, clear);
 
     IrNode *ref = makeIrVarRef(pool, &src->loc, temp);
     ref->next = (*move)->next;
@@ -103,8 +118,8 @@ static void copyOwnedOperand(IrNode **slot, void *cursor)
     MemPool *pool = c->ctx->pool;
     IrNode *temp = makeOwnedTemp(c->ctx, "__copy", inner);
     IrNode *dstRef = makeIrVarRef(pool, &inner->loc, temp);
-    insertBeforeStmt(c->bb, &c->prev, c->stmt, temp);
-    insertBeforeStmt(c->bb, &c->prev, c->stmt, makeIrCopy(pool, &inner->loc, inner, dstRef));
+    insertSynthetic(c, temp);
+    insertSynthetic(c, makeIrCopy(pool, &inner->loc, inner, dstRef));
 
     IrNode *operand = rebuildCastChain(pool, val, makeIrVarRef(pool, &inner->loc, temp));
     operand->next = val->next;
@@ -179,4 +194,22 @@ void normalizeFunction(MemMgmtContext *ctx, IrNode *func)
         }
     }
     dropStatementTemporaries(ctx, func);
+}
+
+void runNormalization(CompilerDriver *driver, IrModule *module)
+{
+    if (module == NULL)
+        return;
+
+    MemMgmtContext ctx = {.driver = driver,
+                          .pool = driver->pool,
+                          .strings = driver->strings,
+                          .types = module->module.types,
+                          .module = module};
+    for (IrNode *decl = module->module.functions; decl; decl = decl->next) {
+        if (decl->tag == irFunction && decl->function.firstBlock) {
+            ctx.currentFunc = decl;
+            normalizeFunction(&ctx, decl);
+        }
+    }
 }

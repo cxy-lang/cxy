@@ -54,7 +54,7 @@ func main(): void {}
         (Block _L_entry
             (ScopeEnter 0)
             (VarDecl __copy0 ^Node :temporary :class-in-flight :synthetic)
-            (Copy (VarRef a :owned-position) (VarRef __copy0))
+            (Copy (VarRef a :owned-position) (VarRef __copy0) :synthetic)
             (Call (GlobalRef take) (VarRef __copy0 :owned-position :moved))
             (Call (GlobalRef take) (VarRef b :owned-position :moved))
             (Goto _L_exit))
@@ -111,7 +111,7 @@ func main(): void {}
             (ScopeEnter 0)
             (VarDecl h Holder)
             (VarDecl __copy0 ^Node :temporary :class-in-flight :synthetic)
-            (Copy (VarRef a :owned-position) (VarRef __copy0))
+            (Copy (VarRef a :owned-position) (VarRef __copy0) :synthetic)
             (Assign (VarRef h) (Struct Holder (Field n (VarRef __copy0 :owned-position :moved)) :owned-position))
             (Goto _L_exit))
     )");
@@ -176,8 +176,8 @@ func main(): void {}
         (Block _L_entry
             (ScopeEnter 0)
             (VarDecl __mv0 ^Node :temporary :class-in-flight :synthetic)
-            (Assign (VarRef __mv0) (Member (VarRef h) n ...) :unmanaged)
-            (Assign (Member (VarRef h) n) null :unmanaged)
+            (Assign (VarRef __mv0) (Member (VarRef h) n ...) :unmanaged :implicit :synthetic)
+            (Assign (Member (VarRef h) n) null :unmanaged :synthetic)
             (Call (GlobalRef take) (VarRef __mv0 :owned-position :moved))
             (Goto _L_exit))
     )");

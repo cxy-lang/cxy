@@ -69,7 +69,7 @@ func main(): void {}
         (Block _L_entry
             ...
             (Assign (VarRef __ret) (Call (GlobalRef peek) ...))
-            (Drop (VarRef __t0))
+            (Drop (VarRef __t0) :synthetic)
             (Goto _L_exit))
     )");
 }

@@ -66,10 +66,49 @@ func main(): void {}
     CHECK_FALSE(reports(cc, "OwnerLeak"));
 }
 
+// `move a` comes before the call so the drop flag is cleared first, but the call
+// still reads `a.id` as its first argument, before it takes `a`
+TEST_CASE("Ownership programs: reading a variable in the statement that moves it is fine")
+{
+    TestCompiler cc(verified());
+    REQUIRE(cc.compile(std::string(program) + R"(
+func both(id: i32, n: Node) {}
+func readThenMove(a: Node) {
+    both(a.id, &&a)
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+    CHECK_FALSE(reports(cc, "UseAfterMove"));
+}
+
+TEST_CASE("Ownership programs: moving out of a reference into a variable is reported")
+{
+    TestCompiler cc(verified());
+    REQUIRE(cc.compile(std::string(program) + R"(
+func viaAssign(r: &Node) {
+    var o = &&r
+}
+func main(): void {}
+)"));
+    CHECK(reports(cc, "MoveOfReference"));
+}
+
+TEST_CASE("Ownership programs: moving out of a reference is reported for a borrowing parameter")
+{
+    TestCompiler cc(verified());
+    REQUIRE(cc.compile(std::string(program) + R"(
+func viaBorrowed(r: &Node): i32 {
+    return peek(&&r)
+}
+func main(): void {}
+)"));
+    CHECK(reports(cc, "MoveOfReference"));
+}
+
 // A move out of a field is followed by the statement that clears it, the clear
 // comes before the statement that uses the value
-TEST_CASE("Ownership programs: a field moved into a call is cleared, nothing is reported" *
-          doctest::skip())
+TEST_CASE("Ownership programs: a field moved into a call is cleared, nothing is reported")
 {
     TestCompiler cc(verified());
     REQUIRE(cc.compile(std::string(program) + R"(
@@ -83,8 +122,7 @@ func main(): void {}
     CHECK_FALSE(reports(cc, "UnclearedMove"));
 }
 
-TEST_CASE("Ownership programs: a field moved into a variable is cleared, nothing is reported" *
-          doctest::skip())
+TEST_CASE("Ownership programs: a field moved into a variable is cleared, nothing is reported")
 {
     TestCompiler cc(verified());
     REQUIRE(cc.compile(std::string(program) + R"(
@@ -98,8 +136,7 @@ func main(): void {}
     CHECK_FALSE(reports(cc, "UnclearedMove"));
 }
 
-TEST_CASE("Ownership programs: an array element moved out is cleared, nothing is reported" *
-          doctest::skip())
+TEST_CASE("Ownership programs: an array element moved out is cleared, nothing is reported")
 {
     TestCompiler cc(verified());
     REQUIRE(cc.compile(std::string(program) + R"(

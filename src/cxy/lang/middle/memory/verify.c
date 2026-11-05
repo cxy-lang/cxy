@@ -47,9 +47,18 @@ typedef struct StmtEntry {
     u32 count;
 } StmtEntry;
 
+// What a block held when the snapshot was taken, in order. A statement the pass
+// removes is not in the block afterwards, its events are still the block's.
+typedef struct BlockOrder {
+    const IrNode *bb;
+    StmtEntry *stmts;
+    u32 count;
+} BlockOrder;
+
 struct OwnershipSnapshot {
     MemPool pool;
     HashTable stmts;
+    HashTable blocks;
 };
 
 typedef struct Collector {
@@ -193,9 +202,24 @@ static const IrNode *flagMemberDecl(const Collector *c, const IrNode *node)
     return NULL;
 }
 
+// An operand marked `:moved` is the value a `move x` statement before it already
+// took, not a read of `x`
+static void visitMovedCast(IrVisitor *v, IrNode *node)
+{
+    if (!irHasInfo(node, irInfoMoved))
+        irVisitFallbackVisitAll(v, node);
+}
+
 static void visitVarRef(IrVisitor *v, IrNode *node)
 {
     Collector *c = getIrVisitorContext(v);
+    if (irHasInfo(node, irInfoMoved))
+        return;
+    // a `&&` on a reference that normalize turned into a borrow keeps the bit
+    if (irHasInfo(node, irInfoUserWritten) && isReferenceDecl(node->varRef.target)) {
+        emit(c, oevRefMove, node->varRef.target, &node->loc, 0, 0);
+        return;
+    }
     if (isTrackedDecl(node->varRef.target))
         emit(c, oevUse, node->varRef.target, &node->loc, 0, 0);
     else if (isReferenceVar(node->varRef.target))
@@ -235,6 +259,13 @@ static void visitAssign(IrVisitor *v, IrNode *node)
 {
     Collector *c = getIrVisitorContext(v);
     irVisit(v, node->assign.rhs);
+
+    // normalize reads a moved field into a temporary before it clears the field
+    if (irHasInfo(node, irInfoImplicit)) {
+        const IrNode *captured = rootOf(node->assign.rhs);
+        if (isTrackedDecl(captured))
+            emit(c, oevMovePart, captured, &node->loc, 0, 0);
+    }
 
     IrNode *lhs = node->assign.lhs;
     const IrNode *lhsRoot = rootOf(lhs);
@@ -343,6 +374,7 @@ static void collectEvents(Collector *c, IrNode *stmt)
     IrVisitor visitor = makeIrVisitor(c,
                                       {
                                           [irVarRef] = visitVarRef,
+                                          [irCast] = visitMovedCast,
                                           [irMove] = visitMove,
                                           [irAssign] = visitAssign,
                                           [irCopy] = visitCopy,
@@ -376,6 +408,22 @@ static StmtEntry *findStmtEntry(const HashTable *table, const IrNode *stmt)
         table, stmt, hashPtr(hashInit(), stmt), sizeof(StmtEntry), compareStmtEntryKey);
 }
 
+static bool compareBlockOrderKey(const void *a, const void *b)
+{
+    return ((const BlockOrder *)a)->bb == b;
+}
+
+static bool compareBlockOrders(const void *a, const void *b)
+{
+    return ((const BlockOrder *)a)->bb == ((const BlockOrder *)b)->bb;
+}
+
+static const BlockOrder *findBlockOrder(const HashTable *table, const IrNode *bb)
+{
+    return findInHashTable(
+        table, bb, hashPtr(hashInit(), bb), sizeof(BlockOrder), compareBlockOrderKey);
+}
+
 OwnershipSnapshot *ownershipSnapshot(IrNode *module)
 {
     if (module == NULL)
@@ -384,6 +432,7 @@ OwnershipSnapshot *ownershipSnapshot(IrNode *module)
     OwnershipSnapshot *snap = calloc(1, sizeof(OwnershipSnapshot));
     snap->pool = newMemPool();
     snap->stmts = newHashTable(sizeof(StmtEntry), &snap->pool);
+    snap->blocks = newHashTable(sizeof(BlockOrder), &snap->pool);
 
     Collector c = {.events = newDynArray(sizeof(OwnEvent)), .flagDecl = NULL};
     for (IrNode *fn = module->module.functions; fn; fn = fn->next) {
@@ -392,6 +441,13 @@ OwnershipSnapshot *ownershipSnapshot(IrNode *module)
         for (IrNode *bb = fn->function.firstBlock; bb; bb = bb->next) {
             if (bb->tag != irBasicBlock)
                 continue;
+            BlockOrder order = {.bb = bb};
+            for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next)
+                order.count++;
+            order.stmts = allocFromMemPool(
+                &snap->pool, sizeof(StmtEntry) * (order.count ? order.count : 1));
+
+            u32 at = 0;
             for (IrNode *stmt = bb->basicBlock.first; stmt; stmt = stmt->next) {
                 collectEvents(&c, stmt);
                 StmtEntry entry = {.stmt = stmt, .count = (u32)c.events.size};
@@ -399,12 +455,18 @@ OwnershipSnapshot *ownershipSnapshot(IrNode *module)
                     entry.events = allocFromMemPool(&snap->pool, sizeof(OwnEvent) * entry.count);
                     memcpy(entry.events, c.events.elems, sizeof(OwnEvent) * entry.count);
                 }
+                order.stmts[at++] = entry;
                 insertInHashTable(&snap->stmts,
                                   &entry,
                                   hashPtr(hashInit(), stmt),
                                   sizeof(StmtEntry),
                                   compareStmtEntries);
             }
+            insertInHashTable(&snap->blocks,
+                              &order,
+                              hashPtr(hashInit(), bb),
+                              sizeof(BlockOrder),
+                              compareBlockOrders);
         }
     }
     freeDynArray(&c.events);
@@ -949,9 +1011,10 @@ static void reportReferenceMoves(FuncVerify *fv, const OwnershipSnapshot *snap)
     for (const IrNode *bb = fv->func->function.firstBlock; bb; bb = bb->next) {
         if (bb->tag != irBasicBlock)
             continue;
-        for (const IrNode *s = bb->basicBlock.first; s; s = s->next) {
-            const StmtEntry *known = findStmtEntry(&snap->stmts, s);
-            for (u32 k = 0; known && k < known->count; k++) {
+        const BlockOrder *order = findBlockOrder(&snap->blocks, bb);
+        for (u32 i = 0; order && i < order->count; i++) {
+            const StmtEntry *known = &order->stmts[i];
+            for (u32 k = 0; k < known->count; k++) {
                 const OwnEvent *ev = &known->events[k];
                 if (ev->kind == oevRefMove)
                     reportFinding(fv,
@@ -965,6 +1028,34 @@ static void reportReferenceMoves(FuncVerify *fv, const OwnershipSnapshot *snap)
             }
         }
     }
+}
+
+// `move x` stands before the statement that takes `x`, so the drop flag is cleared
+// before a call that may suspend. That statement still reads `x` first, so the move
+// takes effect after the first statement that is not synthetic.
+static void deferMoves(StmtEntry *stmts, u32 count, MemPool *pool)
+{
+    u32 room = count ? count : 1;
+    StmtEntry *held = allocFromMemPool(pool, sizeof(StmtEntry) * room);
+    StmtEntry *ordered = allocFromMemPool(pool, sizeof(StmtEntry) * room);
+    u32 heldCount = 0;
+    u32 out = 0;
+    for (u32 i = 0; i < count; i++) {
+        const IrNode *s = stmts[i].stmt;
+        if (s->tag == irMove) {
+            held[heldCount++] = stmts[i];
+            continue;
+        }
+        ordered[out++] = stmts[i];
+        if (irHasInfo(s, irInfoSynthetic))
+            continue;
+        for (u32 k = 0; k < heldCount; k++)
+            ordered[out++] = held[k];
+        heldCount = 0;
+    }
+    for (u32 k = 0; k < heldCount; k++)
+        ordered[out++] = held[k];
+    memcpy(stmts, ordered, sizeof(StmtEntry) * count);
 }
 
 static void verifyFunction(const OwnershipSnapshot *snap,
@@ -1016,14 +1107,21 @@ static void verifyFunction(const OwnershipSnapshot *snap,
         b->in = allocFromMemPool(&fv.pool, sizeof(VarState) * fv.varCount);
         memset(b->in, 0, sizeof(VarState) * fv.varCount);
 
+        const BlockOrder *order = findBlockOrder(&snap->blocks, bb);
+        u32 capacity = order ? order->count : 0;
         for (const IrNode *s = bb->basicBlock.first; s; s = s->next)
-            b->stmtCount++;
-        b->stmts = allocFromMemPool(&fv.pool, sizeof(StmtEntry) * (b->stmtCount ? b->stmtCount : 1));
+            capacity++;
+        b->stmts = allocFromMemPool(&fv.pool, sizeof(StmtEntry) * (capacity ? capacity : 1));
         u32 si = 0;
+        u32 removed = 0; // the next statement of the snapshot that is not accounted for
         Collector c = {.events = newDynArray(sizeof(OwnEvent)), .flagDecl = fv.flagDecl};
         for (IrNode *s = bb->basicBlock.first; s; s = s->next) {
             StmtEntry *known = findStmtEntry(&snap->stmts, s);
             if (known) {
+                // what the snapshot held before `s` and is gone now was removed by the pass
+                while (order && removed < order->count && order->stmts[removed].stmt != s)
+                    b->stmts[si++] = order->stmts[removed++];
+                removed++;
                 b->stmts[si++] = *known;
                 continue;
             }
@@ -1036,6 +1134,10 @@ static void verifyFunction(const OwnershipSnapshot *snap,
             }
             b->stmts[si++] = entry;
         }
+        while (order && removed < order->count)
+            b->stmts[si++] = order->stmts[removed++];
+        b->stmtCount = si;
+        deferMoves(b->stmts, b->stmtCount, &fv.pool);
         freeDynArray(&c.events);
         bi++;
     }

@@ -232,6 +232,7 @@ static bool hoistTerminatorOperand(UseScan *scan, IrNode *bb, IrNode *prev, IrNo
     (*slot)->next = operand->next;
     operand->next = NULL;
 
+    irSetInfo(store, irInfoSynthetic);
     insertBeforeStmt(bb, &prev, terminator, value);
     insertBeforeStmt(bb, &prev, terminator, store);
     return true;
@@ -269,6 +270,7 @@ static bool dropAfterLastUse(TempUse *use, MemMgmtContext *ctx)
     decl->flags |= flgEphemeral;
     IrNode *drop = makeIrDrop(ctx->pool, &anchor->loc, makeIrVarRef(ctx->pool, &anchor->loc, decl));
     drop->flags |= flgUnmanaged;
+    irSetInfo(drop, irInfoSynthetic);
     drop->next = anchor->next;
     anchor->next = drop;
     if (bb->basicBlock.last == anchor)

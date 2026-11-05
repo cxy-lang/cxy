@@ -138,8 +138,8 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("pop").findBlock("entry"), R"(
         (Block _L_entry
             ...
-            (Assign (VarRef __mv0) (Member (VarRef h) next ...) :unmanaged)
-            (Assign (Member (VarRef h) next) null :unmanaged)
+            (Assign (VarRef __mv0) (Member (VarRef h) next ...) :unmanaged :implicit :synthetic)
+            (Assign (Member (VarRef h) next) null :unmanaged :synthetic)
             (Drop (VarRef h))
             (Assign (VarRef h) (VarRef __mv0 :owned-position :moved))
             ...)
@@ -165,7 +165,7 @@ func main(): void {}
             (ScopeEnter 0)
             (VarDecl __t0 ^Node :ephemeral :class-statement :synthetic)
             (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
-            (Drop (VarRef __t0))
+            (Drop (VarRef __t0) :synthetic)
             (Goto _L_exit))
     )");
     REQUIRE_IR_MATCHES(cc.function("demo").findBlock("exit"),

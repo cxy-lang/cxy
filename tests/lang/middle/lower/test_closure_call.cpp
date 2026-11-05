@@ -100,7 +100,7 @@ func main(): void {}
         (Block _L_entry
             ...
             (Assign (VarRef __ret) (Call (Member (VarRef __t0) fn) ...))
-            (Drop (VarRef __t0))
+            (Drop (VarRef __t0) :synthetic)
             (Goto _L_exit))
     )");
 }
