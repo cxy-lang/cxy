@@ -46,6 +46,13 @@ static IrNode *getExceptionPushCallee(LowerContext *ctx)
     return ctx->exceptionPushCallee;
 }
 
+// What a result gives up: the payload or the exception is moved out of its place,
+// and the move empties the place so the result owns nothing afterwards
+static IrNode *makeTakeFrom(LowerContext *ctx, const FileLoc *loc, const IrNode *place)
+{
+    return makeIrMove(ctx->pool, loc, cloneIrNode(ctx->pool, place));
+}
+
 void emitExceptionTracePush(LowerContext *ctx,
                             const FileLoc *loc,
                             IrNode *errVal)
@@ -155,20 +162,14 @@ IrNode *emitResultCheckAndUnwrap(LowerContext *ctx,
                            : getIrPrimitiveType(ctx->types, irTypeOpaque);
             IrNode *errSlot = makeIrMember(
                 ctx->pool, &node->loc, retValMember, 1, NULL, exIrType);
-            assignStmt = makeIrAssign(ctx->pool, &node->loc, errSlot, errVal);
+            assignStmt = makeIrAssign(
+                ctx->pool, &node->loc, errSlot, makeTakeFrom(ctx, &node->loc, errVal));
         }
         else {
-            assignStmt = makeIrAssign(ctx->pool, &node->loc, retValMember, errVal);
+            assignStmt = makeIrAssign(
+                ctx->pool, &node->loc, retValMember, makeTakeFrom(ctx, &node->loc, errVal));
         }
-        assignStmt->flags |= flgUnmanaged;
         emitStmt(ctx, assignStmt);
-
-        IrNode *resTagSlot = makeIrMember(
-            ctx->pool, &node->loc, makeIrVarRef(ctx->pool, &node->loc, resVar), 0, S_tag, u32Type);
-        IrNode *defuseStmt = makeIrAssign(
-            ctx->pool, &node->loc, resTagSlot, makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type));
-        defuseStmt->flags |= flgUnmanaged;
-        emitStmt(ctx, defuseStmt);
 
         IrNode *targetBB = getOrCreateScopeReturnBlock(
             ctx, ctx->currentScopeId, &node->loc);
@@ -233,27 +234,15 @@ static IrNode *makeResultPayloadRef(LowerContext *ctx,
     return valMember;
 }
 
-// The catch body ran to its end: drop the caught exception and defuse the
-// result so its destructor does not drop the same exception again
+// The catch body ran to its end: drop the caught exception, the drop empties its
+// field so the result owns nothing
 static void emitCatchFallthrough(LowerContext *ctx,
                                  const FileLoc *loc,
-                                 IrNode *res,
                                  IrNode *errVal,
                                  IrNode *mergeBB)
 {
-    const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
-    if (ctx->currentBlock && !isBlockTerminated(ctx->currentBlock)) {
+    if (ctx->currentBlock && !isBlockTerminated(ctx->currentBlock))
         emitStmt(ctx, makeIrDrop(ctx->pool, loc, cloneIrNode(ctx->pool, errVal)));
-        IrNode *resTagSlot = makeIrMember(
-            ctx->pool, loc, cloneIrNode(ctx->pool, res), 0, S_tag, u32Type);
-        IrNode *defuseStmt = makeIrAssign(
-            ctx->pool,
-            loc,
-            resTagSlot,
-            makeIrIntConst(ctx->pool, loc, 0, false, u32Type));
-        defuseStmt->flags |= flgUnmanaged;
-        emitStmt(ctx, defuseStmt);
-    }
     emitBranchIfNotTerminated(ctx, mergeBB);
 }
 
@@ -268,19 +257,15 @@ static void emitCatchSuccess(LowerContext *ctx,
 {
     const Type *exprType = node->catchExpr.expr->type;
     const Type *targetType = node->type;
-    const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
 
     if (targetVar) {
-        IrNode *unwrapped =
+        IrNode *payload =
             makeResultPayloadRef(ctx, &node->loc, res, resIrType, targetType);
-        IrNode *assignStmt = makeIrAssign(ctx->pool, &node->loc, makeIrVarRef(ctx->pool, &node->loc, targetVar), unwrapped);
-        assignStmt->flags |= flgUnmanaged;
-        emitStmt(ctx, assignStmt);
-
-        IrNode *resTagSlot = makeIrMember(ctx->pool, &node->loc, cloneIrNode(ctx->pool, res), 0, S_tag, u32Type);
-        IrNode *defuseStmt = makeIrAssign(ctx->pool, &node->loc, resTagSlot, makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type));
-        defuseStmt->flags |= flgUnmanaged;
-        emitStmt(ctx, defuseStmt);
+        emitStmt(ctx,
+                 makeIrAssign(ctx->pool,
+                              &node->loc,
+                              makeIrVarRef(ctx->pool, &node->loc, targetVar),
+                              makeTakeFrom(ctx, &node->loc, payload)));
     }
     else if (!isVoidResultType(exprType)) {
         // nobody consumes the payload of a discarded result, drop it in place
@@ -327,7 +312,6 @@ static IrNode *makeCaughtError(LowerContext *ctx,
 // The body of a catch: a block, or a default value
 static void lowerCatchBody(AstVisitor *visitor,
                            AstNode *node,
-                           IrNode *res,
                            IrNode *errVal,
                            IrNode *targetVar,
                            IrNode *mergeBB)
@@ -335,10 +319,9 @@ static void lowerCatchBody(AstVisitor *visitor,
     LowerContext *ctx = getAstVisitorContext(visitor);
     AstNode *body = node->catchExpr.body;
     IrNode *prevCatchErr = ctx->currentCatchErr;
-    IrNode *prevCatchRes = ctx->currentCatchRes;
+
     ctx->currentCatchErr = errVal;
-    ctx->currentCatchRes = res;
-    CatchCtx catchCtx = {.err = errVal, .res = res, .prev = ctx->catchCtx};
+    CatchCtx catchCtx = {.err = errVal, .prev = ctx->catchCtx};
     ctx->catchCtx = &catchCtx;
 
     if (nodeIs(body, BlockStmt)) {
@@ -358,11 +341,11 @@ static void lowerCatchBody(AstVisitor *visitor,
             emitStmt(ctx, makeIrAssign(ctx->pool, &node->loc, makeIrVarRef(ctx->pool, &node->loc, targetVar), defVal));
         }
     }
-    emitCatchFallthrough(ctx, &node->loc, res, errVal, mergeBB);
+    emitCatchFallthrough(ctx, &node->loc, errVal, mergeBB);
 
     ctx->catchCtx = catchCtx.prev;
     ctx->currentCatchErr = prevCatchErr;
-    ctx->currentCatchRes = prevCatchRes;
+
 }
 
 void lowerCatchExpr(AstVisitor *visitor, AstNode *node)
@@ -420,7 +403,7 @@ void lowerCatchExpr(AstVisitor *visitor, AstNode *node)
     setBlock(ctx, catchBB);
     IrNode *errVal = makeCaughtError(ctx, node, res, resIrType);
     if (node->catchExpr.body)
-        lowerCatchBody(visitor, node, res, errVal, targetVar, mergeBB);
+        lowerCatchBody(visitor, node, errVal, targetVar, mergeBB);
 
     setBlock(ctx, mergeBB);
     if (targetVar) {
@@ -493,24 +476,18 @@ void lowerReturnWithoutValue(LowerContext *ctx, AstNode *node)
             const IrType *retIrType = ctx->funcRetVar->type;
             const IrType *valFieldType = retIrType->strct.fields[1].type;
             IrNode *valMember = makeIrMember(ctx->pool, &node->loc, retVarRef, 1, S_val, valFieldType);
+            IrNode *taken = makeTakeFrom(ctx, &node->loc, ctx->currentCatchErr);
             IrNode *assignStmt = NULL;
             if (valFieldType->tag == irTypeUntaggedUnion) {
                 const Type *baseExType = findBuiltinType(S_Exception);
                 const IrType *exIrType = baseExType ? lowerType(ctx, baseExType) : getIrPrimitiveType(ctx->types, irTypeOpaque);
                 IrNode *errSlot = makeIrMember(ctx->pool, &node->loc, valMember, 1, NULL, exIrType);
-                assignStmt = makeIrAssign(ctx->pool, &node->loc, errSlot, cloneIrNode(ctx->pool, ctx->currentCatchErr));
+                assignStmt = makeIrAssign(ctx->pool, &node->loc, errSlot, taken);
             }
             else {
-                assignStmt = makeIrAssign(ctx->pool, &node->loc, valMember, cloneIrNode(ctx->pool, ctx->currentCatchErr));
+                assignStmt = makeIrAssign(ctx->pool, &node->loc, valMember, taken);
             }
-            assignStmt->flags |= flgUnmanaged;
             emitStmt(ctx, assignStmt);
-            if (ctx->currentCatchRes) {
-                IrNode *srcTagSlot = makeIrMember(ctx->pool, &node->loc, cloneIrNode(ctx->pool, ctx->currentCatchRes), 0, S_tag, u32Type);
-                IrNode *defuseStmt = makeIrAssign(ctx->pool, &node->loc, srcTagSlot, makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type));
-                defuseStmt->flags |= flgUnmanaged;
-                emitStmt(ctx, defuseStmt);
-            }
         }
     }
     else {

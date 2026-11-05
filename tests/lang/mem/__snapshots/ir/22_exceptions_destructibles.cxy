@@ -228,11 +228,12 @@ _L_catch_0:
   __catch_res8 = __t9
   drop __t7.val.1
   __t7.val.1 = null
-  __t7.tag = 0
   goto _L_merge_1
 _L_cont_1:
-  __catch_res8 = __t7.val.0
-  __t7.tag = 0
+  var __mv0: ^String
+  __mv0 = __t7.val.0
+  __t7.val.0 = null
+  __catch_res8 = __mv0
   goto _L_merge_1
 _L_merge_1:
   s = __catch_res8
@@ -257,11 +258,12 @@ _L_catch_0:
   __catch_res11 = __t12
   drop __t10.val.1
   __t10.val.1 = null
-  __t10.tag = 0
   goto _L_merge_1
 _L_cont_1:
-  __catch_res11 = __t10.val.0
-  __t10.tag = 0
+  var __mv1: ^String
+  __mv1 = __t10.val.0
+  __t10.val.0 = null
+  __catch_res11 = __mv1
   goto _L_merge_1
 _L_merge_1:
   s = __catch_res11
@@ -287,11 +289,12 @@ _L_catch_0:
   __catch_res14 = __t15
   drop __t13.val.1
   __t13.val.1 = null
-  __t13.tag = 0
   goto _L_merge_1
 _L_cont_1:
-  __catch_res14 = __t13.val.0
-  __t13.tag = 0
+  var __mv2: ^String
+  __mv2 = __t13.val.0
+  __t13.val.0 = null
+  __catch_res14 = __mv2
   goto _L_merge_1
 _L_merge_1:
   s = __catch_res14
@@ -319,8 +322,10 @@ _L_entry:
 _L_call_err_0:
   __ret.tag = 1
   builtins_Exception_push(__call_res_17.val.1, "main", "", "testBubbleUpDestructible", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/22_exceptions_destructibles.cxy", 45)
-  __ret.val.1 = __call_res_17.val.1
-  __call_res_17.tag = 0
+  var __mv3: ^Exception
+  __mv3 = __call_res_17.val.1
+  __call_res_17.val.1 = null
+  __ret.val.1 = __mv3
   goto _L_exit
 _L_call_cont_1:
   s = __call_res_17.val.0
@@ -350,11 +355,12 @@ _L_catch_0:
   __catch_res19 = __t20
   drop __t18.val.1
   __t18.val.1 = null
-  __t18.tag = 0
   goto _L_merge_1
 _L_cont_1:
-  __catch_res19 = __t18.val.0
-  __t18.tag = 0
+  var __mv4: ^String
+  __mv4 = __t18.val.0
+  __t18.val.0 = null
+  __catch_res19 = __mv4
   goto _L_merge_1
 _L_merge_1:
   res1 = __catch_res19
@@ -369,11 +375,12 @@ _L_catch_1:
   __catch_res22 = __t23
   drop __t21.val.1
   __t21.val.1 = null
-  __t21.tag = 0
   goto _L_merge_2
 _L_cont_2:
-  __catch_res22 = __t21.val.0
-  __t21.tag = 0
+  var __mv5: ^String
+  __mv5 = __t21.val.0
+  __t21.val.0 = null
+  __catch_res22 = __mv5
   goto _L_merge_2
 _L_merge_2:
   res2 = __catch_res22
@@ -402,12 +409,16 @@ _L_catch_0:
   scope.enter 1
   __ret.tag = 1
   builtins_Exception_push(__t24.val.1, "main", "", "testReraiseDestructible", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/22_exceptions_destructibles.cxy", 57)
-  __ret.val.1 = __t24.val.1
-  __t24.tag = 0
+  var __mv6: ^Exception
+  __mv6 = __t24.val.1
+  __t24.val.1 = null
+  __ret.val.1 = __mv6
   goto _L_exit
 _L_cont_1:
-  __catch_res25 = __t24.val.0
-  __t24.tag = 0
+  var __mv7: ^String
+  __mv7 = __t24.val.0
+  __t24.val.0 = null
+  __catch_res25 = __mv7
   goto _L_merge_1
 _L_merge_1:
   res = __catch_res25
@@ -441,11 +452,12 @@ _L_catch_0:
   __catch_res27 = __t28
   drop __t26.val.1
   __t26.val.1 = null
-  __t26.tag = 0
   goto _L_merge_1
 _L_cont_1:
-  __catch_res27 = __t26.val.0
-  __t26.tag = 0
+  var __mv8: ^String
+  __mv8 = __t26.val.0
+  __t26.val.0 = null
+  __catch_res27 = __mv8
   goto _L_merge_1
 _L_merge_1:
   r1 = __catch_res27
@@ -460,11 +472,12 @@ _L_catch_1:
   __catch_res30 = __t31
   drop __t29.val.1
   __t29.val.1 = null
-  __t29.tag = 0
   goto _L_merge_2
 _L_cont_2:
-  __catch_res30 = __t29.val.0
-  __t29.tag = 0
+  var __mv9: ^String
+  __mv9 = __t29.val.0
+  __t29.val.0 = null
+  __catch_res30 = __mv9
   goto _L_merge_2
 _L_merge_2:
   r2 = __catch_res30

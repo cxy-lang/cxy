@@ -220,7 +220,6 @@ _L_catch_0:
   scope.exit 1
   drop __t6.val
   __t6.val = null
-  __t6.tag = 0
   goto _L_merge_1
 _L_cont_1:
   goto _L_merge_1
@@ -233,7 +232,6 @@ _L_catch_1:
   scope.exit 2
   drop __t7.val
   __t7.val = null
-  __t7.tag = 0
   goto _L_merge_2
 _L_cont_2:
   goto _L_merge_2
@@ -246,7 +244,6 @@ _L_catch_2:
   scope.exit 3
   drop __t8.val
   __t8.val = null
-  __t8.tag = 0
   goto _L_merge_3
 _L_cont_3:
   goto _L_merge_3
@@ -264,7 +261,6 @@ _L_catch_3:
   scope.exit 4
   drop __t9.val
   __t9.val = null
-  __t9.tag = 0
   goto _L_merge_4
 _L_cont_4:
   goto _L_merge_4
@@ -289,8 +285,10 @@ _L_entry:
 _L_call_err_0:
   __ret.tag = 1
   builtins_Exception_push(__call_res_12.val, "main", "", "level2Void", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/23_exceptions_void.cxy", 42)
-  __ret.val = __call_res_12.val
-  __call_res_12.tag = 0
+  var __mv0: ^Exception
+  __mv0 = __call_res_12.val
+  __call_res_12.val = null
+  __ret.val = __mv0
   goto _L_exit
 _L_call_cont_1:
   __ret.tag = 0
@@ -312,7 +310,6 @@ _L_catch_0:
   scope.exit 1
   drop __t13.val
   __t13.val = null
-  __t13.tag = 0
   goto _L_merge_1
 _L_cont_1:
   goto _L_merge_1
@@ -325,7 +322,6 @@ _L_catch_1:
   scope.exit 2
   drop __t14.val
   __t14.val = null
-  __t14.tag = 0
   goto _L_merge_2
 _L_cont_2:
   goto _L_merge_2

@@ -102,11 +102,9 @@ func main(): void {}
             (Block _L_catch_0
                 (Assign (VarRef __catch_res0) 0)
                 (Drop (Member (Member (VarRef __t0) val) 1))
-                (Assign (Member (VarRef __t0) tag) 0 :unmanaged)
                 (Goto _L_merge_1))
             (Block _L_cont_1
-                (Assign (VarRef __catch_res0) (Member (Member (VarRef __t0) val) 0) :unmanaged)
-                (Assign (Member (VarRef __t0) tag) 0 :unmanaged)
+                (Assign (VarRef __catch_res0) (Move (Member (Member (VarRef __t0) val) 0) :owned-position))
                 (Goto _L_merge_1))
             (Block _L_merge_1
                 (Assign (VarRef __ret) (VarRef __catch_res0))
@@ -129,14 +127,13 @@ func main(): void {}
 )"));
     INFO(cc.diagnostics());
 
-    // The block ends with the exception dropped and the result defused
+    // The block ends with the exception dropped, the drop empties the field
     REQUIRE_IR_MATCHES(cc.function("catchBlock").findBlock("catch_0"), R"(
         (Block _L_catch_0
             (ScopeEnter 1)
             (Assign (VarRef r) 42)
             (ScopeExit 1)
             (Drop (Member (Member (VarRef __t0) val) 1))
-            (Assign (Member (VarRef __t0) tag) 0 :unmanaged)
             (Goto _L_merge_1))
     )");
 }
@@ -158,4 +155,26 @@ func main(): void {}
     // the error goes to the caller through the result slot, with a trace push
     CHECK(text.find("(Assign (Member (VarRef __ret) tag) 1)") != std::string::npos);
     CHECK(text.find("builtins_Exception_push") != std::string::npos);
+}
+
+TEST_CASE("Lower result: the error of a call is moved out of its result, nothing writes the tag")
+{
+    TestCompiler cc(withBuiltins());
+    REQUIRE(cc.compile(std::string(program) + R"(
+func propagate(x: i32): !i32 {
+    var v = mayFail(x)
+    return v
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+
+    REQUIRE_IR_MATCHES(cc.function("propagate").findBlock("call_err_0"), R"(
+        (Block _L_call_err_0
+            (Assign (Member (VarRef __ret) tag) 1)
+            (Call (GlobalRef builtins_Exception_push) ...)
+            (Assign (Member (Member (VarRef __ret) val) 1)
+                    (Move (Member (Member (VarRef __call_res_0) val) 1) :owned-position))
+            (Goto _L_exit))
+    )");
 }

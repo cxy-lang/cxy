@@ -106,8 +106,10 @@ _L_entry:
 _L_call_err_0:
   __ret.tag = 1
   builtins_Exception_push(__call_res_5.val.1, "main", "", "detached", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/32_launch_env_ownership.cxy", 11)
-  __ret.val = __call_res_5.val.1
-  __call_res_5.tag = 0
+  var __mv1: ^Exception
+  __mv1 = __call_res_5.val.1
+  __call_res_5.val.1 = null
+  __ret.val = __mv1
   goto _L_exit
 _L_call_cont_1:
   __ret.tag = 0
@@ -160,9 +162,9 @@ _L_entry:
   var __ret: !void
   var t: Thread
   var __t7: __closure_env22
-  var __copy1: User
-  copy user -> __copy1
-  __t7 = __closure_env22 {user: __copy1}
+  var __copy2: User
+  copy user -> __copy2
+  __t7 = __closure_env22 {user: __copy2}
   var __env8: ^__closure_env22
   __env8 = alloc(__closure_env22)
   *__env8 = __t7
@@ -174,8 +176,10 @@ _L_entry:
 _L_call_err_0:
   __ret.tag = 1
   builtins_Exception_push(__call_res_10.val.1, "main", "", "joined", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/32_launch_env_ownership.cxy", 17)
-  __ret.val = __call_res_10.val.1
-  __call_res_10.tag = 0
+  var __mv3: ^Exception
+  __mv3 = __call_res_10.val.1
+  __call_res_10.val.1 = null
+  __ret.val = __mv3
   goto _L_exit
 _L_call_cont_1:
   t = __call_res_10.val.0
@@ -202,8 +206,10 @@ _L_entry:
 _L_call_err_0:
   __ret.tag = 1
   builtins_Exception_push(__call_res_13.val, "main", "", "main", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/32_launch_env_ownership.cxy", 24)
-  __ret.val = __call_res_13.val
-  __call_res_13.tag = 0
+  var __mv4: ^Exception
+  __mv4 = __call_res_13.val
+  __call_res_13.val = null
+  __ret.val = __mv4
   goto _L_exit
 _L_call_cont_1:
   var __t14: ^String
@@ -216,8 +222,10 @@ _L_call_cont_1:
 _L_call_err_1:
   __ret.tag = 1
   builtins_Exception_push(__call_res_16.val, "main", "", "main", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/32_launch_env_ownership.cxy", 25)
-  __ret.val = __call_res_16.val
-  __call_res_16.tag = 0
+  var __mv5: ^Exception
+  __mv5 = __call_res_16.val
+  __call_res_16.val = null
+  __ret.val = __mv5
   goto _L_exit
 _L_call_cont_2:
   __ret.tag = 0

@@ -154,11 +154,9 @@ _L_catch_0:
   __catch_res3 = 0
   drop __t2.val.1
   __t2.val.1 = null
-  __t2.tag = 0
   goto _L_merge_1
 _L_cont_1:
   __catch_res3 = __t2.val.0
-  __t2.tag = 0
   goto _L_merge_1
 _L_merge_1:
   a = __catch_res3
@@ -171,11 +169,9 @@ _L_catch_1:
   __catch_res5 = -1
   drop __t4.val.1
   __t4.val.1 = null
-  __t4.tag = 0
   goto _L_merge_2
 _L_cont_2:
   __catch_res5 = __t4.val.0
-  __t4.tag = 0
   goto _L_merge_2
 _L_merge_2:
   b = __catch_res5
@@ -197,7 +193,6 @@ _L_catch_0:
   scope.exit 1
   drop __t6.val.1
   __t6.val.1 = null
-  __t6.tag = 0
   goto _L_merge_1
 _L_cont_1:
   goto _L_merge_1
@@ -210,7 +205,6 @@ _L_catch_1:
   scope.exit 2
   drop __t7.val.1
   __t7.val.1 = null
-  __t7.tag = 0
   goto _L_merge_2
 _L_cont_2:
   goto _L_merge_2
@@ -237,11 +231,9 @@ _L_catch_0:
   scope.exit 1
   drop __t8.val.1
   __t8.val.1 = null
-  __t8.tag = 0
   goto _L_merge_1
 _L_cont_1:
   __catch_res9 = __t8.val.0
-  __t8.tag = 0
   goto _L_merge_1
 _L_merge_1:
   __ret = res
@@ -267,11 +259,9 @@ _L_catch_0:
   scope.exit 1
   drop __t10.val.1
   __t10.val.1 = null
-  __t10.tag = 0
   goto _L_merge_1
 _L_cont_1:
   __catch_res11 = __t10.val.0
-  __t10.tag = 0
   goto _L_merge_1
 _L_merge_1:
   __ret = res
@@ -295,11 +285,9 @@ _L_catch_0:
   __catch_res13 = 99
   drop __t12.val.1
   __t12.val.1 = null
-  __t12.tag = 0
   goto _L_merge_1
 _L_cont_1:
   __catch_res13 = __t12.val.0
-  __t12.tag = 0
   goto _L_merge_1
 _L_merge_1:
   val = __catch_res13
@@ -368,8 +356,10 @@ _L_entry:
 _L_call_err_0:
   __ret.tag = 1
   builtins_Exception_push(__call_res_16.val.1, "main", "", "level2", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/21_exceptions_basic.cxy", 60)
-  __ret.val.1 = __call_res_16.val.1
-  __call_res_16.tag = 0
+  var __mv0: ^Exception
+  __mv0 = __call_res_16.val.1
+  __call_res_16.val.1 = null
+  __ret.val.1 = __mv0
   goto _L_exit
 _L_call_cont_1:
   v = __call_res_16.val.0
@@ -395,8 +385,10 @@ _L_entry:
 _L_call_err_0:
   __ret.tag = 1
   builtins_Exception_push(__call_res_17.val.1, "main", "", "level1", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/21_exceptions_basic.cxy", 66)
-  __ret.val.1 = __call_res_17.val.1
-  __call_res_17.tag = 0
+  var __mv1: ^Exception
+  __mv1 = __call_res_17.val.1
+  __call_res_17.val.1 = null
+  __ret.val.1 = __mv1
   goto _L_exit
 _L_call_cont_1:
   v = __call_res_17.val.0
@@ -423,11 +415,9 @@ _L_catch_0:
   __catch_res19 = -999
   drop __t18.val.1
   __t18.val.1 = null
-  __t18.tag = 0
   goto _L_merge_1
 _L_cont_1:
   __catch_res19 = __t18.val.0
-  __t18.tag = 0
   goto _L_merge_1
 _L_merge_1:
   result = __catch_res19
@@ -451,12 +441,13 @@ _L_catch_0:
   scope.enter 1
   __ret.tag = 1
   builtins_Exception_push(__t20.val.1, "main", "", "testReraise", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/21_exceptions_basic.cxy", 79)
-  __ret.val.1 = __t20.val.1
-  __t20.tag = 0
+  var __mv2: ^Exception
+  __mv2 = __t20.val.1
+  __t20.val.1 = null
+  __ret.val.1 = __mv2
   goto _L_exit
 _L_cont_1:
   __catch_res21 = __t20.val.0
-  __t20.tag = 0
   goto _L_merge_1
 _L_merge_1:
   v = __catch_res21
@@ -491,11 +482,9 @@ _L_catch_0:
   __catch_res23 = -1
   drop __t22.val.1
   __t22.val.1 = null
-  __t22.tag = 0
   goto _L_merge_1
 _L_cont_1:
   __catch_res23 = __t22.val.0
-  __t22.tag = 0
   goto _L_merge_1
 _L_merge_1:
   r6 = __catch_res23
@@ -508,11 +497,9 @@ _L_catch_1:
   __catch_res25 = -2
   drop __t24.val.1
   __t24.val.1 = null
-  __t24.tag = 0
   goto _L_merge_2
 _L_cont_2:
   __catch_res25 = __t24.val.0
-  __t24.tag = 0
   goto _L_merge_2
 _L_merge_2:
   r7 = __catch_res25

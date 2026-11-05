@@ -13,7 +13,6 @@ extern "C" {
 // A catch body being lowered, innermost first
 typedef struct CatchCtx {
     IrNode *err;
-    IrNode *res;
     struct CatchCtx *prev;
 } CatchCtx;
 
@@ -63,7 +62,6 @@ typedef struct LowerContext {
     IrNode *catchTargetVar;
     IrNode *catchMergeBB;
     IrNode *currentCatchErr;
-    IrNode *currentCatchRes;
     CatchCtx *catchCtx;
     IrNode *exceptionPushCallee;
     bool explicitCatch;

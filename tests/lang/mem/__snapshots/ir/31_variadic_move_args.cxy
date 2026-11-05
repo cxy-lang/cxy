@@ -191,8 +191,10 @@ _L_entry:
 _L_call_err_0:
   __ret.tag = 1
   builtins_Exception_push(__call_res_6.val, "main", "", "main", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/31_variadic_move_args.cxy", 26)
-  __ret.val = __call_res_6.val
-  __call_res_6.tag = 0
+  var __mv2: ^Exception
+  __mv2 = __call_res_6.val
+  __call_res_6.val = null
+  __ret.val = __mv2
   goto _L_exit
 _L_call_cont_1:
   var __t7: ^Resource
@@ -207,8 +209,10 @@ _L_call_cont_1:
 _L_call_err_1:
   __ret.tag = 1
   builtins_Exception_push(__call_res_10.val, "main", "", "main", "/Users/dc/projects/mono-cxy/cxy/tests/lang/mem/31_variadic_move_args.cxy", 27)
-  __ret.val = __call_res_10.val
-  __call_res_10.tag = 0
+  var __mv3: ^Exception
+  __mv3 = __call_res_10.val
+  __call_res_10.val = null
+  __ret.val = __mv3
   goto _L_exit
 _L_call_cont_2:
   __ret.tag = 0

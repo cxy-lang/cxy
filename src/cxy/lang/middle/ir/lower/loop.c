@@ -183,22 +183,12 @@ void lowerForStmt(AstVisitor *visitor, AstNode *node)
     setBlock(ctx, exitBB);
 }
 
-// Drops a caught exception and defuses its result so it is not dropped twice
+// Drops a caught exception, the drop empties its field so it is not dropped twice
 static void emitReleaseCaught(LowerContext *ctx,
                               const FileLoc *loc,
                               const CatchCtx *c)
 {
-    const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
     emitStmt(ctx, makeIrDrop(ctx->pool, loc, cloneIrNode(ctx->pool, c->err)));
-    IrNode *tagSlot = makeIrMember(
-        ctx->pool, loc, cloneIrNode(ctx->pool, c->res), 0, S_tag, u32Type);
-    IrNode *defuse = makeIrAssign(
-        ctx->pool,
-        loc,
-        tagSlot,
-        makeIrIntConst(ctx->pool, loc, 0, false, u32Type));
-    defuse->flags |= flgUnmanaged;
-    emitStmt(ctx, defuse);
 }
 
 // Releases the catch bodies entered since `outer`, innermost first
@@ -289,23 +279,6 @@ void lowerYieldStmt(AstVisitor *visitor, AstNode *node)
                  makeIrDrop(ctx->pool,
                             &node->loc,
                             cloneIrNode(ctx->pool, ctx->currentCatchErr)));
-    }
-    if (ctx->currentCatchRes) {
-        const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
-        IrNode *resTagSlot = makeIrMember(
-            ctx->pool,
-            &node->loc,
-            cloneIrNode(ctx->pool, ctx->currentCatchRes),
-            0,
-            S_tag,
-            u32Type);
-        IrNode *defuseStmt = makeIrAssign(
-            ctx->pool,
-            &node->loc,
-            resTagSlot,
-            makeIrIntConst(ctx->pool, &node->loc, 0, false, u32Type));
-        defuseStmt->flags |= flgUnmanaged;
-        emitStmt(ctx, defuseStmt);
     }
     if (ctx->catchMergeBB) {
         emitStmt(ctx, makeIrBranch(ctx->pool, &node->loc, ctx->catchMergeBB));
