@@ -1,16 +1,21 @@
 $ summary
 live: 2 allocations, 56 bytes
-buffers: 0 live, 0 bytes
+buffers: 3 live, 584 bytes
 allocations since start: 2
 trace events: 2
 mark: 0
 $ sitecounts
     allocs        bytes  site
-         1           24  <ROOT>/tests/trace/programs/container_sites.cxy:6:13 (main)
-         1           32  <ROOT>/tests/trace/programs/container_sites.cxy:10:13 (main)
-Total: 2 sites
+         5         1264  <ROOT>/tests/trace/programs/container_sites.cxy:8:9 (main)
+         3           52  <ROOT>/tests/trace/programs/container_sites.cxy:10:13 (main)
+         2           88  <ROOT>/tests/trace/programs/container_sites.cxy:6:13 (main)
+         2          100  <ROOT>/tests/trace/programs/container_sites.cxy:11:5 (main)
+Total: 4 sites
 $ list 10
+ptr=PTR size=20 buffer @ <ROOT>/tests/trace/programs/container_sites.cxy:11
+ptr=PTR size=80 buffer @ <ROOT>/tests/trace/programs/container_sites.cxy:11
 ptr=PTR size=32 refs=1 @ <ROOT>/tests/trace/programs/container_sites.cxy:10
+ptr=PTR size=484 buffer @ <ROOT>/tests/trace/programs/container_sites.cxy:8
 ptr=PTR size=24 refs=1 @ <ROOT>/tests/trace/programs/container_sites.cxy:6
-Total: 2 live allocations (56 bytes)
+Total: 5 live allocations (640 bytes)
 $ program output
