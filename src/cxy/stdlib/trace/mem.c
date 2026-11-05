@@ -952,8 +952,9 @@ static void siteCountsReportFd(int fd, size_t limit)
 typedef struct TraceVisitor {
     void (*edge)(struct TraceVisitor *v, const void *from, const void *to);
     uint64_t (*bufferBytes)(struct TraceVisitor *v, const void *ptr);
+    void (*borrow)(struct TraceVisitor *v, const void *from, const void *to);
     void *ctx;
-} TraceVisitor; // mirrors __Visitor in runtime/mm.h
+} TraceVisitor; // mirrors __Visitor in runtime/mm_trace.h
 
 typedef struct {
     int fd;
@@ -1061,6 +1062,57 @@ static void edgesReportFd(int fd, const char *arg)
     free(p.sorted);
 }
 
+/*
+ * `dangling`: a `&T` field that points at something the registry no longer knows,
+ * the owner was destroyed while the borrow was still stored. The timeline of the
+ * target shows where it was allocated and where it was freed.
+ */
+typedef struct {
+    EdgePrinter printer;
+    const void *owner;
+    const char *ownerType;
+    size_t found;
+} DanglingScan;
+
+static void reportDanglingBorrow(TraceVisitor *v, const void *from, const void *to)
+{
+    DanglingScan *scan = v->ctx;
+    if (findEntry(&scan->printer, to) != NULL)
+        return;
+    const LiveEntry *owner = findEntry(&scan->printer, scan->owner);
+    dprintf(scan->printer.fd,
+            "dangling: %s %p @ %s:%llu borrows %p, which is no longer live\n",
+            scan->ownerType ? scan->ownerType : "object",
+            from,
+            owner && owner->path ? owner->path : "<unknown>",
+            (unsigned long long)(owner ? owner->line : 0),
+            to);
+    ringDumpFd(scan->printer.fd, to, false);
+    scan->found++;
+}
+
+static void danglingReportFd(int fd)
+{
+    DanglingScan scan = {.printer = {.fd = fd}};
+    scan.printer.sorted = liveSnapshot(0, &scan.printer.count);
+    qsort(scan.printer.sorted, scan.printer.count, sizeof(LiveEntry), compareByPtr);
+    TraceVisitor visitor = {.borrow = reportDanglingBorrow, .ctx = &scan};
+    for (size_t i = 0; i < scan.printer.count; i++) {
+        const LiveEntry *entry = &scan.printer.sorted[i];
+        if (entry->buffer)
+            continue;
+        const char *typeName = NULL;
+        VisitFn visit = objectVisitFn(entry->ptr, &typeName);
+        if (visit == NULL)
+            continue;
+        scan.owner = entry->ptr;
+        scan.ownerType = typeName;
+        visit(entry->ptr, &visitor);
+    }
+    dprintf(fd, "Total: %llu dangling borrows\n", (unsigned long long)scan.found);
+    free(scan.printer.sorted);
+}
+
 /* -------------------------------------------------------------------- roots */
 
 // A global variable that holds owning references, emitted by the compiler in
@@ -1122,6 +1174,7 @@ static void helpFd(int fd)
             "  mark                 remember the current allocation generation\n"
             "  edges <ptr>          what this object owns (exact, from the visit glue)\n"
             "  roots                global variables that own something, and what they own\n"
+            "  dangling             `&T` fields whose target was destroyed\n"
             "  types                cumulative allocs/frees/bytes per class\n"
             "  sitecounts [n]       cumulative allocations per allocation point\n"
             "  diff [n]             sites of allocations made since `mark` still alive\n"
@@ -1975,6 +2028,10 @@ static void runGraphCommand(int fd, const char *cmd, const char *arg1, const cha
         rootsReportFd(fd);
         return;
     }
+    if (strcmp(cmd, "dangling") == 0) {
+        danglingReportFd(fd);
+        return;
+    }
 
     Graph g = {0};
     if (!graphBuild(&g)) {
@@ -2132,7 +2189,8 @@ static void handleCommand(int fd, char *line)
     else if (strcmp(cmd, "holders") == 0 || strcmp(cmd, "path") == 0 ||
              strcmp(cmd, "contains") == 0 || strcmp(cmd, "retained") == 0 ||
              strcmp(cmd, "cycles") == 0 || strcmp(cmd, "tree") == 0 ||
-             strcmp(cmd, "edges") == 0 || strcmp(cmd, "roots") == 0)
+             strcmp(cmd, "edges") == 0 || strcmp(cmd, "roots") == 0 ||
+             strcmp(cmd, "dangling") == 0)
         graphCommand(fd, cmd, args[1], args[2]);
     else
         dprintf(fd, "unknown command '%s', try 'help'\n", cmd);

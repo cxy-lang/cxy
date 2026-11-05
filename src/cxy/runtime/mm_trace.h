@@ -84,6 +84,8 @@ typedef struct __Visitor {
     void (*edge)(struct __Visitor *v, const void *from, const void *to);
     // Bytes of the registered buffer that starts at `ptr`, 0 if there is none
     uint64_t (*bufferBytes)(struct __Visitor *v, const void *ptr);
+    // A `&T` field: a borrow, the owner of `from` does not own `to`
+    void (*borrow)(struct __Visitor *v, const void *from, const void *to);
     void *ctx;
 } __Visitor;
 
@@ -91,6 +93,13 @@ static inline void __visit_edge(void *visitor, void *from, void *to)
 {
     if (to != nullptr)
         ((__Visitor *)visitor)->edge((__Visitor *)visitor, from, to);
+}
+
+static inline void __visit_borrow(void *visitor, void *from, void *to)
+{
+    __Visitor *v = (__Visitor *)visitor;
+    if (to != nullptr && v->borrow != nullptr)
+        v->borrow(v, from, to);
 }
 
 // A global variable that holds owning references (a class handle, an optional,

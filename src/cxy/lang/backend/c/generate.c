@@ -506,6 +506,14 @@ static void emitVisitValue(FormatState *out, const IrType *type, cstring from, c
             return;
         }
         break; // an embedded base class: its fields follow
+    case irTypeCatReference:
+        // a `&T` field is a borrow, not an edge
+        if (isIrPointerType(type) && type->pointer.pointee &&
+            type->pointer.pointee->category == irTypeCatClass)
+            format(out,
+                   "  __visit_borrow(v, {s}, {s});\n",
+                   (FormatArg[]){{.s = from}, {.s = expr}});
+        return;
     case irTypeCatClosure:
         format(out,
                "  if ({s}.dtor) __visit_edge(v, {s}, {s}.env);\n",

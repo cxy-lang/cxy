@@ -1,0 +1,4 @@
+# a borrow of a live owner is fine, then the owner is replaced and the borrow dangles
+dangling
+@next
+dangling
