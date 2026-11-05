@@ -55,7 +55,7 @@ func main(): void {}
             (ScopeEnter 0)
             (VarDecl __copy0 ^Node :temporary)
             (Copy (VarRef a :owned-position) (VarRef __copy0))
-            (Call (GlobalRef take) (VarRef __copy0))
+            (Call (GlobalRef take) (VarRef __copy0 :owned-position :moved))
             (Call (GlobalRef take) (VarRef b :owned-position :moved))
             (Goto _L_exit))
     )");
@@ -112,7 +112,7 @@ func main(): void {}
             (VarDecl h Holder)
             (VarDecl __copy0 ^Node :temporary)
             (Copy (VarRef a :owned-position) (VarRef __copy0))
-            (Assign (VarRef h) (Struct Holder (Field n (VarRef __copy0)) :owned-position))
+            (Assign (VarRef h) (Struct Holder (Field n (VarRef __copy0 :owned-position :moved)) :owned-position))
             (Goto _L_exit))
     )");
     REQUIRE_IR_MATCHES(cc.function("structCopy").findBlock("exit"),

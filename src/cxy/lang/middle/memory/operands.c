@@ -1,6 +1,50 @@
 #include "operands.h"
 
+#include "lang/frontend/flag.h"
 #include "lang/middle/ir/visitor.h"
+
+IrNode *findVarDeclInNode(const IrNode *node)
+{
+    if (node == NULL)
+        return NULL;
+    if (node->tag == irVarRef)
+        return node->varRef.target;
+    if (node->tag == irMember)
+        return findVarDeclInNode(node->member.target);
+    if (node->tag == irIndex)
+        return findVarDeclInNode(node->index.target);
+    if (node->tag == irDeref)
+        return findVarDeclInNode(node->deref.target);
+    return NULL;
+}
+
+bool isIrVarDestructible(const IrNode *decl)
+{
+    if (decl == NULL || hasFlag(decl, Returned))
+        return false;
+    return hasFlag(decl, ReferenceMembers) || isIrTypeDestructible(decl->type);
+}
+
+bool isUnwrappedCallResult(const IrNode *src)
+{
+    IrNode *decl = findVarDeclInNode(src);
+    return decl && hasFlag(decl, Temporary) && decl->type &&
+           decl->type->category == irTypeCatResult;
+}
+
+bool isOwnerConsumingValue(const IrNode *rhs)
+{
+    return rhs->tag == irCall || rhs->tag == irUnionValue || rhs->tag == irOptionalValue ||
+           rhs->tag == irStructConst || rhs->tag == irArrayConst || rhs->tag == irClosureValue;
+}
+
+IrNode *rebuildCastChain(MemPool *pool, const IrNode *castTree, IrNode *newRoot)
+{
+    if (castTree == NULL || castTree->tag != irCast)
+        return newRoot;
+    IrNode *inner = rebuildCastChain(pool, castTree->cast.expr, newRoot);
+    return makeIrCast(pool, &castTree->loc, inner, castTree->type);
+}
 
 IrNode *findMovedVarDecl(const IrNode *src)
 {

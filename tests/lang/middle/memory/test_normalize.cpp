@@ -42,8 +42,7 @@ TEST_CASE("Normalize N1: `&&x` in a call becomes a `move x` statement and the op
 {
     TestCompiler cc;
     REQUIRE(cc.compile(std::string(program) + R"(
-func args(a: Node, b: Node) {
-    take(a)
+func args(b: Node) {
     take(&&b)
 }
 func main(): void {}
@@ -54,7 +53,6 @@ func main(): void {}
     REQUIRE_IR_MATCHES(cc.function("args").findBlock("entry"), R"(
         (Block _L_entry
             (ScopeEnter 0)
-            (Call (GlobalRef take) (VarRef a :owned-position))
             (Move (VarRef b))
             (Call (GlobalRef take) (VarRef b :owned-position :moved))
             (Goto _L_exit))
@@ -113,6 +111,68 @@ func main(): void {}
     )");
 }
 
+TEST_CASE("Normalize N3: a place passed to an owned parameter is copied into a temporary")
+{
+    TestCompiler cc;
+    REQUIRE(cc.compile(std::string(program) + R"(
+func owned(a: Node) {
+    take(a)
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+    normalize(cc, "owned");
+
+    REQUIRE_IR_MATCHES(cc.function("owned").findBlock("entry"), R"(
+        (Block _L_entry
+            (ScopeEnter 0)
+            (VarDecl __copy0 ^Node :temporary)
+            (Copy (VarRef a :owned-position) (VarRef __copy0))
+            (Call (GlobalRef take) (VarRef __copy0 :owned-position :moved))
+            (Goto _L_exit))
+    )");
+}
+
+TEST_CASE("Normalize N3b: `x = place` becomes a copy into `x`, with no temporary")
+{
+    TestCompiler cc;
+    REQUIRE(cc.compile(std::string(program) + R"(
+func store(a: Node) {
+    var x = Node(1)
+    x = a
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+    normalize(cc, "store");
+
+    REQUIRE_IR_MATCHES(cc.function("store").findBlock("entry"), R"(
+        (Block _L_entry
+            (ScopeEnter 0)
+            (VarDecl x _)
+            (Assign (VarRef x) (Call ...))
+            (Copy (VarRef a :owned-position) (VarRef x))
+            (Goto _L_exit))
+    )");
+}
+
+TEST_CASE("Normalize N3: a moved operand is not copied")
+{
+    TestCompiler cc;
+    REQUIRE(cc.compile(std::string(program) + R"(
+func moved(a: Node) {
+    var x = Node(1)
+    x = &&a
+    take(&&x)
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+    normalize(cc, "moved");
+
+    CHECK_FALSE(cc.function("moved").findBlock("entry").sexpr().find("__copy") != std::string::npos);
+}
+
 TEST_CASE("Normalize N4: `&&x` passed to a `&T` parameter is a borrow, nothing is moved")
 {
     TestCompiler cc;
@@ -138,7 +198,7 @@ TEST_CASE("Normalize: a function with no moves is unchanged")
     TestCompiler cc;
     REQUIRE(cc.compile(std::string(program) + R"(
 func plain(a: Node) {
-    take(a)
+    take(Node(1))
     peek(a)
 }
 func main(): void {}

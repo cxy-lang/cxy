@@ -74,18 +74,89 @@ static void normalizeMovedOperand(IrNode **slot, void *cursor)
     irSetInfo(*slot, irInfoOwnedPosition | irInfoMoved);
 }
 
+// A place that is not a temporary or a call result is still owned by someone else
+static bool needsOwnedCopy(const IrNode *inner)
+{
+    if (inner == NULL)
+        return false;
+    if (inner->tag == irVarRef) {
+        const IrNode *target = inner->varRef.target;
+        return target && !hasFlag(target, Temporary) && !hasFlag(target, Returned);
+    }
+    return isPlaceNode(inner) && !isUnwrappedCallResult(inner);
+}
+
+// N3: a place in an owned position (a call argument, a literal element) becomes
+// `copy place -> __copy` before the statement, and the operand is `__copy` under
+// the same casts. The operand cannot carry a retain itself.
+static void copyOwnedOperand(IrNode **slot, void *cursor)
+{
+    NormalizeCursor *c = cursor;
+    IrNode *val = *slot;
+    if (val == NULL || irHasInfo(val, irInfoMoved) || !isIrTypeDestructible(val->type))
+        return;
+    IrNode *inner = unwrapCasts(val);
+    if (!needsOwnedCopy(inner))
+        return;
+
+    MemPool *pool = c->ctx->pool;
+    IrNode *temp = makeOwnedTemp(c->ctx, "__copy", inner);
+    IrNode *dstRef = makeIrVarRef(pool, &inner->loc, temp);
+    insertBeforeStmt(c->bb, &c->prev, c->stmt, temp);
+    insertBeforeStmt(c->bb, &c->prev, c->stmt, makeIrCopy(pool, &inner->loc, inner, dstRef));
+
+    IrNode *operand = rebuildCastChain(pool, val, makeIrVarRef(pool, &inner->loc, temp));
+    operand->next = val->next;
+    irSetInfo(operand, irInfoOwnedPosition | irInfoMoved);
+    *slot = operand;
+}
+
+// N3b: `x = place` becomes `copy place -> x`, the destination exists already so
+// there is no temporary
+static void promoteAssignToCopy(IrNode *stmt)
+{
+    IrNode *lhs = stmt->assign.lhs;
+    IrNode *rhs = stmt->assign.rhs;
+    if (rhs == NULL || irHasInfo(rhs, irInfoMoved))
+        return;
+    if (!isIrVarDestructible(findVarDeclInNode(lhs)) && !isIrTypeDestructible(lhs->type))
+        return;
+
+    // `<Base>x` (a class up/down cast) still refers to `x`, so it is copied
+    const IrNode *inner = unwrapCastsConst(rhs);
+    IrNode *rhsDecl = findVarDeclInNode(inner);
+    if (rhsDecl && hasFlag(rhsDecl, Temporary))
+        return;
+    bool isPlace = inner->tag == irVarRef ? inner->varRef.target && !hasFlag(inner->varRef.target, Temporary)
+                                          : isPlaceNode(inner);
+    if (!isPlace)
+        return;
+
+    stmt->tag = irCopy;
+    stmt->copy.src = rhs;
+    stmt->copy.dst = lhs;
+}
+
 static void normalizeStmt(NormalizeCursor *c)
 {
     IrNode *stmt = c->stmt;
     if (stmt->tag == irCall) {
         dropBorrowedMoves(stmt);
         forEachOwnedSlot(stmt, normalizeMovedOperand, c);
+        forEachOwnedSlot(stmt, copyOwnedOperand, c);
     }
     else if (stmt->tag == irAssign && !hasFlag(stmt, Unmanaged)) {
-        IrNode *rhs = stmt->assign.rhs;
-        if (rhs && rhs->tag == irCall)
-            dropBorrowedMoves(rhs);
+        if (stmt->assign.rhs && stmt->assign.rhs->tag == irCall)
+            dropBorrowedMoves(stmt->assign.rhs);
         forEachOwnedSlot(stmt, normalizeMovedOperand, c);
+
+        IrNode *rhs = stmt->assign.rhs;
+        if (rhs == NULL)
+            return;
+        if (isOwnerConsumingValue(rhs))
+            forEachOwnedSlot(rhs, copyOwnedOperand, c);
+        else
+            promoteAssignToCopy(stmt);
     }
 }
 

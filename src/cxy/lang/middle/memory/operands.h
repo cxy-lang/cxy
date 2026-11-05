@@ -32,6 +32,23 @@ IrNode **moveSlot(IrNode **slot);
 // slot of each marked one, so a move in any position is found, whatever holds it.
 void forEachOwnedSlot(IrNode *node, void (*cb)(IrNode **slot, void *ctx), void *cbCtx);
 
+// The variable at the root of a variable, member, element or dereference
+IrNode *findVarDeclInNode(const IrNode *node);
+
+// A variable the pass has to drop: not the return slot, an owner or a struct that
+// holds references
+bool isIrVarDestructible(const IrNode *decl);
+
+// A member of a call result temporary holds nothing else on success, so its
+// ownership moves to the consumer instead of being copied
+bool isUnwrappedCallResult(const IrNode *src);
+
+// A value that owns what it holds, a consumer takes it over
+bool isOwnerConsumingValue(const IrNode *rhs);
+
+// `newRoot` under the same casts as `castTree`
+IrNode *rebuildCastChain(MemPool *pool, const IrNode *castTree, IrNode *newRoot);
+
 // A member or an element
 bool isPlaceNode(const IrNode *node);
 

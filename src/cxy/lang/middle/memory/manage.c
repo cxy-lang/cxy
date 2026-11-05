@@ -12,12 +12,6 @@ bool isIrTypeCopyable(const IrType *type)
     return isIrTypeDestructible(type);
 }
 
-static inline bool isIrVarDestructible(const IrNode *decl)
-{
-    if (decl == NULL || hasFlag(decl, Returned))
-        return false;
-    return hasFlag(decl, ReferenceMembers) || isIrTypeDestructible(decl->type);
-}
 
 static inline bool compareTrackedVarDecl(const void *a, const void *b)
 {
@@ -86,28 +80,6 @@ static void collectScopeVariables(MemMgmtContext *ctx, IrNode *func)
     }
 }
 
-static IrNode *findVarDeclInNode(const IrNode *node)
-{
-    if (node == NULL)
-        return NULL;
-    if (node->tag == irVarRef)
-        return node->varRef.target;
-    if (node->tag == irMember)
-        return findVarDeclInNode(node->member.target);
-    if (node->tag == irIndex)
-        return findVarDeclInNode(node->index.target);
-    if (node->tag == irDeref)
-        return findVarDeclInNode(node->deref.target);
-    return NULL;
-}
-
-static IrNode *rebuildCastChain(MemPool *pool, const IrNode *castTree, IrNode *newRoot)
-{
-    if (castTree == NULL || castTree->tag != irCast)
-        return newRoot;
-    IrNode *inner = rebuildCastChain(pool, castTree->cast.expr, newRoot);
-    return makeIrCast(pool, &castTree->loc, inner, castTree->type);
-}
 
 
 
@@ -277,16 +249,6 @@ static IrNode *makeDropFlagAccess(MemMgmtContext *ctx, const FileLoc *loc, Track
     return makeIrMember(ctx->pool, loc, flagsRef, var->dropFlagIndex, var->name, u64Type);
 }
 
-// A member of a call result temporary holds nothing else on success, so its
-// ownership moves to the consumer instead of being copied
-static bool isUnwrappedCallResult(const IrNode *src)
-{
-    IrNode *decl = findVarDeclInNode(src);
-    return decl && hasFlag(decl, Temporary) && decl->type &&
-           decl->type->category == irTypeCatResult;
-}
-
-
 // The statement being elaborated, the new statements go before it (`prev` is the
 // last one before it) or after it (`next` is the first one after it)
 typedef struct ElabCursor {
@@ -331,17 +293,6 @@ static void nullifyMovedPlace(ElabCursor *c, IrNode *src)
         insertAfter(c, clear);
 }
 
-// A temporary the pass creates to hold an owner. It starts as moved-out, so it is
-// owned only once something is stored into it.
-static IrNode *declareOwnedTemp(ElabCursor *c, cstring prefix, const IrNode *place)
-{
-    MemMgmtContext *ctx = c->ctx;
-    IrNode *decl = makeOwnedTemp(ctx, prefix, place);
-    TrackedVar *tracked = addTrackedVar(ctx, decl, decl->varDecl.name, ctx->currentScopeId, place->type);
-    if (tracked)
-        tracked->state = irVarMoved;
-    return decl;
-}
 
 // `x` is no longer owned. Its drop flag is cleared where the move is, the
 // statement that uses `x` still reads it, only ownership has moved.
@@ -370,73 +321,6 @@ static void elaborateMoveStmt(ElabCursor *c)
     c->removed = true;
 }
 
-
-// A place that is not a temporary or a call result is still owned by someone else
-static bool needsOwnedCopy(const IrNode *inner)
-{
-    if (inner == NULL)
-        return false;
-    if (inner->tag == irVarRef) {
-        const IrNode *target = inner->varRef.target;
-        return target && !hasFlag(target, Temporary) && !hasFlag(target, Returned);
-    }
-    return isPlaceNode(inner) && !isUnwrappedCallResult(inner);
-}
-
-// `__copy = @copy inner`, the operand is `__copy` under the same casts
-static void copyIntoTemp(ElabCursor *c, IrNode **slot, IrNode *val, IrNode *inner)
-{
-    MemPool *pool = c->ctx->pool;
-    IrNode *tempVar = declareOwnedTemp(c, "__copy", inner);
-    IrNode *dstRef = makeIrVarRef(pool, &inner->loc, tempVar);
-    insertBefore(c, tempVar);
-    insertBefore(c, makeIrCopy(pool, &inner->loc, inner, dstRef));
-
-    IrNode *finalArg = rebuildCastChain(pool, val, dstRef);
-    finalArg->next = val->next;
-    *slot = finalArg;
-}
-
-static void elaborateOwnedOperand(IrNode **slot, void *cursor)
-{
-    ElabCursor *c = cursor;
-    IrNode *val = *slot;
-    if (val == NULL || irHasInfo(val, irInfoMoved))
-        return;
-
-    if (!isIrTypeDestructible(val->type))
-        return;
-    IrNode *inner = unwrapCasts(val);
-    if (needsOwnedCopy(inner))
-        copyIntoTemp(c, slot, val, inner);
-}
-
-
-// Moves and copies for every operand of a call or a literal that a consumer takes
-// ownership of, found by the `:owned-position` bit, in evaluation order
-static void injectOperandCopies(ElabCursor *c, IrNode *value)
-{
-    if (value == NULL)
-        return;
-    forEachOwnedSlot(value, elaborateOwnedOperand, c);
-}
-
-static bool shouldPromoteAssignToCopy(const IrNode *lhsDecl, const IrNode *lhs, const IrNode *rhs)
-{
-    if (irHasInfo(rhs, irInfoMoved))
-        return false;
-    if (!isIrVarDestructible(lhsDecl) && !isIrTypeDestructible(lhs->type))
-        return false;
-    // `<Base>x` (a class up/down cast) still refers to `x`, so it is copied
-    const IrNode *inner = unwrapCastsConst(rhs);
-    IrNode *rhsDecl = findVarDeclInNode(inner);
-    if (rhsDecl && hasFlag(rhsDecl, Temporary))
-        return false;
-    if (inner->tag == irVarRef) {
-        return inner->varRef.target && !hasFlag(inner->varRef.target, Temporary);
-    }
-    return inner->tag == irMember || inner->tag == irIndex;
-}
 
 // What storing into `target` does: the old value of an element or field is
 // dropped, so is the old value of an owned variable (guarded by its flag when only
@@ -493,32 +377,6 @@ static void elaborateStoreTarget(ElabCursor *c, IrNode *target, bool storesNothi
 }
 
 
-static bool isOwnerConsumingValue(const IrNode *rhs)
-{
-    return rhs->tag == irCall || rhs->tag == irUnionValue || rhs->tag == irOptionalValue ||
-           rhs->tag == irStructConst || rhs->tag == irArrayConst || rhs->tag == irClosureValue;
-}
-
-static void elaborateAssign(ElabCursor *c)
-{
-    IrNode *stmt = c->stmt;
-    IrNode *rhs = stmt->assign.rhs;
-    elaborateStoreTarget(c, stmt->assign.lhs, isEmptyValue(rhs));
-    if (rhs == NULL)
-        return;
-
-    if (isOwnerConsumingValue(rhs)) {
-        injectOperandCopies(c, rhs);
-    }
-    else {
-        IrNode *lhs = stmt->assign.lhs;
-        if (shouldPromoteAssignToCopy(findVarDeclInNode(lhs), lhs, rhs)) {
-            stmt->tag = irCopy;
-            stmt->copy.src = rhs;
-            stmt->copy.dst = lhs;
-        }
-    }
-}
 
 // A dropped field is cleared, so the owner's destructor does not drop it again
 static void elaborateDrop(ElabCursor *c)
@@ -573,13 +431,11 @@ static void elaborateStmt(ElabCursor *c)
     IrNode *stmt = c->stmt;
     bool managed = !hasFlag(stmt, Unmanaged);
     if (stmt->tag == irAssign && managed)
-        elaborateAssign(c);
+        elaborateStoreTarget(c, stmt->assign.lhs, isEmptyValue(stmt->assign.rhs));
     else if (stmt->tag == irCopy && managed)
         elaborateStoreTarget(c, stmt->copy.dst, false);
     else if (stmt->tag == irDrop && managed)
         elaborateDrop(c);
-    else if (stmt->tag == irCall)
-        injectOperandCopies(c, stmt);
     else if (stmt->tag == irScopeExit)
         elaborateScopeExit(c);
     else if (stmt->tag == irMove)
