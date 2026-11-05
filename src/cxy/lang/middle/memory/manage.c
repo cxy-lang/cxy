@@ -2,6 +2,7 @@
 #include "flow.h"
 
 #include "operands.h"
+#include "pairs.h"
 #include "core/hash.h"
 #include "lang/frontend/flag.h"
 #include "lang/middle/ir/visitor.h"
@@ -532,6 +533,7 @@ static void processFunctionMemory(MemMgmtContext *ctx, IrNode *func)
         }
         elaborateDropsAndReassignments(ctx, blocks, blockCount);
         rejectNoCopyCopies(ctx, func);
+        eliminateRetainReleasePairs(ctx, func);
     }
 
     freeHashTable(&ctx->trackedVars);

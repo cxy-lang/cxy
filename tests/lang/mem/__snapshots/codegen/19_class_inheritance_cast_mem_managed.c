@@ -213,13 +213,12 @@ static void testClassUpcast() {
   int32_t val2;
 _L_entry:;
   d = DerivedResource_op__initCover(((int32_t)(10)), ((int32_t)(5)));
-  b = __smart_ptr_get(d);
+  b = d;
   __copy0 = __smart_ptr_get(d);
   val1 = takeBaseByValue(((BaseResource *)(__copy0)));
   val2 = takeBaseByRef(((BaseResource *)(((DerivedResource *)(d)))));
   goto _L_exit;
 _L_exit:;
-  __smart_ptr_drop(b);
   __smart_ptr_drop(d);
   return;
 }

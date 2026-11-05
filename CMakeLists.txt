@@ -272,6 +272,7 @@ set(CXY_MIDDLE_SOURCES
         src/cxy/lang/middle/memory/normalize.c
         src/cxy/lang/middle/memory/operands.c
         src/cxy/lang/middle/memory/manage.c
+        src/cxy/lang/middle/memory/pairs.c
         src/cxy/lang/middle/memory/finalize.c
         src/cxy/lang/middle/memory/verify.c
 )
@@ -671,6 +672,7 @@ if (ENABLE_UNIT_TESTS)
             tests/lang/middle/memory/test_statement_temporaries.cpp
             tests/lang/middle/memory/test_ownership_programs.cpp
             tests/lang/middle/memory/test_borrowed_loads.cpp
+            tests/lang/middle/memory/test_pairs.cpp
             tests/lang/middle/memory/test_loop_temporaries.cpp
             tests/lang/middle/lower/test_info.cpp
             tests/lang/middle/lower/test_synthetic.cpp

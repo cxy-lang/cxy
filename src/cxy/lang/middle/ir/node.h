@@ -286,6 +286,27 @@ static inline bool irIsReturnSlot(const IrNode *decl)
     return irValueClass(decl) == irClassReturnSlot;
 }
 
+// The count changes of a class handle: a `copy` of one is a retain (count + 1), a
+// `drop` of one is a release (count - 1, the object dies at 0). A copy or a drop of
+// an aggregate calls its glue and is neither.
+static inline bool irIsRetain(const IrNode *stmt)
+{
+    if (stmt == NULL || stmt->tag != irCopy || stmt->copy.src == NULL)
+        return false;
+    // the class behind references, the way the C backend reads the source
+    const IrType *type = stmt->copy.src->type;
+    while (type && (type->category == irTypeCatReference ||
+                    (type->tag == irTypePointer && type->category != irTypeCatClass)))
+        type = type->pointer.pointee;
+    return type && type->category == irTypeCatClass;
+}
+
+static inline bool irIsRelease(const IrNode *stmt)
+{
+    return stmt && stmt->tag == irDrop && stmt->drop.target && stmt->drop.target->type &&
+           stmt->drop.target->type->category == irTypeCatClass;
+}
+
 IrNode *makeIrNode(MemPool *pool, const FileLoc *loc, u64 flags, IrTag tag, const IrType *type);
 
 IrNode *makeIrModule(MemPool *pool, const FileLoc *loc, cstring name, IrTypeTable *types);

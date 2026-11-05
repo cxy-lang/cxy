@@ -465,11 +465,11 @@ AstNode *executeCompilerStage(CompilerDriver *driver,
     cstring stageName = getCompilerStageName(stage);
     CompilerStageExecutor executor = compilerStageExecutors[stage];
     if (executor == NULL) {
-        logWarningWithId(driver->L,
-                         wrnMissingStage,
-                         NULL,
-                         "unsupported compiler stage id '{s}'",
-                         (FormatArg[]){{.s = stageName}});
+        // logWarningWithId(driver->L,
+        //                  wrnMissingStage,
+        //                  NULL,
+        //                  "unsupported compiler stage id '{s}'",
+        //                  (FormatArg[]){{.s = stageName}});
         return node;
     }
 

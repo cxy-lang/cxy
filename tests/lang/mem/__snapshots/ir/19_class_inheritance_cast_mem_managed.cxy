@@ -177,7 +177,7 @@ _L_entry:
   var d: ^DerivedResource
   d = DerivedResource_op__initCover(<i32>(10), <i32>(5))
   var b: ^BaseResource
-  copy d -> b
+  b = d
   var val1: i32
   var __copy0: ^DerivedResource
   copy d -> __copy0
@@ -186,7 +186,6 @@ _L_entry:
   val2 = takeBaseByRef(<^BaseResource>(<^DerivedResource>(d)))
   goto _L_exit
 _L_exit:
-  drop b
   drop d
   scope.exit 0
   return
