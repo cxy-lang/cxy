@@ -82,6 +82,30 @@ func main(): void {}
     CHECK_FALSE(reports(cc, "UseAfterMove"));
 }
 
+// Every temporary the compiler makes for these is consumed or dropped once, O10
+TEST_CASE("Ownership programs: temporaries are consumed or dropped exactly once")
+{
+    TestCompiler cc(verified());
+    REQUIRE(cc.compile(std::string(program) + R"(
+func make(): Node => Node(1)
+func pass(n: Node): Node => n
+func temporaries(): i32 {
+    make()
+    take(pass(make()))
+    var r = &make()
+    var h = Holder{n: make()}
+    if make().id > 0 {
+        return peek(make()) + r.id
+    }
+    return make().id
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+    CHECK_FALSE(reports(cc, "TemporaryOwnership"));
+    CHECK_FALSE(reports(cc, "OwnerLeak"));
+}
+
 TEST_CASE("Ownership programs: moving out of a reference into a variable is reported")
 {
     TestCompiler cc(verified());

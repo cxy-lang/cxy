@@ -579,7 +579,19 @@ typedef struct BlockInfo {
     bool reached;
 } BlockInfo;
 
-typedef enum { ruleO1, ruleO2, ruleO3, ruleO5, ruleO6, ruleO7, ruleO8, ruleO13, ruleB3, ruleB4 } Rule;
+typedef enum {
+    ruleO1,
+    ruleO2,
+    ruleO3,
+    ruleO5,
+    ruleO6,
+    ruleO7,
+    ruleO8,
+    ruleO10,
+    ruleO13,
+    ruleB3,
+    ruleB4
+} Rule;
 
 static const char *const ruleNames[] = {[ruleO1] = "O1",
                                         [ruleO2] = "O2",
@@ -588,6 +600,7 @@ static const char *const ruleNames[] = {[ruleO1] = "O1",
                                         [ruleO6] = "O6",
                                         [ruleO7] = "O7",
                                         [ruleO8] = "O8",
+                                        [ruleO10] = "O10",
                                         [ruleO13] = "O13",
                                         [ruleB3] = "B3",
                                         [ruleB4] = "B4"};
@@ -600,6 +613,7 @@ static const u8 ruleWarnings[] = {[ruleO1] = wrnOwnerLeak,
                                   [ruleO6] = wrnMoveOfReference,
                                   [ruleO7] = wrnOverwrittenOwner,
                                   [ruleO8] = wrnDropFlagMismatch,
+                                  [ruleO10] = wrnTemporaryOwnership,
                                   [ruleO13] = wrnRedeclaredOwner,
                                   [ruleB3] = wrnReturnedBorrow,
                                   [ruleB4] = wrnDanglingBorrow};
@@ -1014,6 +1028,173 @@ static void findFlags(FuncVerify *fv, const IrNode *fn)
     }
 }
 
+// O10. A temporary the compiler made has its lifetime fixed by its class, and it
+// lives inside one block, so the check needs no flow. An in flight one is handed to
+// exactly one consumer. A statement one is only read, and dropped once after its
+// last read.
+typedef struct TempFacts {
+    const IrNode *decl;
+    IrValueClass cls;
+    const IrNode *defBlock;
+    bool defined;
+    u32 owned;       // uses in an owned position
+    u32 drops;
+    const IrNode *dropBlock;
+    u32 dropIndex;
+    const IrNode *lastReadBlock;
+    u32 lastRead;    // index of the last statement that reads or hands it over
+    bool read;
+} TempFacts;
+
+typedef struct TempScan {
+    FuncVerify *fv;
+    HashTable index; // temporary to its facts
+    TempFacts *facts;
+    const IrNode *block;
+    u32 stmtIndex;
+} TempScan;
+
+static TempFacts *factsOf(TempScan *scan, const IrNode *decl)
+{
+    i64 at = getPtrIndex(&scan->index, decl);
+    return at < 0 ? NULL : &scan->facts[at];
+}
+
+static void scanTempOperand(TempScan *scan, const IrNode *node, bool owned);
+
+static void scanTempSlot(IrNode **slot, void *scanPtr)
+{
+    scanTempOperand(scanPtr, *slot, false);
+}
+
+// `owned` carries through casts: `<Base>t` hands `t` over as a whole
+static void scanTempOperand(TempScan *scan, const IrNode *node, bool owned)
+{
+    if (node == NULL)
+        return;
+    owned = owned || irHasInfo(node, irInfoOwnedPosition);
+    if (node->tag == irCast) {
+        scanTempOperand(scan, node->cast.expr, owned);
+        return;
+    }
+    if (node->tag == irVarRef) {
+        TempFacts *f = factsOf(scan, node->varRef.target);
+        if (f == NULL)
+            return;
+        if (owned)
+            f->owned++;
+        f->read = true;
+        f->lastReadBlock = scan->block;
+        f->lastRead = scan->stmtIndex;
+        return;
+    }
+    irForEachOperandSlot((IrNode *)node, scanTempSlot, scan);
+}
+
+static void scanTempStatement(TempScan *scan, const IrNode *stmt)
+{
+    const IrNode *defined = NULL;
+    if (stmt->tag == irAssign)
+        defined = stripCasts(stmt->assign.lhs);
+    else if (stmt->tag == irCopy)
+        defined = stripCasts(stmt->copy.dst);
+    if (defined && defined->tag == irVarRef) {
+        TempFacts *f = factsOf(scan, defined->varRef.target);
+        if (f) {
+            if (!f->defined) {
+                f->defined = true;
+                f->defBlock = scan->block;
+            }
+            scanTempOperand(scan, stmt->tag == irAssign ? stmt->assign.rhs : stmt->copy.src, false);
+            return;
+        }
+    }
+    if (stmt->tag == irDrop) {
+        const IrNode *target = stripCasts(stmt->drop.target);
+        TempFacts *f = target && target->tag == irVarRef ? factsOf(scan, target->varRef.target) : NULL;
+        if (f) {
+            if (f->drops++ == 0) {
+                f->dropBlock = scan->block;
+                f->dropIndex = scan->stmtIndex;
+            }
+            return;
+        }
+    }
+    irForEachOperandSlot((IrNode *)stmt, scanTempSlot, scan);
+}
+
+static void reportTemporary(FuncVerify *fv, const TempFacts *f, const char *what)
+{
+    reportFinding(fv, ruleO10, true, f->decl, &f->decl->loc, NULL, what);
+}
+
+static void checkTemporary(FuncVerify *fv, const TempFacts *f)
+{
+    if (!f->defined)
+        return;
+    if (f->cls == irClassInFlight) {
+        if (f->owned == 0)
+            reportTemporary(fv, f, "is made but nobody takes it, the value leaks");
+        else if (f->owned > 1)
+            reportTemporary(fv, f, "is handed to more than one consumer");
+        return;
+    }
+    // a statement temporary
+    if (f->owned > 0)
+        reportTemporary(fv, f, "is dropped after the statement and also handed to a consumer");
+    else if (f->drops == 0)
+        reportTemporary(fv, f, "is made but never dropped, the value leaks");
+    else if (f->drops > 1)
+        reportTemporary(fv, f, "is dropped more than once");
+    else if (f->dropBlock != f->defBlock)
+        reportTemporary(fv, f, "is dropped outside the block that makes it");
+    else if (f->read && (f->lastReadBlock != f->dropBlock || f->lastRead > f->dropIndex))
+        reportTemporary(fv, f, "is read after it was dropped");
+}
+
+static void verifyTemporaries(FuncVerify *fv)
+{
+    u32 count = 0;
+    for (const IrNode *bb = fv->func->function.firstBlock; bb; bb = bb->next) {
+        if (bb->tag != irBasicBlock)
+            continue;
+        for (const IrNode *s = bb->basicBlock.first; s; s = s->next) {
+            IrValueClass cls = s->tag == irVarDecl ? irValueClass(s) : irClassNone;
+            if (cls == irClassInFlight || cls == irClassStatement)
+                count++;
+        }
+    }
+    if (count == 0)
+        return;
+
+    TempScan scan = {.fv = fv, .index = newHashTable(sizeof(PtrIndex), &fv->pool)};
+    scan.facts = allocFromMemPool(&fv->pool, sizeof(TempFacts) * count);
+    memset(scan.facts, 0, sizeof(TempFacts) * count);
+    u32 at = 0;
+    for (const IrNode *bb = fv->func->function.firstBlock; bb; bb = bb->next) {
+        if (bb->tag != irBasicBlock)
+            continue;
+        for (const IrNode *s = bb->basicBlock.first; s; s = s->next) {
+            IrValueClass cls = s->tag == irVarDecl ? irValueClass(s) : irClassNone;
+            if (cls != irClassInFlight && cls != irClassStatement)
+                continue;
+            scan.facts[at] = (TempFacts){.decl = s, .cls = cls};
+            putPtrIndex(&scan.index, s, at++);
+        }
+    }
+
+    for (const IrNode *bb = fv->func->function.firstBlock; bb; bb = bb->next) {
+        if (bb->tag != irBasicBlock)
+            continue;
+        scan.block = bb;
+        scan.stmtIndex = 0;
+        for (const IrNode *s = bb->basicBlock.first; s; s = s->next, scan.stmtIndex++)
+            scanTempStatement(&scan, s);
+    }
+    for (u32 i = 0; i < count; i++)
+        checkTemporary(fv, &scan.facts[i]);
+}
+
 // O6 needs no flow: a `&&` the user wrote on a reference is wrong wherever it is,
 // also in a function that owns nothing
 static void reportReferenceMoves(FuncVerify *fv, const OwnershipSnapshot *snap)
@@ -1084,6 +1265,7 @@ static void verifyFunction(const OwnershipSnapshot *snap,
     };
     fv.varIndex = newHashTable(sizeof(PtrIndex), &fv.pool);
     reportReferenceMoves(&fv, snap);
+    verifyTemporaries(&fv);
 
     if (!collectTrackedVars(&decls, fn))
         goto done;

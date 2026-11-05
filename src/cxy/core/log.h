@@ -26,7 +26,8 @@ extern "C" {
     f(RedeclaredOwner,   12)            \
     f(ReturnedBorrow,    13)            \
     f(DanglingBorrow,    14)             \
-    f(MoveOfReference,   15)
+    f(MoveOfReference,   15)            \
+    f(TemporaryOwnership,16)
 
 // clang-format on
 
@@ -45,7 +46,7 @@ enum {
      BIT(wrnUnclearedMove) | BIT(wrnOverwrittenOwner) |                        \
      BIT(wrnDropFlagMismatch) | BIT(wrnRedeclaredOwner) |                      \
      BIT(wrnReturnedBorrow) | BIT(wrnDanglingBorrow) |                         \
-     BIT(wrnMoveOfReference))
+     BIT(wrnMoveOfReference) | BIT(wrnTemporaryOwnership))
 #define wrnDefault                                                             \
     wrnAll & ~(BIT(wrnMissingStage) | BIT(wrnCMacroRedefine) |                 \
                BIT(wrnMaybeUninitialized) | wrnOwnership)

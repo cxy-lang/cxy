@@ -14,6 +14,7 @@
 #include "lang/middle/ir/type.h"
 #include "lang/middle/memory/verify.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -280,10 +281,15 @@ TEST_CASE("Ownership verifier: what is tracked depends on the class, not on who 
         irAppendBlockStmt(bb, b.assign(x, b.value()));
         irAppendBlockStmt(bb, b.ret());
 
+        // O10 has its own say about a temporary nobody takes, here it is about owners
         OwnershipSnapshot *snap = ownershipSnapshot(b.module);
-        auto found = b.verify(snap);
+        std::vector<Found> owners;
+        for (const Found &f : b.verify(snap)) {
+            if (f.rule == "O1")
+                owners.push_back(f);
+        }
         freeOwnershipSnapshot(snap);
-        return found;
+        return owners;
     };
 
     SUBCASE("a compiler variable with an ordinary lifetime is an owner")
@@ -307,6 +313,124 @@ TEST_CASE("Ownership verifier: what is tracked depends on the class, not on who 
         CHECK(leak(irClassResult).empty());
         CHECK(leak(irClassReturnSlot).empty());
     }
+}
+
+// O10: a temporary the compiler made has its lifetime fixed by its class. An in
+// flight one is handed to exactly one consumer, a statement one is only read and
+// dropped once after its last read. Both live inside one block.
+namespace {
+
+// The reference the pass passes to a consumer, lowering marks it `:owned-position`
+IrNode *ownedUse(Builder &b, IrNode *t)
+{
+    IrNode *use = b.ref(t);
+    irSetInfo(use, irInfoOwnedPosition);
+    return use;
+}
+
+std::vector<Found> verifyTemporary(
+    IrValueClass cls,
+    const std::function<void(Builder &, IrNode *bb, IrNode *t)> &after)
+{
+    Builder b;
+    IrNode *bb = b.block("entry");
+    IrNode *t = b.var(bb, "__t0");
+    irSetInfo(t, irInfoSynthetic);
+    irSetValueClass(t, cls);
+    irAppendBlockStmt(bb, b.assign(t, b.value()));
+    after(b, bb, t);
+    irAppendBlockStmt(bb, b.ret());
+
+    OwnershipSnapshot *snap = ownershipSnapshot(b.module);
+    auto found = b.verify(snap);
+    freeOwnershipSnapshot(snap);
+    return found;
+}
+
+} // namespace
+
+TEST_CASE("Ownership verifier: O10 an in flight temporary is consumed exactly once")
+{
+    SUBCASE("consumed once")
+    {
+        CHECK(verifyTemporary(irClassInFlight, [](Builder &b, IrNode *bb, IrNode *t) {
+                  irAppendBlockStmt(bb, b.call(ownedUse(b, t)));
+              }).empty());
+    }
+
+    SUBCASE("never consumed")
+    {
+        auto found = verifyTemporary(irClassInFlight, [](Builder &, IrNode *, IrNode *) {});
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O10");
+        CHECK(found[0].var == "__t0");
+        CHECK(found[0].definite);
+    }
+
+    SUBCASE("consumed twice")
+    {
+        auto found = verifyTemporary(irClassInFlight, [](Builder &b, IrNode *bb, IrNode *t) {
+            irAppendBlockStmt(bb, b.call(ownedUse(b, t)));
+            irAppendBlockStmt(bb, b.call(ownedUse(b, t)));
+        });
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O10");
+    }
+}
+
+TEST_CASE("Ownership verifier: O10 a statement temporary is dropped once after its last read")
+{
+    SUBCASE("read, then dropped")
+    {
+        CHECK(verifyTemporary(irClassStatement, [](Builder &b, IrNode *bb, IrNode *t) {
+                  irAppendBlockStmt(bb, b.call(b.borrow(t)));
+                  irAppendBlockStmt(bb, b.drop(t));
+              }).empty());
+    }
+
+    SUBCASE("never dropped")
+    {
+        auto found = verifyTemporary(irClassStatement, [](Builder &b, IrNode *bb, IrNode *t) {
+            irAppendBlockStmt(bb, b.call(b.borrow(t)));
+        });
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O10");
+    }
+
+    SUBCASE("dropped twice")
+    {
+        auto found = verifyTemporary(irClassStatement, [](Builder &b, IrNode *bb, IrNode *t) {
+            irAppendBlockStmt(bb, b.drop(t));
+            irAppendBlockStmt(bb, b.drop(t));
+        });
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O10");
+    }
+
+    SUBCASE("read after the drop")
+    {
+        auto found = verifyTemporary(irClassStatement, [](Builder &b, IrNode *bb, IrNode *t) {
+            irAppendBlockStmt(bb, b.drop(t));
+            irAppendBlockStmt(bb, b.call(b.borrow(t)));
+        });
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O10");
+    }
+
+    SUBCASE("handed to a consumer as well as dropped")
+    {
+        auto found = verifyTemporary(irClassStatement, [](Builder &b, IrNode *bb, IrNode *t) {
+            irAppendBlockStmt(bb, b.call(ownedUse(b, t)));
+            irAppendBlockStmt(bb, b.drop(t));
+        });
+        REQUIRE(found.size() == 1);
+        CHECK(found[0].rule == "O10");
+    }
+}
+
+TEST_CASE("Ownership verifier: O10 a transient temporary is the creator's word, nothing is checked")
+{
+    CHECK(verifyTemporary(irClassTransient, [](Builder &, IrNode *, IrNode *) {}).empty());
 }
 
 TEST_CASE("Ownership verifier: O1 leak at exit")
@@ -670,6 +794,7 @@ TEST_CASE("Ownership verifier: O5 on the normalized form, a captured field must 
             zero->flags |= flgUnmanaged;
             irAppendBlockStmt(bb, zero);
         }
+        irAppendBlockStmt(bb, b.call(ownedUse(b, held)));
         IrNode *r = b.ret();
         irAppendBlockStmt(bb, r);
 
