@@ -4,4 +4,8 @@
 #include "setjmp.h"
 #define SUB 100
 
+enum Hello {
+    World
+};
+
 int sub(int a, int b);

@@ -48,7 +48,7 @@ func main(): !void {
     var sse = SseServer[SseApplication, SseContext](SseApplication("updates".S))
     var server = Server[](Config{address: Address("0.0.0.0", 8005)});
     server("GET /events", (@unused req: &const Request, resp: &Response) => {
-        resp.sse(__copy!(sse))
+        resp.sse(@copy sse)
     })
 
     println("SSE server listening on http://0.0.0.0:8005/events")

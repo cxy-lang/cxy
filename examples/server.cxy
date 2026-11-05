@@ -32,7 +32,7 @@ pub func main(args: [string]) {
         if (!sock)
             continue;
 
-        async { handleConnection( sock.move() ) }
+        async { handleConnection( &&*sock ) }
     }
     println("done")
 }
