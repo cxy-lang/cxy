@@ -208,3 +208,44 @@ func main(): void {}
     normalize(cc, "plain");
     REQUIRE(cc.function("plain").sexpr() == before);
 }
+
+TEST_CASE("Normalize N5: lowering already names a call or literal nested in an owned operand")
+{
+    TestCompiler cc;
+    REQUIRE(cc.compile(std::string(program) + R"(
+struct Holder { n: Node }
+func make(): Node => Node(1)
+func pass(n: Node): Node => n
+func nested() {
+    take(pass(make()))
+}
+func literal() {
+    var h = Holder{n: pass(make())}
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+
+    // every owned operand is a variable, so there is nothing for normalize to name
+    REQUIRE_IR_MATCHES(cc.function("nested").findBlock("entry"), R"(
+        (Block _L_entry
+            (ScopeEnter 0)
+            (VarDecl __t0 ^Node :temporary)
+            (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
+            (VarDecl __t1 ^Node :temporary)
+            (Assign (VarRef __t1) (Call (GlobalRef pass) (VarRef __t0 :owned-position) :owned-position))
+            (Call (GlobalRef take) (VarRef __t1 :owned-position))
+            (Goto _L_exit))
+    )");
+    REQUIRE_IR_MATCHES(cc.function("literal").findBlock("entry"), R"(
+        (Block _L_entry
+            ...
+            (Assign (VarRef h) (Struct Holder (Field n (VarRef __t1 :owned-position)) :owned-position))
+            ...)
+    )");
+
+    std::string before = cc.function("nested").sexpr() + cc.function("literal").sexpr();
+    normalize(cc, "nested");
+    normalize(cc, "literal");
+    REQUIRE(cc.function("nested").sexpr() + cc.function("literal").sexpr() == before);
+}
