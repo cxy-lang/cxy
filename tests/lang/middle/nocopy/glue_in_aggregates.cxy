@@ -1,0 +1,28 @@
+// The copy and destructor functions the compiler generates for a type that
+// holds a `@nocopy` value are not user code: no error for them, only for a
+// copy the user writes
+@nocopy
+class Handle {
+    fd: i32
+    func `init`(fd: i32) { this.fd = fd }
+    func `deinit`() {}
+}
+
+struct Pair {
+    first: Handle
+    count: i32
+}
+
+struct Outer {
+    pair: Pair
+    tag: i32
+}
+
+func make(): Handle => Handle(7)
+
+func main(): void {
+    var t = (make(), 1)
+    var o: Handle? = make()
+    var o2 = Outer{pair: Pair{first: make(), count: 1}, tag: 2}
+    var f = () => 1
+}

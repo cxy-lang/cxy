@@ -1097,9 +1097,7 @@ static void visitNoCopyCopy(IrVisitor *visitor, IrNode *node)
     MemMgmtContext *ctx = getIrVisitorContext(visitor);
     irVisitFallbackVisitAll(visitor, node);
     const IrType *type = node->copy.src ? node->copy.src->type : NULL;
-    // Generated glue (a struct's copy overload) has an empty source range
-    if (!isIrTypeNoCopy(type) || node->loc.fileName == NULL ||
-        node->loc.begin.byteOffset == node->loc.end.byteOffset)
+    if (!isIrTypeNoCopy(type))
         return;
 
     // Report the type behind a reference, and a class by its readable name
@@ -1117,6 +1115,10 @@ static void visitNoCopyCopy(IrVisitor *visitor, IrNode *node)
 // inserted alike.
 static void rejectNoCopyCopies(MemMgmtContext *ctx, IrNode *func)
 {
+    // Generated copy and destructor functions are not user code
+    if (irHasInfo(func, irInfoGlue))
+        return;
+
     IrVisitor visitor = makeIrVisitor(ctx, {[irCopy] = visitNoCopyCopy});
     visitor.fallback = irVisitFallbackVisitAll;
     for (IrNode *bb = func->function.firstBlock; bb; bb = bb->next) {
