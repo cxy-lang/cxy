@@ -64,15 +64,20 @@ static const IrNode *stripCasts(const IrNode *node)
     return node;
 }
 
-static bool isTrackedDecl(const IrNode *decl)
+// A variable or parameter the user declared. A temporary the compiler made, and
+// the slot a function returns through, are not variables the user can misuse.
+static bool isUserVariable(const IrNode *decl)
 {
     if (decl == NULL || (decl->tag != irVarDecl && decl->tag != irFuncParam))
         return false;
-    // a temporary lowering made is not a variable the user can misuse
-    if (hasFlag(decl, Temporary) || hasFlag(decl, Ephemeral) || hasFlag(decl, Returned) ||
-        irHasInfo(decl, irInfoSynthetic))
-        return false;
-    return hasFlag(decl, ReferenceMembers) || isIrTypeDestructible(decl->type);
+    return !hasFlag(decl, Temporary) && !hasFlag(decl, Ephemeral) &&
+           !hasFlag(decl, Returned) && !irHasInfo(decl, irInfoSynthetic);
+}
+
+static bool isTrackedDecl(const IrNode *decl)
+{
+    return isUserVariable(decl) &&
+           (hasFlag(decl, ReferenceMembers) || isIrTypeDestructible(decl->type));
 }
 
 static const IrNode *trackedVarRef(const IrNode *node)
@@ -166,8 +171,7 @@ static const IrNode *borrowedLocal(const IrNode *rhs)
 
 static bool isReferenceVar(const IrNode *decl)
 {
-    return decl && decl->tag == irVarDecl && !hasFlag(decl, Returned) &&
-           !hasFlag(decl, Temporary) && decl->type &&
+    return decl && decl->tag == irVarDecl && isUserVariable(decl) && decl->type &&
            decl->type->category == irTypeCatReference;
 }
 
