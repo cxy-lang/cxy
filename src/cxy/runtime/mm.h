@@ -50,6 +50,17 @@ typedef struct __attribute__((aligned(16))) __ObjHeader {
 #define __MM_FAULT_UNDERFLOW 2
 #define __MM_FAULT_RETAIN_DYING 3
 #define __MM_FAULT_DANGLING_REF 4
+#define __MM_FAULT_WEAK_OVERFLOW 5
+#define __MM_FAULT_WEAK_UNDERFLOW 6
+
+// The weak count lives in the top 24 bits of weakFlags. Every live object holds one
+// of it on behalf of all its owners together: it is released when the last owner
+// goes, and the block is freed when the count reaches zero.
+#define __MM_WEAK_SHIFT 8
+#define __MM_WEAK_ONE (1U << __MM_WEAK_SHIFT)
+#define __MM_WEAK_MAX 0xFFFFFFU
+#define __MM_WEAK_LIMIT 0x800000U
+#define __MM_FLAG_MASK 0xFFU
 
 // Layout checks: the trace library and generated code assume these offsets
 _Static_assert(sizeof(__ObjHeader) == 16, "object header must stay 16 bytes");
@@ -136,7 +147,9 @@ static void (*__mm_fault_hook)(int kind, void *obj);
 // retaining a dying object abort in debug builds.
 __attribute__((noinline, cold)) static void __mm_fault(__ObjHeader *h, int kind)
 {
-    if (kind != __MM_FAULT_RETAIN_DYING)
+    if (kind == __MM_FAULT_WEAK_OVERFLOW || kind == __MM_FAULT_WEAK_UNDERFLOW)
+        __atomic_fetch_or(&h->weakFlags, __MM_WEAK_MAX << __MM_WEAK_SHIFT, __ATOMIC_RELAXED);
+    else if (kind != __MM_FAULT_RETAIN_DYING)
         __atomic_store_n(&h->strong, __MM_RC_SATURATED, __ATOMIC_RELAXED);
 #if defined(CXY_RUNTIME_TEST)
     if (__mm_fault_hook != nullptr) {
@@ -152,6 +165,8 @@ __attribute__((noinline, cold)) static void __mm_fault(__ObjHeader *h, int kind)
 #ifndef NDEBUG
     if (kind == __MM_FAULT_UNDERFLOW)
         msg = "reference count underflow (object released too many times)";
+    else if (kind == __MM_FAULT_WEAK_UNDERFLOW)
+        msg = "weak reference count underflow (weak reference released too many times)";
     else if (kind == __MM_FAULT_RETAIN_DYING)
         msg = "retain of an object that is being destroyed";
 #endif
@@ -188,15 +203,25 @@ static unsigned __mm_quarantine_pos;
 #endif
 #endif
 
+#if !defined(NDEBUG)
+// What is left of a destroyed object must not be read: a zombie block waits for its
+// weak references, a freed one for the quarantine
+static inline void __mm_poison_payload(__ObjHeader *h)
+{
+    void *base = (char *)h - __MM_PREFIX;
+    unsigned long total = __MM_BLOCK_SIZE(base);
+    unsigned long used = __MM_PREFIX + sizeof(__ObjHeader);
+    if (total > used)
+        memset((char *)base + used, 0xDD, total - used);
+}
+#endif
+
 // Frees an object block. Debug builds poison it and delay the real free.
 static inline void __mm_free_block(__ObjHeader *h)
 {
     void *base = (char *)h - __MM_PREFIX;
 #if !defined(NDEBUG)
-    unsigned long total = __MM_BLOCK_SIZE(base);
-    unsigned long used = __MM_PREFIX + sizeof(__ObjHeader);
-    if (total > used)
-        memset((char *)base + used, 0xDD, total - used);
+    __mm_poison_payload(h);
     h->weakFlags = __MM_DEAD;
 #if !defined(__MM_ASAN)
     unsigned slot = __atomic_fetch_add(&__mm_quarantine_pos, 1, __ATOMIC_RELAXED) %
@@ -223,7 +248,14 @@ static inline void __mm_destroy(__ObjHeader *h, void *obj)
             h->type->dropFields(obj);
     }
     __mm_trace_destroy(h);
-    __mm_free_block(h);
+#ifndef NDEBUG
+    __mm_poison_payload(h);
+#endif
+    // The owners are gone: give up their weak count. The block is freed now unless a
+    // weak reference is still around, the last one to go frees it.
+    uint32_t old = __atomic_fetch_sub(&h->weakFlags, __MM_WEAK_ONE, __ATOMIC_ACQ_REL);
+    if ((old >> __MM_WEAK_SHIFT) == 1)
+        __mm_free_block(h);
 }
 
 /* ------------------------------------------------------------- allocation */
@@ -236,7 +268,7 @@ static inline void *__mm_alloc_block(uint64_t size, uint32_t flags, const __Site
     if (base == nullptr)
         return nullptr;
     __ObjHeader *h = (__ObjHeader *)(base + __MM_PREFIX);
-    h->weakFlags = __MM_CANARY | flags;
+    h->weakFlags = __MM_CANARY | flags | __MM_WEAK_ONE;
     __atomic_store_n(&h->strong, 1, __ATOMIC_RELAXED);
     h->type = nullptr;
     __mm_trace_alloc(base, size, site);
@@ -294,6 +326,73 @@ static inline bool __mm_release(void *obj)
     else if (unlikely(old > __MM_RC_LIMIT))
         __atomic_store_n(&h->strong, __MM_RC_SATURATED, __ATOMIC_RELAXED);
     return false;
+}
+
+/* ------------------------------------------------------ weak references */
+
+// A weak reference keeps the block, not the object. It is made from a live owner.
+static inline void *__mm_weak_retain(void *obj)
+{
+    if (obj == nullptr)
+        return nullptr;
+    __ObjHeader *h = __MM_HEADER(obj);
+#ifndef NDEBUG
+    if (unlikely((h->weakFlags & __MM_CANARY_MASK) != __MM_CANARY))
+        __cxy_panic_mem(obj, __FILE__, __LINE__, "invalid pointer weak retain");
+#endif
+    uint32_t old = __atomic_fetch_add(&h->weakFlags, __MM_WEAK_ONE, __ATOMIC_RELAXED);
+    if (unlikely((old >> __MM_WEAK_SHIFT) >= __MM_WEAK_LIMIT))
+        __mm_fault(h, __MM_FAULT_WEAK_OVERFLOW);
+    return obj;
+}
+
+static inline void __mm_weak_release(void *obj)
+{
+    if (obj == nullptr)
+        return;
+    __ObjHeader *h = __MM_HEADER(obj);
+#ifndef NDEBUG
+    if (unlikely((h->weakFlags & __MM_CANARY_MASK) != __MM_CANARY))
+        __cxy_panic_mem(obj, __FILE__, __LINE__, "invalid pointer weak release");
+#endif
+    uint32_t old = __atomic_fetch_sub(&h->weakFlags, __MM_WEAK_ONE, __ATOMIC_ACQ_REL);
+    uint32_t count = old >> __MM_WEAK_SHIFT;
+    // the count never gets below the one the owners hold, a release past it is a bug
+    if (unlikely(count <= 1 && (h->strong != 0 || count == 0))) {
+        __atomic_fetch_add(&h->weakFlags, __MM_WEAK_ONE, __ATOMIC_RELAXED);
+        __mm_fault(h, __MM_FAULT_WEAK_UNDERFLOW);
+        return;
+    }
+    if (unlikely(count >= __MM_WEAK_LIMIT)) {
+        __atomic_fetch_or(&h->weakFlags, __MM_WEAK_MAX << __MM_WEAK_SHIFT, __ATOMIC_RELAXED);
+        return;
+    }
+    if (count == 1)
+        __mm_free_block(h);
+}
+
+// A new owner if the object is still alive, null otherwise. The count only goes up
+// from a non-zero value, so an object that is being destroyed cannot come back.
+static inline void *__mm_upgrade(void *obj)
+{
+    if (obj == nullptr)
+        return nullptr;
+    __ObjHeader *h = __MM_HEADER(obj);
+#ifndef NDEBUG
+    if (unlikely((h->weakFlags & __MM_CANARY_MASK) != __MM_CANARY))
+        __cxy_panic_mem(obj, __FILE__, __LINE__, "invalid pointer upgrade");
+#endif
+    uint32_t strong = __atomic_load_n(&h->strong, __ATOMIC_RELAXED);
+    while (strong != 0) {
+        if (unlikely(strong >= __MM_RC_LIMIT)) {
+            __mm_fault(h, __MM_FAULT_OVERFLOW);
+            return obj;
+        }
+        if (__atomic_compare_exchange_n(
+                &h->strong, &strong, strong + 1, true, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+            return obj;
+    }
+    return nullptr;
 }
 
 /* ------------------------------------------------- borrowed references */

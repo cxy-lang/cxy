@@ -61,7 +61,7 @@ static void Resource_op__destructor(Resource * this);
 static void Resource_op__destructor_fwd(void * ptr);
 static Resource * Resource_op__initCover(int32_t id);
 static void _main();
-static void __tuple_dctor_148(Tuple_Optional_Resource_i32 * tup);
+static void __tuple_dctor_152(Tuple_Optional_Resource_i32 * tup);
 
 static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .index = 0, .dropFields = Resource_op__destructor_fwd };
 
@@ -143,12 +143,12 @@ _L_entry:;
   e = (Tuple_Optional_Resource_i32){__t2, 2};
   goto _L_exit;
 _L_exit:;
-  __tuple_dctor_148(&(e));
-  __tuple_dctor_148(&(d));
+  __tuple_dctor_152(&(e));
+  __tuple_dctor_152(&(d));
   return;
 }
 
-static void __tuple_dctor_148(Tuple_Optional_Resource_i32 * tup) {
+static void __tuple_dctor_152(Tuple_Optional_Resource_i32 * tup) {
 _L_entry:;
     if (tup->_0.ok) __smart_ptr_drop(tup->_0.val);
   memset(&(tup->_0), 0, sizeof(Optional_Resource));

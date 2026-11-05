@@ -134,7 +134,7 @@ _L_exit:
   return
 }
 
-func __tuple_copy_144(tup: ^(^Resource, i8)): (^Resource, i8) {
+func __tuple_copy_148(tup: ^(^Resource, i8)): (^Resource, i8) {
 _L_entry:
   scope.enter 0
   var __ret: (^Resource, i8)
@@ -147,7 +147,7 @@ _L_exit:
   return __ret
 }
 
-func __tuple_dctor_144(tup: ^(^Resource, i8)): void {
+func __tuple_dctor_148(tup: ^(^Resource, i8)): void {
 _L_entry:
   scope.enter 0
   drop tup.0
@@ -158,7 +158,7 @@ _L_exit:
   return
 }
 
-func __union_copy_148(u: ^^Resource | i32): ^Resource | i32 {
+func __union_copy_152(u: ^^Resource | i32): ^Resource | i32 {
 _L_entry:
   scope.enter 0
   var __ret: ^Resource | i32
@@ -184,7 +184,7 @@ _L_exit:
   return __ret
 }
 
-func __union_dctor_148(u: ^^Resource | i32): void {
+func __union_dctor_152(u: ^^Resource | i32): void {
 _L_entry:
   scope.enter 0
   switch u.tag {

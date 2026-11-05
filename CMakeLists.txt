@@ -539,6 +539,7 @@ set(CXY_STD_LIB_SOURCES
 set(CXY_STD_LIB_TEST_SOURCES
         ${CXY_STD_LIB_SOURCES}
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/json.spec.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/weak.spec.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/coro.spec.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/spec.cxy
 )
@@ -691,6 +692,7 @@ if (ENABLE_UNIT_TESTS)
             tests/lang/parser/test_optional_parens.cpp
             tests/lang/parser/test_for_loop.cpp
             tests/lang/parser/test_at_copy.cpp
+            tests/lang/parser/test_at_weak.cpp
             tests/lang/parser/test_switch_statement.cpp
             tests/lang/parser/parser_utils.cpp
             tests/unit/test_utils.cpp

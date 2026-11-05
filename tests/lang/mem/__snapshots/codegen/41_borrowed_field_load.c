@@ -76,8 +76,8 @@ static const __TypeInfo __ti_builtins_StdOutputStream = { .name = "builtins.StdO
 static const __TypeInfo __ti_Node = { .name = "Node", .size = sizeof(Node), .align = _Alignof(Node), .index = 1, .dropFields = Node_op__destructor_fwd };
 static const __TypeInfo __ti_View = { .name = "View", .size = sizeof(View), .align = _Alignof(View), .index = 2, .dropFields = nullptr };
 
-builtins_OutputStream_VTable builtins_OutputStream_vTable = (builtins_OutputStream_VTable){.__tid = 189ULL, .append = ((Optional_u64 (*)(builtins_OutputStream *, void *, uint64_t))(nullptr))};
-builtins_OutputStream_VTable builtins_StdOutputStream_vTable = (builtins_OutputStream_VTable){.__tid = ((uint64_t)(308)), .append = ((Optional_u64 (*)(builtins_OutputStream *, void *, uint64_t))(builtins_StdOutputStream_append))};
+builtins_OutputStream_VTable builtins_OutputStream_vTable = (builtins_OutputStream_VTable){.__tid = 193ULL, .append = ((Optional_u64 (*)(builtins_OutputStream *, void *, uint64_t))(nullptr))};
+builtins_OutputStream_VTable builtins_StdOutputStream_vTable = (builtins_OutputStream_VTable){.__tid = ((uint64_t)(312)), .append = ((Optional_u64 (*)(builtins_OutputStream *, void *, uint64_t))(builtins_StdOutputStream_append))};
 builtins_OutputStream * builtins_stdout;
 builtins_OutputStream * builtins_stderr;
 int64_t builtins_SysConfPageSize;

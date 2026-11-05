@@ -1,8 +1,8 @@
 typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
-typedef struct Closure_134 Closure_134;
+typedef struct Closure_138 Closure_138;
 typedef struct Handler Handler;
-typedef struct Closure_142 Closure_142;
+typedef struct Closure_146 Closure_146;
 typedef struct Dispatcher Dispatcher;
 typedef struct __closure_env5 __closure_env5;
 
@@ -17,24 +17,24 @@ struct builtins_Exception_VTable {
   char * (*what)(builtins_Exception *);
 };
 
-struct Closure_134 {
+struct Closure_138 {
   void * env;
   int32_t (*fn)(void *, int32_t);
   void (*dtor)(void *);
 };
 
 struct Handler {
-  Closure_134 fn;
+  Closure_138 fn;
 };
 
-struct Closure_142 {
+struct Closure_146 {
   void * env;
   void (*fn)(void *);
   void (*dtor)(void *);
 };
 
 struct Dispatcher {
-  Closure_142 fn;
+  Closure_146 fn;
 };
 
 struct __closure_env5 {
@@ -43,17 +43,17 @@ struct __closure_env5 {
 
 static void builtins_panicOnUnhandledException(builtins_Exception * ex);
 
-static void Handler_op__init(Handler * this, Closure_134 fn);
+static void Handler_op__init(Handler * this, Closure_138 fn);
 static int32_t Handler_call(Handler * this, int32_t x);
 static void Handler_op__destructor(Handler * this);
-static void Dispatcher_op__init(Dispatcher * this, Closure_142 fn);
+static void Dispatcher_op__init(Dispatcher * this, Closure_146 fn);
 static void Dispatcher_dispatch(Dispatcher * this);
 static void Dispatcher_op__destructor(Dispatcher * this);
 static void Dispatcher_op__destructor_fwd(void * ptr);
 static int32_t __closure_body6(__closure_env5 * this, int32_t x);
-static Handler Handler_op__initCover(Closure_134 fn);
+static Handler Handler_op__initCover(Closure_138 fn);
 static void __closure_body8(void * this);
-static Dispatcher * Dispatcher_op__initCover(Closure_142 fn);
+static Dispatcher * Dispatcher_op__initCover(Closure_146 fn);
 static void _main();
 
 static const __TypeInfo __ti_Dispatcher = { .name = "Dispatcher", .size = sizeof(Dispatcher), .align = _Alignof(Dispatcher), .index = 0, .dropFields = Dispatcher_op__destructor_fwd };
@@ -72,7 +72,7 @@ _L_exit:;
   return;
 }
 
-static void Handler_op__init(Handler * this, Closure_134 fn) {
+static void Handler_op__init(Handler * this, Closure_138 fn) {
 _L_entry:;
   if (this->fn.dtor) this->fn.dtor(this->fn.env);
   this->fn = fn;
@@ -93,13 +93,13 @@ _L_exit:;
 static void Handler_op__destructor(Handler * this) {
 _L_entry:;
   if (this->fn.dtor) this->fn.dtor(this->fn.env);
-  memset(&(this->fn), 0, sizeof(Closure_134));
+  memset(&(this->fn), 0, sizeof(Closure_138));
   goto _L_exit;
 _L_exit:;
   return;
 }
 
-static void Dispatcher_op__init(Dispatcher * this, Closure_142 fn) {
+static void Dispatcher_op__init(Dispatcher * this, Closure_146 fn) {
 _L_entry:;
   if (this->fn.dtor) this->fn.dtor(this->fn.env);
   this->fn = fn;
@@ -119,7 +119,7 @@ _L_exit:;
 static void Dispatcher_op__destructor(Dispatcher * this) {
 _L_entry:;
   if (this->fn.dtor) this->fn.dtor(this->fn.env);
-  memset(&(this->fn), 0, sizeof(Closure_142));
+  memset(&(this->fn), 0, sizeof(Closure_146));
   goto _L_exit;
 _L_exit:;
   return;
@@ -142,7 +142,7 @@ _L_exit:;
   return __ret;
 }
 
-static Handler Handler_op__initCover(Closure_134 fn) {
+static Handler Handler_op__initCover(Closure_138 fn) {
   Handler __ret;
   Handler __obj7;
 _L_entry:;
@@ -161,7 +161,7 @@ _L_exit:;
   return;
 }
 
-static Dispatcher * Dispatcher_op__initCover(Closure_142 fn) {
+static Dispatcher * Dispatcher_op__initCover(Closure_146 fn) {
   Dispatcher * __ret;
   Dispatcher * __obj9;
   Dispatcher * __t0;
@@ -181,19 +181,19 @@ static void _main() {
   Handler h;
   __closure_env5 __t1;
   __closure_env5 * __env2;
-  Closure_134 __t3;
+  Closure_138 __t3;
   int32_t v;
   Dispatcher * d;
-  Closure_142 __t4;
+  Closure_146 __t4;
 _L_entry:;
   offset = 1;
   __t1 = (__closure_env5){.offset = offset};
   __env2 = __mm_alloc(&__ti___closure_env5, nullptr);
   (*(__env2)) = __t1;
-  __t3 = (Closure_134){ .env = __env2, .fn = __closure_body6, .dtor = __smart_ptr_drop };
+  __t3 = (Closure_138){ .env = __env2, .fn = __closure_body6, .dtor = __smart_ptr_drop };
   h = Handler_op__initCover(__t3);
   v = Handler_call(&h, ((int32_t)(41)));
-  __t4 = (Closure_142){ .env = nullptr, .fn = __closure_body8, .dtor = nullptr };
+  __t4 = (Closure_146){ .env = nullptr, .fn = __closure_body8, .dtor = nullptr };
   d = Dispatcher_op__initCover(__t4);
   Dispatcher_dispatch(((Dispatcher *)(d)));
   goto _L_exit;

@@ -15,10 +15,10 @@ _L_exit:
   return __ret
 }
 
-func makeMultiplier(factor: i32): Closure_133 {
+func makeMultiplier(factor: i32): Closure_137 {
 _L_entry:
   scope.enter 0
-  var __ret: Closure_133
+  var __ret: Closure_137
   var __t0: __closure_env4
   __t0 = __closure_env4 {factor: factor}
   var __env1: ^__closure_env4
@@ -42,10 +42,10 @@ _L_exit:
   return __ret
 }
 
-func makeCounter(): Closure_144 {
+func makeCounter(): Closure_148 {
 _L_entry:
   scope.enter 0
-  var __ret: Closure_144
+  var __ret: Closure_148
   var count: i8
   count = 0
   var __t2: __closure_env6
@@ -63,11 +63,11 @@ _L_exit:
 func main(): void {
 _L_entry:
   scope.enter 0
-  var mul: Closure_133
+  var mul: Closure_137
   mul = makeMultiplier(<i32>(5))
   var r1: i32
   r1 = mul.fn(mul.env, 10)
-  var cnt: Closure_144
+  var cnt: Closure_148
   cnt = makeCounter()
   var r2: i32
   r2 = cnt.fn(cnt.env)

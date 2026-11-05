@@ -3701,6 +3701,22 @@ static AstNode *parseTypeImpl(Parser *P, bool allowOptional)
                                &(AstNode){.tag = astPrimitiveType,
                                           .primitiveType.id = prtCChar});
             break;
+        case tokAtWeak: {
+            // `@weak T` is `Weak[T]` from the builtins module
+            Token weakTok = *advance(P);
+            AstNode *target = parseTypeImpl(P, false);
+            AstNode *element = newAstNode(
+                P,
+                &weakTok,
+                &(AstNode){.tag = astPathElem,
+                           .pathElement = {.name = makeString(P->strPool, "Weak"),
+                                           .args = target}});
+            type = newAstNode(P,
+                              &weakTok,
+                              &(AstNode){.tag = astPath,
+                                         .path = {.elements = element, .isType = true}});
+            break;
+        }
         case tokSubstitutue:
             type = substitute(P, false);
             break;

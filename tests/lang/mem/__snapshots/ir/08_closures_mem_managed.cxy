@@ -100,7 +100,7 @@ _L_entry:
   scope.enter 0
   var r: ^Resource
   r = Resource_op__initCover(<i32>(1))
-  var c: Closure_147
+  var c: Closure_151
   var __t2: __closure_env4
   var __copy0: ^Resource
   copy r -> __copy0
@@ -157,7 +157,7 @@ _L_entry:
   scope.enter 0
   var r: ^Resource
   r = Resource_op__initCover(<i32>(2))
-  var c: Closure_147
+  var c: Closure_151
   var __t5: __closure_env6
   __t5 = __closure_env6 {r: r}
   var __env6: __closure_env6
@@ -238,7 +238,7 @@ _L_entry:
   scope.enter 0
   var s: ^X
   s = X_op__initCover("Hello")
-  var c: Closure_169
+  var c: Closure_173
   var __t9: __closure_env9
   var __copy1: ^X
   copy s -> __copy1

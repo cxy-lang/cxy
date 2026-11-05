@@ -89,8 +89,8 @@ static void testTupleElement();
 static void testArrayElement();
 static void testConditional(bool cond);
 static void _main();
-static void __tuple_dctor_167(Tuple_Page_i8 * tup);
-static void __array_dctor_173(Slice_Page arr);
+static void __tuple_dctor_171(Tuple_Page_i8 * tup);
+static void __array_dctor_177(Slice_Page arr);
 
 static const __TypeInfo __ti_Keys = { .name = "Keys", .size = sizeof(Keys), .align = _Alignof(Keys), .index = 0, .dropFields = Keys_op__destructor_fwd };
 static const __TypeInfo __ti_Page = { .name = "Page", .size = sizeof(Page), .align = _Alignof(Page), .index = 1, .dropFields = Page_op__destructor_fwd };
@@ -296,7 +296,7 @@ _L_entry:;
   tup = (Tuple_Page_i8){__t10, 2};
   goto _L_exit;
 _L_exit:;
-  __tuple_dctor_167(&(tup));
+  __tuple_dctor_171(&(tup));
   return;
 }
 
@@ -310,7 +310,7 @@ _L_entry:;
   arr[0] = __t11;
   goto _L_exit;
 _L_exit:;
-  __array_dctor_173((Slice_Page){ .ptr = arr, .len = 1 });
+  __array_dctor_177((Slice_Page){ .ptr = arr, .len = 1 });
   return;
 }
 
@@ -350,7 +350,7 @@ _L_exit:;
   return;
 }
 
-static void __tuple_dctor_167(Tuple_Page_i8 * tup) {
+static void __tuple_dctor_171(Tuple_Page_i8 * tup) {
 _L_entry:;
   __smart_ptr_drop(tup->_0);
   tup->_0 = nullptr;
@@ -359,7 +359,7 @@ _L_exit:;
   return;
 }
 
-static void __array_dctor_173(Slice_Page arr) {
+static void __array_dctor_177(Slice_Page arr) {
   uint64_t __i;
 _L_entry:;
   __i = 0ULL;

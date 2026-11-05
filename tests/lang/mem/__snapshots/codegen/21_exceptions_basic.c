@@ -73,7 +73,7 @@ static void _main();
 static const __TypeInfo __ti_TestError = { .name = "TestError", .size = sizeof(TestError), .align = _Alignof(TestError), .index = 0, .dropFields = TestError_op__destructor_fwd };
 static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .index = 1, .dropFields = Resource_op__destructor_fwd };
 
-builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 91ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
+builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 95ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
 
 static void builtins_Exception_op__init(builtins_Exception * this, char * name) {
 _L_entry:;
@@ -154,7 +154,7 @@ _L_exit:;
   return;
 }
 
-builtins_Exception_VTable TestError_vTable = (builtins_Exception_VTable){.__tid = ((uint64_t)(138)), .what = ((char * (*)(builtins_Exception *))(TestError_what))};
+builtins_Exception_VTable TestError_vTable = (builtins_Exception_VTable){.__tid = ((uint64_t)(142)), .what = ((char * (*)(builtins_Exception *))(TestError_what))};
 
 static void Resource_op__init(Resource * this, int32_t id) {
 _L_entry:;

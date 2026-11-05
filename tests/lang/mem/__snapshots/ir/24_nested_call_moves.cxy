@@ -343,7 +343,7 @@ _L_exit:
   return
 }
 
-func __tuple_copy_167(tup: ^(^Page, i8)): (^Page, i8) {
+func __tuple_copy_171(tup: ^(^Page, i8)): (^Page, i8) {
 _L_entry:
   scope.enter 0
   var __ret: (^Page, i8)
@@ -356,7 +356,7 @@ _L_exit:
   return __ret
 }
 
-func __tuple_dctor_167(tup: ^(^Page, i8)): void {
+func __tuple_dctor_171(tup: ^(^Page, i8)): void {
 _L_entry:
   scope.enter 0
   drop tup.0
@@ -367,7 +367,7 @@ _L_exit:
   return
 }
 
-func __array_dctor_173(arr: [^Page]): void {
+func __array_dctor_177(arr: [^Page]): void {
 _L_entry:
   scope.enter 0
   var __i: u64

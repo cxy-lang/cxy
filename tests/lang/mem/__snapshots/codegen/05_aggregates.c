@@ -52,9 +52,9 @@ static Resource * Resource_op__initCover(int32_t id);
 static void testTuple();
 static void testUnion(Union_Resource_i32 u);
 static void _main();
-static void __tuple_dctor_144(Tuple_Resource_i8 * tup);
-static Union_Resource_i32 __union_copy_148(Union_Resource_i32 * u);
-static void __union_dctor_148(Union_Resource_i32 * u);
+static void __tuple_dctor_148(Tuple_Resource_i8 * tup);
+static Union_Resource_i32 __union_copy_152(Union_Resource_i32 * u);
+static void __union_dctor_152(Union_Resource_i32 * u);
 
 static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .index = 0, .dropFields = Resource_op__destructor_fwd };
 
@@ -134,18 +134,18 @@ _L_entry:;
   tup = (Tuple_Resource_i8){__t2, 42};
   goto _L_exit;
 _L_exit:;
-  __tuple_dctor_144(&(tup));
+  __tuple_dctor_148(&(tup));
   return;
 }
 
 static void testUnion(Union_Resource_i32 u) {
   Union_Resource_i32 local;
 _L_entry:;
-  local = __union_copy_148(&(u));
+  local = __union_copy_152(&(u));
   goto _L_exit;
 _L_exit:;
-  __union_dctor_148(&(local));
-  __union_dctor_148(&(u));
+  __union_dctor_152(&(local));
+  __union_dctor_152(&(u));
   return;
 }
 
@@ -172,7 +172,7 @@ _L_exit:;
   return;
 }
 
-static void __tuple_dctor_144(Tuple_Resource_i8 * tup) {
+static void __tuple_dctor_148(Tuple_Resource_i8 * tup) {
 _L_entry:;
   __smart_ptr_drop(tup->_0);
   tup->_0 = nullptr;
@@ -181,7 +181,7 @@ _L_exit:;
   return;
 }
 
-static Union_Resource_i32 __union_copy_148(Union_Resource_i32 * u) {
+static Union_Resource_i32 __union_copy_152(Union_Resource_i32 * u) {
   Union_Resource_i32 __ret;
   Resource * __t8;
 _L_entry:;
@@ -203,7 +203,7 @@ _L_exit:;
   return __ret;
 }
 
-static void __union_dctor_148(Union_Resource_i32 * u) {
+static void __union_dctor_152(Union_Resource_i32 * u) {
 _L_entry:;
   switch (u->tag) {
     case 0U: goto _L_MATCH0_case_0;

@@ -1,7 +1,7 @@
 
 // Generate IR for module /Users/dc/projects/mono-cxy/cxy/tests/lang/mem/19_class_inheritance_cast_mem_managed.cxy
-global BaseResource_vTable: BaseResource_VTable = BaseResource_VTable {__tid: 132, op__deinit: <func(^BaseResource): void>(BaseResource_op__deinit), getId: <func(^BaseResource): i32>(BaseResource_getId)}
-global DerivedResource_vTable: BaseResource_VTable = BaseResource_VTable {__tid: <u64>(144), op__deinit: <func(^BaseResource): void>(DerivedResource_op__deinit), getId: <func(^BaseResource): i32>(DerivedResource_getId)}
+global BaseResource_vTable: BaseResource_VTable = BaseResource_VTable {__tid: 136, op__deinit: <func(^BaseResource): void>(BaseResource_op__deinit), getId: <func(^BaseResource): i32>(BaseResource_getId)}
+global DerivedResource_vTable: BaseResource_VTable = BaseResource_VTable {__tid: <u64>(148), op__deinit: <func(^BaseResource): void>(DerivedResource_op__deinit), getId: <func(^BaseResource): i32>(DerivedResource_getId)}
 
 extern func __smart_ptr_get(ptr: ^void): ^void
 

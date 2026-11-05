@@ -5,7 +5,7 @@ typedef struct Pair Pair;
 typedef struct Outer Outer;
 typedef struct Tuple_Handle_i8 Tuple_Handle_i8;
 typedef struct Optional_Handle Optional_Handle;
-typedef struct Closure_156 Closure_156;
+typedef struct Closure_160 Closure_160;
 
 struct builtins_Exception {
   builtins_Exception_VTable * vtable;
@@ -42,7 +42,7 @@ struct Optional_Handle {
   Handle * val;
 };
 
-struct Closure_156 {
+struct Closure_160 {
   void * env;
   int8_t (*fn)(void *);
   void (*dtor)(void *);
@@ -60,7 +60,7 @@ static Handle * Handle_op__initCover(int32_t fd);
 static Handle * make();
 static int8_t __closure_body4(void * this);
 static void _main();
-static void __tuple_dctor_149(Tuple_Handle_i8 * tup);
+static void __tuple_dctor_153(Tuple_Handle_i8 * tup);
 
 static const __TypeInfo __ti_Handle = { .name = "Handle", .size = sizeof(Handle), .align = _Alignof(Handle), .index = 0, .dropFields = Handle_op__destructor_fwd };
 
@@ -167,7 +167,7 @@ static void _main() {
   Outer o2;
   Handle * __t5;
   Pair __t6;
-  Closure_156 f;
+  Closure_160 f;
 _L_entry:;
   __t3 = make();
   t = (Tuple_Handle_i8){__t3, 1};
@@ -177,16 +177,16 @@ _L_entry:;
   __t5 = make();
   __t6 = (Pair){.first = __t5, .count = 1};
   o2 = (Outer){.pair = __t6, .tag = 2};
-  f = (Closure_156){ .env = nullptr, .fn = __closure_body4, .dtor = nullptr };
+  f = (Closure_160){ .env = nullptr, .fn = __closure_body4, .dtor = nullptr };
   goto _L_exit;
 _L_exit:;
   Outer_op__destructor(&(o2));
     if (o.ok) __smart_ptr_drop(o.val);
-  __tuple_dctor_149(&(t));
+  __tuple_dctor_153(&(t));
   return;
 }
 
-static void __tuple_dctor_149(Tuple_Handle_i8 * tup) {
+static void __tuple_dctor_153(Tuple_Handle_i8 * tup) {
 _L_entry:;
   __smart_ptr_drop(tup->_0);
   tup->_0 = nullptr;

@@ -109,7 +109,7 @@ static const __TypeInfo __ti_String = { .name = "String", .size = sizeof(String)
 static const __TypeInfo __ti_Container = { .name = "Container", .size = sizeof(Container), .align = _Alignof(Container), .index = 1, .dropFields = Container_op__destructor_fwd };
 static const __TypeInfo __ti_CustomError = { .name = "CustomError", .size = sizeof(CustomError), .align = _Alignof(CustomError), .index = 2, .dropFields = CustomError_op__destructor_fwd };
 
-builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 91ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
+builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 95ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
 
 static void builtins_Exception_op__init(builtins_Exception * this, char * name) {
 _L_entry:;
@@ -190,7 +190,7 @@ _L_exit:;
   return;
 }
 
-builtins_Exception_VTable CustomError_vTable = (builtins_Exception_VTable){.__tid = ((uint64_t)(144)), .what = ((char * (*)(builtins_Exception *))(CustomError_what))};
+builtins_Exception_VTable CustomError_vTable = (builtins_Exception_VTable){.__tid = ((uint64_t)(148)), .what = ((char * (*)(builtins_Exception *))(CustomError_what))};
 
 static void String_op__init(String * this, char * s) {
 _L_entry:;

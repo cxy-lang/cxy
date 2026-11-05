@@ -30,7 +30,7 @@ func testIfElse(cond: bool): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  var fn: Closure_134
+  var fn: Closure_138
   if cond goto _L_IF0_then else goto _L_IF0_else
 _L_IF0_then:
   scope.enter 1
@@ -83,7 +83,7 @@ _L_FOR0_cond:
   if i < 5 goto _L_FOR0_body else goto _L_FOR0_exit
 _L_FOR0_body:
   scope.enter 1
-  var c: Closure_155
+  var c: Closure_159
   var __t4: __closure_env7
   __t4 = __closure_env7 {i: i}
   var __env5: __closure_env7
@@ -134,7 +134,7 @@ func testSwitch(mode: i32): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
-  var fn: Closure_134
+  var fn: Closure_138
   switch mode {
     0 -> _L_SWITCH0_case_0
     else -> _L_SWITCH0_case_1

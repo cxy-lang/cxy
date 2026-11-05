@@ -413,15 +413,20 @@ Token advanceLexer(Lexer *lexer)
         if (acceptChar(lexer, '`'))
             return makeToken(lexer, &begin, tokQuote);
         if (acceptChar(lexer, '@')) {
-            // `@copy` is one token, `@copyright` is an attribute
+            // `@copy` and `@weak` are one token, `@copyright` is an attribute
             const LexerBuffer *b = lexer->buffer;
             size_t at = b->filePos.byteOffset;
-            if (at + 4 <= b->fileSize && memcmp(&b->fileData[at], "copy", 4) == 0 &&
-                (at + 4 == b->fileSize ||
-                 isSpaceOrPunctuation(b->fileData[at + 4]))) {
-                for (int i = 0; i < 4; i++)
-                    skipChar(lexer);
-                return makeToken(lexer, &begin, tokAtCopy);
+            static const struct {
+                const char *word;
+                TokenTag tag;
+            } words[] = {{"copy", tokAtCopy}, {"weak", tokAtWeak}};
+            for (size_t w = 0; w < sizeof(words) / sizeof(words[0]); w++) {
+                if (at + 4 <= b->fileSize && memcmp(&b->fileData[at], words[w].word, 4) == 0 &&
+                    (at + 4 == b->fileSize || isSpaceOrPunctuation(b->fileData[at + 4]))) {
+                    for (int i = 0; i < 4; i++)
+                        skipChar(lexer);
+                    return makeToken(lexer, &begin, words[w].tag);
+                }
             }
             return makeToken(lexer, &begin, tokAt);
         }

@@ -77,6 +77,7 @@ extern "C" {
     f(Define,          "##")        \
     f(BangColon,       "!:")        \
     f(AtCopy,          "@copy")     \
+    f(AtWeak,          "@weak")     \
 
 #define KEYWORD_LIST(f)             \
     f(Virtual, "virtual")           \

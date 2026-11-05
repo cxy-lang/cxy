@@ -63,7 +63,7 @@ static Result_void _main();
 static const __TypeInfo __ti_Resource = { .name = "Resource", .size = sizeof(Resource), .align = _Alignof(Resource), .index = 0, .dropFields = Resource_op__destructor_fwd };
 static const __TypeInfo __ti_builtins_Exception = { .name = "builtins.Exception", .size = sizeof(builtins_Exception), .align = _Alignof(builtins_Exception), .index = 1, .dropFields = builtins_Exception_op__destructor_fwd };
 
-builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 91ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
+builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 95ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
 
 static void builtins_Exception_op__init(builtins_Exception * this, char * name) {
 _L_entry:;

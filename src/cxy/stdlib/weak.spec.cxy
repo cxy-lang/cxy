@@ -1,0 +1,128 @@
+module weak_spec
+
+// `Weak[T]` and `@weak T`: a reference that does not keep its object alive.
+// Design: docs/stage/memory-manager.md sections 5 and 8.
+
+test {
+    var destroyed = 0
+
+    class Node {
+        id: i32
+        func `init`(id: i32) { this.id = id }
+        func `deinit`() { destroyed++ }
+    }
+
+    // A tree: the child points back at its parent weakly, so neither keeps the other
+    class Parent {
+        name: i32
+        child: Child
+        func `init`(name: i32) { this.name = name }
+        func `deinit`() { destroyed++ }
+    }
+
+    class Child {
+        id: i32
+        parent: @weak Parent
+        func `init`(id: i32, parent: &Parent) {
+            this.id = id
+            this.parent = Weak[Parent](parent)
+        }
+        func `deinit`() { destroyed++ }
+    }
+}
+
+test "Weak: upgrade gives an owner while the object lives" {
+    destroyed = 0
+    var n = Node(7)
+    var w = Weak[Node](n)
+    var again = w.upgrade()
+    ok!(!!again)
+    ok!((*again).id == 7)
+    ok!(destroyed == 0)
+}
+
+test "Weak: upgrade fails once the last owner is gone" {
+    destroyed = 0
+    var w: Weak[Node] = Weak[Node]()
+    if true {
+        var n = Node(1)
+        w = Weak[Node](n)
+        ok!(!!w.upgrade())
+    }
+    ok!(destroyed == 1)
+    ok!(!w.upgrade())
+}
+
+test "Weak: a weak reference does not keep the object alive" {
+    destroyed = 0
+    var n = Node(1)
+    var w = Weak[Node](n)
+    var w2 = @copy w
+    n = Node(2)
+    ok!(destroyed == 1)
+    ok!(!w.upgrade())
+    ok!(!w2.upgrade())
+}
+
+test "Weak: an upgraded owner keeps the object alive after the others are gone" {
+    destroyed = 0
+    var w = Weak[Node]()
+    var kept = Node(3)
+    if true {
+        var n = Node(4)
+        w = Weak[Node](n)
+        kept = *w.upgrade()
+    }
+    ok!(destroyed == 1 /* the node `kept` first held */)
+    ok!(kept.id == 4)
+    ok!(!!w.upgrade())
+}
+
+test "Weak: copies are independent references" {
+    destroyed = 0
+    var n = Node(5)
+    var a = Weak[Node](n)
+    var b = @copy a
+    if true {
+        var c = @copy b
+        ok!(!!c.upgrade())
+    }
+    ok!(!!a.upgrade())
+    ok!(!!b.upgrade())
+}
+
+test "Weak: a default reference points at nothing" {
+    var w = Weak[Node]()
+    ok!(!w.upgrade())
+    var copy = @copy w
+    ok!(!copy.upgrade())
+}
+
+test "@weak T is Weak[T]" {
+    destroyed = 0
+    var n = Node(9)
+    var w: @weak Node = Weak[Node](n)
+    var same: Weak[Node] = @copy w
+    ok!(!!w.upgrade())
+    ok!(!!same.upgrade())
+}
+
+test "Weak: a back pointer does not make a cycle" {
+    destroyed = 0
+    if true {
+        var p = Parent(1)
+        p.child = Child(2, p)
+        ok!(!!p.child.parent.upgrade())
+        ok!(destroyed == 0)
+    }
+    // both were destroyed: a strong back pointer would have left them alive
+    ok!(destroyed == 2)
+}
+
+test "Weak: the parent is gone while the child lives" {
+    destroyed = 0
+    var child = Child(2, Parent(1))
+    // the temporary parent was destroyed at the end of the statement
+    ok!(destroyed == 1)
+    ok!(!child.parent.upgrade())
+}

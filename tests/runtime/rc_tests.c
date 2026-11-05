@@ -195,6 +195,139 @@ static void testPoisonAndQuarantine(void)
 #endif
 #endif
 
+/* ------------------------------------------------------------------- weak */
+
+#define WEAK_COUNT(obj) (__MM_HEADER(obj)->weakFlags >> __MM_WEAK_SHIFT)
+
+// While the object lives, upgrade gives a new owner and counts it
+static void testWeakUpgradeLive(void)
+{
+    resetState();
+    unsigned char *obj = __smart_ptr_alloc(32, countingDtor);
+    CHECK(WEAK_COUNT(obj) == 1); // the implicit one the owners hold together
+
+    CHECK(__mm_weak_retain(obj) == obj);
+    CHECK(WEAK_COUNT(obj) == 2);
+    CHECK(__mm_upgrade(obj) == obj);
+    CHECK(__MM_HEADER(obj)->strong == 2);
+
+    CHECK(__smart_ptr_drop(obj) == false);
+    __mm_weak_release(obj);
+    CHECK(WEAK_COUNT(obj) == 1);
+    CHECK(__smart_ptr_drop(obj) == true);
+    CHECK(dtorCalls == 1);
+    CHECK(faultCount == 0);
+}
+
+// After the last owner the object is destroyed but the block stays for the weak
+// references: upgrade fails, the block is freed with the last weak release
+static void testWeakZombie(void)
+{
+    resetState();
+    unsigned char *obj = __smart_ptr_alloc(32, countingDtor);
+    __mm_weak_retain(obj);
+    __mm_weak_retain(obj);
+
+    CHECK(__smart_ptr_drop(obj) == true);
+    CHECK(dtorCalls == 1);
+    CHECK(__MM_HEADER(obj)->strong == 0);
+    CHECK(__MM_HEADER(obj)->weakFlags & __MM_F_DYING);
+    CHECK(WEAK_COUNT(obj) == 2);
+    CHECK(__mm_upgrade(obj) == nullptr);
+    CHECK(__MM_HEADER(obj)->strong == 0);
+
+    __mm_weak_release(obj);
+    CHECK(WEAK_COUNT(obj) == 1);
+    CHECK(dtorCalls == 1);
+    __mm_weak_release(obj);
+#if !defined(NDEBUG) && !defined(__MM_ASAN)
+    CHECK(__MM_HEADER(obj)->weakFlags == __MM_DEAD); // freed, waiting in quarantine
+#endif
+    CHECK(faultCount == 0);
+}
+
+// With no weak reference the block is freed with the last owner, as before
+static void testWeakNoneFreesAtOnce(void)
+{
+    resetState();
+    unsigned char *obj = __smart_ptr_alloc(32, countingDtor);
+    __ObjHeader *h = __MM_HEADER(obj);
+    CHECK(__smart_ptr_drop(obj) == true);
+    CHECK(dtorCalls == 1);
+#if !defined(NDEBUG) && !defined(__MM_ASAN)
+    CHECK(h->weakFlags == __MM_DEAD);
+#endif
+    (void)h;
+}
+
+static void testWeakNull(void)
+{
+    resetState();
+    CHECK(__mm_weak_retain(nullptr) == nullptr);
+    CHECK(__mm_upgrade(nullptr) == nullptr);
+    __mm_weak_release(nullptr);
+    CHECK(faultCount == 0);
+}
+
+// A weak release that would give up the owners' own count is a bug
+static void testWeakUnderflow(void)
+{
+    resetState();
+    unsigned char *obj = __smart_ptr_alloc(32, countingDtor);
+    __mm_weak_release(obj);
+    CHECK(faultCount == 1 && lastFault == __MM_FAULT_WEAK_UNDERFLOW);
+    CHECK(dtorCalls == 0);
+    CHECK(__MM_HEADER(obj)->strong == 1);
+    __smart_ptr_drop(obj);
+}
+
+static void testWeakOverflowSaturates(void)
+{
+    resetState();
+    unsigned char *obj = __smart_ptr_alloc(32, countingDtor);
+    __atomic_store_n(&__MM_HEADER(obj)->weakFlags,
+                     (__MM_HEADER(obj)->weakFlags & 0xFFU) | (__MM_WEAK_LIMIT << __MM_WEAK_SHIFT),
+                     __ATOMIC_RELAXED);
+    __mm_weak_retain(obj);
+    CHECK(faultCount == 1 && lastFault == __MM_FAULT_WEAK_OVERFLOW);
+    CHECK(WEAK_COUNT(obj) == __MM_WEAK_MAX);
+    // saturated: nothing brings it to zero, the block is never freed
+    __smart_ptr_drop(obj);
+    __mm_weak_release(obj);
+    CHECK(WEAK_COUNT(obj) == __MM_WEAK_MAX);
+}
+
+static void *weakWorker(void *arg)
+{
+    for (int i = 0; i < ITERATIONS; i++) {
+        void *strong = __mm_upgrade(arg);
+        if (strong != nullptr)
+            __smart_ptr_drop(strong);
+    }
+    __mm_weak_release(arg);
+    return nullptr;
+}
+
+// Threads upgrade while the last owner goes away: the object is destroyed exactly
+// once, nothing is freed twice and the block outlives every weak reference
+static void testConcurrentUpgrade(void)
+{
+    for (int round = 0; round < 50; round++) {
+        resetState();
+        void *obj = __smart_ptr_alloc(16, countingDtor);
+        void *threads[THREADS];
+        for (int i = 0; i < THREADS; i++)
+            __mm_weak_retain(obj);
+        for (int i = 0; i < THREADS; i++)
+            CHECK(pthread_create(&threads[i], nullptr, weakWorker, obj) == 0);
+        __smart_ptr_drop(obj); // the creator's own reference
+        for (int i = 0; i < THREADS; i++)
+            pthread_join(threads[i], nullptr);
+        CHECK(dtorCalls == 1);
+        CHECK(faultCount == 0);
+    }
+}
+
 static void testBuffers(void)
 {
     unsigned char *zeroed = __calloc_buffer(64);
@@ -289,6 +422,12 @@ int main(void)
     testOverflowSaturates();
     testUnderflowSaturates();
     testBuffers();
+    testWeakUpgradeLive();
+    testWeakZombie();
+    testWeakNoneFreesAtOnce();
+    testWeakNull();
+    testWeakUnderflow();
+    testWeakOverflowSaturates();
 #ifndef NDEBUG
     testRetainDying();
 #if !defined(__MM_ASAN)
@@ -299,6 +438,7 @@ int main(void)
     testConcurrentCounts();
     testConcurrentLastRelease();
     testConcurrentAllocFree();
+    testConcurrentUpgrade();
 
     if (failures == 0)
         printf("runtime rc tests: ok\n");

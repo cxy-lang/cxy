@@ -79,6 +79,9 @@ pub func __calloc(size: u64) => memset(malloc(size), 0, size)
 @hint pub extern func __smart_ptr_drop(ptr: sptr): bool
 @hint pub extern func __smart_ptr_get_trace(ptr: sptr, path: string, line: u64): sptr
 @hint pub extern func __smart_ptr_drop_trace(ptr: sptr, path: string, line: u64): bool
+@hint pub extern func __mm_weak_retain(ptr: sptr): sptr
+@hint pub extern func __mm_weak_release(ptr: sptr): void
+@hint pub extern func __mm_upgrade(ptr: sptr): sptr
 
 @hint extern func __cxy_stack_trace_alloc(): ^void
 @hint extern func __cxy_stack_trace_push(st: ^void, mod: string, cls: string, fun: string, path: string, line: u64): void
@@ -135,6 +138,35 @@ pub struct Optional[T] {
     #if (T.isPrimitive) {
         @inline const func `==`(other: &const T) => ok && val == other
         @inline const func `!=`(other: &const T) => !ok || val != other
+    }
+}
+
+/**
+ * A weak reference to a class instance. It keeps the memory of the object but not
+ * the object: once the last owner is gone `upgrade()` gives nothing. Use it for
+ * back pointers and observers, where an owner would make a cycle.
+ *
+ * `@weak T` is another spelling of `Weak[T]`. Copy one with `@copy w`.
+ */
+pub struct Weak[T] {
+    require!(T.isClass, "Weak {t} must be a class type", #T)
+
+    - _ptr: sptr = null
+
+    @inline func `init`() { _ptr = null }
+
+    @inline func `init`(target: &T) { _ptr = __mm_weak_retain(target !: sptr) }
+
+    @inline func `copy`() { return This{ _ptr: __mm_weak_retain(_ptr) } }
+
+    @inline func `destructor`() { __mm_weak_release(_ptr) }
+
+    /* A new owner if the object is alive, otherwise nothing */
+    func upgrade(): T? {
+        var p = __mm_upgrade(_ptr)
+        if (p == null)
+            return null
+        return p !: T
     }
 }
 

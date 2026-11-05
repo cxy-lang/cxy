@@ -1,7 +1,7 @@
 typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
-typedef struct Closure_135 Closure_135;
-typedef struct Closure_138 Closure_138;
+typedef struct Closure_139 Closure_139;
+typedef struct Closure_142 Closure_142;
 
 struct builtins_Exception {
   builtins_Exception_VTable * vtable;
@@ -14,13 +14,13 @@ struct builtins_Exception_VTable {
   char * (*what)(builtins_Exception *);
 };
 
-struct Closure_135 {
+struct Closure_139 {
   void * env;
   int32_t (*fn)(void *, int32_t, int32_t);
   void (*dtor)(void *);
 };
 
-struct Closure_138 {
+struct Closure_142 {
   void * env;
   void (*fn)(void *);
   void (*dtor)(void *);
@@ -30,8 +30,8 @@ static void builtins_panicOnUnhandledException(builtins_Exception * ex);
 
 static int32_t rawAdd(int32_t a, int32_t b);
 static void rawSay();
-static int32_t executeOp(int32_t a, int32_t b, Closure_135 op);
-static void executeVoid(Closure_138 cb);
+static int32_t executeOp(int32_t a, int32_t b, Closure_139 op);
+static void executeVoid(Closure_142 cb);
 static int32_t __thunk5(void * this, int32_t _a0, int32_t _a1);
 static void __thunk6(void * this);
 static void _main();
@@ -66,7 +66,7 @@ _L_exit:;
   return;
 }
 
-static int32_t executeOp(int32_t a, int32_t b, Closure_135 op) {
+static int32_t executeOp(int32_t a, int32_t b, Closure_139 op) {
   int32_t __ret;
 _L_entry:;
   __ret = op.fn(op.env, a, b);
@@ -75,7 +75,7 @@ _L_exit:;
   return __ret;
 }
 
-static void executeVoid(Closure_138 cb) {
+static void executeVoid(Closure_142 cb) {
 _L_entry:;
   cb.fn(cb.env);
   goto _L_exit;
@@ -102,12 +102,12 @@ _L_exit:;
 
 static void _main() {
   int32_t res;
-  Closure_135 __t0;
-  Closure_138 __t1;
+  Closure_139 __t0;
+  Closure_142 __t1;
 _L_entry:;
-  __t0 = (Closure_135){ .env = nullptr, .fn = __thunk5, .dtor = nullptr };
+  __t0 = (Closure_139){ .env = nullptr, .fn = __thunk5, .dtor = nullptr };
   res = executeOp(((int32_t)(10)), ((int32_t)(20)), __t0);
-  __t1 = (Closure_138){ .env = nullptr, .fn = __thunk6, .dtor = nullptr };
+  __t1 = (Closure_142){ .env = nullptr, .fn = __thunk6, .dtor = nullptr };
   executeVoid(__t1);
   goto _L_exit;
 _L_exit:;
