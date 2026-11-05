@@ -267,6 +267,7 @@ set(CXY_MIDDLE_SOURCES
         src/cxy/lang/middle/ir/lower/decl.c
         src/cxy/lang/middle/ir/reachability/reachability.c
         src/cxy/lang/middle/memory/cfg.c
+        src/cxy/lang/middle/memory/flow.c
         src/cxy/lang/middle/memory/manage.c
         src/cxy/lang/middle/memory/finalize.c
         src/cxy/lang/middle/memory/verify.c
@@ -661,6 +662,7 @@ if (ENABLE_UNIT_TESTS)
             tests/utils/test_ast.cpp
             tests/lang/middle/test_ir_sexp.cpp
             tests/lang/middle/memory/test_cfg.cpp
+            tests/lang/middle/memory/test_flow.cpp
             tests/lang/middle/memory/test_operands.cpp
             tests/lang/middle/memory/test_loop_temporaries.cpp
             tests/lang/middle/lower/test_info.cpp

@@ -1,4 +1,5 @@
 #include "memory.h"
+#include "flow.h"
 #include "core/hash.h"
 #include "lang/frontend/flag.h"
 #include "lang/middle/ir/visitor.h"
@@ -182,65 +183,57 @@ static void forEachMovedSource(IrNode *stmt, void (*cb)(IrNode *src, void *ctx),
     forEachOwnedSlot(stmt, onOwnedSlotMovedSource, &visit);
 }
 
-typedef struct MoveGenKillContext {
+// A store of nothing: `x = null`, or an optional with no value
+static bool isEmptyValue(const IrNode *rhs)
+{
+    return rhs && (rhs->tag == irNullConst ||
+                   (rhs->tag == irOptionalValue && !rhs->optionalValue.hasValue));
+}
+
+typedef struct GenKillContext {
     MemMgmtContext *ctx;
-    CfgBlockInfo *block;
-} MoveGenKillContext;
+    BlockEffects *effects;
+} GenKillContext;
 
 static void onMoveInGenKill(IrNode *src, void *ctxPtr)
 {
-    MoveGenKillContext *data = ctxPtr;
-    IrNode *rhsDecl = findMovedVarDecl(src);
-    TrackedVar *rhsVar = getTrackedVar(data->ctx, rhsDecl);
-    if (rhsVar && !rhsVar->isTemporary) {
-        bitSetSet(&data->block->kill, rhsVar->varIndex);
-        bitSetReset(&data->block->gen, rhsVar->varIndex);
-    }
+    GenKillContext *data = ctxPtr;
+    TrackedVar *var = getTrackedVar(data->ctx, findMovedVarDecl(src));
+    if (var && !var->isTemporary)
+        blockEffectsApply(data->effects, var->varIndex, flowKill);
 }
 
 static void computeIntraBlockGenKill(MemMgmtContext *ctx, CfgBlockInfo *block)
 {
+    BlockEffects effects = makeBlockEffects(ctx->localPool, ctx->trackedVarList.size);
+    GenKillContext data = {.ctx = ctx, .effects = &effects};
+
     for (IrNode *stmt = block->bb->basicBlock.first; stmt; stmt = stmt->next) {
         if (stmt->tag == irAssign) {
-            IrNode *lhsDecl = findVarDeclInNode(stmt->assign.lhs);
-            TrackedVar *lhsVar = getTrackedVar(ctx, lhsDecl);
+            TrackedVar *lhsVar = getTrackedVar(ctx, findVarDeclInNode(stmt->assign.lhs));
             if (lhsVar && !lhsVar->isTemporary) {
-                if (stmt->assign.rhs && (stmt->assign.rhs->tag == irNullConst || (stmt->assign.rhs->tag == irOptionalValue && !stmt->assign.rhs->optionalValue.hasValue))) {
-                    if (stmt->assign.lhs->tag == irVarRef) {
-                        bitSetSet(&block->kill, lhsVar->varIndex);
-                        bitSetReset(&block->gen, lhsVar->varIndex);
-                    }
-                }
-                else {
-                    bitSetSet(&block->gen, lhsVar->varIndex);
-                    bitSetReset(&block->kill, lhsVar->varIndex);
-                }
+                if (!isEmptyValue(stmt->assign.rhs))
+                    blockEffectsApply(&effects, lhsVar->varIndex, flowDef);
+                else if (stmt->assign.lhs->tag == irVarRef)
+                    blockEffectsApply(&effects, lhsVar->varIndex, flowKill);
             }
-
-            MoveGenKillContext moveCtx = {.ctx = ctx, .block = block};
-            forEachMovedSource(stmt, onMoveInGenKill, &moveCtx);
+            forEachMovedSource(stmt, onMoveInGenKill, &data);
         }
         else if (stmt->tag == irCall) {
-            MoveGenKillContext moveCtx = {.ctx = ctx, .block = block};
-            forEachMovedSource(stmt, onMoveInGenKill, &moveCtx);
+            forEachMovedSource(stmt, onMoveInGenKill, &data);
         }
         else if (stmt->tag == irCopy) {
-            IrNode *dstDecl = findVarDeclInNode(stmt->copy.dst);
-            TrackedVar *dstVar = getTrackedVar(ctx, dstDecl);
-            if (dstVar && !dstVar->isTemporary) {
-                bitSetSet(&block->gen, dstVar->varIndex);
-                bitSetReset(&block->kill, dstVar->varIndex);
-            }
+            TrackedVar *dstVar = getTrackedVar(ctx, findVarDeclInNode(stmt->copy.dst));
+            if (dstVar && !dstVar->isTemporary)
+                blockEffectsApply(&effects, dstVar->varIndex, flowDef);
         }
         else if (stmt->tag == irDrop) {
-            IrNode *targetDecl = findVarDeclInNode(stmt->drop.target);
-            TrackedVar *var = getTrackedVar(ctx, targetDecl);
-            if (var && !var->isTemporary) {
-                bitSetSet(&block->kill, var->varIndex);
-                bitSetReset(&block->gen, var->varIndex);
-            }
+            TrackedVar *var = getTrackedVar(ctx, findVarDeclInNode(stmt->drop.target));
+            if (var && !var->isTemporary)
+                blockEffectsApply(&effects, var->varIndex, flowKill);
         }
     }
+    blockEffectsFinish(&effects, block, ctx->trackedVarList.size);
 }
 
 static void runDataflowAnalysis(MemMgmtContext *ctx, CfgBlockInfo **blocks, u64 count, u64 varCount)
@@ -273,8 +266,7 @@ static void onMoveInDropFlagId(IrNode *src, void *ctxPtr)
     IrNode *rhsDecl = findMovedVarDecl(src);
     TrackedVar *rhsVar = getTrackedVar(data->ctx, rhsDecl);
     if (rhsVar && !rhsVar->isTemporary) {
-        bitSetReset(data->currMay, rhsVar->varIndex);
-        bitSetReset(data->currMust, rhsVar->varIndex);
+        applyEvent(data->currMay, data->currMust, rhsVar->varIndex, flowKill);
     }
 }
 
@@ -312,15 +304,13 @@ static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks
                             pushOnDynArray(&ctx->dropFlagVars, &lhsVar);
                         }
                     }
-                    if (stmt->assign.rhs && (stmt->assign.rhs->tag == irNullConst || (stmt->assign.rhs->tag == irOptionalValue && !stmt->assign.rhs->optionalValue.hasValue))) {
+                    if (isEmptyValue(stmt->assign.rhs)) {
                         if (stmt->assign.lhs->tag == irVarRef) {
-                            bitSetReset(&currMay, lhsVar->varIndex);
-                            bitSetReset(&currMust, lhsVar->varIndex);
+                            applyEvent(&currMay, &currMust, lhsVar->varIndex, flowKill);
                         }
                     }
                     else {
-                        bitSetSet(&currMay, lhsVar->varIndex);
-                        bitSetSet(&currMust, lhsVar->varIndex);
+                        applyEvent(&currMay, &currMust, lhsVar->varIndex, flowDef);
                     }
                 }
 
@@ -339,8 +329,7 @@ static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks
                                 pushOnDynArray(&ctx->dropFlagVars, &var);
                             }
                         }
-                        bitSetReset(&currMay, v);
-                        bitSetReset(&currMust, v);
+                        applyEvent(&currMay, &currMust, v, flowKill);
                     }
                 }
             }
@@ -468,8 +457,7 @@ static void processPayloadItem(MemMgmtContext *ctx,
             *mvRef = src;
             TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
             if (rhsVar && !rhsVar->isTemporary) {
-                bitSetReset(currMay, rhsVar->varIndex);
-                bitSetReset(currMust, rhsVar->varIndex);
+                applyEvent(currMay, currMust, rhsVar->varIndex, flowKill);
                 if (rhsVar->needsDropFlag) {
                     // The operand still reads the variable; only ownership moves
                     IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, rhsVar, false);
@@ -691,10 +679,9 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         }
                     }
 
-                    if (rhs && (rhs->tag == irNullConst || (rhs->tag == irOptionalValue && !rhs->optionalValue.hasValue))) {
+                    if (isEmptyValue(rhs)) {
                         if (stmt->assign.lhs->tag == irVarRef) {
-                            bitSetReset(&currMay, lhsVar->varIndex);
-                            bitSetReset(&currMust, lhsVar->varIndex);
+                            applyEvent(&currMay, &currMust, lhsVar->varIndex, flowKill);
                             if (lhsVar->needsDropFlag) {
                                 IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, lhsVar, false);
                                 if (clearFlag) {
@@ -706,8 +693,7 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         }
                     }
                     else {
-                        bitSetSet(&currMay, lhsVar->varIndex);
-                        bitSetSet(&currMust, lhsVar->varIndex);
+                        applyEvent(&currMay, &currMust, lhsVar->varIndex, flowDef);
 
                         if (stmt->assign.lhs->tag == irVarRef && lhsVar->needsDropFlag) {
                             IrNode *setFlag = makeDropFlagAssign(ctx, &stmt->loc, lhsVar, true);
@@ -737,8 +723,7 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                         if (rhsDecl) {
                             TrackedVar *rhsVar = getTrackedVar(ctx, rhsDecl);
                             if (rhsVar && !rhsVar->isTemporary) {
-                                bitSetReset(&currMay, rhsVar->varIndex);
-                                bitSetReset(&currMust, rhsVar->varIndex);
+                                applyEvent(&currMay, &currMust, rhsVar->varIndex, flowKill);
                                 if (rhsVar->needsDropFlag) {
                                     IrNode *clearFlag = makeDropFlagAssign(ctx, &stmt->loc, rhsVar, false);
                                     if (clearFlag) {
@@ -823,8 +808,7 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                             prev = clearFlag;
                         }
 
-                        bitSetReset(&currMay, var->varIndex);
-                        bitSetReset(&currMust, var->varIndex);
+                        applyEvent(&currMay, &currMust, var->varIndex, flowKill);
                     }
                     else if (bitSetTest(&currMust, var->varIndex)) {
                         IrNode *dropStmt = makeIrDrop(ctx->pool, &stmt->loc, targetRef);
@@ -844,8 +828,7 @@ static void elaborateDropsAndReassignments(MemMgmtContext *ctx, CfgBlockInfo **b
                             }
                         }
 
-                        bitSetReset(&currMay, var->varIndex);
-                        bitSetReset(&currMust, var->varIndex);
+                        applyEvent(&currMay, &currMust, var->varIndex, flowKill);
                     }
                 }
             }

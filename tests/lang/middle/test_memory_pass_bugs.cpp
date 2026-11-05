@@ -94,3 +94,26 @@ func main(): void {}
     CHECK(contains(fn.findBlock("WHILE0_cond").sexpr(), "(GlobalRef next)"));
     CHECK_FALSE(contains(fn.findBlock("entry").sexpr(), "(GlobalRef next)"));
 }
+
+// Open. The elaboration does not treat a `@copy` written by the user as a store
+// into its destination, so the old value is not dropped first. Fixed by making the
+// three copies of the ownership rules agree on which statements store (memory-pass.md)
+TEST_CASE("Known bug: `x = @copy r` drops the old value of `x` first" * doctest::skip())
+{
+    TestCompiler cc(memoryStage());
+    REQUIRE(cc.compile(std::string(program) + R"(
+func demo(r: &Node) {
+    var d = make()
+    d = @copy r
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+    REQUIRE_IR_MATCHES(cc.function("demo").findBlock("entry"), R"(
+        (Block _L_entry
+            ...
+            (Drop (VarRef d))
+            (Copy (VarRef r) (VarRef d) :user-written)
+            ...)
+    )");
+}
