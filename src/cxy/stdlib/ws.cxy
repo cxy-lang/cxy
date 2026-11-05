@@ -415,7 +415,7 @@ class WebSocketStream[Application]: WebSocketClient {
     @static
     func connect(url: strview, app: Application): !This {
         var sock = _connect(url, app)
-        var client = This(sock, app)
+        var client = This(&&sock, app)
 
         #if (has_member!(#Application, "onOpen", #func(_: WebSocketClient) -> bool)) {
             if !app.onOpen(client) {
