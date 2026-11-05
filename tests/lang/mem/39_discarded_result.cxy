@@ -1,0 +1,22 @@
+// @TEST_ARGS: ~--without-builtins
+// The owned value of an expression statement is dropped once, right after it is
+// made. A second drop at scope exit panics with a double drop.
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() {}
+}
+
+func make(id: i32): Node => Node(id)
+
+func ignoreResults() {
+    make(1)
+    make(2)
+}
+
+func main(): !void {
+    for i in 0..3 {
+        ignoreResults()
+    }
+    println("done")
+}

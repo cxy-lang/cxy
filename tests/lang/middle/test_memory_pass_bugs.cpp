@@ -145,3 +145,29 @@ func main(): void {}
             ...)
     )");
 }
+
+// The value of an expression statement is dropped right after it is made. The
+// analysis did not know, so the scope exit dropped it a second time and the
+// program panicked with a double drop.
+TEST_CASE("Fixed bug: a discarded owned call result is dropped once")
+{
+    TestCompiler cc(memoryStage());
+    REQUIRE(cc.compile(std::string(program) + R"(
+func demo() {
+    make()
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+
+    REQUIRE_IR_MATCHES(cc.function("demo").findBlock("entry"), R"(
+        (Block _L_entry
+            (ScopeEnter 0)
+            (VarDecl __t0 ^Node :ephemeral)
+            (Assign (VarRef __t0) (Call (GlobalRef make) :owned-position))
+            (Drop (VarRef __t0))
+            (Goto _L_exit))
+    )");
+    REQUIRE_IR_MATCHES(cc.function("demo").findBlock("exit"),
+                       "(Block _L_exit (ScopeExit 0) (Return))");
+}

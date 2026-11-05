@@ -32,6 +32,13 @@ static TrackedVar *getTrackedVar(MemMgmtContext *ctx, const IrNode *decl)
     return found ? *found : NULL;
 }
 
+// A variable the analysis follows. A temporary is consumed by its statement and an
+// ephemeral is dropped right after it is made, neither is live across statements.
+static bool isOwnedVar(const TrackedVar *var)
+{
+    return var && !var->isTemporary && !var->isEphemeral;
+}
+
 static TrackedVar *addTrackedVar(MemMgmtContext *ctx, IrNode *decl, cstring name, u32 scopeId, const IrType *type)
 {
     u32 index = (u32)ctx->trackedVarList.size;
@@ -99,7 +106,7 @@ static void onMoveInGenKill(IrNode *src, void *ctxPtr)
 {
     GenKillContext *data = ctxPtr;
     TrackedVar *var = getTrackedVar(data->ctx, findMovedVarDecl(src));
-    if (var && !var->isTemporary)
+    if (isOwnedVar(var))
         blockEffectsApply(data->effects, var->varIndex, flowKill);
 }
 
@@ -111,7 +118,7 @@ static void computeIntraBlockGenKill(MemMgmtContext *ctx, CfgBlockInfo *block)
     for (IrNode *stmt = block->bb->basicBlock.first; stmt; stmt = stmt->next) {
         if (stmt->tag == irAssign) {
             TrackedVar *lhsVar = getTrackedVar(ctx, findVarDeclInNode(stmt->assign.lhs));
-            if (lhsVar && !lhsVar->isTemporary) {
+            if (isOwnedVar(lhsVar)) {
                 if (!isEmptyValue(stmt->assign.rhs))
                     blockEffectsApply(&effects, lhsVar->varIndex, flowDef);
                 else if (stmt->assign.lhs->tag == irVarRef)
@@ -123,19 +130,19 @@ static void computeIntraBlockGenKill(MemMgmtContext *ctx, CfgBlockInfo *block)
         }
         else if (stmt->tag == irCopy) {
             TrackedVar *dstVar = getTrackedVar(ctx, findVarDeclInNode(stmt->copy.dst));
-            if (dstVar && !dstVar->isTemporary)
+            if (isOwnedVar(dstVar))
                 blockEffectsApply(&effects, dstVar->varIndex, flowDef);
         }
         else if (stmt->tag == irDrop) {
             TrackedVar *var = getTrackedVar(ctx, findVarDeclInNode(stmt->drop.target));
-            if (var && !var->isTemporary)
+            if (isOwnedVar(var))
                 blockEffectsApply(&effects, var->varIndex, flowKill);
         }
         else if (stmt->tag == irScopeExit) {
             // what the scope declared is gone
             for (u64 v = 0; v < ctx->trackedVarList.size; v++) {
                 TrackedVar *var = ((TrackedVar **)ctx->trackedVarList.elems)[v];
-                if (var && var->scopeId == stmt->scopeExit.scopeId && !var->isTemporary)
+                if (isOwnedVar(var) && var->scopeId == stmt->scopeExit.scopeId)
                     blockEffectsApply(&effects, var->varIndex, flowKill);
             }
         }
@@ -172,7 +179,7 @@ static void identifyDropFlagVariables(MemMgmtContext *ctx, CfgBlockInfo **blocks
             if (!bitSetTest(&blocks[i]->mayIn, v) || bitSetTest(&blocks[i]->mustIn, v))
                 continue;
             TrackedVar *var = ((TrackedVar **)ctx->trackedVarList.elems)[v];
-            if (var && !var->isTemporary && !var->needsDropFlag) {
+            if (isOwnedVar(var) && !var->needsDropFlag) {
                 var->needsDropFlag = true;
                 var->dropFlagIndex = (u32)ctx->dropFlagVars.size;
                 pushOnDynArray(&ctx->dropFlagVars, &var);
@@ -299,7 +306,7 @@ static void nullifyMovedPlace(ElabCursor *c, IrNode *src)
 static void killMovedVar(ElabCursor *c, IrNode *decl)
 {
     TrackedVar *var = getTrackedVar(c->ctx, decl);
-    if (var == NULL || var->isTemporary)
+    if (!isOwnedVar(var))
         return;
     applyEvent(c->may, c->must, var->varIndex, flowKill);
     if (!var->needsDropFlag)
@@ -420,7 +427,7 @@ static void elaborateScopeExit(ElabCursor *c)
     u32 exitingScope = c->stmt->scopeExit.scopeId;
     for (i64 i = (i64)ctx->trackedVarList.size - 1; i >= 0; i--) {
         TrackedVar *var = ((TrackedVar **)ctx->trackedVarList.elems)[i];
-        if (var == NULL || var->scopeId != exitingScope || !isIrVarDestructible(var->decl) || var->isTemporary)
+        if (!isOwnedVar(var) || var->scopeId != exitingScope || !isIrVarDestructible(var->decl))
             continue;
         dropAtScopeExit(c, var);
     }
