@@ -1,0 +1,102 @@
+$ analyze
+baseline taken (mark 2). Run the workload, then run `cxy utils mem analyze` again.
+$ analyze
+verdict: NOT ENOUGH ACTIVITY             window: TIME, 1 sample
+
+memory       live 24 B in 1 object (+0 objects since the baseline)
+             buffers 128 B   zombies 0
+growth       +0 B (objects and buffers), RATES
+
+nothing found, but too little happened to rely on it: no allocation site keeps what it makes, no type that is never freed, no leaked cycles, no dangling borrows, no growing zombies, no root holding most of the heap
+note: fewer than 100 objects were allocated since the baseline. Run the workload, then run analyze again.
+@next
+$ analyze
+verdict: DEFINITE PROBLEM                window: TIME, 1 sample
+
+memory       live 2.4 KB in 153 objects (+152 objects since the baseline)
+             buffers 1.4 KB   zombies 0
+growth       +3.7 KB (objects and buffers), RATES
+
+[definite] C1 Leaked cycle: 2 Node objects, 32 bytes
+    at: <ROOT>/tests/trace/programs/analyze_flow.cxy:16 <ROOT>/tests/trace/programs/analyze_flow.cxy:15
+    fix: make one side a weak reference (@weak Node)
+    see: cxy utils mem cycles
+
+[watch]    G1 Objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive
+    fix: find what keeps them with `cxy utils mem path <ptr>`
+    see: cxy utils mem difflist 5
+
+[watch]    G3 No Node object was ever freed: 152 made
+    fix: check who owns them with `cxy utils mem sites`
+    see: cxy utils mem types
+
+ok: no dangling borrows, no growing zombies, no root holding most of the heap
+$ analyze --fail-on watch
+verdict: DEFINITE PROBLEM                window: TIME, 1 sample
+
+memory       live 2.4 KB in 153 objects (+152 objects since the baseline)
+             buffers 1.4 KB   zombies 0
+growth       +3.7 KB (objects and buffers), RATES
+
+[definite] C1 Leaked cycle: 2 Node objects, 32 bytes
+    at: <ROOT>/tests/trace/programs/analyze_flow.cxy:16 <ROOT>/tests/trace/programs/analyze_flow.cxy:15
+    fix: make one side a weak reference (@weak Node)
+    see: cxy utils mem cycles
+
+[watch]    G1 Objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive
+    fix: find what keeps them with `cxy utils mem path <ptr>`
+    see: cxy utils mem difflist 5
+
+[watch]    G3 No Node object was ever freed: 152 made
+    fix: check who owns them with `cxy utils mem sites`
+    see: cxy utils mem types
+
+ok: no dangling borrows, no growing zombies, no root holding most of the heap
+[exit 3]
+$ analyze --fail-on definite
+verdict: DEFINITE PROBLEM                window: TIME, 1 sample
+
+memory       live 2.4 KB in 153 objects (+152 objects since the baseline)
+             buffers 1.4 KB   zombies 0
+growth       +3.7 KB (objects and buffers), RATES
+
+[definite] C1 Leaked cycle: 2 Node objects, 32 bytes
+    at: <ROOT>/tests/trace/programs/analyze_flow.cxy:16 <ROOT>/tests/trace/programs/analyze_flow.cxy:15
+    fix: make one side a weak reference (@weak Node)
+    see: cxy utils mem cycles
+
+[watch]    G1 Objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive
+    fix: find what keeps them with `cxy utils mem path <ptr>`
+    see: cxy utils mem difflist 5
+
+[watch]    G3 No Node object was ever freed: 152 made
+    fix: check who owns them with `cxy utils mem sites`
+    see: cxy utils mem types
+
+ok: no dangling borrows, no growing zombies, no root holding most of the heap
+[exit 3]
+$ analyze --fail-on loud
+[1;31merror[0m: invalid --fail-on 'loud', use info, watch, likely or definite
+[exit 1]
+$ analyze --reset
+baseline taken (mark 160). Run the workload, then run `cxy utils mem analyze` again.
+$ analyze
+verdict: DEFINITE PROBLEM                window: TIME, 1 sample
+
+memory       live 2.4 KB in 153 objects (+0 objects since the baseline)
+             buffers 1.4 KB   zombies 0
+growth       +0 B (objects and buffers), RATES
+
+[definite] C1 Leaked cycle: 2 Node objects, 32 bytes
+    at: <ROOT>/tests/trace/programs/analyze_flow.cxy:16 <ROOT>/tests/trace/programs/analyze_flow.cxy:15
+    fix: make one side a weak reference (@weak Node)
+    see: cxy utils mem cycles
+
+nothing else found, but too little happened to rely on it: no allocation site keeps what it makes, no type that is never freed, no dangling borrows, no growing zombies, no root holding most of the heap
+note: fewer than 100 objects were allocated since the baseline. Run the workload, then run analyze again.
+$ program output
+
+=== CXY Memory Leak Summary ===
+[LEAK] ptr=PTR size=16 refs=1 @ <ROOT>/tests/trace/programs/analyze_flow.cxy:16  <- cycle of 2 nodes, held by PTR
+[LEAK] ptr=PTR size=16 refs=1 @ <ROOT>/tests/trace/programs/analyze_flow.cxy:15  <- cycle of 2 nodes, held by PTR
+Total: 2 active allocations (32 bytes leaked)

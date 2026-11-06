@@ -679,7 +679,9 @@ Command(utils,
 #define UTL_MEM_CMD_LAYOUT(f, ...)                                             \
     f(utils.memPid, Local, Int, 0, ## __VA_ARGS__)                             \
     f(utils.memSocket, Local, String, 1, ## __VA_ARGS__)                       \
-    f(utils.memTimeout, Local, Int, 2, ## __VA_ARGS__)
+    f(utils.memTimeout, Local, Int, 2, ## __VA_ARGS__)                         \
+    f(utils.memFailOn, Local, String, 3, ## __VA_ARGS__)                       \
+    f(utils.memReset, Local, Option, 4, ## __VA_ARGS__)
 // clang-format on
 
 static void parseSpaceSeperatedList(DynArray *into,
@@ -1298,11 +1300,12 @@ static int parseUtilsCommand(
     Command(
         mem_trace,
         "Query a running program built with memory tracing (summary, sites, "
-        "list, leaks, types, sitecounts, edges, roots, dangling, zombies, holders, path, contains, retained, cycles, tree, ring, mark, diff, difflist, help)",
+        "list, leaks, types, sitecounts, edges, roots, dangling, zombies, holders, path, contains, retained, cycles, tree, ring, mark, baseline, refs, diff, difflist, help), "
+        "or `analyze` to say whether the memory looks normal",
         Positionals(Use(cmdArrayArgument,
                         Name("query"),
                         Help("Query and arguments, e.g. `mark`, `sites 20`, "
-                             "`leaks nosym`"),
+                             "`leaks nosym`, `analyze`"),
                         Many())),
         Int(Name("pid"),
             Help("Process to query (default: the only traced process)"),
@@ -1313,7 +1316,13 @@ static int parseUtilsCommand(
             Def("")),
         Int(Name("timeout"),
             Help("Reply timeout in milliseconds"),
-            Def("30000")));
+            Def("30000")),
+        Str(Name("fail-on"),
+            Help("analyze: exit with code 3 when a finding is at least this "
+                 "severe (info, watch, likely or definite)"),
+            Def("")),
+        Opt(Name("reset"),
+            Help("analyze: drop the baseline and take a new one")));
 
     mem_trace.meta.name = "mem";
 

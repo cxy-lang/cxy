@@ -92,6 +92,15 @@ void memAnalyze(const MemSnapshot *baseline,
                 const MemConfig *config,
                 MemReport *report);
 
+/** True when some finding is at least `threshold` severe (`--fail-on`). */
+bool memReached(const MemReport *report, MemSeverity threshold);
+
+/** Parses `info`, `watch`, `likely` or `definite`. */
+bool memParseSeverity(const char *text, MemSeverity *out);
+
+/** `1.2 MB`, `3.0 KB`, `512 B`. */
+void memFormatBytes(char *out, size_t size, u64 bytes);
+
 const char *memRuleId(MemRule rule);
 const char *memSeverityName(MemSeverity severity);
 const char *memVerdictName(MemVerdict verdict);

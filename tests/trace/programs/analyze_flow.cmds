@@ -1,0 +1,10 @@
+# the first analyze takes a baseline, the next ones compare with it
+analyze
+analyze
+@next
+analyze
+analyze --fail-on watch
+analyze --fail-on definite
+analyze --fail-on loud
+analyze --reset
+analyze

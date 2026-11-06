@@ -336,7 +336,7 @@ In order. Each step is testable alone.
 - [x] `mark` stores a baseline, `baseline` reports it, `snapshot` command, runtime tests
 - [x] `refs [n]` command
 - [x] rule engine and its unit tests: G1, G2, G3, C1, D1, Z1, K1 (`src/cxy/utils/mem/`, `tests/unit/test_mem_analyze.cpp`)
-- [ ] `analyze` client: first call marks, second reports, text output, exit codes
+- [x] `analyze` client: first call marks, second reports, text output, exit codes (`--fail-on`, `--reset`; `src/cxy/utils/commands/mem_analyze.c`, `src/cxy/utils/mem/report.c`)
 - [ ] `analyze --json`
 - [ ] `analyze --watch` and `--samples`
 - [ ] suspect introspection: sampling, `path`, grouping by shape (R1)

@@ -84,13 +84,17 @@ bool utilsLockCommand(const Options *options, struct StrPool *strings, Log *log)
  * Query a running program built with memory tracing over its unix socket.
  * Usage: cxy utils mem <query...> [--pid <pid>] [--socket <path>]
  *        [--timeout <ms>]
+ *        cxy utils mem analyze [--fail-on <severity>] [--reset]
+ * Returns the exit code: 0 done, 1 failed, 2 (analyze) the program cannot be
+ * reached, 3 (analyze) a finding reached --fail-on.
  */
-bool utilsMemCommand(const Options *options, struct StrPool *strings, Log *log);
+int utilsMemCommand(const Options *options, struct StrPool *strings, Log *log);
 
 /**
- * Dispatch the parsed utils command to the corresponding handler.
+ * Dispatch the parsed utils command to the corresponding handler. Returns the
+ * exit code of the process.
  */
-bool dispatchUtilsCommand(const Options *options, struct StrPool *strings, Log *log);
+int dispatchUtilsCommand(const Options *options, struct StrPool *strings, Log *log);
 
 #ifdef __cplusplus
 }

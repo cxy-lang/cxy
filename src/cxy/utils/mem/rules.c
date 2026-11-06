@@ -24,6 +24,26 @@ const char *memVerdictName(MemVerdict verdict)
     return names[verdict];
 }
 
+bool memReached(const MemReport *report, MemSeverity threshold)
+{
+    for (u32 i = 0; i < report->count; i++) {
+        if (report->findings[i].severity >= threshold)
+            return true;
+    }
+    return false;
+}
+
+bool memParseSeverity(const char *text, MemSeverity *out)
+{
+    for (int s = memInfo; s <= memDefinite; s++) {
+        if (text != NULL && strcmp(text, memSeverityName((MemSeverity)s)) == 0) {
+            *out = (MemSeverity)s;
+            return true;
+        }
+    }
+    return false;
+}
+
 MemConfig memDefaultConfig(void)
 {
     return (MemConfig){.minCount = 100,
@@ -77,7 +97,7 @@ static u64 minus(u64 a, u64 b)
     return a > b ? a - b : 0;
 }
 
-static void formatBytes(char *out, size_t size, u64 bytes)
+void memFormatBytes(char *out, size_t size, u64 bytes)
 {
     if (bytes >= (1u << 20))
         snprintf(out, size, "%.1f MB", (double)bytes / (1 << 20));
@@ -394,7 +414,7 @@ static void ruleK1(const MemSnapshot *last, const MemConfig *config, MemReport *
                  "an object made at %s:%llu, held from outside the heap,",
                  orUnknown(top->node.file),
                  (unsigned long long)top->node.line);
-    formatBytes(size, sizeof(size), top->exclusiveBytes);
+    memFormatBytes(size, sizeof(size), top->exclusiveBytes);
     snprintf(f->subject, sizeof(f->subject), "%s", global ? orUnknown(top->node.name) : what);
     snprintf(f->title,
              sizeof(f->title),

@@ -1,0 +1,30 @@
+import { Vector } from "stdlib/vector.cxy"
+import { waitForHarness } from "./_harness.cxy"
+
+class Node {
+    id: i32
+    next: Node
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+var cache: Vector[Node]
+
+// Two nodes that own each other and nothing else: a leaked cycle
+func leakCycle(): void {
+    var a = Node(1000)
+    var b = Node(1001)
+    a.next = @copy b
+    b.next = @copy a
+}
+
+func main(): void {
+    cache = Vector[Node]()
+    waitForHarness()
+    // after the baseline: a cache that only grows, and a leaked cycle
+    for i in 0..150 {
+        cache.push(Node(i))
+    }
+    leakCycle()
+    waitForHarness()
+}

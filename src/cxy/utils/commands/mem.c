@@ -4,6 +4,7 @@
  */
 
 #include "utils/commands/commands.h"
+#include "utils/commands/mem_client.h"
 #include "core/log.h"
 #include "driver/options.h"
 
@@ -77,7 +78,7 @@ static int collectSockets(MemSocket *out, int max)
 }
 
 // Resolves --socket, $CXY_MEM_SOCKET, --pid, then the only live traced process
-static bool resolveSocketPath(const Options *options, char *out, size_t size, Log *log)
+bool memResolveSocket(const Options *options, char *out, size_t size, Log *log)
 {
     const char *explicitPath = options->utils.memSocket;
     if (explicitPath != NULL && explicitPath[0] != '\0') {
@@ -179,42 +180,37 @@ static bool buildRequest(const Options *options, char *out, size_t size, Log *lo
     return true;
 }
 
-bool utilsMemCommand(const Options *options, attr(unused) struct StrPool *strings, Log *log)
+bool memRequest(const char *socketPath,
+                const char *request,
+                i64 timeoutMs,
+                MemSink sink,
+                void *ctx,
+                char *error,
+                size_t errorSize)
 {
-    // A server that closes early must not kill this tool
-    signal(SIGPIPE, SIG_IGN);
-
-    char request[MEM_REQUEST_MAX];
-    if (!buildRequest(options, request, sizeof(request) - 1, log))
-        return false;
-
-    char path[sizeof(((struct sockaddr_un *)0)->sun_path)];
-    if (!resolveSocketPath(options, path, sizeof(path), log))
-        return false;
-
-    int fd = connectSocket(path);
+    int fd = connectSocket(socketPath);
     if (fd < 0) {
-        char msg[512];
-        snprintf(msg, sizeof(msg), "cannot connect to '%s': %s", path, strerror(errno));
-        logError(log, NULL, "{s}", (FormatArg[]){{.s = msg}});
+        snprintf(error, errorSize, "cannot connect to '%s': %s", socketPath, strerror(errno));
         return false;
     }
 
-    size_t reqLen = strlen(request);
-    request[reqLen++] = '\n';
-    if (!sendAll(fd, request, reqLen)) {
+    char line[MEM_REQUEST_MAX + 1];
+    size_t length = (size_t)snprintf(line, sizeof(line) - 1, "%s", request);
+    if (length > MEM_REQUEST_MAX - 1)
+        length = MEM_REQUEST_MAX - 1;
+    line[length++] = '\n';
+    if (!sendAll(fd, line, length)) {
         close(fd);
-        logError(log, NULL, "failed to send query", NULL);
+        snprintf(error, errorSize, "failed to send the query");
         return false;
     }
 
-    i64 timeout = options->utils.memTimeout > 0 ? options->utils.memTimeout : 30000;
-    i64 deadline = nowMs() + timeout;
+    i64 deadline = nowMs() + (timeoutMs > 0 ? timeoutMs : 30000);
     bool ok = true;
     for (;;) {
         i64 left = deadline - nowMs();
         if (left <= 0) {
-            logError(log, NULL, "timed out waiting for the traced process", NULL);
+            snprintf(error, errorSize, "timed out waiting for the traced process");
             ok = false;
             break;
         }
@@ -224,6 +220,7 @@ bool utilsMemCommand(const Options *options, attr(unused) struct StrPool *string
         if (rc < 0 && errno == EINTR)
             continue;
         if (rc < 0) {
+            snprintf(error, errorSize, "waiting for the traced process failed: %s", strerror(errno));
             ok = false;
             break;
         }
@@ -236,10 +233,43 @@ bool utilsMemCommand(const Options *options, attr(unused) struct StrPool *string
             continue;
         if (n <= 0)
             break;
-        fwrite(buf, 1, (size_t)n, stdout);
+        sink(buf, (size_t)n, ctx);
     }
-
-    fflush(stdout);
     close(fd);
     return ok;
+}
+
+static void printSink(const char *data, size_t length, attr(unused) void *ctx)
+{
+    fwrite(data, 1, length, stdout);
+}
+
+static bool isAnalyze(const Options *options)
+{
+    const DynArray *args = &options->utils.memArgs;
+    return args->elems != NULL && args->size > 0 && strcmp(((cstring *)args->elems)[0], "analyze") == 0;
+}
+
+int utilsMemCommand(const Options *options, attr(unused) struct StrPool *strings, Log *log)
+{
+    // A server that closes early must not kill this tool
+    signal(SIGPIPE, SIG_IGN);
+
+    if (isAnalyze(options))
+        return memAnalyzeCommand(options, log);
+
+    char request[MEM_REQUEST_MAX];
+    if (!buildRequest(options, request, sizeof(request) - 1, log))
+        return EXIT_FAILURE;
+
+    char path[sizeof(((struct sockaddr_un *)0)->sun_path)];
+    if (!memResolveSocket(options, path, sizeof(path), log))
+        return EXIT_FAILURE;
+
+    char error[512];
+    bool ok = memRequest(path, request, options->utils.memTimeout, printSink, NULL, error, sizeof(error));
+    fflush(stdout);
+    if (!ok)
+        logError(log, NULL, "{s}", (FormatArg[]){{.s = error}});
+    return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

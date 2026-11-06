@@ -9,7 +9,8 @@
 # argument the script runs every program and compares by itself.
 #
 # Command file lines: a trace query (`summary`, `sites`, `mark`, ...), `@next`
-# (release the program to its next waitForHarness() call), `#` comments. In a
+# (release the program to its next waitForHarness() call), `#` comments. A query
+# that exits with a code other than 0 adds an `[exit N]` line. In a
 # query `<live:N>` is the address of the Nth live allocation of `list`.
 
 HERE=$(realpath "$(dirname "$0")")
@@ -59,7 +60,9 @@ normalize() {
         -e '/^ +#[0-9]+ /d' \
         -e '/Allocation callstack:/d' \
         -e 's/0x[0-9a-fA-F]+/PTR/g' \
-        -e 's/"timeMs":[0-9]+/"timeMs":TIME/g'
+        -e 's/"timeMs":[0-9]+/"timeMs":TIME/g' \
+        -e 's/window: ([0-9]+m[0-9]+s|[0-9.]+s|<1s)/window: TIME/' \
+        -e 's/, [-+][0-9.]+ objects\/s, [-+][0-9.]+ [A-Z]+\/s/, RATES/'
 }
 
 # <description> <sh command>: polls the command with `cxy utils wait-for`
@@ -149,6 +152,8 @@ run_program() {
                     expanded=$(expand_live "$sock" "$line")
                     # shellcheck disable=SC2086
                     "$CXY" utils mem --socket "$sock" $expanded nosym >> "$work/result.txt" 2>&1
+                    local code=$?
+                    [ $code -ne 0 ] && echo "[exit $code]" >> "$work/result.txt"
                     ;;
             esac
         done < "$cmds"

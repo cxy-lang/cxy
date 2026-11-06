@@ -7,6 +7,7 @@
 
 #include "doctest.h"
 
+#include "utils/mem/report.h"
 #include "utils/mem/rules.h"
 
 #include <fstream>
@@ -836,6 +837,161 @@ TEST_CASE("Mem rules: findings are ordered by severity, definite first")
         CHECK(r.findings[i - 1].severity >= r.findings[i].severity);
     CHECK(r.findings[0].rule == memRuleC1);
     CHECK(r.verdict == memVerdictDefinite);
+}
+
+/* ------------------------------------------------------------------- report */
+
+namespace {
+
+std::string render(Window &w)
+{
+    w.run();
+    FILE *file = tmpfile();
+    memReportText(&w.report, &w.owned->samples.back(), w.config.minActivity, file);
+    fflush(file);
+    long size = ftell(file);
+    rewind(file);
+    std::string text((size_t)size, '\0');
+    size_t got = fread(text.data(), 1, (size_t)size, file);
+    text.resize(got);
+    fclose(file);
+    return text;
+}
+
+std::string pad(const std::string &text, size_t width)
+{
+    return text + std::string(width > text.size() ? width - text.size() : 0, ' ');
+}
+
+bool has(const std::string &text, const std::string &part)
+{
+    return text.find(part) != std::string::npos;
+}
+
+} // namespace
+
+TEST_CASE("Mem report: a healthy program")
+{
+    Window w = healthy();
+    CHECK(render(w) ==
+          pad("verdict: OK", 41) + "window: 10s, 1 sample\n"
+          "\n"
+          "memory       live 1.6 KB in 100 objects (+0 objects since the baseline)\n"
+          "             buffers 0 B   zombies 0\n"
+          "growth       +0 B (objects and buffers), +0.0 objects/s, +0 B/s\n"
+          "\n"
+          "ok: no allocation site keeps what it makes, no type that is never freed, no leaked "
+          "cycles, no dangling borrows, no growing zombies, no root holding most of the heap\n");
+}
+
+TEST_CASE("Mem report: a finding has its fix and the command to look further")
+{
+    Window w = healthy();
+    w.specs[1].cycles = {{.nodes = 2, .bytes = 32, .type = "Node"}};
+    std::string text = render(w);
+    CHECK(has(text, pad("verdict: DEFINITE PROBLEM", 41) + "window: 10s, 1 sample\n"));
+    CHECK(has(text,
+              "[definite] C1 Leaked cycle: 2 Node objects, 32 bytes\n"
+              "    at: app.cxy:14 app.cxy:15\n"
+              "    fix: make one side a weak reference (@weak Node)\n"
+              "    see: cxy utils mem cycles\n"
+              "\n"));
+    // what was found is not in the "nothing found" line
+    CHECK_FALSE(has(text, "no leaked cycles"));
+    CHECK(has(text, "ok: no allocation site keeps what it makes"));
+}
+
+TEST_CASE("Mem report: a subject that the title already says is not repeated")
+{
+    Window w = healthy();
+    w.specs[1].dangling = {{.ownerType = "View", .line = 25, .dropLine = 27}};
+    std::string text = render(w);
+    CHECK(has(text, "[definite] D1 Dangling borrow: View at app.cxy:25 borrows an object destroyed at app.cxy:27\n"
+                    "    fix:"));
+}
+
+TEST_CASE("Mem report: too little activity is said, not hidden behind ok")
+{
+    Window w = healthy();
+    w.specs[1].objectsAllocated = w.specs[0].objectsAllocated + 5;
+    std::string text = render(w);
+    CHECK(has(text, "verdict: NOT ENOUGH ACTIVITY"));
+    CHECK(has(text, "nothing found, but too little happened to rely on it: no allocation site"));
+    CHECK(has(text, "note: fewer than 100 objects were allocated since the baseline."));
+    CHECK_FALSE(has(text, "\nok:"));
+}
+
+TEST_CASE("Mem report: a finding with too little activity does not claim nothing was found")
+{
+    Window w = healthy();
+    w.specs[1].objectsAllocated = w.specs[0].objectsAllocated + 5;
+    w.specs[1].cycles = {{}};
+    std::string text = render(w);
+    CHECK(has(text, "verdict: DEFINITE PROBLEM"));
+    CHECK(has(text, "nothing else found, but too little happened to rely on it: no allocation site"));
+    CHECK_FALSE(has(text, "nothing found,"));
+}
+
+TEST_CASE("Mem report: one object is not plural")
+{
+    Window w = healthy();
+    w.specs[1].objectCount = 1;
+    CHECK(has(render(w), "in 1 object ("));
+}
+
+TEST_CASE("Mem report: rules that could not run are listed")
+{
+    Window w = healthy();
+    w.specs[1].graph = false;
+    std::string text = render(w);
+    CHECK(has(text, "not checked: C1, K1\n"));
+    CHECK_FALSE(has(text, "no leaked cycles"));
+}
+
+TEST_CASE("Mem report: an approximate answer says so")
+{
+    Window w = healthy();
+    w.specs[1].approximate = 1;
+    CHECK(has(render(w), "note: approximate, a thread did not reach a safepoint in time.\n"));
+}
+
+TEST_CASE("Mem report: growth and long windows")
+{
+    Window w = healthy();
+    w.specs[1].timeMs = 125000;
+    w.specs[1].objectCount = 300;
+    w.specs[1].objectBytes = 1600 + 2048;
+    std::string text = render(w);
+    CHECK(has(text, "window: 2m05s, 1 sample\n"));
+    CHECK(has(text, "(+200 objects since the baseline)"));
+    CHECK(has(text, "growth       +2.0 KB (objects and buffers), +1.6 objects/s, +16 B/s\n"));
+}
+
+TEST_CASE("Mem report: --fail-on")
+{
+    MemSeverity s;
+    CHECK(memParseSeverity("info", &s));
+    CHECK(s == memInfo);
+    CHECK(memParseSeverity("watch", &s));
+    CHECK(s == memWatch);
+    CHECK(memParseSeverity("likely", &s));
+    CHECK(s == memLikely);
+    CHECK(memParseSeverity("definite", &s));
+    CHECK(s == memDefinite);
+    CHECK_FALSE(memParseSeverity("loud", &s));
+    CHECK_FALSE(memParseSeverity("", &s));
+    CHECK_FALSE(memParseSeverity(nullptr, &s));
+
+    Window w = healthy();
+    w.specs[1].zombies = 20; // Z1, watch
+    const MemReport &r = w.run();
+    CHECK(memReached(&r, memInfo));
+    CHECK(memReached(&r, memWatch));
+    CHECK_FALSE(memReached(&r, memLikely));
+    CHECK_FALSE(memReached(&r, memDefinite));
+
+    Window clean = healthy();
+    CHECK_FALSE(memReached(&clean.run(), memInfo));
 }
 
 TEST_CASE("Mem rules: names")

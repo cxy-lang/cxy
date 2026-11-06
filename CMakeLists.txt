@@ -151,8 +151,10 @@ set(CXY_PACKAGE_SOURCES
         src/cxy/utils/commands/wait_for.c
         src/cxy/utils/commands/lock.c
         src/cxy/utils/commands/mem.c
+        src/cxy/utils/commands/mem_analyze.c
         src/cxy/utils/mem/snapshot.c
-        src/cxy/utils/mem/rules.c)
+        src/cxy/utils/mem/rules.c
+        src/cxy/utils/mem/report.c)
 
 
 set(CXY_3RD_PARTY_SOURCES

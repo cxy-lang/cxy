@@ -18,6 +18,7 @@ int main(int argc, char **argv)
     driver.options.strings = &strings;
 
     bool status = true;
+    int exitCode = EXIT_SUCCESS; // set by commands with more than pass or fail
 
     if (!parseCommandLineOptions(
             &argc, argv, &strings, &driver.options, &log)) {
@@ -30,7 +31,8 @@ int main(int argc, char **argv)
         status = dispatchPackageCommand(&driver.options, &strings, &log);
         goto exit;
     case cmdUtils:
-        status = dispatchUtilsCommand(&driver.options, &strings, &log);
+        exitCode = dispatchUtilsCommand(&driver.options, &strings, &log);
+        status = exitCode == EXIT_SUCCESS;
         goto exit;
     case _cmdHelp:
     case _cmdCompletion:
@@ -60,5 +62,7 @@ exit:
     freeLog(&log);
     freeStrPool(&strings);
     freeMemPool(&pool);
+    if (exitCode != EXIT_SUCCESS)
+        return exitCode;
     return status ? EXIT_SUCCESS : EXIT_FAILURE;
 }

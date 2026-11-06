@@ -274,6 +274,8 @@ typedef struct Options {
             i64 memPid;              // Target process (0 = auto-detect)
             const char *memSocket;   // Explicit socket path (empty = unset)
             i64 memTimeout;          // Reply timeout in milliseconds
+            const char *memFailOn;   // analyze: severity that makes it exit 3
+            bool memReset;           // analyze: take a new baseline
         } utils;
     };
 } Options;

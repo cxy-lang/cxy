@@ -11,41 +11,48 @@
 #include "utils/commands/commands.h"
 #include "core/log.h"
 
-bool dispatchUtilsCommand(const Options *options, struct StrPool *strings, Log *log)
+#include <stdlib.h>
+
+static int exitCodeOf(bool ok)
+{
+    return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
+int dispatchUtilsCommand(const Options *options, struct StrPool *strings, Log *log)
 {
     switch (options->utils.subcmd) {
         case utlSubAsyncCmdStart:
-            return utilsAsyncCmdStartCommand(options, strings, log);
+            return exitCodeOf(utilsAsyncCmdStartCommand(options, strings, log));
 
         case utlSubAsyncCmdStop:
-            return utilsAsyncCmdStopCommand(options, strings, log);
+            return exitCodeOf(utilsAsyncCmdStopCommand(options, strings, log));
 
         case utlSubAsyncCmdLogs:
-            return utilsAsyncCmdLogsCommand(options, strings, log);
+            return exitCodeOf(utilsAsyncCmdLogsCommand(options, strings, log));
 
         case utlSubAsyncCmdStatus:
-            return utilsAsyncCmdStatusCommand(options, strings, log);
+            return exitCodeOf(utilsAsyncCmdStatusCommand(options, strings, log));
 
         case utlSubWaitFor:
-            return utilsWaitForCommand(options, strings, log);
+            return exitCodeOf(utilsWaitForCommand(options, strings, log));
 
         case utlSubWaitForPort:
-            return utilsWaitForPortCommand(options, strings, log);
+            return exitCodeOf(utilsWaitForPortCommand(options, strings, log));
 
         case utlSubFindFreePort:
-            return utilsFindFreePortCommand(options, strings, log);
+            return exitCodeOf(utilsFindFreePortCommand(options, strings, log));
 
         case utlSubEnvCheck:
-            return utilsEnvCheckCommand(options, strings, log);
+            return exitCodeOf(utilsEnvCheckCommand(options, strings, log));
 
         case utlSubLock:
-            return utilsLockCommand(options, strings, log);
+            return exitCodeOf(utilsLockCommand(options, strings, log));
 
         case utlSubMem:
             return utilsMemCommand(options, strings, log);
 
         default:
             logError(log, NULL, "unknown utils subcommand", NULL);
-            return false;
+            return EXIT_FAILURE;
     }
 }
