@@ -66,7 +66,9 @@ normalize() {
         -e 's/window: ([0-9]+m[0-9]+s|[0-9.]+s|<1s)/window: TIME/' \
         -e 's/, [-+][0-9.]+ objects\/s, [-+][0-9.]+ [A-Z]+\/s/, RATES/' \
         -e 's/"(seconds|objectsPerSecond|bytesPerSecond)":[-0-9.eE+]+/"\1":N/g' \
-        -e 's/"pid":[0-9]+/"pid":PID/'
+        -e 's/"pid":[0-9]+/"pid":PID/' \
+        -e 's/"rssBytes":[0-9]+/"rssBytes":N/g' \
+        -e 's/process [0-9.]+ [KMG]?B/process SIZE/'
 }
 
 # <description> <sh command>: polls the command with `cxy utils wait-for`

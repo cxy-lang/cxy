@@ -1,0 +1,30 @@
+import { Vector } from "stdlib/vector.cxy"
+import { waitForHarness } from "./_harness.cxy"
+
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+func main(): void {
+    waitForHarness()
+    // B1: sixty containers that each grow three times and are dropped
+    for i in 0..60 {
+        var v = Vector[i32]()
+        for j in 0..100 {
+            v.push(j)
+        }
+    }
+    // H1: one object that 150 owners share, among a hundred that have one owner each
+    var shared = Node(0)
+    var holders = Vector[Node]()
+    for i in 0..150 {
+        holders.push(@copy shared)
+    }
+    var others = Vector[Node]()
+    for i in 0..100 {
+        others.push(Node(i))
+    }
+    waitForHarness()
+}

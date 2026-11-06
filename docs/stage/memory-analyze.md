@@ -198,6 +198,24 @@ the samples, so "the last three" can include the baseline.
 - C1 and D1 are `definite` whatever the activity. K1 is `info`.
 - Verdict: the worst finding at `watch` or above, else `ok`, or `not enough activity`.
 
+### As built (rules X1, B1, H1, M1, A1)
+
+| Id | What it checks | Setting (default) | Severity |
+|---|---|---|---|
+| X1 | objects with references nothing in the heap accounts for (`snapshot.graph.external`) | `minExternal` (100 objects) | `watch`, `likely` when the count grew in each of the last three snapshots |
+| B1 | buffer allocations at a site since the baseline (a regrowth counts) against the buffers alive | `minCount` (100), `bufferChurn` (10 allocations per buffer alive) | `info` |
+| H1 | the object with the most references against the average (`snapshot.refs`) | `minRefs` (100), `refsRatio` (20) | `watch`, `likely` when the highest count grew in each of the last three |
+| M1 | process memory (`rssBytes`, read by the program) against the traced bytes | `minRssBytes` (32 MB), `rssShare` (0.25) | `info`, with the growth of both when there is a baseline |
+| A1 | survivors of a G1 site that were made in the last tenth of the ticks since the mark (`young`) | `youngRatio` (0.5) | `info`, and the G1 finding becomes `info` |
+
+What the server added to every counter set for them: per site `bufferAllocs`,
+`liveBuffers` and `young`, and in the totals `rssBytes` and `refs` (`count`, `maxRefs`,
+`totalRefs`, and the class and site of the object with the most). A steady leak has
+about a tenth of its survivors in the last tenth, a burst of work in flight has most
+of them, that is what A1 separates. B1 cannot tell a container that regrows from a
+new one made for each piece of work, the advice (reserve the capacity or reuse it)
+fits both.
+
 ### Looking into suspects
 
 For the highest ranked sites (default 3) the client:
@@ -376,6 +394,6 @@ In order. Each step is testable alone.
 - [x] `analyze --json`
 - [x] `analyze --watch` and `--samples`
 - [x] suspect introspection: sampling, `path`, grouping by shape (R1), `--suspects`, `--no-graph`
-- [ ] rules X1, B1, H1, M1, A1
+- [x] rules X1, B1, H1, M1, A1
 - [ ] end to end trace programs (healthy, leak, cache, plateau, cycle, dangling, zombie)
 - [ ] book chapter: a section on `analyze`

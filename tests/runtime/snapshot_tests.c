@@ -33,7 +33,7 @@ const RootRecord __cxy_roots[] = {{NULL, NULL, 0, NULL}};
 
 _Static_assert(offsetof(Block, payload) == sizeof(TraceRec) + OBJ_HEADER_SIZE, "layout");
 
-static Block *all[16]; // in the order they were added
+static Block *all[64]; // in the order they were added
 static int allCount;
 
 static Block *add(const SiteRecord *site, uint32_t kind, uint64_t size)
@@ -48,6 +48,8 @@ static Block *add(const SiteRecord *site, uint32_t kind, uint64_t size)
     __cxy_mem_trace_register(&b->rec);
     if (kind == KIND_OBJECT)
         __cxy_mem_trace_count(0, site->index, size);
+    else
+        __cxy_mem_trace_count(0xFFFFFFFFU, site->index, size); // container storage, no class
     return b;
 }
 
@@ -87,7 +89,11 @@ static void testMark(void)
     CONTAINS("\"types\":[{\"name\":\"Node\",\"allocs\":3,\"frees\":0,\"live\":3,\"bytes\":48}]");
     // site B never allocated and has nothing alive: it is left out
     CONTAINS("\"sites\":[{\"file\":\"a.cxy\",\"line\":10,\"column\":5,\"function\":\"fa\","
-             "\"allocs\":3,\"bytes\":48,\"live\":3,\"liveBytes\":48,\"aliveSinceMark\":0}]}");
+             "\"allocs\":3,\"bytes\":48,\"live\":3,\"liveBytes\":48,\"aliveSinceMark\":0,"
+             "\"bufferAllocs\":0,\"liveBuffers\":0,\"young\":0}]}");
+    CONTAINS("\"rssBytes\":");
+    CONTAINS("\"refs\":{\"count\":3,\"maxRefs\":1,\"totalRefs\":3,\"maxType\":\"Node\","
+             "\"maxFile\":\"a.cxy\",\"maxLine\":10}");
     CAPTURE(baselineReport(fd, NULL));
     CONTAINS("baseline: tick 3, 3 live objects (48 bytes), 3 allocated since start");
 }
@@ -110,7 +116,12 @@ static void testCounters(void)
     CHECK(s.sites[0].allocs == 5 && s.sites[0].bytes == 80);
     CHECK(s.sites[0].live == 4 && s.sites[0].liveBytes == 64);
     CHECK(s.sites[0].fresh == 2); // only the two made after the mark
-    CHECK(s.sites[1].allocs == 0 && s.sites[1].live == 1 && s.sites[1].fresh == 1);
+    CHECK(s.sites[1].allocs == 1 && s.sites[1].live == 1 && s.sites[1].fresh == 1);
+    // the buffer counts as a buffer, and a regrowth would be one more
+    CHECK(s.sites[1].bufferAllocs == 1 && s.sites[1].liveBuffers == 1);
+    CHECK(s.sites[0].bufferAllocs == 0 && s.sites[0].liveBuffers == 0);
+    CHECK(s.rssBytes > 0);
+    CHECK(s.refCount == 4 && s.maxRefs == 1 && s.totalRefs == 4);
     freeCounterSet(&s);
 
     // The baseline did not move
@@ -131,9 +142,13 @@ static void testSnapshot(void)
     CONTAINS("\"objects\":{\"count\":4,\"bytes\":64}");
     CONTAINS("\"buffers\":{\"count\":1,\"bytes\":64}");
     CONTAINS("\"sites\":[{\"file\":\"a.cxy\",\"line\":10,\"column\":5,\"function\":\"fa\","
-             "\"allocs\":5,\"bytes\":80,\"live\":4,\"liveBytes\":64,\"aliveSinceMark\":2},"
+             "\"allocs\":5,\"bytes\":80,\"live\":4,\"liveBytes\":64,\"aliveSinceMark\":2,"
+             "\"bufferAllocs\":0,\"liveBuffers\":0,\"young\":0},"
              "{\"file\":\"b.cxy\",\"line\":20,\"column\":7,\"function\":\"fb\","
-             "\"allocs\":0,\"bytes\":0,\"live\":1,\"liveBytes\":64,\"aliveSinceMark\":1}]");
+             "\"allocs\":1,\"bytes\":64,\"live\":1,\"liveBytes\":64,\"aliveSinceMark\":1,"
+             "\"bufferAllocs\":1,\"liveBuffers\":1,\"young\":0}]");
+    CONTAINS("\"refs\":{\"count\":4,\"maxRefs\":1,\"totalRefs\":4,\"maxType\":\"Node\","
+             "\"maxFile\":\"a.cxy\",\"maxLine\":10}");
     CONTAINS(",\"hasBaseline\":true,\"approximate\":0,\"graph\":{\"nodes\":5,\"edges\":0,");
     // four objects with one reference each and nothing in the heap owning them
     CONTAINS("\"external\":{\"objects\":4,\"refs\":4}");
@@ -150,7 +165,7 @@ static void testSnapshotNoGraph(void)
     snprintf(expectedStart, sizeof(expectedStart), "{\"version\":1,\"pid\":%d,\"tick\":6,", (int)getpid());
     CHECK(strncmp(out, expectedStart, strlen(expectedStart)) == 0);
     CONTAINS("\"objects\":{\"count\":4,\"bytes\":64}");
-    CONTAINS("\"aliveSinceMark\":2}");
+    CONTAINS("\"aliveSinceMark\":2,\"bufferAllocs\":0");
     CONTAINS(",\"hasBaseline\":true,\"approximate\":0,\"graph\":{\"error\":\"skipped\"}}");
     MISSING("dangling");
     MISSING("external");
@@ -191,6 +206,21 @@ static void testMarkJson(void)
     CHECK(baseline.sites[0].fresh == 0); // nothing is newer than the new mark
 }
 
+// Objects born in the last tenth of the ticks since the mark are young
+static void testYoung(void)
+{
+    // the mark is at tick 6 (testMarkJson), 30 more objects follow: ticks 7 to 36
+    for (int i = 0; i < 30; i++)
+        add(&siteA, KIND_OBJECT, 16);
+    CounterSet s;
+    CHECK(collectCounters(&s, true));
+    CHECK(s.tick == 36 && s.markGen == 6);
+    // 30 ticks since the mark: the last tenth is 3 ticks (34, 35 and 36)
+    CHECK(s.sites[0].fresh == 30);
+    CHECK(s.sites[0].young == 3);
+    freeCounterSet(&s);
+}
+
 int main(void)
 {
     started = true;
@@ -201,6 +231,7 @@ int main(void)
     testSnapshotNoGraph();
     testRefs();
     testMarkJson();
+    testYoung();
 
     if (failures == 0)
         printf("snapshot tests: ok\n");

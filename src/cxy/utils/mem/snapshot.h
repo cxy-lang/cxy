@@ -28,6 +28,9 @@ typedef struct {
     u64 allocs, bytes;  // cumulative
     u64 live, liveBytes; // alive now
     u64 fresh;          // alive now and born after the mark
+    u64 bufferAllocs;   // of `allocs`, container storage (a regrowth counts)
+    u64 liveBuffers;    // of `live`
+    u64 young;          // of `fresh`, born in the last tenth of the window
 } MemSiteStat;
 
 // An object, buffer or global of the ownership graph
@@ -57,6 +60,13 @@ typedef struct {
     u64 tick, timeMs, mark;
     MemCount objects, buffers, zombies;
     u64 objectsAllocated;
+    u64 rssBytes; // resident memory of the process, 0 when unknown
+    // Reference counts of the live objects. Absent (hasRefs false) when the program
+    // could not read them.
+    bool hasRefs;
+    u64 refCount, maxRefs, totalRefs;
+    char *maxRefsType, *maxRefsFile; // of the object with the most references
+    u64 maxRefsLine;
     MemTypeStat *types;
     u32 typeCount;
     MemSiteStat *sites;

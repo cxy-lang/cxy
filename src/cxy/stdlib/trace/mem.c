@@ -15,6 +15,9 @@
 #include <time.h>
 #include <dlfcn.h>
 #include <execinfo.h>
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#endif
 
 #include "trace_json.h"
 
@@ -1091,6 +1094,7 @@ __attribute__((weak)) extern const uint32_t __cxy_type_count;
 
 typedef struct {
     uint64_t allocs, bytes;
+    uint64_t bufferAllocs; // of `allocs`, the ones that were container storage
 } SiteCount;
 
 typedef struct {
@@ -1157,6 +1161,9 @@ void __cxy_mem_trace_count(uint32_t type, uint32_t site, uint64_t bytes)
     if (site < siteTableSize()) {
         __atomic_fetch_add(&c->sites[site].allocs, 1, __ATOMIC_RELAXED);
         __atomic_fetch_add(&c->sites[site].bytes, bytes, __ATOMIC_RELAXED);
+        // buffers are counted with no class (mm_trace.h)
+        if (type == 0xFFFFFFFFU)
+            __atomic_fetch_add(&c->sites[site].bufferAllocs, 1, __ATOMIC_RELAXED);
     }
 }
 
@@ -1185,6 +1192,7 @@ static void sumCountersEx(SiteCount **sites, TypeCount **types, bool locked)
         for (uint32_t i = 0; i < ns; i++) {
             (*sites)[i].allocs += __atomic_load_n(&c->sites[i].allocs, __ATOMIC_RELAXED);
             (*sites)[i].bytes += __atomic_load_n(&c->sites[i].bytes, __ATOMIC_RELAXED);
+            (*sites)[i].bufferAllocs += __atomic_load_n(&c->sites[i].bufferAllocs, __ATOMIC_RELAXED);
         }
         for (uint32_t i = 0; i < nt; i++) {
             (*types)[i].allocs += __atomic_load_n(&c->types[i].allocs, __ATOMIC_RELAXED);
@@ -3030,16 +3038,44 @@ typedef struct {
     uint64_t allocs, bytes;    // cumulative
     uint64_t live, liveBytes;  // alive now
     uint64_t fresh;            // alive now and born after the mark
+    uint64_t bufferAllocs;     // of `allocs`, container storage (a regrowth counts)
+    uint64_t liveBuffers;      // of `live`
+    uint64_t young;            // of `fresh`, born in the last tenth of the window
 } SiteStat;
 
 typedef struct {
     uint64_t tick, timeMs, markGen;
     uint64_t objects, objectBytes, buffers, bufferBytes;
     uint64_t zombies, zombieBytes, objectsAllocated;
+    uint64_t rssBytes; // resident memory of the process, 0 when it cannot be read
+    // reference counts of the live objects
+    uint64_t refCount, maxRefs, totalRefs;
+    const char *maxRefsType; // class and site of the object with the most
+    const SiteRecord *maxRefsSite;
     uint32_t typeCount, siteCount;
     TypeCount *types;
     SiteStat *sites;
 } CounterSet;
+
+// What the process holds in memory, traced or not
+static uint64_t currentRssBytes(void)
+{
+#if defined(__APPLE__)
+    mach_task_basic_info_data_t info;
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &count) != KERN_SUCCESS)
+        return 0;
+    return (uint64_t)info.resident_size;
+#else
+    FILE *f = fopen("/proc/self/statm", "r");
+    if (f == NULL)
+        return 0;
+    unsigned long long size = 0, resident = 0;
+    int got = fscanf(f, "%llu %llu", &size, &resident);
+    fclose(f);
+    return got == 2 ? (uint64_t)resident * (uint64_t)sysconf(_SC_PAGESIZE) : 0;
+#endif
+}
 
 static void freeCounterSet(CounterSet *s)
 {
@@ -3069,6 +3105,9 @@ static bool collectCounters(CounterSet *s, bool locked)
     s->markGen = __atomic_load_n(&markGen, __ATOMIC_RELAXED);
     s->tick = __atomic_load_n(&tick, __ATOMIC_RELAXED);
     s->timeMs = nowNs() / 1000000ull;
+    s->rssBytes = currentRssBytes();
+    // an object is young when it was born in the last tenth of the ticks since the mark
+    uint64_t youngFrom = s->tick - (s->tick > s->markGen ? (s->tick - s->markGen) / 10 : 0);
 
     if (locked)
         pthread_mutex_lock(&listsLock);
@@ -3088,8 +3127,25 @@ static bool collectCounters(CounterSet *s, bool locked)
             SiteStat *st = &s->sites[rec->site->index];
             st->live++;
             st->liveBytes += rec->size;
-            if (rec->birthTick > s->markGen)
+            if (rec->kind == KIND_BUFFER)
+                st->liveBuffers++;
+            if (rec->birthTick > s->markGen) {
                 st->fresh++;
+                if (rec->birthTick > youngFrom)
+                    st->young++;
+            }
+        }
+        for (const TraceRec *rec = l->head; rec != NULL && __cxy_mem_header_refs != NULL; rec = rec->next) {
+            if (rec->kind != KIND_OBJECT)
+                continue;
+            uint64_t refs = __cxy_mem_header_refs(recPayload(rec));
+            s->refCount++;
+            s->totalRefs += refs;
+            if (refs > s->maxRefs) {
+                s->maxRefs = refs;
+                s->maxRefsSite = rec->site;
+                s->maxRefsType = objectTypeName(recPayload(rec));
+            }
         }
         if (locked)
             pthread_mutex_unlock(&l->lock);
@@ -3100,6 +3156,7 @@ static bool collectCounters(CounterSet *s, bool locked)
     for (uint32_t i = 0; i < ns; i++) {
         s->sites[i].allocs = sums[i].allocs;
         s->sites[i].bytes = sums[i].bytes;
+        s->sites[i].bufferAllocs = sums[i].bufferAllocs;
     }
     free(sums);
     return true;
@@ -3125,6 +3182,16 @@ static void jsonCounterSet(JsonWriter *json, const CounterSet *s)
     jsonCountPair(json, "buffers", s->buffers, s->bufferBytes);
     jsonCountPair(json, "zombies", s->zombies, s->zombieBytes);
     jsonFieldUint(json, "objectsAllocated", s->objectsAllocated);
+    jsonFieldUint(json, "rssBytes", s->rssBytes);
+    jsonKey(json, "refs");
+    jsonBeginObject(json);
+    jsonFieldUint(json, "count", s->refCount);
+    jsonFieldUint(json, "maxRefs", s->maxRefs);
+    jsonFieldUint(json, "totalRefs", s->totalRefs);
+    jsonFieldString(json, "maxType", s->maxRefsType);
+    jsonFieldString(json, "maxFile", s->maxRefsSite != NULL ? s->maxRefsSite->file : NULL);
+    jsonFieldUint(json, "maxLine", s->maxRefsSite != NULL ? s->maxRefsSite->line : 0);
+    jsonEndObject(json);
 
     jsonKey(json, "types");
     jsonBeginArray(json);
@@ -3160,6 +3227,9 @@ static void jsonCounterSet(JsonWriter *json, const CounterSet *s)
         jsonFieldUint(json, "live", st->live);
         jsonFieldUint(json, "liveBytes", st->liveBytes);
         jsonFieldUint(json, "aliveSinceMark", st->fresh);
+        jsonFieldUint(json, "bufferAllocs", st->bufferAllocs);
+        jsonFieldUint(json, "liveBuffers", st->liveBuffers);
+        jsonFieldUint(json, "young", st->young);
         jsonEndObject(json);
     }
     jsonEndArray(json);

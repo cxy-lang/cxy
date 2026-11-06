@@ -1,0 +1,6 @@
+# B1 (a container that grows by reallocation, sixty times) and H1 (one object with
+# 150 owners), found by analyze from what a real program did after the baseline
+analyze
+@next
+analyze --no-graph
+analyze --suspects 0 --json

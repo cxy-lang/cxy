@@ -8,7 +8,8 @@
 
 const char *memRuleId(MemRule rule)
 {
-    static const char *const ids[] = {"G1", "G2", "G3", "C1", "D1", "Z1", "K1"};
+    static const char *const ids[] = {"G1", "G2", "G3", "C1", "D1", "Z1",
+                                      "K1", "X1", "B1", "H1", "M1", "A1"};
     return rule < memRuleCount ? ids[rule] : "?";
 }
 
@@ -60,7 +61,14 @@ MemConfig memDefaultConfig(void)
                        .concentration = 0.8,
                        .concentrationBytes = 1u << 20,
                        .maxSiteFindings = 5,
-                       .ignoreTypes = NULL};
+                       .ignoreTypes = NULL,
+                       .minExternal = 100,
+                       .minRefs = 100,
+                       .refsRatio = 20.0,
+                       .minRssBytes = 32u << 20,
+                       .rssShare = 0.25,
+                       .youngRatio = 0.5,
+                       .bufferChurn = 10};
 }
 
 /* ---------------------------------------------------------------- helpers */
@@ -215,9 +223,12 @@ static void ruleG1(const MemSnapshot *baseline,
     for (u32 i = 0; i < n && i < config->maxSiteFindings; i++) {
         const Candidate *c = &candidates[i];
         bool growing = siteGrowing(series, c->site);
-        MemFinding *f = addFinding(report,
-                                   memRuleG1,
-                                   plateau ? memInfo : (growing ? memLikely : memWatch));
+        // survivors that are nearly all from the last tenth of the window are work in
+        // flight, not growth
+        bool inFlight = c->site->young > 0 &&
+                        (double)c->site->young >= config->youngRatio * (double)c->alive;
+        MemFinding *f = addFinding(
+            report, memRuleG1, plateau || inFlight ? memInfo : (growing ? memLikely : memWatch));
         if (f == NULL)
             break;
         reported++;
@@ -240,6 +251,25 @@ static void ruleG1(const MemSnapshot *baseline,
         addEvidence(f, "alive", (double)c->alive);
         addEvidence(f, "ratio", ratio);
         addEvidence(f, "samplesGrowing", growing ? 3 : 0);
+        if (inFlight) {
+            snprintf(f->title + strlen(f->title),
+                     sizeof(f->title) - strlen(f->title),
+                     " (most were made in the last tenth of the window)");
+            MemFinding *a = addFinding(report, memRuleA1, memInfo);
+            if (a != NULL) {
+                snprintf(a->subject, sizeof(a->subject), "%s", f->subject);
+                snprintf(a->title,
+                         sizeof(a->title),
+                         "%llu of the %llu objects made at %s that are alive were made in the last "
+                         "tenth of the window: work still in flight, not necessarily growth",
+                         (unsigned long long)c->site->young,
+                         (unsigned long long)c->alive,
+                         a->subject);
+                snprintf(a->fix, sizeof(a->fix), "run analyze again once the workload has finished");
+                addEvidence(a, "young", (double)c->site->young);
+                addEvidence(a, "alive", (double)c->alive);
+            }
+        }
     }
     free(candidates);
 
@@ -436,6 +466,178 @@ static void ruleK1(const MemSnapshot *last, const MemConfig *config, MemReport *
     addEvidence(f, "liveBytes", (double)total);
 }
 
+/* --------------------------------------------------------- X1, B1, H1, M1 */
+
+// Objects with references that nothing in the heap accounts for: a stack, a thread,
+// a coroutine that never finished
+static void ruleX1(const Series *series, const MemConfig *config, MemReport *report)
+{
+    const MemSnapshot *last = lastOf(series);
+    if (last->externalObjects < config->minExternal)
+        return;
+
+    bool growing = false;
+    if (series->count >= 3) {
+        u64 held[3];
+        bool all = true;
+        for (u32 i = 0; i < 3; i++) {
+            const MemSnapshot *s = series->items[series->count - 3 + i];
+            all = all && s->hasGraph;
+            held[i] = s->externalObjects;
+        }
+        growing = all && held[0] < held[1] && held[1] < held[2];
+    }
+    MemFinding *f = addFinding(report, memRuleX1, growing ? memLikely : memWatch);
+    if (f == NULL)
+        return;
+    snprintf(f->subject, sizeof(f->subject), "objects held from outside the heap");
+    snprintf(f->title,
+             sizeof(f->title),
+             "%llu objects (%llu references) are kept alive from outside the heap: a stack, a "
+             "thread or a coroutine",
+             (unsigned long long)last->externalObjects,
+             (unsigned long long)last->externalRefs);
+    snprintf(f->fix,
+             sizeof(f->fix),
+             "look for a long-lived function, a thread or a coroutine that never finished");
+    snprintf(f->see, sizeof(f->see), "cxy utils mem holders <ptr>");
+    addEvidence(f, "objects", (double)last->externalObjects);
+    addEvidence(f, "refs", (double)last->externalRefs);
+}
+
+// Many allocations at a buffer site and few buffers alive: a container that grows by
+// reallocation, or a new one for each piece of work
+static void ruleB1(const MemSnapshot *baseline, const MemSnapshot *last, const MemConfig *config, MemReport *report)
+{
+    Candidate *candidates = calloc(last->siteCount + 1, sizeof(Candidate));
+    if (candidates == NULL)
+        return;
+    u32 n = 0;
+    for (u32 i = 0; i < last->siteCount; i++) {
+        const MemSiteStat *site = &last->sites[i];
+        const MemSiteStat *before = findSite(baseline, site);
+        u64 made = minus(site->bufferAllocs, before != NULL ? before->bufferAllocs : 0);
+        if (made < config->minCount || made == 0)
+            continue;
+        if (site->liveBuffers * config->bufferChurn > made)
+            continue; // most of what was made is still alive: that is growth, not churn
+        candidates[n++] = (Candidate){.site = site, .made = made, .alive = site->liveBuffers};
+    }
+    // the biggest churn first
+    for (u32 i = 1; i < n; i++) {
+        Candidate c = candidates[i];
+        u32 j = i;
+        while (j > 0 && candidates[j - 1].made < c.made) {
+            candidates[j] = candidates[j - 1];
+            j--;
+        }
+        candidates[j] = c;
+    }
+    for (u32 i = 0; i < n && i < config->maxSiteFindings; i++) {
+        const Candidate *c = &candidates[i];
+        MemFinding *f = addFinding(report, memRuleB1, memInfo);
+        if (f == NULL)
+            break;
+        snprintf(f->subject, sizeof(f->subject), "%s:%llu", orUnknown(c->site->file), (unsigned long long)c->site->line);
+        snprintf(f->title,
+                 sizeof(f->title),
+                 "Buffers made at %s were allocated %llu times since the baseline, %llu are "
+                 "alive: a container growing by reallocation?",
+                 f->subject,
+                 (unsigned long long)c->made,
+                 (unsigned long long)c->alive);
+        snprintf(f->fix, sizeof(f->fix), "reserve the capacity up front, or reuse the container");
+        snprintf(f->see, sizeof(f->see), "cxy utils mem sitecounts");
+        addEvidence(f, "allocs", (double)c->made);
+        addEvidence(f, "alive", (double)c->alive);
+    }
+    free(candidates);
+}
+
+// An object with far more references than the others: a hot shared object, or a
+// retain that is never released
+static void ruleH1(const Series *series, const MemConfig *config, MemReport *report)
+{
+    const MemSnapshot *last = lastOf(series);
+    if (last->refCount == 0)
+        return;
+    double mean = (double)last->totalRefs / (double)last->refCount;
+    if (last->maxRefs < config->minRefs || (double)last->maxRefs < config->refsRatio * mean)
+        return;
+
+    bool growing = false;
+    if (series->count >= 3) {
+        u64 refs[3];
+        bool all = true;
+        for (u32 i = 0; i < 3; i++) {
+            const MemSnapshot *s = series->items[series->count - 3 + i];
+            all = all && s->hasRefs;
+            refs[i] = s->maxRefs;
+        }
+        growing = all && refs[0] < refs[1] && refs[1] < refs[2];
+    }
+    MemFinding *f = addFinding(report, memRuleH1, growing ? memLikely : memWatch);
+    if (f == NULL)
+        return;
+    snprintf(f->subject,
+             sizeof(f->subject),
+             "%s:%llu",
+             orUnknown(last->maxRefsFile),
+             (unsigned long long)last->maxRefsLine);
+    char who[96];
+    if (last->maxRefsType != NULL)
+        snprintf(who, sizeof(who), "A `%s` object", last->maxRefsType);
+    else
+        snprintf(who, sizeof(who), "An object");
+    snprintf(f->title,
+             sizeof(f->title),
+             "%s made at %s has %llu references, the average is %.1f: a hot shared object, or a "
+             "retain that is never released",
+             who,
+             f->subject,
+             (unsigned long long)last->maxRefs,
+             mean);
+    snprintf(f->fix,
+             sizeof(f->fix),
+             "pass `&T` where the callee only reads, and check who retains it");
+    snprintf(f->see, sizeof(f->see), "cxy utils mem refs 5");
+    addEvidence(f, "maxRefs", (double)last->maxRefs);
+    addEvidence(f, "meanRefs", mean);
+}
+
+// The process holds much more than the traced heap: memory the trace cannot see
+static void ruleM1(const Series *series, const MemConfig *config, MemReport *report)
+{
+    const MemSnapshot *first = series->items[0];
+    const MemSnapshot *last = lastOf(series);
+    u64 traced = last->objects.bytes + last->buffers.bytes;
+    if (last->rssBytes < config->minRssBytes || (double)traced >= config->rssShare * (double)last->rssBytes)
+        return;
+
+    MemFinding *f = addFinding(report, memRuleM1, memInfo);
+    if (f == NULL)
+        return;
+    char rss[32], heap[32];
+    memFormatBytes(rss, sizeof(rss), last->rssBytes);
+    memFormatBytes(heap, sizeof(heap), traced);
+    snprintf(f->subject, sizeof(f->subject), "process memory");
+    snprintf(f->title,
+             sizeof(f->title),
+             "The process holds %s but only %s is in the traced heap: the rest is outside it "
+             "(C libraries, raw allocations, fragmentation, thread stacks)",
+             rss,
+             heap);
+    snprintf(f->fix, sizeof(f->fix), "look at what the program allocates outside the traced heap");
+    addEvidence(f, "rssBytes", (double)last->rssBytes);
+    addEvidence(f, "tracedBytes", (double)traced);
+    if (first != last && first->rssBytes > 0) {
+        addEvidence(f, "rssDelta", (double)last->rssBytes - (double)first->rssBytes);
+        addEvidence(f,
+                    "tracedDelta",
+                    (double)traced - (double)(first->objects.bytes + first->buffers.bytes));
+    }
+}
+
 /* ------------------------------------------------------------------ driver */
 
 static void sortFindings(MemReport *report)
@@ -497,6 +699,7 @@ void memAnalyze(const MemSnapshot *baseline,
 
     if (baseline != NULL) {
         report->ran |= 1u << memRuleG1;
+        report->ran |= 1u << memRuleA1; // it only ever explains a G1 finding
         ruleG1(baseline, &series, config, report->plateau, report);
     }
     if (series.count >= 3)
@@ -518,6 +721,20 @@ void memAnalyze(const MemSnapshot *baseline,
     if (last->hasGraph) {
         report->ran |= 1u << memRuleK1;
         ruleK1(last, config, report);
+        report->ran |= 1u << memRuleX1;
+        ruleX1(&series, config, report);
+    }
+    if (baseline != NULL) {
+        report->ran |= 1u << memRuleB1;
+        ruleB1(baseline, last, config, report);
+    }
+    if (last->hasRefs) {
+        report->ran |= 1u << memRuleH1;
+        ruleH1(&series, config, report);
+    }
+    if (last->rssBytes > 0) {
+        report->ran |= 1u << memRuleM1;
+        ruleM1(&series, config, report);
     }
 
     memRefreshVerdict(report);

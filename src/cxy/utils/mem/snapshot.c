@@ -78,6 +78,9 @@ static void parseSites(const cJSON *array, MemSnapshot *s)
         site->live = numberOf(item, "live");
         site->liveBytes = numberOf(item, "liveBytes");
         site->fresh = numberOf(item, "aliveSinceMark");
+        site->bufferAllocs = numberOf(item, "bufferAllocs");
+        site->liveBuffers = numberOf(item, "liveBuffers");
+        site->young = numberOf(item, "young");
     }
 }
 
@@ -225,6 +228,17 @@ bool memSnapshotParse(const char *json, MemSnapshot *out, char *error, size_t er
     out->zombies = countOf(doc, "zombies");
     out->objectsAllocated = numberOf(doc, "objectsAllocated");
     out->approximate = (u32)numberOf(doc, "approximate");
+    out->rssBytes = numberOf(doc, "rssBytes");
+    const cJSON *refs = member(doc, "refs");
+    if (isObject(refs)) {
+        out->hasRefs = true;
+        out->refCount = numberOf(refs, "count");
+        out->maxRefs = numberOf(refs, "maxRefs");
+        out->totalRefs = numberOf(refs, "totalRefs");
+        out->maxRefsType = stringOf(refs, "maxType");
+        out->maxRefsFile = stringOf(refs, "maxFile");
+        out->maxRefsLine = numberOf(refs, "maxLine");
+    }
     out->hasBaseline = isTrue(member(doc, "hasBaseline"));
     parseTypes(member(doc, "types"), out);
     parseSites(member(doc, "sites"), out);
@@ -237,6 +251,8 @@ bool memSnapshotParse(const char *json, MemSnapshot *out, char *error, size_t er
 
 void memSnapshotFree(MemSnapshot *s)
 {
+    free(s->maxRefsType);
+    free(s->maxRefsFile);
     for (u32 i = 0; i < s->typeCount; i++)
         free(s->types[i].name);
     free(s->types);

@@ -26,6 +26,11 @@ typedef enum {
     memRuleD1, // dangling borrows
     memRuleZ1, // zombies increasing
     memRuleK1, // one root holds most of the heap
+    memRuleX1, // objects kept alive from outside the heap
+    memRuleB1, // buffers allocated again and again, a container growing
+    memRuleH1, // an object with a very high reference count
+    memRuleM1, // the process holds much more than the traced heap
+    memRuleA1, // the survivors of a site are all young: work in flight
     memRuleCount
 } MemRule;
 
@@ -80,8 +85,15 @@ typedef struct {
     u64 minZombies;         // Z1: growth below this is noise
     double concentration;   // K1: share of live bytes held by one root
     u64 concentrationBytes; // K1: and at least this many
-    u32 maxSiteFindings;    // G1: report this many sites at most
+    u32 maxSiteFindings;    // G1, B1: report this many sites at most
     const char *const *ignoreTypes; // G3: NULL terminated names, runtime objects
+    u64 minExternal;        // X1: objects kept alive from outside the heap
+    u64 minRefs;            // H1: references on one object
+    double refsRatio;       // H1: and that many times the average
+    u64 minRssBytes;        // M1: process memory below this says nothing
+    double rssShare;        // M1: the traced heap is less than this part of it
+    double youngRatio;      // A1: this part of the survivors was made in the last tenth
+    u32 bufferChurn;        // B1: allocations per buffer alive, at least
 } MemConfig;
 
 typedef struct {

@@ -28,6 +28,10 @@ static const char *quietPhrase(MemRule rule)
         case memRuleD1: return "no dangling borrows";
         case memRuleZ1: return "no growing zombies";
         case memRuleK1: return "no root holding most of the heap";
+        case memRuleX1: return "no large number of objects held from outside the heap";
+        case memRuleB1: return "no buffer allocated again and again";
+        case memRuleH1: return "no object with an unusual reference count";
+        case memRuleM1: return "process memory matches the traced heap";
         default: return NULL; // G2 only ever explains another finding
     }
 }
@@ -105,15 +109,22 @@ void memReportText(const MemReport *report, const MemSnapshot *last, u64 minActi
     memFormatBytes(live, sizeof(live), last->objects.bytes);
     memFormatBytes(buffers, sizeof(buffers), last->buffers.bytes);
     formatSigned(deltaBytes, sizeof(deltaBytes), report->deltaBytes);
+    char process[64] = "";
+    if (last->rssBytes > 0) {
+        char rss[32];
+        memFormatBytes(rss, sizeof(rss), last->rssBytes);
+        snprintf(process, sizeof(process), "   process %s", rss);
+    }
     fprintf(out,
             "memory       live %s in %llu object%s (%+lld objects since the baseline)\n"
-            "             buffers %s   zombies %llu\n",
+            "             buffers %s   zombies %llu%s\n",
             live,
             (unsigned long long)last->objects.count,
             last->objects.count == 1 ? "" : "s",
             (long long)report->deltaObjects,
             buffers,
-            (unsigned long long)last->zombies.count);
+            (unsigned long long)last->zombies.count,
+            process);
     if (report->windowSeconds > 0) {
         char perSecond[40];
         formatSigned(perSecond, sizeof(perSecond), (i64)report->bytesPerSecond);
@@ -278,6 +289,9 @@ void memReportJson(const MemReport *report, const MemSnapshot *last, FILE *out)
     cJSON_AddItemToObject(totals, "objects", objects);
     cJSON_AddItemToObject(totals, "buffers", countObject(last->buffers));
     cJSON_AddItemToObject(totals, "zombies", countObject(last->zombies));
+    cJSON_AddItemToObject(totals,
+                          "rssBytes",
+                          last->rssBytes > 0 ? cJSON_CreateNumber((double)last->rssBytes) : cJSON_CreateNull());
     addNumber(totals, "deltaBytes", (double)report->deltaBytes); // objects and buffers
     cJSON_AddItemToObject(root, "totals", totals);
 
