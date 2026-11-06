@@ -1,0 +1,13 @@
+$ summary json
+{"objects":{"count":4,"bytes":36},"buffers":{"count":1,"bytes":96},"zombies":{"count":1,"bytes":4},"objectsAllocated":5,"traceEvents":6,"mark":0}
+$ types json
+{"types":[{"name":"Node","allocs":4,"frees":1,"live":3,"bytes":16},{"name":"vector.Vector[i32]","allocs":1,"frees":0,"live":1,"bytes":24}],"total":2}
+$ sites json
+{"sites":[{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":13,"count":1,"bytes":96},{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":11,"count":1,"bytes":24},{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":15,"count":1,"bytes":4},{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":16,"count":1,"bytes":4},{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":20,"count":1,"bytes":4}],"liveAllocations":5,"liveBytes":132,"siteCount":5,"limited":false}
+$ sites 2 json
+{"sites":[{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":13,"count":1,"bytes":96},{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":11,"count":1,"bytes":24}],"liveAllocations":5,"liveBytes":132,"siteCount":5,"limited":true}
+$ sitecounts json
+{"sites":[{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":11,"column":13,"function":"main","allocs":2,"bytes":88},{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":13,"column":9,"function":"main","allocs":1,"bytes":96},{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":15,"column":13,"function":"main","allocs":1,"bytes":4},{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":16,"column":13,"function":"main","allocs":1,"bytes":4},{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":17,"column":13,"function":"main","allocs":1,"bytes":4},{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":20,"column":9,"function":"main","allocs":1,"bytes":4}],"total":6,"limited":false}
+$ sitecounts 2 json
+{"sites":[{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":11,"column":13,"function":"main","allocs":2,"bytes":88},{"file":"<ROOT>/tests/trace/programs/json_reports.cxy","line":13,"column":9,"function":"main","allocs":1,"bytes":96}],"total":6,"limited":true}
+$ program output

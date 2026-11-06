@@ -1,0 +1,7 @@
+# the reports as JSON, same numbers as the text reports
+summary json
+types json
+sites json
+sites 2 json
+sitecounts json
+sitecounts 2 json

@@ -300,7 +300,7 @@ Notes:
 In order. Each step is testable alone.
 
 - [x] streaming JSON writer in `libcxy-trace` (`stdlib/trace/trace_json.h`) with runtime unit tests (escaping, invalid UTF-8, nesting, commas, numbers, misuse, a failing sink, a closed peer), a `json` token in the command parser (a command with no JSON form answers with a JSON error)
-- [ ] `json` output for `summary`, `types`, `sites`, `sitecounts` with snapshot tests
+- [x] `json` output for `summary`, `types`, `sites`, `sitecounts` with snapshot tests
 - [ ] `json` output for `list`, `diff`, `difflist`, `zombies`, `dangling`
 - [ ] `json` output for the graph commands: `holders`, `path`, `edges`, `tree`, `roots`, `retained`, `cycles`, `contains`
 - [ ] `mark` stores a baseline, `baseline` reports it, `snapshot` command, runtime tests

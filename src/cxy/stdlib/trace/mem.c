@@ -686,12 +686,33 @@ static int compareSiteBytesDesc(const void *lhs, const void *rhs)
 }
 
 // Live allocations newer than minGen, grouped by allocation site
-static void sitesReportFd(int fd, uint64_t minGen, size_t limit)
+// A report answers as text, or as JSON when `json` is a writer
+static void jsonErrorTo(JsonWriter *json, const char *message)
+{
+    jsonBeginObject(json);
+    jsonFieldString(json, "error", message);
+    jsonEndObject(json);
+}
+
+static void sitesReportFd(int fd, uint64_t minGen, size_t limit, JsonWriter *json)
 {
     size_t count = 0;
     LiveEntry *snap = liveSnapshot(minGen, &count);
     if (count == 0) {
-        dprintf(fd, "no live allocations\n");
+        if (json != NULL) {
+            jsonBeginObject(json);
+            jsonKey(json, "sites");
+            jsonBeginArray(json);
+            jsonEndArray(json);
+            jsonFieldUint(json, "liveAllocations", 0);
+            jsonFieldUint(json, "liveBytes", 0);
+            jsonFieldUint(json, "siteCount", 0);
+            jsonFieldBool(json, "limited", false);
+            jsonEndObject(json);
+        }
+        else {
+            dprintf(fd, "no live allocations\n");
+        }
         free(snap);
         return;
     }
@@ -699,7 +720,10 @@ static void sitesReportFd(int fd, uint64_t minGen, size_t limit)
     qsort(snap, count, sizeof(LiveEntry), compareSiteKey);
     SiteEntry *sites = malloc(count * sizeof(SiteEntry));
     if (sites == NULL) {
-        dprintf(fd, "error: out of memory\n");
+        if (json != NULL)
+            jsonErrorTo(json, "out of memory");
+        else
+            dprintf(fd, "error: out of memory\n");
         free(snap);
         return;
     }
@@ -720,6 +744,28 @@ static void sitesReportFd(int fd, uint64_t minGen, size_t limit)
     qsort(sites, nSites, sizeof(SiteEntry), compareSiteBytesDesc);
 
     size_t shown = (limit == 0 || limit > nSites) ? nSites : limit;
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonKey(json, "sites");
+        jsonBeginArray(json);
+        for (size_t i = 0; i < shown; i++) {
+            jsonBeginObject(json);
+            jsonFieldString(json, "file", sites[i].path);
+            jsonFieldUint(json, "line", sites[i].line);
+            jsonFieldUint(json, "count", sites[i].count);
+            jsonFieldUint(json, "bytes", sites[i].bytes);
+            jsonEndObject(json);
+        }
+        jsonEndArray(json);
+        jsonFieldUint(json, "liveAllocations", count);
+        jsonFieldUint(json, "liveBytes", totalBytes);
+        jsonFieldUint(json, "siteCount", nSites);
+        jsonFieldBool(json, "limited", shown < nSites);
+        jsonEndObject(json);
+        free(sites);
+        free(snap);
+        return;
+    }
     dprintf(fd, "%12s %8s  %s\n", "bytes", "count", "site");
     for (size_t i = 0; i < shown; i++) {
         dprintf(fd,
@@ -781,7 +827,7 @@ static void zombiesReportFd(int fd, size_t limit, bool exitStyle)
             (unsigned long long)total[1]);
 }
 
-static void summaryFd(int fd)
+static void summaryFd(int fd, JsonWriter *json)
 {
     uint64_t count = 0, bytes = 0, gen = 0, buffers = 0, bufferBytes = 0;
     pthread_mutex_lock(&listsLock);
@@ -796,10 +842,35 @@ static void summaryFd(int fd)
     }
     pthread_mutex_unlock(&listsLock);
 
-    // only shown when there is one, programs without weak references print what they did
     uint64_t zombies[2];
-    char zombieLine[96] = "";
     __cxy_mem_trace_zombies(zombies);
+    if (json != NULL) {
+        // every key is always there, a consumer does not have to guess
+        jsonBeginObject(json);
+        jsonKey(json, "objects");
+        jsonBeginObject(json);
+        jsonFieldUint(json, "count", count);
+        jsonFieldUint(json, "bytes", bytes);
+        jsonEndObject(json);
+        jsonKey(json, "buffers");
+        jsonBeginObject(json);
+        jsonFieldUint(json, "count", buffers);
+        jsonFieldUint(json, "bytes", bufferBytes);
+        jsonEndObject(json);
+        jsonKey(json, "zombies");
+        jsonBeginObject(json);
+        jsonFieldUint(json, "count", zombies[0]);
+        jsonFieldUint(json, "bytes", zombies[1]);
+        jsonEndObject(json);
+        jsonFieldUint(json, "objectsAllocated", gen);
+        jsonFieldUint(json, "traceEvents", __atomic_load_n(&ringIdx, __ATOMIC_RELAXED));
+        jsonFieldUint(json, "mark", __atomic_load_n(&markGen, __ATOMIC_RELAXED));
+        jsonEndObject(json);
+        return;
+    }
+
+    // only shown when there is one, programs without weak references print what they did
+    char zombieLine[96] = "";
     if (zombies[0] > 0)
         snprintf(zombieLine,
                  sizeof(zombieLine),
@@ -956,14 +1027,17 @@ static int compareRankDesc(const void *lhs, const void *rhs)
 }
 
 // Types with at least one allocation, most allocated first
-static void typesReportFd(int fd)
+static void typesReportFd(int fd, JsonWriter *json)
 {
     SiteCount *sites = NULL;
     TypeCount *types = NULL;
     sumCounters(&sites, &types);
     uint32_t nt = typeTableSize();
     if (types == NULL || nt == 0) {
-        dprintf(fd, "no type information, was the program built with --memory-trace?\n");
+        if (json != NULL)
+            jsonErrorTo(json, "no type information, was the program built with --memory-trace?");
+        else
+            dprintf(fd, "no type information, was the program built with --memory-trace?\n");
         free(sites);
         free(types);
         return;
@@ -976,6 +1050,30 @@ static void typesReportFd(int fd)
             rank[n++] = (RankEntry){.index = i, .allocs = types[i].allocs};
     }
     qsort(rank, n, sizeof(RankEntry), compareRankDesc);
+
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonKey(json, "types");
+        jsonBeginArray(json);
+        for (size_t i = 0; i < n; i++) {
+            const TypeCount *t = &types[rank[i].index];
+            const TypeRecord *info = __cxy_types[rank[i].index];
+            jsonBeginObject(json);
+            jsonFieldString(json, "name", info != NULL ? info->name : NULL);
+            jsonFieldUint(json, "allocs", t->allocs);
+            jsonFieldUint(json, "frees", t->frees);
+            jsonFieldUint(json, "live", t->allocs > t->frees ? t->allocs - t->frees : 0);
+            jsonFieldUint(json, "bytes", t->bytes);
+            jsonEndObject(json);
+        }
+        jsonEndArray(json);
+        jsonFieldUint(json, "total", n);
+        jsonEndObject(json);
+        free(rank);
+        free(sites);
+        free(types);
+        return;
+    }
 
     dprintf(fd, "%10s %10s %10s %12s  %s\n", "allocs", "frees", "live", "bytes", "type");
     for (size_t i = 0; i < n; i++) {
@@ -996,14 +1094,17 @@ static void typesReportFd(int fd)
 }
 
 // Allocation points with at least one allocation, most allocating first
-static void siteCountsReportFd(int fd, size_t limit)
+static void siteCountsReportFd(int fd, size_t limit, JsonWriter *json)
 {
     SiteCount *sites = NULL;
     TypeCount *types = NULL;
     sumCounters(&sites, &types);
     uint32_t ns = siteTableSize();
     if (sites == NULL || ns == 0) {
-        dprintf(fd, "no site information, was the program built with --memory-trace?\n");
+        if (json != NULL)
+            jsonErrorTo(json, "no site information, was the program built with --memory-trace?");
+        else
+            dprintf(fd, "no site information, was the program built with --memory-trace?\n");
         free(sites);
         free(types);
         return;
@@ -1018,6 +1119,31 @@ static void siteCountsReportFd(int fd, size_t limit)
     qsort(rank, n, sizeof(RankEntry), compareRankDesc);
 
     size_t shown = (limit == 0 || limit > n) ? n : limit;
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonKey(json, "sites");
+        jsonBeginArray(json);
+        for (size_t i = 0; i < shown; i++) {
+            const SiteCount *s = &sites[rank[i].index];
+            const SiteRecord *info = __cxy_sites[rank[i].index];
+            jsonBeginObject(json);
+            jsonFieldString(json, "file", info != NULL ? info->file : NULL);
+            jsonFieldUint(json, "line", info != NULL ? info->line : 0);
+            jsonFieldUint(json, "column", info != NULL ? info->column : 0);
+            jsonFieldString(json, "function", info != NULL ? info->function : NULL);
+            jsonFieldUint(json, "allocs", s->allocs);
+            jsonFieldUint(json, "bytes", s->bytes);
+            jsonEndObject(json);
+        }
+        jsonEndArray(json);
+        jsonFieldUint(json, "total", n);
+        jsonFieldBool(json, "limited", shown < n);
+        jsonEndObject(json);
+        free(rank);
+        free(sites);
+        free(types);
+        return;
+    }
     dprintf(fd, "%10s %12s  %s\n", "allocs", "bytes", "site");
     for (size_t i = 0; i < shown; i++) {
         const SiteCount *s = &sites[rank[i].index];
@@ -2303,7 +2429,6 @@ static void jsonErrorFd(int fd, const char *message, const char *cmd)
 // Answers `cmd` as JSON. False when the command has no JSON form (yet).
 static bool jsonCommand(int fd, const char *cmd, char *args[])
 {
-    (void)args;
     if (cmd == NULL) {
         jsonErrorFd(fd, "no command", NULL);
         return true;
@@ -2312,7 +2437,20 @@ static bool jsonCommand(int fd, const char *cmd, char *args[])
         jsonErrorFd(fd, "unknown command", cmd);
         return true;
     }
-    return false;
+    JsonWriter w;
+    jsonInitFd(&w, fd);
+    if (strcmp(cmd, "summary") == 0)
+        summaryFd(fd, &w);
+    else if (strcmp(cmd, "sites") == 0)
+        sitesReportFd(fd, 0, parseLimit(args[1]), &w);
+    else if (strcmp(cmd, "types") == 0)
+        typesReportFd(fd, &w);
+    else if (strcmp(cmd, "sitecounts") == 0)
+        siteCountsReportFd(fd, parseLimit(args[1]), &w);
+    else
+        return false;
+    jsonReplyEnd(&w, fd);
+    return true;
 }
 
 static void handleCommand(int fd, char *line)
@@ -2343,9 +2481,9 @@ static void handleCommand(int fd, char *line)
     const char *cmd = args[0];
     uint64_t mark = __atomic_load_n(&markGen, __ATOMIC_RELAXED);
     if (strcmp(cmd, "summary") == 0)
-        summaryFd(fd);
+        summaryFd(fd, NULL);
     else if (strcmp(cmd, "sites") == 0)
-        sitesReportFd(fd, 0, parseLimit(args[1]));
+        sitesReportFd(fd, 0, parseLimit(args[1]), NULL);
     else if (strcmp(cmd, "list") == 0)
         liveReportFd(fd, 0, parseLimit(args[1]), sym, false, NULL);
     else if (strcmp(cmd, "leaks") == 0)
@@ -2353,9 +2491,9 @@ static void handleCommand(int fd, char *line)
     else if (strcmp(cmd, "zombies") == 0)
         zombiesReportFd(fd, parseLimit(args[1]), false);
     else if (strcmp(cmd, "types") == 0)
-        typesReportFd(fd);
+        typesReportFd(fd, NULL);
     else if (strcmp(cmd, "sitecounts") == 0)
-        siteCountsReportFd(fd, parseLimit(args[1]));
+        siteCountsReportFd(fd, parseLimit(args[1]), NULL);
     else if (strcmp(cmd, "ring") == 0) {
         if (args[1] == NULL) {
             dprintf(fd, "usage: ring <ptr>\n");
@@ -2369,7 +2507,7 @@ static void handleCommand(int fd, char *line)
         dprintf(fd, "mark %llu\n", (unsigned long long)gen);
     }
     else if (strcmp(cmd, "diff") == 0)
-        sitesReportFd(fd, mark, parseLimit(args[1]));
+        sitesReportFd(fd, mark, parseLimit(args[1]), NULL);
     else if (strcmp(cmd, "difflist") == 0)
         liveReportFd(fd, mark, parseLimit(args[1]), sym, false, NULL);
     else if (strcmp(cmd, "holders") == 0 || strcmp(cmd, "path") == 0 ||
