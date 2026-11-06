@@ -763,6 +763,13 @@ aeEventLoop *aeCreateEventLoop(void *context, int setsize)
     eventLoop->context = context;
     if (aeApiCreate(eventLoop) == -1)
         goto err;
+
+    /* Events with mask == AE_NONE are not set. So let's initialize the
+     * vector with it, before anything is registered: a registration made
+     * first is wiped, and the wakeup fd then stays readable and is never
+     * drained, so every wait returns at once. */
+    for (i = 0; i < setsize; i++)
+        eventLoop->events[i].mask = AE_NONE;
     
     /* Create wakeup pipe/eventfd for cross-thread signaling */
 #ifdef __linux__
@@ -786,11 +793,6 @@ aeEventLoop *aeCreateEventLoop(void *context, int setsize)
     if (aeCreateFileEvent(eventLoop, eventLoop->wakeupFd[0], AE_READABLE,
                           wakeupCallback, NULL, 0) == AE_ERR)
         goto err;
-    
-    /* Events with mask == AE_NONE are not set. So let's initialize the
-     * vector with it. */
-    for (i = 0; i < setsize; i++)
-        eventLoop->events[i].mask = AE_NONE;
     return eventLoop;
 
 err:

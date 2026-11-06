@@ -14,7 +14,8 @@ ONLY=""
 # (graph_tests.c and snapshot_tests.c include the trace library source itself, json_tests.c parses what
 # the writer produced with the cJSON of the compiler)
 TESTS=("rc_tests.c" "trace_tests.c:$ROOT/src/cxy/stdlib/trace/mem.c" "graph_tests.c"
-       "snapshot_tests.c" "json_tests.c:$ROOT/src/3rdParty/cJSON.c")
+       "snapshot_tests.c" "json_tests.c:$ROOT/src/3rdParty/cJSON.c"
+       "ae_tests.c:$ROOT/src/cxy/stdlib/native/evloop/ae.c")
 
 while [[ $# -gt 0 ]]; do
     case $1 in
