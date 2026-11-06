@@ -65,7 +65,7 @@ MemConfig memDefaultConfig(void)
                        .minExternal = 100,
                        .minRefs = 100,
                        .refsRatio = 20.0,
-                       .minRssBytes = 32u << 20,
+                       .minRssGrowth = 8u << 20,
                        .rssShare = 0.25,
                        .youngRatio = 0.5,
                        .bufferChurn = 10};
@@ -307,33 +307,43 @@ static void ruleG3(const MemSnapshot *baseline, const MemSnapshot *last, const M
 {
     for (u32 i = 0; i < last->typeCount; i++) {
         const MemTypeStat *t = &last->types[i];
-        if (t->allocs < config->minCount || t->frees != 0 || ignored(config, t->name))
+        if (ignored(config, t->name))
             continue;
+        // With a baseline only what happened since the mark counts
         const MemTypeStat *before = baseline != NULL ? findType(baseline, t->name) : NULL;
-        if (baseline != NULL && before != NULL && t->allocs <= before->allocs)
-            continue; // nothing made in the window: not growth
+        u64 made = minus(t->allocs, before != NULL ? before->allocs : 0);
+        u64 freed = minus(t->frees, before != NULL ? before->frees : 0);
+        if (baseline == NULL) {
+            made = t->allocs;
+            freed = t->frees;
+        }
+        if (made < config->minCount || freed != 0)
+            continue;
         MemFinding *f = addFinding(report, memRuleG3, memWatch);
         if (f == NULL)
             return;
         snprintf(f->subject, sizeof(f->subject), "%s", orUnknown(t->name));
         snprintf(f->title,
                  sizeof(f->title),
-                 "No %s object was ever freed: %llu made",
+                 baseline != NULL ? "No %s object was freed since the baseline: %llu made"
+                                  : "No %s object was ever freed: %llu made",
                  f->subject,
-                 (unsigned long long)t->allocs);
+                 (unsigned long long)made);
         snprintf(f->fix, sizeof(f->fix), "check who owns them with `cxy utils mem sites`");
         snprintf(f->see, sizeof(f->see), "cxy utils mem types");
-        addEvidence(f, "allocs", (double)t->allocs);
-        addEvidence(f, "frees", (double)t->frees);
+        addEvidence(f, "allocs", (double)made);
+        addEvidence(f, "frees", (double)freed);
     }
 }
 
 /* ------------------------------------------------------------ C1, D1, Z1 */
 
-static void ruleC1(const MemSnapshot *last, MemReport *report)
+static void ruleC1(const MemSnapshot *baseline, const MemSnapshot *last, MemReport *report)
 {
     for (u32 i = 0; i < last->cycleCount; i++) {
         const MemCycle *c = &last->cycles[i];
+        if (baseline != NULL && c->freshNodes == 0)
+            continue; // already there at the mark
         MemFinding *f = addFinding(report, memRuleC1, memDefinite);
         if (f == NULL)
             return;
@@ -370,6 +380,8 @@ static void ruleC1(const MemSnapshot *last, MemReport *report)
         snprintf(f->see, sizeof(f->see), "cxy utils mem cycles");
         addEvidence(f, "nodes", (double)c->nodes);
         addEvidence(f, "bytes", (double)c->bytes);
+        if (baseline != NULL)
+            addEvidence(f, "freshNodes", (double)c->freshNodes);
     }
 }
 
@@ -427,16 +439,22 @@ static void ruleZ1(const Series *series, const MemConfig *config, MemReport *rep
 
 /* ---------------------------------------------------------------------- K1 */
 
-static void ruleK1(const MemSnapshot *last, const MemConfig *config, MemReport *report)
+// With a baseline the question is who keeps what was made since the mark
+static void ruleK1(const MemSnapshot *baseline, const MemSnapshot *last, const MemConfig *config, MemReport *report)
 {
-    u64 total = last->objects.bytes + last->buffers.bytes;
+    bool fresh = baseline != NULL;
+    u64 total = fresh ? last->freshBytes : last->objects.bytes + last->buffers.bytes;
     const MemRoot *top = NULL;
+    u64 topBytes = 0;
     for (u32 i = 0; i < last->rootCount; i++) {
-        if (top == NULL || last->roots[i].exclusiveBytes > top->exclusiveBytes)
+        u64 bytes = fresh ? last->roots[i].exclusiveFreshBytes : last->roots[i].exclusiveBytes;
+        if (top == NULL || bytes > topBytes) {
             top = &last->roots[i];
+            topBytes = bytes;
+        }
     }
-    if (top == NULL || total == 0 || top->exclusiveBytes < config->concentrationBytes ||
-        (double)top->exclusiveBytes < config->concentration * (double)total)
+    if (top == NULL || total == 0 || topBytes < config->concentrationBytes ||
+        (double)topBytes < config->concentration * (double)total)
         return;
 
     MemFinding *f = addFinding(report, memRuleK1, memInfo);
@@ -452,28 +470,33 @@ static void ruleK1(const MemSnapshot *last, const MemConfig *config, MemReport *
                  "an object made at %s:%llu, held from outside the heap,",
                  orUnknown(top->node.file),
                  (unsigned long long)top->node.line);
-    memFormatBytes(size, sizeof(size), top->exclusiveBytes);
+    memFormatBytes(size, sizeof(size), topBytes);
     snprintf(f->subject, sizeof(f->subject), "%s", global ? orUnknown(top->node.name) : what);
     snprintf(f->title,
              sizeof(f->title),
-             "%s keeps %llu%% of the live bytes (%s)",
+             fresh ? "%s keeps %llu%% of what was made since the baseline (%s)"
+                   : "%s keeps %llu%% of the live bytes (%s)",
              what,
-             (unsigned long long)(top->exclusiveBytes * 100 / total),
+             (unsigned long long)(topBytes * 100 / total),
              size);
     snprintf(f->fix, sizeof(f->fix), "if this is a cache, bound its size");
     snprintf(f->see, sizeof(f->see), "cxy utils mem retained");
-    addEvidence(f, "exclusiveBytes", (double)top->exclusiveBytes);
-    addEvidence(f, "liveBytes", (double)total);
+    addEvidence(f, fresh ? "exclusiveFreshBytes" : "exclusiveBytes", (double)topBytes);
+    addEvidence(f, fresh ? "freshBytes" : "liveBytes", (double)total);
 }
 
 /* --------------------------------------------------------- X1, B1, H1, M1 */
 
 // Objects with references that nothing in the heap accounts for: a stack, a thread,
 // a coroutine that never finished
-static void ruleX1(const Series *series, const MemConfig *config, MemReport *report)
+// With a baseline only the objects made since the mark count
+static void ruleX1(const MemSnapshot *baseline, const Series *series, const MemConfig *config, MemReport *report)
 {
     const MemSnapshot *last = lastOf(series);
-    if (last->externalObjects < config->minExternal)
+    bool fresh = baseline != NULL;
+    u64 objects = fresh ? last->externalFreshObjects : last->externalObjects;
+    u64 refs = fresh ? last->externalFreshRefs : last->externalRefs;
+    if (objects < config->minExternal)
         return;
 
     bool growing = false;
@@ -483,7 +506,7 @@ static void ruleX1(const Series *series, const MemConfig *config, MemReport *rep
         for (u32 i = 0; i < 3; i++) {
             const MemSnapshot *s = series->items[series->count - 3 + i];
             all = all && s->hasGraph;
-            held[i] = s->externalObjects;
+            held[i] = fresh ? s->externalFreshObjects : s->externalObjects;
         }
         growing = all && held[0] < held[1] && held[1] < held[2];
     }
@@ -493,16 +516,18 @@ static void ruleX1(const Series *series, const MemConfig *config, MemReport *rep
     snprintf(f->subject, sizeof(f->subject), "objects held from outside the heap");
     snprintf(f->title,
              sizeof(f->title),
-             "%llu objects (%llu references) are kept alive from outside the heap: a stack, a "
-             "thread or a coroutine",
-             (unsigned long long)last->externalObjects,
-             (unsigned long long)last->externalRefs);
+             fresh ? "%llu objects made since the baseline (%llu references) are kept alive from "
+                     "outside the heap: a stack, a thread or a coroutine"
+                   : "%llu objects (%llu references) are kept alive from outside the heap: a "
+                     "stack, a thread or a coroutine",
+             (unsigned long long)objects,
+             (unsigned long long)refs);
     snprintf(f->fix,
              sizeof(f->fix),
              "look for a long-lived function, a thread or a coroutine that never finished");
     snprintf(f->see, sizeof(f->see), "cxy utils mem holders <ptr>");
-    addEvidence(f, "objects", (double)last->externalObjects);
-    addEvidence(f, "refs", (double)last->externalRefs);
+    addEvidence(f, "objects", (double)objects);
+    addEvidence(f, "refs", (double)refs);
 }
 
 // Many allocations at a buffer site and few buffers alive: a container that grows by
@@ -519,9 +544,9 @@ static void ruleB1(const MemSnapshot *baseline, const MemSnapshot *last, const M
         u64 made = minus(site->bufferAllocs, before != NULL ? before->bufferAllocs : 0);
         if (made < config->minCount || made == 0)
             continue;
-        if (site->liveBuffers * config->bufferChurn > made)
+        if (site->freshBuffers * config->bufferChurn > made)
             continue; // most of what was made is still alive: that is growth, not churn
-        candidates[n++] = (Candidate){.site = site, .made = made, .alive = site->liveBuffers};
+        candidates[n++] = (Candidate){.site = site, .made = made, .alive = site->freshBuffers};
     }
     // the biggest churn first
     for (u32 i = 1; i < n; i++) {
@@ -541,8 +566,8 @@ static void ruleB1(const MemSnapshot *baseline, const MemSnapshot *last, const M
         snprintf(f->subject, sizeof(f->subject), "%s:%llu", orUnknown(c->site->file), (unsigned long long)c->site->line);
         snprintf(f->title,
                  sizeof(f->title),
-                 "Buffers made at %s were allocated %llu times since the baseline, %llu are "
-                 "alive: a container growing by reallocation?",
+                 "Buffers made at %s were allocated %llu times since the baseline, %llu of "
+                 "those are still alive: a container growing by reallocation?",
                  f->subject,
                  (unsigned long long)c->made,
                  (unsigned long long)c->alive);
@@ -556,7 +581,8 @@ static void ruleB1(const MemSnapshot *baseline, const MemSnapshot *last, const M
 
 // An object with far more references than the others: a hot shared object, or a
 // retain that is never released
-static void ruleH1(const Series *series, const MemConfig *config, MemReport *report)
+// With a baseline it fires only when the highest count went up since the mark
+static void ruleH1(const MemSnapshot *baseline, const Series *series, const MemConfig *config, MemReport *report)
 {
     const MemSnapshot *last = lastOf(series);
     if (last->refCount == 0)
@@ -564,6 +590,9 @@ static void ruleH1(const Series *series, const MemConfig *config, MemReport *rep
     double mean = (double)last->totalRefs / (double)last->refCount;
     if (last->maxRefs < config->minRefs || (double)last->maxRefs < config->refsRatio * mean)
         return;
+    bool compare = baseline != NULL && baseline->hasRefs;
+    if (compare && last->maxRefs <= baseline->maxRefs)
+        return; // as high at the mark: a long-lived shared object, not a change
 
     bool growing = false;
     if (series->count >= 3) {
@@ -589,13 +618,17 @@ static void ruleH1(const Series *series, const MemConfig *config, MemReport *rep
         snprintf(who, sizeof(who), "A `%s` object", last->maxRefsType);
     else
         snprintf(who, sizeof(who), "An object");
+    char before[64] = "";
+    if (compare)
+        snprintf(before, sizeof(before), ", it was %llu at the baseline", (unsigned long long)baseline->maxRefs);
     snprintf(f->title,
              sizeof(f->title),
-             "%s made at %s has %llu references, the average is %.1f: a hot shared object, or a "
-             "retain that is never released",
+             "%s made at %s has %llu references%s, the average is %.1f: a hot shared object, or "
+             "a retain that is never released",
              who,
              f->subject,
              (unsigned long long)last->maxRefs,
+             before,
              mean);
     snprintf(f->fix,
              sizeof(f->fix),
@@ -603,39 +636,40 @@ static void ruleH1(const Series *series, const MemConfig *config, MemReport *rep
     snprintf(f->see, sizeof(f->see), "cxy utils mem refs 5");
     addEvidence(f, "maxRefs", (double)last->maxRefs);
     addEvidence(f, "meanRefs", mean);
+    if (compare)
+        addEvidence(f, "baselineMaxRefs", (double)baseline->maxRefs);
 }
 
-// The process holds much more than the traced heap: memory the trace cannot see
-static void ruleM1(const Series *series, const MemConfig *config, MemReport *report)
+// The process grew much more than the traced heap since the baseline: memory the
+// trace cannot see
+static void ruleM1(const MemSnapshot *first, const MemSnapshot *last, const MemConfig *config, MemReport *report)
 {
-    const MemSnapshot *first = series->items[0];
-    const MemSnapshot *last = lastOf(series);
-    u64 traced = last->objects.bytes + last->buffers.bytes;
-    if (last->rssBytes < config->minRssBytes || (double)traced >= config->rssShare * (double)last->rssBytes)
+    if (last->rssBytes <= first->rssBytes)
+        return;
+    u64 rssGrowth = last->rssBytes - first->rssBytes;
+    i64 tracedDelta = (i64)(last->objects.bytes + last->buffers.bytes) -
+                      (i64)(first->objects.bytes + first->buffers.bytes);
+    u64 traced = tracedDelta > 0 ? (u64)tracedDelta : 0;
+    if (rssGrowth < config->minRssGrowth || (double)traced >= config->rssShare * (double)rssGrowth)
         return;
 
     MemFinding *f = addFinding(report, memRuleM1, memInfo);
     if (f == NULL)
         return;
     char rss[32], heap[32];
-    memFormatBytes(rss, sizeof(rss), last->rssBytes);
+    memFormatBytes(rss, sizeof(rss), rssGrowth);
     memFormatBytes(heap, sizeof(heap), traced);
     snprintf(f->subject, sizeof(f->subject), "process memory");
     snprintf(f->title,
              sizeof(f->title),
-             "The process holds %s but only %s is in the traced heap: the rest is outside it "
-             "(C libraries, raw allocations, fragmentation, thread stacks)",
+             "The process grew by %s since the baseline but the traced heap by %s: the rest is "
+             "outside it (C libraries, raw allocations, fragmentation, thread stacks)",
              rss,
              heap);
     snprintf(f->fix, sizeof(f->fix), "look at what the program allocates outside the traced heap");
+    addEvidence(f, "rssGrowth", (double)rssGrowth);
+    addEvidence(f, "tracedGrowth", (double)traced);
     addEvidence(f, "rssBytes", (double)last->rssBytes);
-    addEvidence(f, "tracedBytes", (double)traced);
-    if (first != last && first->rssBytes > 0) {
-        addEvidence(f, "rssDelta", (double)last->rssBytes - (double)first->rssBytes);
-        addEvidence(f,
-                    "tracedDelta",
-                    (double)traced - (double)(first->objects.bytes + first->buffers.bytes));
-    }
 }
 
 /* ------------------------------------------------------------------ driver */
@@ -708,7 +742,7 @@ void memAnalyze(const MemSnapshot *baseline,
     ruleG3(baseline, last, config, report);
     if (last->hasGraph) {
         report->ran |= 1u << memRuleC1;
-        ruleC1(last, report);
+        ruleC1(baseline, last, report);
     }
     if (last->hasDangling) {
         report->ran |= 1u << memRuleD1;
@@ -720,9 +754,9 @@ void memAnalyze(const MemSnapshot *baseline,
     }
     if (last->hasGraph) {
         report->ran |= 1u << memRuleK1;
-        ruleK1(last, config, report);
+        ruleK1(baseline, last, config, report);
         report->ran |= 1u << memRuleX1;
-        ruleX1(&series, config, report);
+        ruleX1(baseline, &series, config, report);
     }
     if (baseline != NULL) {
         report->ran |= 1u << memRuleB1;
@@ -730,11 +764,11 @@ void memAnalyze(const MemSnapshot *baseline,
     }
     if (last->hasRefs) {
         report->ran |= 1u << memRuleH1;
-        ruleH1(&series, config, report);
+        ruleH1(baseline, &series, config, report);
     }
-    if (last->rssBytes > 0) {
+    if (baseline != NULL && baseline->rssBytes > 0 && last->rssBytes > 0) {
         report->ran |= 1u << memRuleM1;
-        ruleM1(&series, config, report);
+        ruleM1(baseline, last, config, report);
     }
 
     memRefreshVerdict(report);

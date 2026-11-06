@@ -90,7 +90,7 @@ typedef struct {
     u64 minExternal;        // X1: objects kept alive from outside the heap
     u64 minRefs;            // H1: references on one object
     double refsRatio;       // H1: and that many times the average
-    u64 minRssBytes;        // M1: process memory below this says nothing
+    u64 minRssGrowth;       // M1: the process grew by less than this since the baseline: nothing
     double rssShare;        // M1: the traced heap is less than this part of it
     double youngRatio;      // A1: this part of the survivors was made in the last tenth
     u32 bufferChurn;        // B1: allocations per buffer alive, at least

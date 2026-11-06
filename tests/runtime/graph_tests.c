@@ -24,14 +24,14 @@ const RootRecord __cxy_roots[] = {{NULL, NULL, 0, NULL}};
 // The JSON of a node made by object(), buffer() and global() below
 #define NODE_FIELDS(ptr, size, refs)                                           \
     "\"kind\":\"object\",\"ptr\":\"" ptr "\",\"size\":" #size ",\"name\":null,\"refs\":" #refs \
-    ",\"type\":null,\"file\":\"test.cxy\",\"line\":1"
+    ",\"type\":null,\"file\":\"test.cxy\",\"line\":1,\"gen\":0"
 #define NODE(ptr, size, refs) "{" NODE_FIELDS(ptr, size, refs) "}"
 #define BUFFER(ptr, size)                                                      \
     "{\"kind\":\"buffer\",\"ptr\":\"" ptr "\",\"size\":" #size                  \
-    ",\"name\":null,\"refs\":null,\"type\":null,\"file\":\"test.cxy\",\"line\":2}"
+    ",\"name\":null,\"refs\":null,\"type\":null,\"file\":\"test.cxy\",\"line\":2,\"gen\":0}"
 #define GLOBAL(ptr, name)                                                      \
     "{\"kind\":\"global\",\"ptr\":\"" ptr "\",\"size\":8,\"name\":\"" name       \
-    "\",\"refs\":null,\"type\":null,\"file\":null,\"line\":0}"
+    "\",\"refs\":null,\"type\":null,\"file\":null,\"line\":0,\"gen\":0}"
 #define END ",\"approximate\":0}"
 
 static Graph g;
@@ -283,7 +283,61 @@ static void testJsonExternal(void)
     // a: 3 references, none from the heap (3 outside). b: 1 and 1 edge. c: 1 outside.
     // The buffer has no count.
     CAPTURE_JSON(jsonGraphExternal(&w, &g));
-    EXPECT("{\"objects\":2,\"refs\":4}");
+    EXPECT("{\"objects\":2,\"refs\":4,\"freshObjects\":0,\"freshRefs\":0}");
+}
+
+// What was made since the mark: nodes born after it. A named global is never new.
+static void testSinceTheMark(void)
+{
+    markGen = 10;
+
+    reset();
+    uint32_t old = object(0x1000, 16, 3), young = object(0x2000, 16, 2);
+    uint32_t buf = buffer(0x3000, 64);
+    g.nodes[old].gen = 5;
+    g.nodes[young].gen = 11;
+    g.nodes[buf].gen = 12;
+    finish();
+    // both objects are held from outside: old by 3, young by 2, but only young is new
+    CAPTURE_JSON(jsonGraphExternal(&w, &g));
+    EXPECT("{\"objects\":2,\"refs\":5,\"freshObjects\":1,\"freshRefs\":2}");
+    // the new buffer counts for the bytes, not for the objects
+    CAPTURE_JSON(jsonGraphFresh(&w, &g));
+    EXPECT("{\"objects\":1,\"bytes\":80}");
+
+    // a global that holds a cache made before the mark, and keys made since
+    reset();
+    uint32_t r = global(0x500, "cache");
+    uint32_t map = object(0x1000, 32, 1), arr = buffer(0x2000, 800);
+    g.nodes[map].gen = 5;
+    g.nodes[arr].gen = 5;
+    edge(r, map);
+    edge(map, arr);
+    for (int i = 0; i < 10; i++) {
+        uint32_t key = object(0x10000 + i * 0x100, 50, 1);
+        g.nodes[key].gen = 20 + i;
+        edge(arr, key);
+    }
+    finish();
+    CAPTURE_JSON(graphRetained(fd, &g, 10, &w));
+    CONTAINS("\"exclusiveBytes\":1332,");   // everything the cache keeps
+    CONTAINS("\"exclusiveFreshBytes\":500,"); // the ten keys
+
+    // a cycle with one node made since the mark is new, one that was all there is not
+    reset();
+    uint32_t x = object(0x1000, 40, 1), y = object(0x2000, 60, 1);
+    g.nodes[x].gen = 5;
+    g.nodes[y].gen = 20;
+    edge(x, y);
+    edge(y, x);
+    finish();
+    CAPTURE_JSON(graphCycles(fd, &g, 10, &w));
+    CONTAINS("\"nodes\":2,\"bytes\":100,\"freshNodes\":1,");
+    g.nodes[y].gen = 6;
+    CAPTURE_JSON(graphCycles(fd, &g, 10, &w));
+    CONTAINS("\"freshNodes\":0,");
+
+    markGen = 0;
 }
 
 // Two globals, a leaked cycle, and a cap on what is listed
@@ -302,7 +356,7 @@ static void testJsonRetainedAndCycles(void)
     // `second` keeps more of its own alive, so it comes first; `first` is cut off.
     // The shared object is excluded from both, so only own2 is a site of `second`.
     CONTAINS("{\"roots\":[{\"node\":" GLOBAL("0x508", "second") ",\"exclusiveBytes\":200,"
-             "\"exclusiveObjects\":1,\"reachBytes\":1200,\"reachObjects\":2,\"sites\":["
+             "\"exclusiveObjects\":1,\"reachBytes\":1200,\"reachObjects\":2,\"exclusiveFreshBytes\":0,\"sites\":["
              "{\"file\":\"test.cxy\",\"line\":1,\"objects\":1,\"bytes\":200}]}],");
     CONTAINS("\"objects\":3,\"edges\":4,\"rootCount\":2,\"holding\":2,\"limited\":true,"
              "\"unrooted\":{\"objects\":0,\"bytes\":0,\"sites\":[]}" END);
@@ -320,7 +374,7 @@ static void testJsonRetainedAndCycles(void)
     edge(y, x);
     finish();
     CAPTURE_JSON(graphCycles(fd, &g, 10, &w));
-    EXPECT("{\"cycles\":[{\"nodes\":2,\"bytes\":100,\"moreMembers\":0,\"members\":["
+    EXPECT("{\"cycles\":[{\"nodes\":2,\"bytes\":100,\"freshNodes\":0,\"moreMembers\":0,\"members\":["
            NODE("0x1000", 40, 1) "," NODE("0x2000", 60, 1) "]}],\"total\":1,\"bytes\":100,\"limited\":false" END);
 
     // A chain is not a cycle
@@ -567,6 +621,7 @@ int main(void)
     testJsonPaths();
     testJsonTree();
     testJsonExternal();
+    testSinceTheMark();
     testJsonRetainedAndCycles();
     testSharedObject();
     testCache();

@@ -767,11 +767,11 @@ growth       +5.1 KB (objects and buffers), +22.2 objects/s, +580 B/s
     fix: evict entries, or bound the size of what the global holds
     see: cxy utils mem path 0x75fec083b0
 
-[watch]    G3 No Node object was ever freed: 202 made
+[watch]    G3 No Node object was freed since the baseline: 202 made
     fix: check who owns them with `cxy utils mem sites`
     see: cxy utils mem types
 
-ok: no dangling borrows, no growing zombies, no root holding most of the heap, no large number of objects held from outside the heap, no buffer allocated again and again, no object with an unusual reference count, process memory matches the traced heap
+ok: no dangling borrows, no growing zombies, no root holding most of what was made, no large number of new objects held from outside the heap, no buffer allocated again and again, no object with a growing reference count, process memory grew with the traced heap
 ```
 
 #### Reading the report
@@ -800,16 +800,21 @@ The checks:
 | --- | --- |
 | `G1` | a line whose objects, made since the baseline, are almost all still alive |
 | `G2` | growth that is slowing down: probably a cache filling up, not a leak |
-| `G3` | a class that was made again and again and never freed |
-| `C1` | leaked cycles |
-| `D1` | `&T` fields that point at destroyed objects |
+| `G3` | a class that was made again and again since the baseline and never freed |
+| `C1` | cycles that were leaked since the baseline |
+| `D1` | `&T` fields that point at destroyed objects (a bug whenever it happened) |
 | `Z1` | weak references that keep destroyed objects alive, and more of them |
-| `K1` | one global holding most of the memory |
-| `X1` | many objects kept alive from outside the heap: a stack, a thread, a coroutine |
+| `K1` | one global holding most of what was made since the baseline |
+| `X1` | many objects made since the baseline that are kept alive from outside the heap: a stack, a thread, a coroutine |
 | `B1` | a buffer allocated again and again: a container that grows by reallocation |
-| `H1` | one object with far more owners than the others |
-| `M1` | the process holds much more than the traced heap |
+| `H1` | one object whose count of owners went up since the baseline to far more than the others |
+| `M1` | the process grew by much more than the traced heap did |
 | `A1` | the growth is recent: work still in flight, not a leak |
+
+Every check is about what happened since the baseline (the last mark): memory the
+program already held when you marked is not reported as growth. Mark, run the
+workload, then run `analyze`. `D1` is the one exception, a dangling borrow is a bug
+whenever it happened.
 
 They are heuristics. A finding says how sure it is, and why. `B1` cannot tell a
 container that regrows from a new one made for each piece of work, the advice (reserve

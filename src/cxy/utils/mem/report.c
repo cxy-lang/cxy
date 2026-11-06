@@ -23,15 +23,15 @@ static const char *quietPhrase(MemRule rule)
 {
     switch (rule) {
         case memRuleG1: return "no allocation site keeps what it makes";
-        case memRuleG3: return "no type that is never freed";
-        case memRuleC1: return "no leaked cycles";
+        case memRuleG3: return "no type made and never freed";
+        case memRuleC1: return "no new leaked cycles";
         case memRuleD1: return "no dangling borrows";
         case memRuleZ1: return "no growing zombies";
-        case memRuleK1: return "no root holding most of the heap";
-        case memRuleX1: return "no large number of objects held from outside the heap";
+        case memRuleK1: return "no root holding most of what was made";
+        case memRuleX1: return "no large number of new objects held from outside the heap";
         case memRuleB1: return "no buffer allocated again and again";
-        case memRuleH1: return "no object with an unusual reference count";
-        case memRuleM1: return "process memory matches the traced heap";
+        case memRuleH1: return "no object with a growing reference count";
+        case memRuleM1: return "process memory grew with the traced heap";
         default: return NULL; // G2 only ever explains another finding
     }
 }

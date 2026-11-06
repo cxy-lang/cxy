@@ -25,7 +25,9 @@ struct SiteSpec {
     std::string file = "app.cxy";
     u64 line = 10;
     u64 allocs = 0, live = 0, fresh = 0;
-    u64 bufferAllocs = 0, liveBuffers = 0, young = 0;
+    u64 bufferAllocs = 0, liveBuffers = 0;
+    i64 freshBuffers = -1; // of liveBuffers, made since the mark. -1: all of them
+    u64 young = 0;
     u64 bytes() const { return allocs * 16; }
     u64 liveBytes() const { return live * 16; }
 };
@@ -38,11 +40,13 @@ struct TypeSpec {
 struct RootSpec {
     std::string name = "cache";
     u64 exclusiveBytes = 0;
+    i64 exclusiveFreshBytes = -1; // of exclusiveBytes, made since the mark. -1: all of it
 };
 
 struct CycleSpec {
     u64 nodes = 2, bytes = 32;
     std::string type = "Node";
+    i64 freshNodes = -1; // of nodes, made since the mark. -1: all of them
 };
 
 struct DanglingSpec {
@@ -58,6 +62,8 @@ struct Snap {
     u64 rssBytes = 0;
     u64 refCount = 0, maxRefs = 0, totalRefs = 0; // refs are left out when refCount is 0
     u64 externalObjects = 1, externalRefs = 2;
+    i64 externalFreshObjects = -1, externalFreshRefs = -1; // -1: same as the totals
+    i64 freshBytes = -1;                                   // -1: all live bytes
     bool graph = false;
     std::vector<SiteSpec> sites;
     std::vector<TypeSpec> types;
@@ -69,7 +75,8 @@ struct Snap {
     {
         std::ostringstream o;
         o << "{\"kind\":\"object\",\"ptr\":\"0x1000\",\"size\":16,\"name\":null,\"refs\":1,"
-          << "\"type\":\"" << type << "\",\"file\":\"app.cxy\",\"line\":" << line << "}";
+          << "\"type\":\"" << type << "\",\"file\":\"app.cxy\",\"line\":" << line
+          << ",\"gen\":5}";
         return o.str();
     }
 
@@ -105,6 +112,8 @@ struct Snap {
               << ",\"bytes\":" << s.bytes() << ",\"live\":" << s.live
               << ",\"liveBytes\":" << s.liveBytes() << ",\"aliveSinceMark\":" << s.fresh
               << ",\"bufferAllocs\":" << s.bufferAllocs << ",\"liveBuffers\":" << s.liveBuffers
+              << ",\"freshBuffers\":"
+              << (s.freshBuffers < 0 ? (i64)s.liveBuffers : s.freshBuffers)
               << ",\"young\":" << s.young << "}";
         }
         o << "]";
@@ -123,15 +132,24 @@ struct Snap {
     std::string graphJson() const
     {
         std::ostringstream o;
+        i64 freshObjects = externalFreshObjects < 0 ? (i64)externalObjects : externalFreshObjects;
+        i64 freshRefs = externalFreshRefs < 0 ? (i64)externalRefs : externalFreshRefs;
+        u64 liveBytes = freshBytes < 0 ? objectBytes + bufferBytes : (u64)freshBytes;
         o << "{\"nodes\":10,\"edges\":4,\"external\":{\"objects\":" << externalObjects
-          << ",\"refs\":" << externalRefs << "},"
+          << ",\"refs\":" << externalRefs << ",\"freshObjects\":" << freshObjects
+          << ",\"freshRefs\":" << freshRefs << "},"
+          << "\"fresh\":{\"objects\":5,\"bytes\":" << liveBytes << "},"
           << "\"retained\":{\"roots\":[";
         for (size_t i = 0; i < roots.size(); i++) {
             const RootSpec &r = roots[i];
             o << (i ? "," : "") << "{\"node\":{\"kind\":\"global\",\"ptr\":\"0x500\",\"size\":8,"
-              << "\"name\":\"" << r.name << "\",\"refs\":null,\"type\":null,\"file\":null,\"line\":0},"
+              << "\"name\":\"" << r.name << "\",\"refs\":null,\"type\":null,\"file\":null,\"line\":0,"
+              << "\"gen\":0},"
               << "\"exclusiveBytes\":" << r.exclusiveBytes << ",\"exclusiveObjects\":5,"
-              << "\"reachBytes\":" << r.exclusiveBytes << ",\"reachObjects\":5,\"sites\":[]}";
+              << "\"reachBytes\":" << r.exclusiveBytes << ",\"reachObjects\":5,"
+              << "\"exclusiveFreshBytes\":"
+              << (r.exclusiveFreshBytes < 0 ? (i64)r.exclusiveBytes : r.exclusiveFreshBytes)
+              << ",\"sites\":[]}";
         }
         o << "],\"objects\":5,\"edges\":4,\"rootCount\":2,\"holding\":1,\"limited\":false,"
           << "\"unrooted\":{\"objects\":0,\"bytes\":0,\"sites\":[]},\"approximate\":0},"
@@ -141,6 +159,7 @@ struct Snap {
             const CycleSpec &c = cycles[i];
             total += c.bytes;
             o << (i ? "," : "") << "{\"nodes\":" << c.nodes << ",\"bytes\":" << c.bytes
+              << ",\"freshNodes\":" << (c.freshNodes < 0 ? (i64)c.nodes : c.freshNodes)
               << ",\"moreMembers\":0,\"members\":[" << node(c.type, 14 + i * 2) << ","
               << node(c.type, 15 + i * 2) << "]}";
         }
@@ -300,10 +319,13 @@ TEST_CASE("Mem snapshot: parses the fields of a snapshot")
     spec.maxRefs = 7;
     spec.totalRefs = 30;
     spec.sites = {{.file = "a.cxy", .line = 3, .allocs = 4, .live = 3, .fresh = 2,
-                   .bufferAllocs = 2, .liveBuffers = 1, .young = 1}};
+                   .bufferAllocs = 2, .liveBuffers = 1, .freshBuffers = 1, .young = 1}};
     spec.types = {{.name = "Node", .allocs = 4, .frees = 1}};
-    spec.roots = {{.name = "registry", .exclusiveBytes = 32}};
-    spec.cycles = {{.nodes = 2, .bytes = 32, .type = "Node"}};
+    spec.roots = {{.name = "registry", .exclusiveBytes = 32, .exclusiveFreshBytes = 16}};
+    spec.cycles = {{.nodes = 2, .bytes = 32, .type = "Node", .freshNodes = 1}};
+    spec.externalFreshObjects = 1;
+    spec.externalFreshRefs = 1;
+    spec.freshBytes = 48;
     spec.dangling = {{}};
 
     Parsed p(spec.json());
@@ -328,6 +350,7 @@ TEST_CASE("Mem snapshot: parses the fields of a snapshot")
     CHECK(s.sites[0].fresh == 2);
     CHECK(s.sites[0].bufferAllocs == 2);
     CHECK(s.sites[0].liveBuffers == 1);
+    CHECK(s.sites[0].freshBuffers == 1);
     CHECK(s.sites[0].young == 1);
     CHECK(s.rssBytes == 123456);
     CHECK(s.hasRefs);
@@ -348,13 +371,20 @@ TEST_CASE("Mem snapshot: parses the fields of a snapshot")
     CHECK(s.graphNodes == 10);
     CHECK(s.externalObjects == 1);
     CHECK(s.externalRefs == 2);
+    CHECK(s.externalFreshObjects == 1);
+    CHECK(s.externalFreshRefs == 1);
+    CHECK(s.freshObjects == 5);
+    CHECK(s.freshBytes == 48);
     REQUIRE(s.rootCount == 1);
     CHECK(std::string(s.roots[0].node.name) == "registry");
     CHECK(s.roots[0].exclusiveBytes == 32);
+    CHECK(s.roots[0].exclusiveFreshBytes == 16);
     REQUIRE(s.cycleCount == 1);
     CHECK(s.cycles[0].nodes == 2);
+    CHECK(s.cycles[0].freshNodes == 1);
     REQUIRE(s.cycles[0].memberCount == 2);
     CHECK(std::string(s.cycles[0].members[0].type) == "Node");
+    CHECK(s.cycles[0].members[0].gen == 5);
     CHECK(s.cycleTotal == 1);
     CHECK(s.cycleBytes == 32);
     REQUIRE(s.danglingCount == 1);
@@ -702,12 +732,31 @@ TEST_CASE("Mem rules G3: a type that is never freed")
 {
     Window w = healthy();
     w.specs[0].types = {{.name = "Leaky", .allocs = 100, .frees = 0}};
-    w.specs[1].types = {{.name = "Leaky", .allocs = 150, .frees = 0}};
+    w.specs[1].types = {{.name = "Leaky", .allocs = 250, .frees = 0}};
     const MemFinding *f = find(w.run(), memRuleG3, "Leaky");
     REQUIRE(f != nullptr);
     CHECK(f->severity == memWatch);
-    CHECK(evidence(*f, "allocs") == 150);
+    CHECK(evidence(*f, "allocs") == 150); // made since the baseline
     CHECK(evidence(*f, "frees") == 0);
+}
+
+TEST_CASE("Mem rules G3: only what happened since the baseline counts")
+{
+    Window w = healthy();
+
+    // A type that leaked before the mark and is quiet now
+    w.specs[0].types = {{.name = "T", .allocs = 500, .frees = 0}};
+    w.specs[1].types = {{.name = "T", .allocs = 550, .frees = 0}};
+    CHECK(find(w.run(), memRuleG3) == nullptr);
+
+    // Freed before the mark, and not once since: it fires
+    w.specs[0].types = {{.name = "T", .allocs = 500, .frees = 3}};
+    w.specs[1].types = {{.name = "T", .allocs = 700, .frees = 3}};
+    CHECK(find(w.run(), memRuleG3) != nullptr);
+
+    // Some were freed since the mark
+    w.specs[1].types = {{.name = "T", .allocs = 700, .frees = 10}};
+    CHECK(find(w.run(), memRuleG3) == nullptr);
 }
 
 TEST_CASE("Mem rules G3: boundaries and exceptions")
@@ -777,6 +826,18 @@ TEST_CASE("Mem rules C1: one finding per cycle")
     w.specs[1].cycles = {{.nodes = 2, .bytes = 32}, {.nodes = 3, .bytes = 48, .type = "Peer"}};
     const MemReport &r = w.run();
     CHECK(countOf(r, memRuleC1) == 2);
+}
+
+TEST_CASE("Mem rules C1: a cycle that was already there at the mark is not reported")
+{
+    Window w = healthy();
+    w.specs[1].cycles = {{.nodes = 2, .bytes = 32, .freshNodes = 0},
+                         {.nodes = 3, .bytes = 48, .type = "Peer", .freshNodes = 1}};
+    const MemReport &r = w.run();
+    CHECK(countOf(r, memRuleC1) == 1);
+    const MemFinding *f = find(r, memRuleC1);
+    REQUIRE(f != nullptr);
+    CHECK(evidence(*f, "freshNodes") == 1);
 }
 
 TEST_CASE("Mem rules C1, K1: not run without a graph, D1 does not need one")
@@ -855,7 +916,26 @@ TEST_CASE("Mem rules K1: one root holds most of the heap")
     REQUIRE(f != nullptr);
     CHECK(f->severity == memInfo);
     CHECK(std::string(f->title).find("cache") != std::string::npos);
-    CHECK(evidence(*f, "exclusiveBytes") == 1900000);
+    CHECK(evidence(*f, "exclusiveFreshBytes") == 1900000);
+}
+
+TEST_CASE("Mem rules K1: judged on what was made since the baseline")
+{
+    Window w = healthy();
+    w.specs[1].objectBytes = 8 * 1024 * 1024;
+
+    // Holds most of the heap, but almost none of it is new
+    w.specs[1].freshBytes = 2 * 1024 * 1024;
+    w.specs[1].roots = {{.name = "cache", .exclusiveBytes = 7 * 1024 * 1024, .exclusiveFreshBytes = 100000}};
+    CHECK(find(w.run(), memRuleK1) == nullptr);
+
+    // Most of what is new
+    w.specs[1].roots = {{.name = "cache", .exclusiveBytes = 7 * 1024 * 1024, .exclusiveFreshBytes = 1900000}};
+    const MemFinding *f = find(w.run(), memRuleK1, "cache");
+    REQUIRE(f != nullptr);
+    CHECK(std::string(f->title).find("since the baseline") != std::string::npos);
+    CHECK(evidence(*f, "exclusiveFreshBytes") == 1900000);
+    CHECK(evidence(*f, "freshBytes") == 2 * 1024 * 1024);
 }
 
 TEST_CASE("Mem rules K1: boundaries")
@@ -931,11 +1011,11 @@ TEST_CASE("Mem report: a healthy program")
           "             buffers 0 B   zombies 0   process 8.0 MB\n"
           "growth       +0 B (objects and buffers), +0.0 objects/s, +0 B/s\n"
           "\n"
-          "ok: no allocation site keeps what it makes, no type that is never freed, no leaked "
-          "cycles, no dangling borrows, no growing zombies, no root holding most of the heap, no "
-          "large number of objects held from outside the heap, no buffer allocated again and "
-          "again, no object with an unusual reference count, process memory matches the traced "
-          "heap\n");
+          "ok: no allocation site keeps what it makes, no type made and never freed, no new "
+          "leaked cycles, no dangling borrows, no growing zombies, no root holding most of what "
+          "was made, no large number of new objects held from outside the heap, no buffer "
+          "allocated again and again, no object with a growing reference count, process memory "
+          "grew with the traced heap\n");
 }
 
 TEST_CASE("Mem report: a finding has its fix and the command to look further")
@@ -1380,10 +1460,28 @@ TEST_CASE("Mem rules X1: objects kept alive from outside the heap")
     CHECK(f->severity == memWatch);
     CHECK(evidence(*f, "objects") == 100);
     CHECK(evidence(*f, "refs") == 130);
-    CHECK(std::string(f->title).find("100 objects (130 references)") != std::string::npos);
+    CHECK(std::string(f->title).find("100 objects made since the baseline (130 references)") !=
+          std::string::npos);
 
     w.specs[1].externalObjects = 99;
     CHECK(find(w.run(), memRuleX1) == nullptr);
+}
+
+TEST_CASE("Mem rules X1: only the objects made since the baseline count")
+{
+    Window w = healthy();
+    w.specs[1].externalObjects = 500; // most were held at the mark
+    w.specs[1].externalRefs = 600;
+    w.specs[1].externalFreshObjects = 40;
+    w.specs[1].externalFreshRefs = 50;
+    CHECK(find(w.run(), memRuleX1) == nullptr);
+
+    w.specs[1].externalFreshObjects = 120;
+    w.specs[1].externalFreshRefs = 140;
+    const MemFinding *f = find(w.run(), memRuleX1);
+    REQUIRE(f != nullptr);
+    CHECK(evidence(*f, "objects") == 120);
+    CHECK(evidence(*f, "refs") == 140);
 }
 
 TEST_CASE("Mem rules X1: likely when the count grew in each of the last three snapshots")
@@ -1415,6 +1513,22 @@ TEST_CASE("Mem rules B1: a buffer site that allocates again and again")
     CHECK(evidence(*f, "allocs") == 150);
     CHECK(evidence(*f, "alive") == 5);
     CHECK(std::string(f->fix).find("reserve") != std::string::npos);
+}
+
+TEST_CASE("Mem rules B1: only the buffers made since the baseline count as alive")
+{
+    Window w = healthy();
+    w.specs[0].sites.push_back({.line = 20});
+    // 50 buffers alive, but only 5 of them were made since the mark
+    w.specs[1].sites.push_back(
+        {.line = 20, .allocs = 150, .bufferAllocs = 150, .liveBuffers = 50, .freshBuffers = 5});
+    const MemFinding *f = find(w.run(), memRuleB1, "app.cxy:20");
+    REQUIRE(f != nullptr);
+    CHECK(evidence(*f, "alive") == 5);
+    CHECK(std::string(f->title).find("5 of those are still alive") != std::string::npos);
+
+    w.specs[1].sites.back().freshBuffers = 20; // 150 / 20 is below the churn of 10
+    CHECK(find(w.run(), memRuleB1) == nullptr);
 }
 
 TEST_CASE("Mem rules B1: boundaries")
@@ -1456,8 +1570,9 @@ TEST_CASE("Mem rules H1: an object with far more references than the others")
     CHECK(f->severity == memWatch);
     CHECK(evidence(*f, "maxRefs") == 100);
     CHECK(evidence(*f, "meanRefs") == doctest::Approx(1.5));
-    CHECK(std::string(f->title).find("A `Node` object made at app.cxy:10 has 100 references, the average is 1.5") !=
-          std::string::npos);
+    CHECK(std::string(f->title).find("A `Node` object made at app.cxy:10 has 100 references, it was 3 at the "
+                                     "baseline, the average is 1.5") != std::string::npos);
+    CHECK(evidence(*f, "baselineMaxRefs") == 3);
     CHECK(std::string(f->see) == "cxy utils mem refs 5");
 }
 
@@ -1472,6 +1587,16 @@ TEST_CASE("Mem rules H1: boundaries")
     w.specs[1].maxRefs = 999;
     CHECK(find(w.run(), memRuleH1) == nullptr);
     w.specs[1].maxRefs = 1000;
+    CHECK(find(w.run(), memRuleH1) != nullptr);
+}
+
+TEST_CASE("Mem rules H1: a count that was as high at the baseline is not reported")
+{
+    Window w = healthy();
+    w.specs[0].maxRefs = 100;
+    w.specs[1].maxRefs = 100;
+    CHECK(find(w.run(), memRuleH1) == nullptr);
+    w.specs[1].maxRefs = 101;
     CHECK(find(w.run(), memRuleH1) != nullptr);
 }
 
@@ -1500,41 +1625,54 @@ TEST_CASE("Mem rules H1: not run when the program could not read the counts")
 
 /* M1 */
 
-TEST_CASE("Mem rules M1: the process holds much more than the traced heap")
+TEST_CASE("Mem rules M1: the process grew much more than the traced heap")
 {
     Window w = healthy();
     w.specs[1].rssBytes = 64u << 20;
     const MemFinding *f = find(w.run(), memRuleM1);
     REQUIRE(f != nullptr);
     CHECK(f->severity == memInfo);
-    CHECK(evidence(*f, "rssBytes") == 64 * 1024 * 1024);
-    CHECK(evidence(*f, "tracedBytes") == 1600);
     // the baseline had 8 MB: the process grew, the traced heap did not
-    CHECK(evidence(*f, "rssDelta") == 56 * 1024 * 1024);
-    CHECK(evidence(*f, "tracedDelta") == 0);
-    CHECK(std::string(f->title).find("The process holds 64.0 MB but only 1.6 KB is in the traced heap") !=
-          std::string::npos);
+    CHECK(evidence(*f, "rssGrowth") == 56 * 1024 * 1024);
+    CHECK(evidence(*f, "tracedGrowth") == 0);
+    CHECK(evidence(*f, "rssBytes") == 64 * 1024 * 1024);
+    CHECK(std::string(f->title).find("The process grew by 56.0 MB since the baseline but the traced heap by "
+                                     "0 B") != std::string::npos);
 }
 
 TEST_CASE("Mem rules M1: boundaries")
 {
-    Window w = healthy();
-    w.specs[1].rssBytes = (32u << 20) - 1; // below the minimum
+    Window w = healthy(); // the baseline holds 8 MB
+    w.specs[1].rssBytes = (16u << 20) - 1; // grew by less than the minimum of 8 MB
     CHECK(find(w.run(), memRuleM1) == nullptr);
-    w.specs[1].rssBytes = 32u << 20;
+    w.specs[1].rssBytes = 16u << 20;
     CHECK(find(w.run(), memRuleM1) != nullptr);
 
-    // the traced heap is a quarter of the process: not a gap
-    w.specs[1].objectBytes = 8u << 20;
+    // the traced heap grew by a quarter of that: not a gap
+    w.specs[1].objectBytes = 1600 + (2u << 20);
     CHECK(find(w.run(), memRuleM1) == nullptr);
-    w.specs[1].objectBytes = (8u << 20) - 1;
+    w.specs[1].objectBytes = 1600 + (2u << 20) - 1;
     CHECK(find(w.run(), memRuleM1) != nullptr);
+}
+
+TEST_CASE("Mem rules M1: a process that was big at the mark and did not grow is fine")
+{
+    Window w = healthy();
+    w.specs[0].rssBytes = 512u << 20;
+    w.specs[1].rssBytes = 512u << 20;
+    const MemReport &r = w.run();
+    CHECK(ran(r, memRuleM1));
+    CHECK(find(r, memRuleM1) == nullptr);
 }
 
 TEST_CASE("Mem rules M1: not run when the process size is unknown")
 {
     Window w = healthy();
     w.specs[1].rssBytes = 0;
+    CHECK_FALSE(ran(w.run(), memRuleM1));
+    w = healthy();
+    w.specs[0].rssBytes = 0; // the baseline does not know it
+    w.specs[1].rssBytes = 64u << 20;
     CHECK_FALSE(ran(w.run(), memRuleM1));
 }
 

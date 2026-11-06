@@ -80,6 +80,7 @@ static void parseSites(const cJSON *array, MemSnapshot *s)
         site->fresh = numberOf(item, "aliveSinceMark");
         site->bufferAllocs = numberOf(item, "bufferAllocs");
         site->liveBuffers = numberOf(item, "liveBuffers");
+        site->freshBuffers = numberOf(item, "freshBuffers");
         site->young = numberOf(item, "young");
     }
 }
@@ -92,7 +93,8 @@ static MemNode parseNode(const cJSON *item)
                      .file = stringOf(item, "file"),
                      .line = numberOf(item, "line"),
                      .size = numberOf(item, "size"),
-                     .refs = numberOf(item, "refs")};
+                     .refs = numberOf(item, "refs"),
+                     .gen = numberOf(item, "gen")};
 }
 
 static void freeNode(MemNode *n)
@@ -116,6 +118,7 @@ static void parseRoots(const cJSON *array, MemSnapshot *s)
         r->exclusiveObjects = numberOf(item, "exclusiveObjects");
         r->reachBytes = numberOf(item, "reachBytes");
         r->reachObjects = numberOf(item, "reachObjects");
+        r->exclusiveFreshBytes = numberOf(item, "exclusiveFreshBytes");
     }
 }
 
@@ -132,6 +135,7 @@ static void parseCycles(const cJSON *doc, MemSnapshot *s)
         MemCycle *c = &s->cycles[s->cycleCount++];
         c->nodes = numberOf(item, "nodes");
         c->bytes = numberOf(item, "bytes");
+        c->freshNodes = numberOf(item, "freshNodes");
         const cJSON *members = member(item, "members");
         u32 m = isArray(members) ? (u32)cJSON_GetArraySize(members) : 0;
         c->members = calloc(m + 1, sizeof(MemNode));
@@ -151,6 +155,11 @@ static void parseGraph(const cJSON *graph, MemSnapshot *s)
     const cJSON *external = member(graph, "external");
     s->externalObjects = numberOf(external, "objects");
     s->externalRefs = numberOf(external, "refs");
+    s->externalFreshObjects = numberOf(external, "freshObjects");
+    s->externalFreshRefs = numberOf(external, "freshRefs");
+    const cJSON *fresh = member(graph, "fresh");
+    s->freshObjects = numberOf(fresh, "objects");
+    s->freshBytes = numberOf(fresh, "bytes");
     parseRoots(member(member(graph, "retained"), "roots"), s);
     parseCycles(member(graph, "cycles"), s);
 }

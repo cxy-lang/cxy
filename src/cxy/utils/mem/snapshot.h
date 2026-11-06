@@ -30,6 +30,7 @@ typedef struct {
     u64 fresh;          // alive now and born after the mark
     u64 bufferAllocs;   // of `allocs`, container storage (a regrowth counts)
     u64 liveBuffers;    // of `live`
+    u64 freshBuffers;   // of `fresh`
     u64 young;          // of `fresh`, born in the last tenth of the window
 } MemSiteStat;
 
@@ -37,15 +38,18 @@ typedef struct {
 typedef struct {
     char *kind, *name, *type, *file;
     u64 line, size, refs;
+    u64 gen; // birth tick, newer than the mark means made since
 } MemNode;
 
 typedef struct {
     MemNode node;
     u64 exclusiveBytes, exclusiveObjects, reachBytes, reachObjects;
+    u64 exclusiveFreshBytes; // of exclusiveBytes, what was made since the mark
 } MemRoot;
 
 typedef struct {
     u64 nodes, bytes;
+    u64 freshNodes; // of `nodes`, made since the mark
     MemNode *members;
     u32 memberCount; // the server lists at most 12
 } MemCycle;
@@ -78,6 +82,8 @@ typedef struct {
     bool hasGraph;
     u64 graphNodes, graphEdges;
     u64 externalObjects, externalRefs;
+    u64 externalFreshObjects, externalFreshRefs; // of those, made since the mark
+    u64 freshObjects, freshBytes; // everything alive that was made since the mark
     MemRoot *roots;
     u32 rootCount;
     MemCycle *cycles;

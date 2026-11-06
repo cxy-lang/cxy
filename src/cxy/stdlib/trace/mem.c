@@ -1806,6 +1806,7 @@ typedef struct {
     uint64_t line;
     const char *name; // roots: the global's name
     const char *type; // objects: the class name, when the object has TypeInfo
+    uint64_t gen;     // birth tick, 0 for a root: newer than the mark means made since
     uint32_t refs;    // objects: the strong count when the graph was built
     bool raw;         // a buffer, not an object
     bool root;        // a named global
@@ -1957,6 +1958,7 @@ static bool graphBuild(Graph *g)
                               .size = rec->size,
                               .path = rec->site ? rec->site->file : NULL,
                               .line = rec->site ? rec->site->line : 0,
+                              .gen = rec->birthTick,
                               .raw = rec->kind == KIND_BUFFER};
             if (!node.raw && __cxy_mem_header_refs)
                 node.refs = __cxy_mem_header_refs((void *)node.start);
@@ -2057,6 +2059,7 @@ static void jsonGraphNodeFields(JsonWriter *json, const Graph *g, uint32_t id)
     jsonFieldString(json, "type", n->type);
     jsonFieldString(json, "file", n->path);
     jsonFieldUint(json, "line", n->line);
+    jsonFieldUint(json, "gen", n->gen);
 }
 
 static void jsonGraphNode(JsonWriter *json, const Graph *g, uint32_t id)
@@ -2450,6 +2453,7 @@ static void printTopSites(int fd, const Graph *g, uint32_t *ids, size_t count, s
 typedef struct {
     uint32_t id, slot;
     uint64_t objs, bytes, exObjs, exBytes;
+    uint64_t exFreshBytes; // of exBytes, what was made since the mark
 } RootInfo;
 
 static int compareRootInfo(const void *lhs, const void *rhs)
@@ -2460,6 +2464,12 @@ static int compareRootInfo(const void *lhs, const void *rhs)
     if (l->bytes != r->bytes)
         return l->bytes < r->bytes ? 1 : -1;
     return 0;
+}
+
+// Made since the last `mark`. A named global is never new.
+static inline bool isFreshNode(const GraphNode *n)
+{
+    return !n->root && n->gen > __atomic_load_n(&markGen, __ATOMIC_RELAXED);
 }
 
 // A named global counts only for what it owns, not for its own storage
@@ -2568,6 +2578,8 @@ static void graphRetained(int fd, const Graph *g, size_t limit, JsonWriter *json
         else if (claim[v] != GRAPH_MULTI) {
             roots[claim[v] - 1].exObjs++;
             roots[claim[v] - 1].exBytes += g->nodes[v].size;
+            if (isFreshNode(&g->nodes[v]))
+                roots[claim[v] - 1].exFreshBytes += g->nodes[v].size;
         }
     }
 
@@ -2615,6 +2627,7 @@ static void graphRetained(int fd, const Graph *g, size_t limit, JsonWriter *json
             jsonFieldUint(json, "exclusiveObjects", info->exObjs);
             jsonFieldUint(json, "reachBytes", info->bytes);
             jsonFieldUint(json, "reachObjects", info->objs);
+            jsonFieldUint(json, "exclusiveFreshBytes", info->exFreshBytes);
             jsonTopSites(json, sites, found);
             jsonEndObject(json);
         }
@@ -2766,7 +2779,8 @@ static void graphCycles(int fd, const Graph *g, size_t limit, JsonWriter *json)
     uint64_t *bytes = calloc(compCount, sizeof(uint64_t));
     uint8_t *selfLoop = calloc(compCount, 1), *entered = calloc(compCount, 1);
     uint8_t *external = calloc(compCount, 1);
-    if (!size || !order || !bytes || !selfLoop || !entered || !external) {
+    uint32_t *fresh = calloc(compCount, sizeof(uint32_t)); // nodes made since the mark
+    if (!size || !order || !bytes || !selfLoop || !entered || !external || !fresh) {
         reportError(fd, json, json ? "out of memory" : "error: out of memory");
         free(size);
         free(order);
@@ -2774,6 +2788,7 @@ static void graphCycles(int fd, const Graph *g, size_t limit, JsonWriter *json)
         free(selfLoop);
         free(entered);
         free(external);
+        free(fresh);
         free(comp);
         return;
     }
@@ -2782,6 +2797,8 @@ static void graphCycles(int fd, const Graph *g, size_t limit, JsonWriter *json)
         uint32_t c = comp[v];
         size[c]++;
         bytes[c] += nodeBytes(g, v);
+        if (isFreshNode(&g->nodes[v]))
+            fresh[c]++;
         uint32_t incoming = g->inStart[v + 1] - g->inStart[v];
         for (uint32_t k = g->inStart[v]; k < g->inStart[v + 1]; k++) {
             uint32_t u = g->edges[g->inEdge[k]].from;
@@ -2818,6 +2835,7 @@ static void graphCycles(int fd, const Graph *g, size_t limit, JsonWriter *json)
             jsonBeginObject(json);
             jsonFieldUint(json, "nodes", size[c]);
             jsonFieldUint(json, "bytes", bytes[c]);
+            jsonFieldUint(json, "freshNodes", fresh[c]);
             jsonFieldUint(json, "moreMembers", size[c] > 12 ? size[c] - 12 : 0);
             jsonKey(json, "members");
             jsonBeginArray(json);
@@ -2865,6 +2883,7 @@ static void graphCycles(int fd, const Graph *g, size_t limit, JsonWriter *json)
     free(selfLoop);
     free(entered);
     free(external);
+    free(fresh);
     free(comp);
 }
 
@@ -3040,6 +3059,7 @@ typedef struct {
     uint64_t fresh;            // alive now and born after the mark
     uint64_t bufferAllocs;     // of `allocs`, container storage (a regrowth counts)
     uint64_t liveBuffers;      // of `live`
+    uint64_t freshBuffers;     // of `fresh`
     uint64_t young;            // of `fresh`, born in the last tenth of the window
 } SiteStat;
 
@@ -3131,6 +3151,8 @@ static bool collectCounters(CounterSet *s, bool locked)
                 st->liveBuffers++;
             if (rec->birthTick > s->markGen) {
                 st->fresh++;
+                if (rec->kind == KIND_BUFFER)
+                    st->freshBuffers++;
                 if (rec->birthTick > youngFrom)
                     st->young++;
             }
@@ -3229,6 +3251,7 @@ static void jsonCounterSet(JsonWriter *json, const CounterSet *s)
         jsonFieldUint(json, "aliveSinceMark", st->fresh);
         jsonFieldUint(json, "bufferAllocs", st->bufferAllocs);
         jsonFieldUint(json, "liveBuffers", st->liveBuffers);
+        jsonFieldUint(json, "freshBuffers", st->freshBuffers);
         jsonFieldUint(json, "young", st->young);
         jsonEndObject(json);
     }
@@ -3288,18 +3311,42 @@ static void baselineReport(int fd, JsonWriter *json)
 // held outside the heap (a stack, a coroutine, an unnamed global)
 static void jsonGraphExternal(JsonWriter *json, const Graph *g)
 {
-    uint64_t objects = 0, refs = 0;
+    uint64_t objects = 0, refs = 0, freshObjects = 0, freshRefs = 0;
     for (uint32_t v = 0; v < g->count; v++) {
         const GraphNode *n = &g->nodes[v];
         uint32_t incoming = g->inStart[v + 1] - g->inStart[v];
         if (!n->raw && n->refs > incoming) {
             objects++;
             refs += n->refs - incoming;
+            if (isFreshNode(n)) {
+                freshObjects++;
+                freshRefs += n->refs - incoming;
+            }
         }
     }
     jsonBeginObject(json);
     jsonFieldUint(json, "objects", objects);
     jsonFieldUint(json, "refs", refs);
+    jsonFieldUint(json, "freshObjects", freshObjects); // made since the mark
+    jsonFieldUint(json, "freshRefs", freshRefs);
+    jsonEndObject(json);
+}
+
+// What was made since the mark and is alive, objects and buffers
+static void jsonGraphFresh(JsonWriter *json, const Graph *g)
+{
+    uint64_t objects = 0, bytes = 0;
+    for (uint32_t v = 0; v < g->count; v++) {
+        const GraphNode *n = &g->nodes[v];
+        if (!isFreshNode(n))
+            continue;
+        bytes += n->size;
+        if (!n->raw)
+            objects++;
+    }
+    jsonBeginObject(json);
+    jsonFieldUint(json, "objects", objects);
+    jsonFieldUint(json, "bytes", bytes);
     jsonEndObject(json);
 }
 
@@ -3352,6 +3399,8 @@ static void snapshotReport(int fd, JsonWriter *json)
         jsonFieldUint(json, "edges", g.edgeCount);
         jsonKey(json, "external");
         jsonGraphExternal(json, &g);
+        jsonKey(json, "fresh");
+        jsonGraphFresh(json, &g);
         jsonKey(json, "retained");
         graphRetained(fd, &g, 5, json);
         jsonKey(json, "cycles");

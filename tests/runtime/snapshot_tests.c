@@ -90,7 +90,7 @@ static void testMark(void)
     // site B never allocated and has nothing alive: it is left out
     CONTAINS("\"sites\":[{\"file\":\"a.cxy\",\"line\":10,\"column\":5,\"function\":\"fa\","
              "\"allocs\":3,\"bytes\":48,\"live\":3,\"liveBytes\":48,\"aliveSinceMark\":0,"
-             "\"bufferAllocs\":0,\"liveBuffers\":0,\"young\":0}]}");
+             "\"bufferAllocs\":0,\"liveBuffers\":0,\"freshBuffers\":0,\"young\":0}]}");
     CONTAINS("\"rssBytes\":");
     CONTAINS("\"refs\":{\"count\":3,\"maxRefs\":1,\"totalRefs\":3,\"maxType\":\"Node\","
              "\"maxFile\":\"a.cxy\",\"maxLine\":10}");
@@ -119,6 +119,7 @@ static void testCounters(void)
     CHECK(s.sites[1].allocs == 1 && s.sites[1].live == 1 && s.sites[1].fresh == 1);
     // the buffer counts as a buffer, and a regrowth would be one more
     CHECK(s.sites[1].bufferAllocs == 1 && s.sites[1].liveBuffers == 1);
+    CHECK(s.sites[1].freshBuffers == 1); // made after the mark
     CHECK(s.sites[0].bufferAllocs == 0 && s.sites[0].liveBuffers == 0);
     CHECK(s.rssBytes > 0);
     CHECK(s.refCount == 4 && s.maxRefs == 1 && s.totalRefs == 4);
@@ -143,15 +144,16 @@ static void testSnapshot(void)
     CONTAINS("\"buffers\":{\"count\":1,\"bytes\":64}");
     CONTAINS("\"sites\":[{\"file\":\"a.cxy\",\"line\":10,\"column\":5,\"function\":\"fa\","
              "\"allocs\":5,\"bytes\":80,\"live\":4,\"liveBytes\":64,\"aliveSinceMark\":2,"
-             "\"bufferAllocs\":0,\"liveBuffers\":0,\"young\":0},"
+             "\"bufferAllocs\":0,\"liveBuffers\":0,\"freshBuffers\":0,\"young\":0},"
              "{\"file\":\"b.cxy\",\"line\":20,\"column\":7,\"function\":\"fb\","
              "\"allocs\":1,\"bytes\":64,\"live\":1,\"liveBytes\":64,\"aliveSinceMark\":1,"
-             "\"bufferAllocs\":1,\"liveBuffers\":1,\"young\":0}]");
+             "\"bufferAllocs\":1,\"liveBuffers\":1,\"freshBuffers\":1,\"young\":0}]");
     CONTAINS("\"refs\":{\"count\":4,\"maxRefs\":1,\"totalRefs\":4,\"maxType\":\"Node\","
              "\"maxFile\":\"a.cxy\",\"maxLine\":10}");
     CONTAINS(",\"hasBaseline\":true,\"approximate\":0,\"graph\":{\"nodes\":5,\"edges\":0,");
     // four objects with one reference each and nothing in the heap owning them
-    CONTAINS("\"external\":{\"objects\":4,\"refs\":4}");
+    CONTAINS("\"external\":{\"objects\":4,\"refs\":4,\"freshObjects\":2,\"freshRefs\":2},"
+             "\"fresh\":{\"objects\":2,\"bytes\":96}");
     CONTAINS("\"cycles\":{\"cycles\":[],\"total\":0,\"bytes\":0,\"limited\":false,\"approximate\":0}");
     CONTAINS("\"dangling\":{\"dangling\":[],\"total\":0,\"approximate\":0}}");
 }

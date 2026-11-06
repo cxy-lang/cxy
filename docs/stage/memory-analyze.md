@@ -197,18 +197,21 @@ the samples, so "the last three" can include the baseline.
   is `likely` when the survivors grew in each of the last three snapshots, `watch`
   otherwise, `info` when G2 says the growth is slowing.
 - G2 only reports when it lowered a G1 finding.
-- G3 ignores a type that nothing was made of since the baseline.
+- G3 uses the changes since the baseline: at least `minCount` made and none freed.
+  Without a baseline it uses the totals.
 - C1 and D1 are `definite` whatever the activity. K1 is `info`.
+- **Since the mark.** With a baseline every rule reports what happened after it, not
+  the state of the program (see "Since the mark" below). D1 is the exception.
 - Verdict: the worst finding at `watch` or above, else `ok`, or `not enough activity`.
 
 ### As built (rules X1, B1, H1, M1, A1)
 
 | Id | What it checks | Setting (default) | Severity |
 |---|---|---|---|
-| X1 | objects with references nothing in the heap accounts for (`snapshot.graph.external`) | `minExternal` (100 objects) | `watch`, `likely` when the count grew in each of the last three snapshots |
-| B1 | buffer allocations at a site since the baseline (a regrowth counts) against the buffers alive | `minCount` (100), `bufferChurn` (10 allocations per buffer alive) | `info` |
-| H1 | the object with the most references against the average (`snapshot.refs`) | `minRefs` (100), `refsRatio` (20) | `watch`, `likely` when the highest count grew in each of the last three |
-| M1 | process memory (`rssBytes`, read by the program) against the traced bytes | `minRssBytes` (32 MB), `rssShare` (0.25) | `info`, with the growth of both when there is a baseline |
+| X1 | objects made since the baseline with references nothing in the heap accounts for (`snapshot.graph.external.freshObjects`) | `minExternal` (100 objects) | `watch`, `likely` when the count grew in each of the last three snapshots |
+| B1 | buffer allocations at a site since the baseline (a regrowth counts) against the buffers of those still alive (`freshBuffers`) | `minCount` (100), `bufferChurn` (10 allocations per buffer alive) | `info` |
+| H1 | the object with the most references against the average (`snapshot.refs`), only when the highest count went up since the baseline | `minRefs` (100), `refsRatio` (20) | `watch`, `likely` when the highest count grew in each of the last three |
+| M1 | how much the process grew (`rssBytes`) against how much the traced heap grew, both since the baseline | `minRssGrowth` (8 MB), `rssShare` (0.25) | `info` |
 | A1 | survivors of a G1 site that were made in the last tenth of the ticks since the mark (`young`) | `youngRatio` (0.5) | `info`, and the G1 finding becomes `info` |
 
 What the server added to every counter set for them: per site `bufferAllocs`,
@@ -218,6 +221,28 @@ about a tenth of its survivors in the last tenth, a burst of work in flight has 
 of them, that is what A1 separates. B1 cannot tell a container that regrows from a
 new one made for each piece of work, the advice (reserve the capacity or reuse it)
 fits both.
+
+### Since the mark
+
+The user marks, runs the workload and asks for a report: it is about what changed
+after the mark. The server dates every object (`gen`, its birth tick, against the tick
+of the mark) so the graph answers can split what is old from what is new.
+
+| Rule | Judged on |
+|---|---|
+| G1, G2, Z1, A1 | already relative: deltas against the baseline, or objects born after the mark |
+| G3 | `allocs` and `frees` of the type since the baseline: at least `minCount` made, none freed |
+| C1 | only cycles with a member made after the mark (`freshNodes`), the evidence has it |
+| K1 | the root with most `exclusiveFreshBytes` against `graph.fresh.bytes`, everything made since the mark |
+| X1 | `external.freshObjects`, objects made since the mark that are held from outside |
+| B1 | `freshBuffers`, the buffers of that site made since the mark and still alive |
+| H1 | fires only when the highest count is above the baseline's |
+| M1 | growth of the process against growth of the traced heap, needs `rssBytes` in the baseline |
+| D1 | **not dated.** A borrow that dangles is a bug whenever it was made |
+
+Without a baseline (a first call before any mark) G3, K1, X1 and H1 fall back to the
+totals, the other rules that compare do not run. An old leak made before the mark is
+still in the exit report and in `cycles`, `analyze` no longer says it is new.
 
 ### Looking into suspects
 
