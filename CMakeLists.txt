@@ -150,7 +150,9 @@ set(CXY_PACKAGE_SOURCES
         src/cxy/utils/commands/async_cmd.c
         src/cxy/utils/commands/wait_for.c
         src/cxy/utils/commands/lock.c
-        src/cxy/utils/commands/mem.c)
+        src/cxy/utils/commands/mem.c
+        src/cxy/utils/mem/snapshot.c
+        src/cxy/utils/mem/rules.c)
 
 
 set(CXY_3RD_PARTY_SOURCES
@@ -697,6 +699,7 @@ if (ENABLE_UNIT_TESTS)
             tests/lang/parser/parser_utils.cpp
             tests/unit/test_utils.cpp
             tests/unit/test_warnings.cpp
+            tests/unit/test_mem_analyze.cpp
             tests/unit/test_types_null.cpp
             tests/lang/middle/test_ownership_verify.cpp
             tests/package/test_semver.cpp

@@ -169,6 +169,30 @@ Rates use the wall-clock time between samples, taken by the server, so the clien
 being slow does not matter. They allow statements like "+1.7 objects/s, about
 +40 B/s, roughly +144 KB per hour at this rate".
 
+### As built (rules G1, G2, G3, C1, D1, Z1, K1)
+
+Code: `src/cxy/utils/mem/rules.c`. The series of snapshots is the baseline followed by
+the samples, so "the last three" can include the baseline.
+
+| Setting | Default | Used by |
+|---|---|---|
+| `minCount` | 100 | G1 objects made, G3 allocations |
+| `minRatio` | 0.9 | G1 alive / made |
+| `minActivity` | 100 | objects allocated in the window, below it with no finding the verdict is `not enough activity` |
+| `plateauFactor` | 0.5 | G2 latest growth rate at most this part of the previous one (rates when the snapshots are unevenly spaced) |
+| `minZombies` | 10 | Z1 growth below it is noise |
+| `concentration`, `concentrationBytes` | 0.8, 1 MB | K1 |
+| `maxSiteFindings` | 5 | G1 reports the sites with the most survivors |
+| `ignoreTypes` | none | G3 runtime types to skip |
+
+- G1 compares `allocs` with the baseline's and takes `aliveSinceMark` as survivors. It
+  is `likely` when the survivors grew in each of the last three snapshots, `watch`
+  otherwise, `info` when G2 says the growth is slowing.
+- G2 only reports when it lowered a G1 finding.
+- G3 ignores a type that nothing was made of since the baseline.
+- C1 and D1 are `definite` whatever the activity. K1 is `info`.
+- Verdict: the worst finding at `watch` or above, else `ok`, or `not enough activity`.
+
 ### Looking into suspects
 
 For the highest ranked sites (default 3) the client:
@@ -311,7 +335,7 @@ In order. Each step is testable alone.
 - [x] `json` output for the graph commands: `holders`, `path`, `edges`, `tree`, `roots`, `retained`, `cycles`, `contains`
 - [x] `mark` stores a baseline, `baseline` reports it, `snapshot` command, runtime tests
 - [x] `refs [n]` command
-- [ ] rule engine and its unit tests: G1, G2, G3, C1, D1, Z1, K1
+- [x] rule engine and its unit tests: G1, G2, G3, C1, D1, Z1, K1 (`src/cxy/utils/mem/`, `tests/unit/test_mem_analyze.cpp`)
 - [ ] `analyze` client: first call marks, second reports, text output, exit codes
 - [ ] `analyze --json`
 - [ ] `analyze --watch` and `--samples`
