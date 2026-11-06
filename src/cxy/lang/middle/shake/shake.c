@@ -911,8 +911,57 @@ static void shakeGroupExpr(AstVisitor *visitor, AstNode *node)
     astVisitFallbackVisitAll(visitor, node);
 }
 
+// An operand that runs only on some paths is shaken inside a block of its own, so
+// what shake hoists out of it (the builder of an `f"..."`) stays on that path.
+// When nothing was hoisted the block is dropped again.
+static void shakeLazyOperand(AstVisitor *visitor, AstNode **slot)
+{
+    ShakeAstContext *ctx = getAstVisitorContext(visitor);
+    AstNode *expr = *slot;
+    if (expr == NULL)
+        return;
+
+    AstNode *next = expr->next;
+    expr->next = NULL;
+    AstNode *exprStmt =
+        makeExprStmt(ctx->pool, &expr->loc, flgNone, expr, NULL, NULL);
+    AstNode *block = makeBlockStmt(ctx->pool, &expr->loc, exprStmt, NULL, NULL);
+    block->flags |= flgBlockReturns;
+    astVisit(visitor, block);
+
+    if (block->blockStmt.stmts == exprStmt && exprStmt->next == NULL) {
+        expr->next = next;
+        return;
+    }
+    *slot = makeStmtExpr(ctx->pool, &expr->loc, flgNone, block, next, NULL);
+}
+
+static void shakeTernaryExpr(AstVisitor *visitor, AstNode *node)
+{
+    astVisit(visitor, node->ternaryExpr.cond);
+    shakeLazyOperand(visitor, &node->ternaryExpr.body);
+    shakeLazyOperand(visitor, &node->ternaryExpr.otherwise);
+}
+
+// `x catch y` evaluates `y` only when `x` failed. A block is a scope already.
+static void shakeCatchExpr(AstVisitor *visitor, AstNode *node)
+{
+    astVisit(visitor, node->catchExpr.expr);
+    astVisit(visitor, node->catchExpr.var);
+    if (nodeIs(node->catchExpr.body, BlockStmt))
+        astVisit(visitor, node->catchExpr.body);
+    else
+        shakeLazyOperand(visitor, &node->catchExpr.body);
+}
+
 static void shakeBinaryExpr(AstVisitor *visitor, AstNode *node)
 {
+    Operator op = node->binaryExpr.op;
+    if (op == opLAnd || op == opLOr || op == opCoalesce) {
+        astVisit(visitor, node->binaryExpr.lhs);
+        shakeLazyOperand(visitor, &node->binaryExpr.rhs);
+        return;
+    }
     astVisitFallbackVisitAll(visitor, node);
 }
 
@@ -1524,6 +1573,8 @@ AstNode *shakeAstNode(CompilerDriver *driver, AstNode *node)
         [astCallExpr] = shakeCallExpr,
         [astGroupExpr] = shakeGroupExpr,
         [astBinaryExpr] = shakeBinaryExpr,
+        [astTernaryExpr] = shakeTernaryExpr,
+        [astCatchExpr] = shakeCatchExpr,
         [astExprStmt] = shakeExprStmt,
         [astMatchStmt] = shakeMatchStmt,
         [astReturnStmt] = shakeReturnStmt,

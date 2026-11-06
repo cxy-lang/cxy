@@ -693,6 +693,7 @@ if (ENABLE_UNIT_TESTS)
             tests/lang/middle/lower/test_member_rvalue.cpp
             tests/lang/middle/lower/test_type.cpp
             tests/lang/middle/lower/test_conditions.cpp
+            tests/lang/middle/lower/test_conditional_operands.cpp
             tests/lang/middle/test_memory_pass_bugs.cpp
             tests/lang/parser/test_literals.cpp
             tests/lang/parser/test_primitive_types.cpp
