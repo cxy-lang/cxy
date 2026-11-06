@@ -1,6 +1,7 @@
 #include "operands.h"
 
 #include "lang/frontend/flag.h"
+#include "lang/frontend/strings.h"
 
 #include "lang/middle/ir/visitor.h"
 
@@ -44,6 +45,20 @@ bool isResultPayloadPlace(const IrNode *node)
     const IrNode *root = val->member.target;
     return root && root->tag == irVarRef && root->varRef.target &&
            irValueClass(root->varRef.target) == irClassResult;
+}
+
+const IrNode *optionalPayloadOwner(const IrNode *node)
+{
+    while (node && node->tag == irCast)
+        node = node->cast.expr;
+    if (node == NULL || node->tag != irMember || node->member.index != 1 ||
+        node->member.name != S_val || !isIrTypeDestructible(node->type))
+        return NULL;
+    const IrNode *target = node->member.target;
+    if (target == NULL || target->tag != irVarRef || !target->varRef.target ||
+        getIrOptionalTypeTarget(target->type) == NULL)
+        return NULL;
+    return target->varRef.target;
 }
 
 bool isOwnerConsumingValue(const IrNode *rhs)

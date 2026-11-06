@@ -97,6 +97,15 @@ static void scanOperand(UseScan *scan, IrNode *node, bool owned, bool stored)
             recordUse(scan, use, owned, stored);
         return;
     }
+    // `t.val` of an optional taken by its consumer is the whole of `t` taken
+    const IrNode *taken = owned ? optionalPayloadOwner(node) : NULL;
+    if (taken) {
+        TempUse *use = findUse(scan, taken);
+        if (use) {
+            recordUse(scan, use, true, stored);
+            return;
+        }
+    }
     irForEachOperandSlot(node, scanSlot, scan);
 }
 

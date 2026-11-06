@@ -47,6 +47,11 @@ bool isUnwrappedCallResult(const IrNode *src);
 // taken until a consumer moves it out
 bool isResultPayloadPlace(const IrNode *node);
 
+// `t.val` of an optional variable `t`, under any casts: the temporary behind it, or
+// NULL. An optional owns only its payload, so a consumer that takes `t.val` takes the
+// whole of `t`, and what is left of `t` owns nothing.
+const IrNode *optionalPayloadOwner(const IrNode *node);
+
 // A value that owns what it holds, a consumer takes it over
 bool isOwnerConsumingValue(const IrNode *rhs);
 

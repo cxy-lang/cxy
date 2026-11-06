@@ -1096,6 +1096,16 @@ static void scanTempOperand(TempScan *scan, const IrNode *node, bool owned)
         f->lastRead = scan->stmtIndex;
         return;
     }
+    // `t.val` of an optional taken by its consumer is the whole of `t` taken
+    const IrNode *taken = owned ? optionalPayloadOwner(node) : NULL;
+    TempFacts *takenFacts = taken ? factsOf(scan, taken) : NULL;
+    if (takenFacts) {
+        takenFacts->owned++;
+        takenFacts->read = true;
+        takenFacts->lastReadBlock = scan->block;
+        takenFacts->lastRead = scan->stmtIndex;
+        return;
+    }
     irForEachOperandSlot((IrNode *)node, scanTempSlot, scan);
 }
 

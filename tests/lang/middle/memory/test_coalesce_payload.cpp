@@ -60,6 +60,39 @@ TEST_CASE("Coalesce payload: nothing is dropped before the branch")
     CHECK(cont.substr(0, branch).find("(Drop") == std::string::npos);
 }
 
+// `a ?? null` is `t = a; t.ok ? take(t.val) : null`: the payload moves out of `t`, so
+// there is no retain on the `then` path, and `t` has nothing left to drop
+TEST_CASE("Coalesce payload: the then path takes the payload, it does not copy it")
+{
+    TestCompiler cc(memoryStage());
+    REQUIRE(cc.compile(program));
+    INFO(cc.diagnostics());
+
+    const std::string ir = cc.function("orNull").sexpr();
+    const std::string then = blockOf(ir, "_L_COALESCE0_then");
+    REQUIRE_FALSE(then.empty());
+    CHECK(then.find("(Copy") == std::string::npos);
+    CHECK(then.find("(Drop") == std::string::npos);
+    // what was taken is not tracked: no drop flag, no drop at exit
+    CHECK(ir.find("__drop_flags) __t") == std::string::npos);
+    CHECK(ir.find("(DropIf (VarRef __t") == std::string::npos);
+    CHECK(ir.find("(Drop (VarRef __t") == std::string::npos);
+}
+
+TEST_CASE("Coalesce payload: a variable on the left is still copied, it keeps its value")
+{
+    TestCompiler cc(memoryStage());
+    REQUIRE(cc.compile(std::string(program) + R"(
+func keep(y: Node?): Node {
+    return y ?? null
+}
+)"));
+    INFO(cc.diagnostics());
+
+    const std::string ir = cc.function("keep").sexpr();
+    CHECK(blockOf(ir, "_L_COALESCE0_then").find("(Copy") != std::string::npos);
+}
+
 TEST_CASE("Coalesce payload: the value reaches the variable, and the verifier is content")
 {
     TestCompiler cc(memoryStage());
