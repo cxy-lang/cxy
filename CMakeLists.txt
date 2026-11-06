@@ -154,7 +154,8 @@ set(CXY_PACKAGE_SOURCES
         src/cxy/utils/commands/mem_analyze.c
         src/cxy/utils/mem/snapshot.c
         src/cxy/utils/mem/rules.c
-        src/cxy/utils/mem/report.c)
+        src/cxy/utils/mem/report.c
+        src/cxy/utils/mem/watch.c)
 
 
 set(CXY_3RD_PARTY_SOURCES
@@ -702,6 +703,7 @@ if (ENABLE_UNIT_TESTS)
             tests/unit/test_utils.cpp
             tests/unit/test_warnings.cpp
             tests/unit/test_mem_analyze.cpp
+            tests/unit/test_mem_watch.cpp
             tests/unit/test_types_null.cpp
             tests/lang/middle/test_ownership_verify.cpp
             tests/package/test_semver.cpp

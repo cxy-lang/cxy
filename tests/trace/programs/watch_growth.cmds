@@ -1,0 +1,10 @@
+# analyze --watch takes the baseline and the snapshots itself while the worker grows
+# the cache. How much it grew depends on timing, so the numbers are masked: what is
+# checked is the shape of the report and that three snapshots tell "likely".
+@mask
+analyze --watch 900ms --samples 3
+@mask
+analyze --watch 900ms --samples 3 --json
+analyze --watch nope
+analyze --watch 1s --samples 0
+analyze --watch 1s --reset

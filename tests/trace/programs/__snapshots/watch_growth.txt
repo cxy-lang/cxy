@@ -1,0 +1,30 @@
+$ analyze --watch 900ms --samples 3
+watching for N ms: N snapshots, one every N ms
+verdict: LIKELY PROBLEM                  window: Ns, N samples
+
+memory       live N KB in N objects (+N objects since the baseline)
+             buffers N KB   zombies N
+growth       +N KB (objects and buffers), +N objects/s, +N KB/s
+
+[likely]   GN Objects made at <ROOT>/tests/trace/programs/watch_growth.cxy:N are not freed: N of N made since the baseline are alive
+    fix: find what keeps them with `cxy utils mem path <ptr>`
+    see: cxy utils mem difflist N
+
+[watch]    GN No Node object was ever freed: N made
+    fix: check who owns them with `cxy utils mem sites`
+    see: cxy utils mem types
+
+ok: no leaked cycles, no dangling borrows, no growing zombies, no root holding most of the heap
+$ analyze --watch 900ms --samples 3 --json
+watching for N ms: N snapshots, one every N ms
+{"version":N,"program":{"pid":N},"window":{"seconds":N,"samples":N,"baseline":true},"approximate":false,"enoughActivity":true,"plateau":false,"verdict":"likely","totals":{"objects":{"count":N,"bytes":N,"deltaCount":N},"buffers":{"count":N,"bytes":N},"zombies":{"count":N,"bytes":N},"deltaBytes":N},"rates":{"objectsPerSecond":N,"bytesPerSecond":N},"findings":[{"id":"GN","severity":"likely","subject":"<ROOT>/tests/trace/programs/watch_growth.cxy:N","title":"Objects made at <ROOT>/tests/trace/programs/watch_growth.cxy:N are not freed: N of N made since the baseline are alive","fix":"find what keeps them with `cxy utils mem path <ptr>`","evidence":{"made":N,"alive":N,"ratio":N,"samplesGrowing":N},"suggest":["cxy utils mem difflist N"]},{"id":"GN","severity":"watch","subject":"Node","title":"No Node object was ever freed: N made","fix":"check who owns them with `cxy utils mem sites`","evidence":{"allocs":N,"frees":N},"suggest":["cxy utils mem types"]}],"checked":["GN","CN","DN","ZN","KN"],"notChecked":[],"suspects":[]}
+$ analyze --watch nope
+[1;31merror[0m: invalid --watch 'nope', use a duration such as 30s, 2m or 500ms
+[exit 1]
+$ analyze --watch 1s --samples 0
+[1;31merror[0m: --samples must be between 1 and 32
+[exit 1]
+$ analyze --watch 1s --reset
+[1;31merror[0m: --watch always takes a new baseline, drop --reset
+[exit 1]
+$ program output

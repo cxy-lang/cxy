@@ -9,7 +9,9 @@
 # argument the script runs every program and compares by itself.
 #
 # Command file lines: a trace query (`summary`, `sites`, `mark`, ...), `@next`
-# (release the program to its next waitForHarness() call), `#` comments. A query
+# (release the program to its next waitForHarness() call), `#` comments, `@mask`
+# (every number in the output of the next query becomes N: for a query whose numbers
+# depend on timing, like `analyze --watch`). A query
 # that exits with a code other than 0 adds an `[exit N]` line. In a
 # query `<live:N>` is the address of the Nth live allocation of `list`.
 
@@ -135,10 +137,13 @@ run_program() {
             return 1
         fi
 
-        local line
+        local line mask=""
         while IFS= read -r line || [ -n "$line" ]; do
             case "$line" in
                 ''|'#'*) continue ;;
+                '@mask')
+                    mask=1
+                    ;;
                 '@next')
                     echo "@next" >> "$work/result.txt"
                     phase=$((phase + 1))
@@ -152,9 +157,18 @@ run_program() {
                     echo "\$ $line" >> "$work/result.txt"
                     local expanded
                     expanded=$(expand_live "$sock" "$line")
-                    # shellcheck disable=SC2086
-                    "$CXY" utils mem --socket "$sock" $expanded nosym >> "$work/result.txt" 2>&1
-                    local code=$?
+                    local code
+                    if [ -n "$mask" ]; then
+                        # shellcheck disable=SC2086
+                        "$CXY" utils mem --socket "$sock" $expanded nosym 2>&1 |
+                            sed -E 's/[0-9]+(\.[0-9]+)?/N/g' >> "$work/result.txt"
+                        code=${PIPESTATUS[0]}
+                        mask=""
+                    else
+                        # shellcheck disable=SC2086
+                        "$CXY" utils mem --socket "$sock" $expanded nosym >> "$work/result.txt" 2>&1
+                        code=$?
+                    fi
                     [ $code -ne 0 ] && echo "[exit $code]" >> "$work/result.txt"
                     ;;
             esac

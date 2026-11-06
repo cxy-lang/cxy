@@ -277,6 +277,8 @@ typedef struct Options {
             const char *memFailOn;   // analyze: severity that makes it exit 3
             bool memReset;           // analyze: take a new baseline
             bool memJson;            // analyze: print JSON, not text
+            const char *memWatch;    // analyze: watch for this long (empty = no)
+            i64 memSamples;          // analyze: snapshots to take while watching
         } utils;
     };
 } Options;

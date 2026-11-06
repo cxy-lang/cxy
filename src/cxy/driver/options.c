@@ -682,7 +682,9 @@ Command(utils,
     f(utils.memTimeout, Local, Int, 2, ## __VA_ARGS__)                         \
     f(utils.memFailOn, Local, String, 3, ## __VA_ARGS__)                       \
     f(utils.memReset, Local, Option, 4, ## __VA_ARGS__)                        \
-    f(utils.memJson, Local, Option, 5, ## __VA_ARGS__)
+    f(utils.memJson, Local, Option, 5, ## __VA_ARGS__)                         \
+    f(utils.memWatch, Local, String, 6, ## __VA_ARGS__)                        \
+    f(utils.memSamples, Local, Int, 7, ## __VA_ARGS__)
 // clang-format on
 
 static void parseSpaceSeperatedList(DynArray *into,
@@ -1324,7 +1326,15 @@ static int parseUtilsCommand(
             Def("")),
         Opt(Name("reset"),
             Help("analyze: drop the baseline and take a new one")),
-        Opt(Name("json"), Help("analyze: print the report as JSON")));
+        Opt(Name("json"), Help("analyze: print the report as JSON")),
+        Str(Name("watch"),
+            Help("analyze: take a baseline, watch for this long (e.g. 30s, 2m, "
+                 "500ms) and report on what was seen"),
+            Def("")),
+        Int(Name("samples"),
+            Help("analyze --watch: snapshots to take after the baseline, at equal "
+                 "intervals (1 to 32)"),
+            Def("3")));
 
     mem_trace.meta.name = "mem";
 

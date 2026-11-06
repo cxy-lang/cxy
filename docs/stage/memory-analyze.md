@@ -50,8 +50,13 @@ cxy utils mem analyze --watch 30s            # 3 samples over 30 seconds
 cxy utils mem analyze --watch 30s --samples 5
 ```
 
-`--watch` takes the baseline, takes the remaining samples at equal intervals and
-analyzes them together. Several samples matter: with two a warm-up looks like a
+`--watch` takes a new baseline, then `--samples` snapshots (default 3) at equal
+intervals, the last at the end of the window, and analyzes them together. The k-th
+snapshot is taken at k times the interval from the start, a slow snapshot does not
+push the next ones back. Progress goes to stderr, the report to stdout, so `--json`
+stays parseable. A duration is `500ms`, `30s`, `2m`, `1h` or a number of seconds.
+`--watch` cannot be combined with `--reset` (it always takes a new baseline).
+Code: `src/cxy/utils/mem/watch.c`. Several samples matter: with two a warm-up looks like a
 leak, with three or more the growth rate says whether it is still growing or has
 flattened (section 5, rule G2). `--watch` is just a loop in the client, it needs
 nothing the baseline mechanism does not already have.
@@ -348,7 +353,7 @@ In order. Each step is testable alone.
 - [x] rule engine and its unit tests: G1, G2, G3, C1, D1, Z1, K1 (`src/cxy/utils/mem/`, `tests/unit/test_mem_analyze.cpp`)
 - [x] `analyze` client: first call marks, second reports, text output, exit codes (`--fail-on`, `--reset`; `src/cxy/utils/commands/mem_analyze.c`, `src/cxy/utils/mem/report.c`)
 - [x] `analyze --json`
-- [ ] `analyze --watch` and `--samples`
+- [x] `analyze --watch` and `--samples`
 - [ ] suspect introspection: sampling, `path`, grouping by shape (R1)
 - [ ] rules X1, B1, H1, M1, A1
 - [ ] end to end trace programs (healthy, leak, cache, plateau, cycle, dangling, zombie)
