@@ -310,7 +310,7 @@ In order. Each step is testable alone.
 - [x] `json` output for `list`, `diff`, `difflist`, `zombies`, `dangling`
 - [x] `json` output for the graph commands: `holders`, `path`, `edges`, `tree`, `roots`, `retained`, `cycles`, `contains`
 - [x] `mark` stores a baseline, `baseline` reports it, `snapshot` command, runtime tests
-- [ ] `refs [n]` command
+- [x] `refs [n]` command
 - [ ] rule engine and its unit tests: G1, G2, G3, C1, D1, Z1, K1
 - [ ] `analyze` client: first call marks, second reports, text output, exit codes
 - [ ] `analyze --json`

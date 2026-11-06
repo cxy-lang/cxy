@@ -1,3 +1,5 @@
 # one object with three owners: one allocation, refs=3
 summary
 list 5
+refs 5
+refs json

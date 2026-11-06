@@ -7,4 +7,9 @@ mark: 0
 $ list 5
 ptr=PTR size=4 refs=3 @ <ROOT>/tests/trace/programs/shared_refs.cxy:10
 Total: 1 live allocations (4 bytes)
+$ refs 5
+ptr=PTR size=4 refs=3 @ <ROOT>/tests/trace/programs/shared_refs.cxy:10 (Node)
+Total: 1 objects, max refs 3
+$ refs json
+{"objects":[{"ptr":"PTR","kind":"object","size":4,"refs":3,"type":"Node","file":"<ROOT>/tests/trace/programs/shared_refs.cxy","line":10,"gen":1}],"count":1,"maxRefs":3,"totalRefs":3,"limited":false}
 $ program output

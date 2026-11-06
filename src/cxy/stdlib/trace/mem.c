@@ -720,6 +720,91 @@ static void liveReportFd(int fd,
     free(snap);
 }
 
+static void jsonErrorTo(JsonWriter *json, const char *message);
+
+typedef struct {
+    LiveEntry entry;
+    uint32_t refs;
+} RefEntry;
+
+// Most references first, the newest first among equals
+static int compareRefsDesc(const void *lhs, const void *rhs)
+{
+    const RefEntry *l = lhs, *r = rhs;
+    if (l->refs != r->refs)
+        return l->refs < r->refs ? 1 : -1;
+    return compareByGenDesc(&l->entry, &r->entry);
+}
+
+// `refs [n]`: the live objects with the most references. A very high count is a
+// hot shared object, or a retain that is never released.
+static void refsReportFd(int fd, size_t limit, JsonWriter *json)
+{
+    size_t count = 0;
+    LiveEntry *snap = liveSnapshot(0, &count);
+    RefEntry *items = malloc((count + 1) * sizeof(RefEntry));
+    if (items == NULL) {
+        free(snap);
+        if (json != NULL)
+            jsonErrorTo(json, "out of memory");
+        else
+            dprintf(fd, "error: out of memory\n");
+        return;
+    }
+    size_t n = 0;
+    uint64_t totalRefs = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (snap[i].buffer)
+            continue;
+        uint32_t refs = __cxy_mem_header_refs ? __cxy_mem_header_refs(snap[i].ptr) : 0;
+        items[n++] = (RefEntry){.entry = snap[i], .refs = refs};
+        totalRefs += refs;
+    }
+    free(snap);
+    qsort(items, n, sizeof(RefEntry), compareRefsDesc);
+    size_t shown = (limit == 0 || limit > n) ? n : limit;
+    uint32_t maxRefs = n > 0 ? items[0].refs : 0;
+
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonKey(json, "objects");
+        jsonBeginArray(json);
+        for (size_t i = 0; i < shown; i++)
+            jsonLiveEntry(json, &items[i].entry);
+        jsonEndArray(json);
+        jsonFieldUint(json, "count", n);
+        jsonFieldUint(json, "maxRefs", maxRefs);
+        jsonFieldUint(json, "totalRefs", totalRefs);
+        jsonFieldBool(json, "limited", shown < n);
+        jsonEndObject(json);
+    }
+    else if (n == 0) {
+        dprintf(fd, "no live objects\n");
+    }
+    else {
+        for (size_t i = 0; i < shown; i++) {
+            const RefEntry *r = &items[i];
+            const char *type = objectTypeName(r->entry.ptr);
+            dprintf(fd,
+                    "ptr=%p size=%llu refs=%u @ %s:%llu%s%s%s\n",
+                    r->entry.ptr,
+                    (unsigned long long)r->entry.size,
+                    (unsigned)r->refs,
+                    r->entry.path ? r->entry.path : "<unknown>",
+                    (unsigned long long)r->entry.line,
+                    type ? " (" : "",
+                    type ? type : "",
+                    type ? ")" : "");
+        }
+        dprintf(fd,
+                "Total: %llu objects, max refs %u%s\n",
+                (unsigned long long)n,
+                (unsigned)maxRefs,
+                shown < n ? ", showing the highest" : "");
+    }
+    free(items);
+}
+
 static int compareSiteKey(const void *lhs, const void *rhs)
 {
     const LiveEntry *l = lhs, *r = rhs;
@@ -1653,6 +1738,7 @@ static void helpFd(int fd)
             "  ring <ptr>           lifecycle timeline of one pointer\n"
             "  mark                 remember the current allocation generation and counters\n"
             "  baseline             what `mark` remembered\n"
+            "  refs [n]             live objects with the most references (default %d)\n"
             "  snapshot json        counters and graph findings in one paused copy (JSON only)\n"
             "  edges <ptr>          what this object owns (exact, from the visit glue)\n"
             "  roots                global variables that own something, and what they own\n"
@@ -1669,6 +1755,7 @@ static void helpFd(int fd)
             "  retained [n]         roots ranked by what only they keep alive\n"
             "  cycles [n]           leaked cycles: groups that only own each other\n"
             "  tree <ptr> [depth]   what this object owns (default depth 3)\n",
+            CXY_QUERY_DEFAULT_LIMIT,
             CXY_QUERY_DEFAULT_LIMIT,
             CXY_QUERY_DEFAULT_LIMIT);
 }
@@ -3190,7 +3277,7 @@ static const char *const knownCommands[] = {
     "summary", "sites",   "list",     "leaks", "zombies",  "types",  "sitecounts", "ring",
     "mark",    "diff",    "difflist", "holders", "path",   "contains", "retained",
     "cycles",  "tree",    "edges",    "roots", "dangling", "help",   "baseline", "snapshot",
-    NULL};
+    "refs",    NULL};
 
 // Commands answered from the paused, forked copy of the registry
 static bool isGraphCommand(const char *cmd)
@@ -3236,6 +3323,8 @@ static bool jsonCommand(int fd, const char *cmd, char *args[])
         markCommand(fd, &w);
     else if (strcmp(cmd, "baseline") == 0)
         baselineReport(fd, &w);
+    else if (strcmp(cmd, "refs") == 0)
+        refsReportFd(fd, parseLimit(args[1]), &w);
     else if (strcmp(cmd, "summary") == 0)
         summaryFd(fd, &w);
     else if (strcmp(cmd, "sites") == 0)
@@ -3310,6 +3399,8 @@ static void handleCommand(int fd, char *line)
         markCommand(fd, NULL);
     else if (strcmp(cmd, "baseline") == 0)
         baselineReport(fd, NULL);
+    else if (strcmp(cmd, "refs") == 0)
+        refsReportFd(fd, parseLimit(args[1]), NULL);
     else if (strcmp(cmd, "snapshot") == 0)
         dprintf(fd, "snapshot answers as JSON only, try `snapshot json`\n");
     else if (strcmp(cmd, "diff") == 0)

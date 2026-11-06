@@ -33,9 +33,13 @@ const RootRecord __cxy_roots[] = {{NULL, NULL, 0, NULL}};
 
 _Static_assert(offsetof(Block, payload) == sizeof(TraceRec) + OBJ_HEADER_SIZE, "layout");
 
+static Block *all[16]; // in the order they were added
+static int allCount;
+
 static Block *add(const SiteRecord *site, uint32_t kind, uint64_t size)
 {
     Block *b = calloc(1, sizeof(Block));
+    all[allCount++] = b;
     b->rec.site = site;
     b->rec.kind = kind;
     b->rec.size = size;
@@ -135,6 +139,33 @@ static void testSnapshot(void)
     CONTAINS("\"dangling\":{\"dangling\":[],\"total\":0,\"approximate\":0}}");
 }
 
+// Live objects: all[1] (tick 2), all[2], all[3], all[4]. The buffer is not an object.
+static void testRefs(void)
+{
+    all[1]->strong = 5;
+    all[3]->strong = 2;
+
+    CAPTURE_JSON(refsReportFd(fd, 3, &w));
+    CONTAINS("\"refs\":5,\"type\":\"Node\",\"file\":\"a.cxy\",\"line\":10,\"gen\":2}");
+    CONTAINS("\"refs\":2,\"type\":\"Node\",\"file\":\"a.cxy\",\"line\":10,\"gen\":4}");
+    // ties go to the newest: the third entry is the object made at tick 5
+    CONTAINS("\"refs\":1,\"type\":\"Node\",\"file\":\"a.cxy\",\"line\":10,\"gen\":5}");
+    MISSING("\"gen\":3}");
+    MISSING("\"kind\":\"buffer\"");
+    CHECK(strstr(out, "\"gen\":2}") < strstr(out, "\"gen\":4}"));
+    CHECK(strstr(out, "\"gen\":4}") < strstr(out, "\"gen\":5}"));
+    CONTAINS("],\"count\":4,\"maxRefs\":5,\"totalRefs\":9,\"limited\":true}");
+
+    CAPTURE_JSON(refsReportFd(fd, 0, &w));
+    CONTAINS("\"gen\":3}");
+    CONTAINS("],\"count\":4,\"maxRefs\":5,\"totalRefs\":9,\"limited\":false}");
+
+    CAPTURE(refsReportFd(fd, 2, NULL));
+    CONTAINS("refs=5 @ a.cxy:10 (Node)");
+    CONTAINS("refs=2 @ a.cxy:10 (Node)");
+    CONTAINS("Total: 4 objects, max refs 5, showing the highest");
+}
+
 static void testMarkJson(void)
 {
     CAPTURE_JSON(markCommand(fd, &w));
@@ -151,6 +182,7 @@ int main(void)
     testMark();
     testCounters();
     testSnapshot();
+    testRefs();
     testMarkJson();
 
     if (failures == 0)
