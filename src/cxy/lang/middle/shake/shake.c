@@ -476,6 +476,8 @@ static void shakeIfStmt(AstVisitor *visitor, AstNode *node)
     }
 }
 
+static void shakeLazyOperand(AstVisitor *visitor, AstNode **slot);
+
 static void shakeWhileStmt(AstVisitor *visitor, AstNode *node)
 {
     ShakeAstContext *ctx = getAstVisitorContext(visitor);
@@ -534,6 +536,9 @@ static void shakeWhileStmt(AstVisitor *visitor, AstNode *node)
     //     node->whileStmt.cond =
     //         makeBoolLiteral(ctx->pool, builtinLoc(), true, NULL, NULL);
     // }
+    // The condition runs on every iteration, what is hoisted out of it must too
+    if (cond && !nodeIs(cond, VarDecl))
+        shakeLazyOperand(visitor, &node->whileStmt.cond);
     astVisit(visitor, node->whileStmt.body);
 }
 

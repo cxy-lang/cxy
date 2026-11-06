@@ -86,6 +86,50 @@ func main(): void {}
     }
 }
 
+TEST_CASE("Conditional operands: an f-string in a while condition is built on every iteration")
+{
+    TestCompiler cc(lowered());
+    REQUIRE(cc.compile(R"(
+func loop(n: i32): i32 {
+    var i: i32 = 0
+    while i < f"x{n}".size() { i = i + 1 }
+    return i
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+
+    const std::string ir = cc.function("loop").sexpr();
+    const size_t condAt = ir.find("(Block _L_WHILE0_cond");
+    REQUIRE(condAt != std::string::npos);
+    const size_t builder = ir.find("op__initI_ECover");
+    REQUIRE(builder != std::string::npos);
+    // the builder is in the block the loop returns to, not before the loop
+    CHECK(condAt < builder);
+    CHECK(builder < ir.find("(If ", condAt));
+}
+
+TEST_CASE("Conditional operands: a while condition with nothing to hoist is unchanged")
+{
+    TestCompiler cc(lowered());
+    REQUIRE(cc.compile(R"(
+func plain(n: i32): i32 {
+    var i: i32 = 0
+    while i < n { i = i + 1 }
+    return i
+}
+func main(): void {}
+)"));
+    INFO(cc.diagnostics());
+
+    CHECK_IR_MATCHES(cc.function("plain"), R"(
+        (Function plain (Param n i32) (Ret i32)
+            (Block _L_entry ... (Goto _L_WHILE0_cond))
+            (Block _L_WHILE0_cond
+                (If (Binary < (VarRef i) (VarRef n)) _L_WHILE0_body _L_WHILE0_exit))
+            ...))");
+}
+
 TEST_CASE("Conditional operands: an f-string that is always evaluated is still built first")
 {
     TestCompiler cc(lowered());
