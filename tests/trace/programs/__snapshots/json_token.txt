@@ -10,4 +10,36 @@ buffers: 0 live, 0 bytes
 allocations since start: 1
 trace events: 1
 mark: 0
+$ help
+commands (append 'nosym' to skip symbolization, 'json' for the answer as one line of JSON):
+  summary              live count/bytes and counters
+  sites [n]            live allocations grouped by site (default 20)
+  list [n]             most recent live allocations with stacks (default 20)
+  leaks                full report, same as the exit-time leak report
+  ring <ptr>           lifecycle timeline of one pointer
+  mark                 remember the current allocation generation and counters
+  baseline             what `mark` remembered
+  refs [n]             live objects with the most references (default 20)
+  snapshot json        counters and graph findings in one paused copy (JSON only)
+  edges <ptr>          what this object owns (exact, from the visit glue)
+  roots                global variables that own something, and what they own
+  dangling             `&T` fields whose target was destroyed
+  zombies [n]          destroyed objects that weak references still keep
+  types                cumulative allocs/frees/bytes per class
+  sitecounts [n]       cumulative allocations per allocation point
+  diff [n]             sites of allocations made since `mark` still alive
+  difflist [n]         like `list`, but only allocations since `mark`
+ownership graph (exact edges, built in a forked copy of the process):
+  holders <ptr>        who owns this object, and its externalRefs
+  path <ptr>           shortest chain from a root to this object
+  contains <y> <x>     is x owned, directly or indirectly, by y
+  retained [n]         roots ranked by what only they keep alive
+  cycles [n]           leaked cycles: groups that only own each other
+  tree <ptr> [depth]   what this object owns (default depth 3)
+json: every command above has a JSON form (`sites 5 json`, `path <ptr> json`) except `ring`,
+      `leaks` and `help`, which answer {"error": ...}. `snapshot` answers only as JSON.
+client commands (`cxy utils mem --help` lists the options):
+  analyze              first call takes a baseline, later calls say whether the memory
+                       looks normal (--json for scripts, --fail-on for CI)
+  analyze --watch 30s  take a baseline, watch for 30s, then report
 $ program output

@@ -244,6 +244,22 @@ static void printSink(const char *data, size_t length, attr(unused) void *ctx)
     fwrite(data, 1, length, stdout);
 }
 
+// The commands the client adds to what the server lists
+static void printClientHelp(void)
+{
+    printf("client commands (`cxy utils mem --help` lists the options):\n"
+           "  analyze              first call takes a baseline, later calls say whether the memory\n"
+           "                       looks normal (--json for scripts, --fail-on for CI)\n"
+           "  analyze --watch 30s  take a baseline, watch for 30s, then report\n");
+}
+
+// `help json` answers a JSON error and nothing may follow it
+static bool isHelpRequest(const char *request)
+{
+    bool help = strcmp(request, "help") == 0 || strncmp(request, "help ", 5) == 0;
+    return help && strstr(request, "json") == NULL;
+}
+
 static bool isAnalyze(const Options *options)
 {
     const DynArray *args = &options->utils.memArgs;
@@ -268,6 +284,8 @@ int utilsMemCommand(const Options *options, attr(unused) struct StrPool *strings
 
     char error[512];
     bool ok = memRequest(path, request, options->utils.memTimeout, printSink, NULL, error, sizeof(error));
+    if (ok && isHelpRequest(request))
+        printClientHelp();
     fflush(stdout);
     if (!ok)
         logError(log, NULL, "{s}", (FormatArg[]){{.s = error}});

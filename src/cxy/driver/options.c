@@ -1304,7 +1304,8 @@ static int parseUtilsCommand(
         mem_trace,
         "Query a running program built with memory tracing (summary, sites, "
         "list, leaks, types, sitecounts, edges, roots, dangling, zombies, holders, path, contains, retained, cycles, tree, ring, mark, baseline, refs, diff, difflist, help), "
-        "or `analyze` to say whether the memory looks normal",
+        "or `analyze` to say whether the memory looks normal. Append `json` to a query "
+        "for the answer as one line of JSON, `nosym` to skip symbols",
         Positionals(Use(cmdArrayArgument,
                         Name("query"),
                         Help("Query and arguments, e.g. `mark`, `sites 20`, "

@@ -5,3 +5,5 @@ json
 help json
 # without the token nothing changes
 summary
+# the help lists every command, the json token and the client commands
+help

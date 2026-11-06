@@ -1730,7 +1730,8 @@ static void rootsReportFd(int fd, JsonWriter *json)
 static void helpFd(int fd)
 {
     dprintf(fd,
-            "commands (append 'nosym' to skip symbolization):\n"
+            "commands (append 'nosym' to skip symbolization, 'json' for the answer as one "
+            "line of JSON):\n"
             "  summary              live count/bytes and counters\n"
             "  sites [n]            live allocations grouped by site (default %d)\n"
             "  list [n]             most recent live allocations with stacks (default %d)\n"
@@ -1754,7 +1755,10 @@ static void helpFd(int fd)
             "  contains <y> <x>     is x owned, directly or indirectly, by y\n"
             "  retained [n]         roots ranked by what only they keep alive\n"
             "  cycles [n]           leaked cycles: groups that only own each other\n"
-            "  tree <ptr> [depth]   what this object owns (default depth 3)\n",
+            "  tree <ptr> [depth]   what this object owns (default depth 3)\n"
+            "json: every command above has a JSON form (`sites 5 json`, `path <ptr> json`) "
+            "except `ring`,\n"
+            "      `leaks` and `help`, which answer {\"error\": ...}. `snapshot` answers only as JSON.\n",
             CXY_QUERY_DEFAULT_LIMIT,
             CXY_QUERY_DEFAULT_LIMIT,
             CXY_QUERY_DEFAULT_LIMIT);
