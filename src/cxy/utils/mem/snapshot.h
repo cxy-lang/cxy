@@ -53,6 +53,7 @@ typedef struct {
 } MemDangling;
 
 typedef struct {
+    u64 pid; // of the program, 0 when the reply has none (a baseline)
     u64 tick, timeMs, mark;
     MemCount objects, buffers, zombies;
     u64 objectsAllocated;

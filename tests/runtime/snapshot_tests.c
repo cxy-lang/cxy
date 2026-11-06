@@ -125,7 +125,9 @@ static void testCounters(void)
 static void testSnapshot(void)
 {
     CAPTURE_JSON(snapshotReport(fd, &w));
-    CHECK(strncmp(out, "{\"version\":1,\"tick\":6,", 21) == 0);
+    char expectedStart[64];
+    snprintf(expectedStart, sizeof(expectedStart), "{\"version\":1,\"pid\":%d,\"tick\":6,", (int)getpid());
+    CHECK(strncmp(out, expectedStart, strlen(expectedStart)) == 0);
     CONTAINS("\"objects\":{\"count\":4,\"bytes\":64}");
     CONTAINS("\"buffers\":{\"count\":1,\"bytes\":64}");
     CONTAINS("\"sites\":[{\"file\":\"a.cxy\",\"line\":10,\"column\":5,\"function\":\"fa\","

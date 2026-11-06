@@ -216,6 +216,7 @@ bool memSnapshotParse(const char *json, MemSnapshot *out, char *error, size_t er
         return fail(error, errorSize, "there is no baseline, run `mark` first");
     }
 
+    out->pid = numberOf(doc, "pid");
     out->tick = numberOf(doc, "tick");
     out->timeMs = numberOf(doc, "timeMs");
     out->mark = numberOf(doc, "mark");

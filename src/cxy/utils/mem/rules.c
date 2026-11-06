@@ -24,6 +24,12 @@ const char *memVerdictName(MemVerdict verdict)
     return names[verdict];
 }
 
+const char *memVerdictId(MemVerdict verdict)
+{
+    static const char *const ids[] = {"ok", "notEnoughActivity", "watch", "likely", "definite"};
+    return ids[verdict];
+}
+
 bool memReached(const MemReport *report, MemSeverity threshold)
 {
     for (u32 i = 0; i < report->count; i++) {

@@ -3240,6 +3240,7 @@ static void snapshotReport(int fd, JsonWriter *json)
     }
     jsonBeginObject(json);
     jsonFieldUint(json, "version", 1);
+    jsonFieldUint(json, "pid", (uint64_t)getpid());
     jsonCounterSet(json, &now);
     jsonFieldBool(json, "hasBaseline", hasBaseline);
     jsonFieldUint(json, "approximate", graphApproximate);

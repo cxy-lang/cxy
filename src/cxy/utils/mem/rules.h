@@ -104,6 +104,8 @@ void memFormatBytes(char *out, size_t size, u64 bytes);
 const char *memRuleId(MemRule rule);
 const char *memSeverityName(MemSeverity severity);
 const char *memVerdictName(MemVerdict verdict);
+/** The verdict as a token for JSON: ok, notEnoughActivity, watch, likely, definite. */
+const char *memVerdictId(MemVerdict verdict);
 
 #ifdef __cplusplus
 }

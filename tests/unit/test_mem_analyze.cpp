@@ -7,9 +7,11 @@
 
 #include "doctest.h"
 
+#include "cJSON.h"
 #include "utils/mem/report.h"
 #include "utils/mem/rules.h"
 
+#include <cctype>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -73,7 +75,7 @@ struct Snap {
         if (baseline)
             o << "\"exists\":true,";
         else
-            o << "\"version\":1,";
+            o << "\"version\":1,\"pid\":4242,";
         o << "\"tick\":" << tick << ",\"timeMs\":" << timeMs << ",\"mark\":" << mark
           << ",\"objects\":{\"count\":" << objectCount << ",\"bytes\":" << objectBytes << "}"
           << ",\"buffers\":{\"count\":0,\"bytes\":" << bufferBytes << "}"
@@ -284,6 +286,7 @@ TEST_CASE("Mem snapshot: parses the fields of a snapshot")
 
     Parsed p(spec.json());
     const MemSnapshot &s = p.s;
+    CHECK(s.pid == 4242);
     CHECK(s.tick == 7);
     CHECK(s.timeMs == 1234);
     CHECK(s.mark == 3);
@@ -379,6 +382,8 @@ TEST_CASE("Mem snapshot: parses the snapshot a real traced program answered")
     // The snapshot files hide what changes between runs
     for (size_t at = json.find("TIME"); at != std::string::npos; at = json.find("TIME", at))
         json.replace(at, 4, "0");
+    for (size_t at = json.find("PID"); at != std::string::npos; at = json.find("PID", at))
+        json.replace(at, 3, "0");
 
     Parsed p(json);
     CHECK(p.s.objects.count == 5);
@@ -965,6 +970,154 @@ TEST_CASE("Mem report: growth and long windows")
     CHECK(has(text, "window: 2m05s, 1 sample\n"));
     CHECK(has(text, "(+200 objects since the baseline)"));
     CHECK(has(text, "growth       +2.0 KB (objects and buffers), +1.6 objects/s, +16 B/s\n"));
+}
+
+/* ---------------------------------------------------------------- JSON report */
+
+namespace {
+
+struct JsonDoc {
+    std::string text;
+    cJSON *root = nullptr;
+
+    explicit JsonDoc(Window &w)
+    {
+        w.run();
+        FILE *file = tmpfile();
+        memReportJson(&w.report, &w.owned->samples.back(), file);
+        fflush(file);
+        long size = ftell(file);
+        rewind(file);
+        text.resize((size_t)size);
+        text.resize(fread(text.data(), 1, (size_t)size, file));
+        fclose(file);
+        root = cJSON_Parse(text.c_str());
+    }
+    ~JsonDoc() { cJSON_Delete(root); }
+    JsonDoc(const JsonDoc &) = delete;
+    JsonDoc &operator=(const JsonDoc &) = delete;
+
+    // `path` is `a.b.c`, an array index is a number
+    cJSON *at(const std::string &path) const
+    {
+        cJSON *item = root;
+        std::stringstream parts(path);
+        std::string part;
+        while (item != nullptr && std::getline(parts, part, '.')) {
+            if (!part.empty() && std::isdigit((unsigned char)part[0]))
+                item = cJSON_GetArrayItem(item, std::stoi(part));
+            else
+                item = cJSON_GetObjectItem(item, part.c_str());
+        }
+        return item;
+    }
+    double number(const std::string &path) const
+    {
+        cJSON *item = at(path);
+        REQUIRE_MESSAGE(item != nullptr, path);
+        return item->valuedouble;
+    }
+    std::string string(const std::string &path) const
+    {
+        cJSON *item = at(path);
+        REQUIRE_MESSAGE(item != nullptr, path);
+        REQUIRE_MESSAGE(item->valuestring != nullptr, path);
+        return item->valuestring;
+    }
+    int size(const std::string &path) const
+    {
+        cJSON *item = at(path);
+        REQUIRE_MESSAGE(item != nullptr, path);
+        return cJSON_GetArraySize(item);
+    }
+    bool isTrue(const std::string &path) const
+    {
+        cJSON *item = at(path);
+        REQUIRE_MESSAGE(item != nullptr, path);
+        return (item->type & 0xFF) == cJSON_True;
+    }
+};
+
+} // namespace
+
+TEST_CASE("Mem JSON report: a healthy program")
+{
+    Window w = healthy();
+    JsonDoc doc(w);
+    REQUIRE(doc.root != nullptr);
+    CHECK(doc.number("version") == 1);
+    CHECK(doc.number("program.pid") == 4242);
+    CHECK(doc.number("window.seconds") == doctest::Approx(10.0));
+    CHECK(doc.number("window.samples") == 1);
+    CHECK(doc.isTrue("window.baseline"));
+    CHECK_FALSE(doc.isTrue("approximate"));
+    CHECK(doc.isTrue("enoughActivity"));
+    CHECK_FALSE(doc.isTrue("plateau"));
+    CHECK(doc.string("verdict") == "ok");
+    CHECK(doc.number("totals.objects.count") == 100);
+    CHECK(doc.number("totals.objects.bytes") == 1600);
+    CHECK(doc.number("totals.objects.deltaCount") == 0);
+    CHECK(doc.number("totals.buffers.bytes") == 0);
+    CHECK(doc.number("totals.zombies.count") == 0);
+    CHECK(doc.number("totals.deltaBytes") == 0);
+    CHECK(doc.number("rates.objectsPerSecond") == 0);
+    CHECK(doc.size("findings") == 0);
+    CHECK(doc.size("suspects") == 0);
+    // every rule that ran is listed as clean, G2 needs three snapshots
+    REQUIRE(doc.size("checked") == 6);
+    CHECK(doc.string("checked.0") == "G1");
+    CHECK(doc.string("checked.5") == "K1");
+    REQUIRE(doc.size("notChecked") == 1);
+    CHECK(doc.string("notChecked.0") == "G2");
+}
+
+TEST_CASE("Mem JSON report: a finding keeps its numbers as numbers")
+{
+    Window w = healthy();
+    w.specs[1].cycles = {{.nodes = 2, .bytes = 32, .type = "Node"}};
+    w.specs[1].sites = {{.line = 10, .allocs = 2000, .live = 150, .fresh = 140}};
+    w.specs[0].sites = {{.line = 10, .allocs = 1850, .live = 0}};
+    JsonDoc doc(w);
+    REQUIRE(doc.root != nullptr);
+    CHECK(doc.string("verdict") == "definite");
+    REQUIRE(doc.size("findings") == 2);
+
+    CHECK(doc.string("findings.0.id") == "C1");
+    CHECK(doc.string("findings.0.severity") == "definite");
+    CHECK(doc.string("findings.0.title") == "Leaked cycle: 2 Node objects, 32 bytes");
+    CHECK(doc.string("findings.0.subject") == "app.cxy:14 app.cxy:15");
+    CHECK(doc.string("findings.0.fix") == "make one side a weak reference (@weak Node)");
+    CHECK(doc.number("findings.0.evidence.nodes") == 2);
+    CHECK(doc.number("findings.0.evidence.bytes") == 32);
+    REQUIRE(doc.size("findings.0.suggest") == 1);
+    CHECK(doc.string("findings.0.suggest.0") == "cxy utils mem cycles");
+
+    CHECK(doc.string("findings.1.id") == "G1");
+    CHECK(doc.string("findings.1.severity") == "watch");
+    CHECK(doc.number("findings.1.evidence.made") == 150);
+    CHECK(doc.number("findings.1.evidence.alive") == 140);
+    CHECK(doc.number("findings.1.evidence.ratio") == doctest::Approx(140.0 / 150.0));
+}
+
+TEST_CASE("Mem JSON report: one line, and the verdict as a token")
+{
+    Window w = healthy();
+    w.specs[1].objectsAllocated = w.specs[0].objectsAllocated + 1;
+    JsonDoc doc(w);
+    REQUIRE(doc.root != nullptr);
+    REQUIRE_FALSE(doc.text.empty());
+    CHECK(doc.text.back() == '\n');
+    CHECK(doc.text.find('\n') == doc.text.size() - 1);
+    CHECK(doc.string("verdict") == "notEnoughActivity");
+    CHECK_FALSE(doc.isTrue("enoughActivity"));
+}
+
+TEST_CASE("Mem JSON report: approximate and no pid")
+{
+    Window w = healthy();
+    w.specs[1].approximate = 1;
+    JsonDoc doc(w);
+    CHECK(doc.isTrue("approximate"));
 }
 
 TEST_CASE("Mem report: --fail-on")

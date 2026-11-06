@@ -276,6 +276,7 @@ typedef struct Options {
             i64 memTimeout;          // Reply timeout in milliseconds
             const char *memFailOn;   // analyze: severity that makes it exit 3
             bool memReset;           // analyze: take a new baseline
+            bool memJson;            // analyze: print JSON, not text
         } utils;
     };
 } Options;

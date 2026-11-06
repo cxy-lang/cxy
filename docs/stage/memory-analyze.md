@@ -272,6 +272,16 @@ Versioned, so tools can rely on it. Illustrative:
 
 Notes:
 
+- **As built** (`analyze --json`, `src/cxy/utils/mem/report.c`): one line. It has
+  `version`, `program.pid` (from the snapshot), `window` (`seconds`, `samples`,
+  `baseline`), `approximate`, `enoughActivity`, `plateau`, `verdict`, `totals`
+  (`objects` with `deltaCount`, `buffers`, `zombies`, `deltaBytes` for objects and
+  buffers together), `rates`, `findings`, `checked`, `notChecked` and `suspects`
+  (empty until R1). A finding has `id`, `severity`, `subject`, `title`, `fix`,
+  `evidence` (numbers) and `suggest` (commands). The verdict is a token: `ok`,
+  `notEnoughActivity`, `watch`, `likely`, `definite`. `rssBytes` and `retention`
+  come with M1 and R1. The call that takes a baseline answers
+  `{"version":1,"baseline":{"taken":true,"mark":N}}`.
 - Pointers are strings (a hex address), sizes are bytes, times are seconds.
 - Fields are only added in a version, never renamed or removed.
 - `checked` lists the rules that ran and found nothing, so a consumer can tell
@@ -337,7 +347,7 @@ In order. Each step is testable alone.
 - [x] `refs [n]` command
 - [x] rule engine and its unit tests: G1, G2, G3, C1, D1, Z1, K1 (`src/cxy/utils/mem/`, `tests/unit/test_mem_analyze.cpp`)
 - [x] `analyze` client: first call marks, second reports, text output, exit codes (`--fail-on`, `--reset`; `src/cxy/utils/commands/mem_analyze.c`, `src/cxy/utils/mem/report.c`)
-- [ ] `analyze --json`
+- [x] `analyze --json`
 - [ ] `analyze --watch` and `--samples`
 - [ ] suspect introspection: sampling, `path`, grouping by shape (R1)
 - [ ] rules X1, B1, H1, M1, A1

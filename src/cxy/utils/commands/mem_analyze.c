@@ -69,7 +69,7 @@ static bool fetch(const char *path, const char *request, i64 timeout, Reply *rep
 }
 
 // `mark json` answered {"mark": n, ...}, or an error document
-static int takeBaseline(const char *path, i64 timeout, Log *log)
+static int takeBaseline(const char *path, i64 timeout, bool json, Log *log)
 {
     Reply reply;
     if (!fetch(path, "mark json", timeout, &reply, log))
@@ -84,6 +84,10 @@ static int takeBaseline(const char *path, i64 timeout, Log *log)
                  "cxy and --memory-trace?",
                  NULL);
         code = EXIT_FAILURE;
+    }
+    else if (json) {
+        printf("{\"version\":1,\"baseline\":{\"taken\":true,\"mark\":%llu}}\n",
+               (unsigned long long)mark->valuedouble);
     }
     else {
         printf("baseline taken (mark %llu). Run the workload, then run `cxy utils mem analyze` "
@@ -127,9 +131,10 @@ int memAnalyzeCommand(const Options *options, Log *log)
     if (!memResolveSocket(options, path, sizeof(path), log))
         return EXIT_UNREACHABLE;
     i64 timeout = options->utils.memTimeout;
+    bool json = options->utils.memJson;
 
     if (options->utils.memReset)
-        return takeBaseline(path, timeout, log);
+        return takeBaseline(path, timeout, json, log);
 
     Reply baselineReply;
     if (!fetch(path, "baseline json", timeout, &baselineReply, log))
@@ -146,7 +151,7 @@ int memAnalyzeCommand(const Options *options, Log *log)
     }
     if (exists == 0) {
         freeReply(&baselineReply);
-        return takeBaseline(path, timeout, log);
+        return takeBaseline(path, timeout, json, log);
     }
 
     Reply snapshotReply;
@@ -174,7 +179,10 @@ int memAnalyzeCommand(const Options *options, Log *log)
         }
         else {
             memAnalyze(&baseline, &snapshot, 1, &config, report);
-            memReportText(report, &snapshot, config.minActivity, stdout);
+            if (json)
+                memReportJson(report, &snapshot, stdout);
+            else
+                memReportText(report, &snapshot, config.minActivity, stdout);
             fflush(stdout);
             if (useFailOn && memReached(report, failOn))
                 code = EXIT_FAIL_ON;

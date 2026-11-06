@@ -681,7 +681,8 @@ Command(utils,
     f(utils.memSocket, Local, String, 1, ## __VA_ARGS__)                       \
     f(utils.memTimeout, Local, Int, 2, ## __VA_ARGS__)                         \
     f(utils.memFailOn, Local, String, 3, ## __VA_ARGS__)                       \
-    f(utils.memReset, Local, Option, 4, ## __VA_ARGS__)
+    f(utils.memReset, Local, Option, 4, ## __VA_ARGS__)                        \
+    f(utils.memJson, Local, Option, 5, ## __VA_ARGS__)
 // clang-format on
 
 static void parseSpaceSeperatedList(DynArray *into,
@@ -1322,7 +1323,8 @@ static int parseUtilsCommand(
                  "severe (info, watch, likely or definite)"),
             Def("")),
         Opt(Name("reset"),
-            Help("analyze: drop the baseline and take a new one")));
+            Help("analyze: drop the baseline and take a new one")),
+        Opt(Name("json"), Help("analyze: print the report as JSON")));
 
     mem_trace.meta.name = "mem";
 

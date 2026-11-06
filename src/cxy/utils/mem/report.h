@@ -22,6 +22,12 @@ void memReportText(const MemReport *report,
                    u64 minActivity,
                    FILE *out);
 
+/**
+ * The report as one line of JSON, the format of docs/stage/memory-analyze.md section 7.
+ * Fields are only ever added, `version` changes when one is renamed or removed.
+ */
+void memReportJson(const MemReport *report, const MemSnapshot *last, FILE *out);
+
 #ifdef __cplusplus
 }
 #endif

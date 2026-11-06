@@ -1,5 +1,8 @@
 #include "utils/mem/report.h"
 
+#include "cJSON.h"
+
+#include <stdlib.h>
 #include <string.h>
 
 static const char *verdictTitle(MemVerdict verdict)
@@ -142,4 +145,112 @@ void memReportText(const MemReport *report, const MemSnapshot *last, u64 minActi
                 (unsigned long long)minActivity);
     if (report->approximate)
         fprintf(out, "note: approximate, a thread did not reach a safepoint in time.\n");
+}
+
+/* -------------------------------------------------------------------- JSON */
+
+static void addNumber(cJSON *object, const char *key, double value)
+{
+    cJSON_AddItemToObject(object, key, cJSON_CreateNumber(value));
+}
+
+static void addBool(cJSON *object, const char *key, bool value)
+{
+    cJSON_AddItemToObject(object, key, cJSON_CreateBool(value));
+}
+
+static void addString(cJSON *object, const char *key, const char *value)
+{
+    cJSON_AddItemToObject(object, key, value != NULL ? cJSON_CreateString(value) : cJSON_CreateNull());
+}
+
+static cJSON *countObject(MemCount count)
+{
+    cJSON *o = cJSON_CreateObject();
+    addNumber(o, "count", (double)count.count);
+    addNumber(o, "bytes", (double)count.bytes);
+    return o;
+}
+
+static cJSON *findingObject(const MemFinding *f)
+{
+    cJSON *o = cJSON_CreateObject();
+    addString(o, "id", memRuleId(f->rule));
+    addString(o, "severity", memSeverityName(f->severity));
+    addString(o, "subject", f->subject);
+    addString(o, "title", f->title);
+    addString(o, "fix", f->fix[0] != '\0' ? f->fix : NULL);
+    cJSON *evidence = cJSON_CreateObject();
+    for (u32 i = 0; i < f->evidenceCount; i++)
+        addNumber(evidence, f->evidence[i].key, f->evidence[i].value);
+    cJSON_AddItemToObject(o, "evidence", evidence);
+    cJSON *suggest = cJSON_CreateArray();
+    if (f->see[0] != '\0')
+        cJSON_AddItemToArray(suggest, cJSON_CreateString(f->see));
+    cJSON_AddItemToObject(o, "suggest", suggest);
+    return o;
+}
+
+void memReportJson(const MemReport *report, const MemSnapshot *last, FILE *out)
+{
+    cJSON *root = cJSON_CreateObject();
+    addNumber(root, "version", 1);
+
+    cJSON *program = cJSON_CreateObject();
+    cJSON_AddItemToObject(program, "pid", last->pid != 0 ? cJSON_CreateNumber((double)last->pid) : cJSON_CreateNull());
+    cJSON_AddItemToObject(root, "program", program);
+
+    cJSON *window = cJSON_CreateObject();
+    addNumber(window, "seconds", report->windowSeconds);
+    addNumber(window, "samples", report->samples);
+    addBool(window, "baseline", true);
+    cJSON_AddItemToObject(root, "window", window);
+
+    addBool(root, "approximate", report->approximate);
+    addBool(root, "enoughActivity", report->enoughActivity);
+    addBool(root, "plateau", report->plateau);
+    addString(root, "verdict", memVerdictId(report->verdict));
+
+    cJSON *totals = cJSON_CreateObject();
+    cJSON *objects = countObject(last->objects);
+    addNumber(objects, "deltaCount", (double)report->deltaObjects);
+    cJSON_AddItemToObject(totals, "objects", objects);
+    cJSON_AddItemToObject(totals, "buffers", countObject(last->buffers));
+    cJSON_AddItemToObject(totals, "zombies", countObject(last->zombies));
+    addNumber(totals, "deltaBytes", (double)report->deltaBytes); // objects and buffers
+    cJSON_AddItemToObject(root, "totals", totals);
+
+    cJSON *rates = cJSON_CreateObject();
+    addNumber(rates, "objectsPerSecond", report->objectsPerSecond);
+    addNumber(rates, "bytesPerSecond", report->bytesPerSecond);
+    cJSON_AddItemToObject(root, "rates", rates);
+
+    cJSON *findings = cJSON_CreateArray();
+    for (u32 i = 0; i < report->count; i++)
+        cJSON_AddItemToArray(findings, findingObject(&report->findings[i]));
+    cJSON_AddItemToObject(root, "findings", findings);
+
+    // A rule that ran and found nothing is clean, one that did not run is unknown
+    cJSON *checked = cJSON_CreateArray();
+    cJSON *notChecked = cJSON_CreateArray();
+    for (int rule = 0; rule < memRuleCount; rule++) {
+        if (report->ran & (1u << rule)) {
+            if (!findingFor(report, (MemRule)rule))
+                cJSON_AddItemToArray(checked, cJSON_CreateString(memRuleId((MemRule)rule)));
+        }
+        else {
+            cJSON_AddItemToArray(notChecked, cJSON_CreateString(memRuleId((MemRule)rule)));
+        }
+    }
+    cJSON_AddItemToObject(root, "checked", checked);
+    cJSON_AddItemToObject(root, "notChecked", notChecked);
+    cJSON_AddItemToObject(root, "suspects", cJSON_CreateArray());
+
+    char *text = cJSON_PrintUnformatted(root);
+    if (text != NULL) {
+        fputs(text, out);
+        fputc('\n', out);
+        free(text);
+    }
+    cJSON_Delete(root);
 }

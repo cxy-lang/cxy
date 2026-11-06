@@ -6,5 +6,8 @@ analyze
 analyze --fail-on watch
 analyze --fail-on definite
 analyze --fail-on loud
+analyze --json
+analyze --json --fail-on definite
+analyze --json --reset
 analyze --reset
 analyze
