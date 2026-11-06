@@ -139,7 +139,9 @@ void memReportText(const MemReport *report, const MemSnapshot *last, u64 minActi
     for (u32 i = 0; i < report->count; i++) {
         const MemFinding *f = &report->findings[i];
         fprintf(out, "%s %s %s\n", severityLabel(f->severity), memRuleId(f->rule), f->title);
-        if (f->subject[0] != '\0' && strstr(f->title, f->subject) == NULL)
+        // the places of a cycle are not in its title, the subject of the other rules is
+        // either there or a general label that would only repeat it
+        if (f->rule == memRuleC1 && f->subject[0] != '\0')
             fprintf(out, "    at: %s\n", f->subject);
         if (f->retention.present) {
             char chain[512];

@@ -1,0 +1,5 @@
+# a borrow whose owner was destroyed is definite, whatever else happened
+analyze
+@next
+analyze --fail-on definite
+analyze --no-graph

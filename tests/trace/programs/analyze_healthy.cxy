@@ -1,0 +1,21 @@
+import { Vector } from "stdlib/vector.cxy"
+import { waitForHarness } from "./_harness.cxy"
+
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+// Steady churn: plenty is made, all of it is freed again. This is what analyze must
+// not complain about.
+func main(): void {
+    var kept = Vector[Node]()
+    kept.push(Node(0))
+    waitForHarness()
+    for i in 0..500 {
+        var n = Node(i)
+        var m = Node(i + 1)
+    }
+    waitForHarness()
+}

@@ -349,6 +349,14 @@ Notes:
 | dangling borrow | D1 definite |
 | weak reference never released | Z1 |
 
+  As built, in `tests/trace/programs`: `analyze_healthy` (ok), `analyze_flow` (a global
+  cache that only grows with its owner named, a leaked cycle, `--fail-on`, `--json`,
+  `--no-graph`, `--suspects 0`), `watch_growth` (an unbounded list held by a thread:
+  `likely`, found by `--watch`), `analyze_plateau` (a cache that fills and flattens:
+  G2, `info`), `analyze_dangling` (D1), `analyze_zombies` (Z1), `analyze_rules`
+  (B1, H1, A1). The ones that depend on timing mask their numbers (`@mask`) and the
+  plateau one starts its worker at `@release`.
+
   The harness already moves a program forward with `@next`, so a `.cmds` file can
   run `analyze` (baseline), `@next`, `analyze` (report) deterministically. Rates and
   times depend on the clock, so the snapshot mode reports them as zero (`--json`
@@ -395,5 +403,5 @@ In order. Each step is testable alone.
 - [x] `analyze --watch` and `--samples`
 - [x] suspect introspection: sampling, `path`, grouping by shape (R1), `--suspects`, `--no-graph`
 - [x] rules X1, B1, H1, M1, A1
-- [ ] end to end trace programs (healthy, leak, cache, plateau, cycle, dangling, zombie)
+- [x] end to end trace programs (healthy, leak, cache, plateau, cycle, dangling, zombie), see the table in section 8
 - [ ] book chapter: a section on `analyze`

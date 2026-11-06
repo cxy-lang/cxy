@@ -1,0 +1,17 @@
+$ analyze
+baseline taken (mark 2). Run the workload, then run `cxy utils mem analyze` again.
+@next
+$ analyze
+verdict: WATCH                           window: TIME, 1 sample
+
+memory       live 24 B in 1 object (+0 objects since the baseline)
+             buffers 128 B   zombies 12   process SIZE
+growth       +0 B (objects and buffers), RATES
+
+[watch]    Z1 Weak references keep destroyed objects alive: 12 now, 12 more than at the baseline
+    fix: release weak references that are no longer needed
+    see: cxy utils mem zombies
+
+nothing else found, but too little happened to rely on it: no allocation site keeps what it makes, no type that is never freed, no leaked cycles, no dangling borrows, no root holding most of the heap, no large number of objects held from outside the heap, no buffer allocated again and again, no object with an unusual reference count, process memory matches the traced heap
+note: fewer than 100 objects were allocated since the baseline. Run the workload, then run analyze again.
+$ program output

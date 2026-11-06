@@ -1,0 +1,20 @@
+@release
+$ analyze --watch 1500ms --samples 3
+watching for N ms: N snapshots, one every N ms
+verdict: OK                              window: Ns, N samples
+
+memory       live N KB in N objects (+N objects since the baseline)
+             buffers N KB   zombies N   process N MB
+growth       +N KB (objects and buffers), +N objects/s, +N KB/s
+
+[info]     GN `Node` objects made at <ROOT>/tests/trace/programs/analyze_plateau.cxy:N are not freed: N of N made since the baseline are alive (growth is slowing, probably a cache)
+    held by: vector.Vector[Node] -> buffer <ROOT>/tests/trace/programs/analyze_plateau.cxy:N (held from outside the heap) (N of N sampled objects)
+    held from outside the heap: a local variable, a thread or a coroutine keeps them.
+    fix: release them when the local, thread or coroutine is done
+    see: cxy utils mem path PTR
+
+[info]     GN Growth is slowing (+N, then +N objects): probably a cache filling up or a warm-up, not a leak
+    fix: run analyze again later: a cache stops growing
+
+ok: no type that is never freed, no leaked cycles, no dangling borrows, no growing zombies, no root holding most of the heap, no large number of objects held from outside the heap, no buffer allocated again and again, no object with an unusual reference count, process memory matches the traced heap
+$ program output

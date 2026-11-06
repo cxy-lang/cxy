@@ -1,0 +1,4 @@
+# weak references that are never released keep the blocks of destroyed objects
+analyze
+@next
+analyze

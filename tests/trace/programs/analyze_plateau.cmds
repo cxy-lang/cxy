@@ -1,0 +1,6 @@
+# a cache that fills and then flattens: three snapshots see growth that is slowing
+# (G2), so the survivors of its site are `info`, not a leak. The program starts
+# filling the cache at the release, the numbers depend on timing and are masked.
+@release
+@mask
+analyze --watch 1500ms --samples 3

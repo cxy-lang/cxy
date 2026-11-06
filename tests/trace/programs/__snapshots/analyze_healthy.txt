@@ -1,0 +1,14 @@
+$ analyze
+baseline taken (mark 3). Run the workload, then run `cxy utils mem analyze` again.
+@next
+$ analyze
+verdict: OK                              window: TIME, 1 sample
+
+memory       live 28 B in 2 objects (+0 objects since the baseline)
+             buffers 128 B   zombies 0   process SIZE
+growth       +0 B (objects and buffers), RATES
+
+ok: no allocation site keeps what it makes, no type that is never freed, no leaked cycles, no dangling borrows, no growing zombies, no root holding most of the heap, no large number of objects held from outside the heap, no buffer allocated again and again, no object with an unusual reference count, process memory matches the traced heap
+$ analyze --json --fail-on info
+{"version":1,"program":{"pid":PID},"window":{"seconds":N,"samples":1,"baseline":true},"approximate":false,"enoughActivity":true,"plateau":false,"verdict":"ok","totals":{"objects":{"count":2,"bytes":28,"deltaCount":0},"buffers":{"count":1,"bytes":128},"zombies":{"count":0,"bytes":0},"rssBytes":N,"deltaBytes":0},"rates":{"objectsPerSecond":N,"bytesPerSecond":N},"findings":[],"checked":["G1","G3","C1","D1","Z1","K1","X1","B1","H1","M1","A1"],"notChecked":["G2"],"suspects":[]}
+$ program output

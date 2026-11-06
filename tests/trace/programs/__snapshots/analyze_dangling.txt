@@ -1,0 +1,28 @@
+$ analyze
+baseline taken (mark 1). Run the workload, then run `cxy utils mem analyze` again.
+@next
+$ analyze --fail-on definite
+verdict: DEFINITE PROBLEM                window: TIME, 1 sample
+
+memory       live 12 B in 2 objects (+1 objects since the baseline)
+             buffers 0 B   zombies 0   process SIZE
+growth       +8 B (objects and buffers), RATES
+
+[definite] D1 Dangling borrow: View at <ROOT>/tests/trace/programs/analyze_dangling.cxy:18 borrows an object destroyed at <ROOT>/tests/trace/programs/analyze_dangling.cxy:19
+    fix: keep the owner alive as long as the borrow, or store an owning reference
+    see: cxy utils mem dangling
+
+nothing else found, but too little happened to rely on it: no allocation site keeps what it makes, no type that is never freed, no leaked cycles, no growing zombies, no root holding most of the heap, no large number of objects held from outside the heap, no buffer allocated again and again, no object with an unusual reference count, process memory matches the traced heap
+note: fewer than 100 objects were allocated since the baseline. Run the workload, then run analyze again.
+[exit 3]
+$ analyze --no-graph
+verdict: NOT ENOUGH ACTIVITY             window: TIME, 1 sample
+
+memory       live 12 B in 2 objects (+1 objects since the baseline)
+             buffers 0 B   zombies 0   process SIZE
+growth       +8 B (objects and buffers), RATES
+
+nothing found, but too little happened to rely on it: no allocation site keeps what it makes, no type that is never freed, no growing zombies, no buffer allocated again and again, no object with an unusual reference count, process memory matches the traced heap
+not checked: C1, D1, K1, X1
+note: fewer than 100 objects were allocated since the baseline. Run the workload, then run analyze again.
+$ program output

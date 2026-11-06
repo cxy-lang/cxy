@@ -1,0 +1,40 @@
+import "stdlib/thread.cxy"
+import { Vector } from "stdlib/vector.cxy"
+import { waitForHarness } from "./_harness.cxy"
+import "unistd.h" as unistd
+
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+var stop = false
+
+// A cache that fills fast and then slower and slower, until it is full: every 5 ms
+// it takes in a fiftieth of what is still missing, so the growth halves about every
+// 170 ms whenever the harness starts to look. It starts when the harness releases
+// the program, right before the harness takes its baseline.
+func main(): !void {
+    waitForHarness()
+    var worker = launch {
+        var cache = Vector[Node]()
+        // a literal is the smallest integer type that holds it, so say i32
+        var made: i32 = 0
+        while !stop {
+            var batch: i32 = (1000 - made) / 50
+            var k: i32 = 0
+            while k < batch {
+                cache.push(Node(made))
+                made = made + 1
+                k = k + 1
+            }
+            // made and freed again, so no class of object is "never freed"
+            var scratch = Node(made)
+            unistd.usleep(5000)
+        }
+    }
+    waitForHarness()
+    stop = true
+    worker.join()
+}

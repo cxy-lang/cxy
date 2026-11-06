@@ -9,7 +9,9 @@
 # argument the script runs every program and compares by itself.
 #
 # Command file lines: a trace query (`summary`, `sites`, `mark`, ...), `@next`
-# (release the program to its next waitForHarness() call), `#` comments, `@mask`
+# (release the program to its next waitForHarness() call), `@release` (the same, but
+# without waiting for it, so the next query runs while the program works), `#`
+# comments, `@mask`
 # (every number in the output of the next query becomes N: for a query whose numbers
 # depend on timing, like `analyze --watch`). A query
 # that exits with a code other than 0 adds an `[exit N]` line. In a
@@ -145,6 +147,12 @@ run_program() {
                 ''|'#'*) continue ;;
                 '@mask')
                     mask=1
+                    ;;
+                '@release')
+                    # let the program go on without waiting for it: the next query runs
+                    # while it works
+                    echo "@release" >> "$work/result.txt"
+                    printf x >&3
                     ;;
                 '@next')
                     echo "@next" >> "$work/result.txt"

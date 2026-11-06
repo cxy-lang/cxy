@@ -1,0 +1,6 @@
+# a thousand objects made and freed since the baseline: the verdict is ok, and every
+# rule that ran says it found nothing
+analyze
+@next
+analyze
+analyze --json --fail-on info
