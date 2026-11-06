@@ -211,15 +211,12 @@ static void lowerCoalesce(AstVisitor *visitor, AstNode *node)
                             0,
                             S_ok,
                             getIrPrimitiveType(ctx->types, irTypeBool));
-        // an optional result is the left side itself, not its payload
-        thenVal = isOptionalType(node->type)
-                      ? cloneIrNode(ctx->pool, lhs)
-                      : makeIrMember(ctx->pool,
-                                     &node->binaryExpr.lhs->loc,
-                                     lhs,
-                                     1,
-                                     S_val,
-                                     resIrType);
+        thenVal = makeIrMember(ctx->pool,
+                               &node->binaryExpr.lhs->loc,
+                               lhs,
+                               1,
+                               S_val,
+                               resIrType);
     }
     else {
         IrNode *nullConst = makeIrNullConst(

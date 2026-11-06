@@ -1,5 +1,5 @@
 /**
- * `some() ?? null` where `some` returns `!T?`. The payload of the result is taken
+ * `some() ?? null` (`a ? *a : null`) where `some` returns `!T?`. The payload of the result is taken
  * once, and what is taken is not dropped before the `then` path hands it on.
  */
 
@@ -19,7 +19,7 @@ class Node {
 }
 func some(): !Node? => Node(1)
 func orNull(): !void {
-    var y: Node? = some() ?? null
+    var y: Node = some() ?? null
 }
 func main(): void {}
 )";

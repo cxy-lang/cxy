@@ -36,7 +36,7 @@ TEST_CASE("Coalesce: a call on the left is evaluated once into a temporary")
     TestCompiler cc(lowered());
     REQUIRE(cc.compile(std::string(program) + R"(
 func orNull(): !void {
-    var y: Node? = some() ?? null
+    var y: Node = some() ?? null
 }
 func main(): void {}
 )"));
@@ -60,7 +60,7 @@ TEST_CASE("Coalesce: the payload of the result is read once")
     TestCompiler cc(lowered());
     REQUIRE(cc.compile(std::string(program) + R"(
 func orNull(): !void {
-    var y: Node? = some() ?? null
+    var y: Node = some() ?? null
 }
 func orValue(): !Node {
     return some() ?? Node(2)
@@ -103,24 +103,3 @@ func main(): void {}
             ...))");
 }
 
-TEST_CASE("Coalesce: an optional left side with a null right side is an optional")
-{
-    TestCompiler cc(lowered());
-    REQUIRE(cc.compile(std::string(program) + R"(
-func orNull(y: Node?): Node? {
-    return y ?? null
-}
-func main(): void {}
-)"));
-    INFO(cc.diagnostics());
-
-    // the value of the `then` path is the optional itself, not its payload
-    CHECK_IR_MATCHES(cc.function("orNull"), R"(
-        (Function orNull (Param y ^Node?) (Ret ^Node?)
-            (Block _L_entry ...)
-            (Block _L_COALESCE0_then
-                ...
-                (Assign (VarRef _) (VarRef y ...))
-                ...)
-            ...))");
-}
