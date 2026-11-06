@@ -1,0 +1,12 @@
+func some(): !String? => "Hello".S
+func none(): !String? => null
+
+// `r ?? null` for a `!T?` call: the payload is taken once. The value reaches the
+// variable (not freed before the branch) and none stays none, so the exit report
+// is empty.
+func main(): !void {
+    var a: String? = some() ?? null
+    var b: String? = none() ?? null
+    println("a: ", !!a, " b: ", !!b)
+    if (a) println("a = ", a&.s())
+}

@@ -177,6 +177,11 @@ static void lowerCoalesce(AstVisitor *visitor, AstNode *node)
     const Type *lhsAstType = node->binaryExpr.lhs->type;
     const IrType *resIrType = lowerType(ctx, node->type);
 
+    // The condition and the `then` path both read the left side, so a value that
+    // is not a place (the payload of a `!T` call) is stored once, here
+    if (lhs && lhs->tag != irVarRef && !nodeIsLeftValue(node->binaryExpr.lhs))
+        lhs = flattenIrValue(ctx, node->binaryExpr.lhs, lhs);
+
     cstring tempName =
         makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
     IrNode *resVar = makeIrVarDecl(ctx->pool,
@@ -206,12 +211,15 @@ static void lowerCoalesce(AstVisitor *visitor, AstNode *node)
                             0,
                             S_ok,
                             getIrPrimitiveType(ctx->types, irTypeBool));
-        thenVal = makeIrMember(ctx->pool,
-                               &node->binaryExpr.lhs->loc,
-                               lhs,
-                               1,
-                               S_val,
-                               resIrType);
+        // an optional result is the left side itself, not its payload
+        thenVal = isOptionalType(node->type)
+                      ? cloneIrNode(ctx->pool, lhs)
+                      : makeIrMember(ctx->pool,
+                                     &node->binaryExpr.lhs->loc,
+                                     lhs,
+                                     1,
+                                     S_val,
+                                     resIrType);
     }
     else {
         IrNode *nullConst = makeIrNullConst(

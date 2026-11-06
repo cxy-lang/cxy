@@ -205,14 +205,15 @@ void checkBinaryExpr(AstVisitor *visitor, AstNode *node)
         }
         // `T? ?? v` is a `T` (`v` is converted to it), `x ?? v` for a plain
         // nullable `x` is the type of `v`. An optional `v` keeps the chain
-        // optional, and a `null` carries no type of its own.
+        // optional, and a `null` carries no type of its own: `T? ?? null` is
+        // as optional as its left side, a `T` could not tell none from set.
         bool rhsIsNull = nodeIs(rhs, NullLit) || typeIs(type, Null) ||
                          (typeIs(type, Pointer) &&
                           typeIs(type->pointer.pointed, Null));
         if (isOptionalType(type))
             node->type = type;
         else if (isOptionalType(left))
-            node->type = target;
+            node->type = rhsIsNull ? left : target;
         else
             node->type = rhsIsNull ? left : type;
         if (rhsIsNull)

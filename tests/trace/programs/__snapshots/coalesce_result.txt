@@ -1,0 +1,3 @@
+$ program output
+a: true b: false
+a = Hello
