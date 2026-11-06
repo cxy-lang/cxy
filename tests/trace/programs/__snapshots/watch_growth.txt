@@ -6,9 +6,11 @@ memory       live N KB in N objects (+N objects since the baseline)
              buffers N KB   zombies N
 growth       +N KB (objects and buffers), +N objects/s, +N KB/s
 
-[likely]   GN Objects made at <ROOT>/tests/trace/programs/watch_growth.cxy:N are not freed: N of N made since the baseline are alive
-    fix: find what keeps them with `cxy utils mem path <ptr>`
-    see: cxy utils mem difflist N
+[likely]   GN `Node` objects made at <ROOT>/tests/trace/programs/watch_growth.cxy:N are not freed: N of N made since the baseline are alive
+    held by: vector.Vector[Node] -> buffer <ROOT>/tests/trace/programs/watch_growth.cxy:N (held from outside the heap) (N of N sampled objects)
+    held from outside the heap: a local variable, a thread or a coroutine keeps them.
+    fix: release them when the local, thread or coroutine is done
+    see: cxy utils mem path PTR
 
 [watch]    GN No Node object was ever freed: N made
     fix: check who owns them with `cxy utils mem sites`
@@ -17,7 +19,7 @@ growth       +N KB (objects and buffers), +N objects/s, +N KB/s
 ok: no leaked cycles, no dangling borrows, no growing zombies, no root holding most of the heap
 $ analyze --watch 900ms --samples 3 --json
 watching for N ms: N snapshots, one every N ms
-{"version":N,"program":{"pid":N},"window":{"seconds":N,"samples":N,"baseline":true},"approximate":false,"enoughActivity":true,"plateau":false,"verdict":"likely","totals":{"objects":{"count":N,"bytes":N,"deltaCount":N},"buffers":{"count":N,"bytes":N},"zombies":{"count":N,"bytes":N},"deltaBytes":N},"rates":{"objectsPerSecond":N,"bytesPerSecond":N},"findings":[{"id":"GN","severity":"likely","subject":"<ROOT>/tests/trace/programs/watch_growth.cxy:N","title":"Objects made at <ROOT>/tests/trace/programs/watch_growth.cxy:N are not freed: N of N made since the baseline are alive","fix":"find what keeps them with `cxy utils mem path <ptr>`","evidence":{"made":N,"alive":N,"ratio":N,"samplesGrowing":N},"suggest":["cxy utils mem difflist N"]},{"id":"GN","severity":"watch","subject":"Node","title":"No Node object was ever freed: N made","fix":"check who owns them with `cxy utils mem sites`","evidence":{"allocs":N,"frees":N},"suggest":["cxy utils mem types"]}],"checked":["GN","CN","DN","ZN","KN"],"notChecked":[],"suspects":[]}
+{"version":N,"program":{"pid":N},"window":{"seconds":N,"samples":N,"baseline":true},"approximate":false,"enoughActivity":true,"plateau":false,"verdict":"likely","totals":{"objects":{"count":N,"bytes":N,"deltaCount":N},"buffers":{"count":N,"bytes":N},"zombies":{"count":N,"bytes":N},"deltaBytes":N},"rates":{"objectsPerSecond":N,"bytesPerSecond":N},"findings":[{"id":"GN","severity":"likely","subject":"<ROOT>/tests/trace/programs/watch_growth.cxy:N","title":"`Node` objects made at <ROOT>/tests/trace/programs/watch_growth.cxy:N are not freed: N of N made since the baseline are alive","fix":"release them when the local, thread or coroutine is done","evidence":{"made":N,"alive":N,"ratio":N,"samplesGrowing":N},"suggest":["cxy utils mem path PTR"],"type":"Node","retention":{"heldBy":"outside","sampled":N,"covered":N,"shape":["vector.Vector[Node]","buffer <ROOT>/tests/trace/programs/watch_growth.cxy:N"],"note":"held from outside the heap: a local variable, a thread or a coroutine keeps them.","ptr":"PTR"}},{"id":"GN","severity":"watch","subject":"Node","title":"No Node object was ever freed: N made","fix":"check who owns them with `cxy utils mem sites`","evidence":{"allocs":N,"frees":N},"suggest":["cxy utils mem types"],"type":null,"retention":null}],"checked":["GN","CN","DN","ZN","KN"],"notChecked":[],"suspects":[{"ptr":"PTR","type":"Node","site":{"file":"<ROOT>/tests/trace/programs/watch_growth.cxy","line":N}}]}
 $ analyze --watch nope
 [1;31merror[0m: invalid --watch 'nope', use a duration such as 30s, 2m or 500ms
 [exit 1]

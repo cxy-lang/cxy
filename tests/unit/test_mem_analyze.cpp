@@ -10,6 +10,7 @@
 #include "cJSON.h"
 #include "utils/mem/report.h"
 #include "utils/mem/rules.h"
+#include "utils/mem/suspects.h"
 
 #include <cctype>
 #include <fstream>
@@ -848,9 +849,10 @@ TEST_CASE("Mem rules: findings are ordered by severity, definite first")
 
 namespace {
 
-std::string render(Window &w)
+std::string render(Window &w, bool run = true)
 {
-    w.run();
+    if (run)
+        w.run();
     FILE *file = tmpfile();
     memReportText(&w.report, &w.owned->samples.back(), w.config.minActivity, file);
     fflush(file);
@@ -980,9 +982,10 @@ struct JsonDoc {
     std::string text;
     cJSON *root = nullptr;
 
-    explicit JsonDoc(Window &w)
+    explicit JsonDoc(Window &w, bool run = true)
     {
-        w.run();
+        if (run)
+            w.run();
         FILE *file = tmpfile();
         memReportJson(&w.report, &w.owned->samples.back(), file);
         fflush(file);
@@ -1118,6 +1121,175 @@ TEST_CASE("Mem JSON report: approximate and no pid")
     w.specs[1].approximate = 1;
     JsonDoc doc(w);
     CHECK(doc.isTrue("approximate"));
+}
+
+/* ------------------------------------------------------------------ suspects */
+
+namespace {
+
+MemShape cacheShape()
+{
+    MemShape s{};
+    s.heldBy = memHeldGlobal;
+    s.stepCount = 3;
+    snprintf(s.steps[0], sizeof(s.steps[0]), "global cache");
+    snprintf(s.steps[1], sizeof(s.steps[1]), "Vector");
+    snprintf(s.steps[2], sizeof(s.steps[2]), "buffer app.cxy:13");
+    return s;
+}
+
+MemShape shapeHeldBy(MemHeldBy heldBy)
+{
+    MemShape s{};
+    s.heldBy = heldBy;
+    return s;
+}
+
+MemFinding &g1Of(Window &w)
+{
+    for (u32 i = 0; i < w.report.count; i++) {
+        if (w.report.findings[i].rule == memRuleG1)
+            return w.report.findings[i];
+    }
+    FAIL("no G1 finding");
+    return w.report.findings[0];
+}
+
+} // namespace
+
+TEST_CASE("Mem suspects: a growing site is shown with who keeps its objects")
+{
+    Window w = growing(100, 60, 70);
+    w.run();
+    MemFinding &f = g1Of(w);
+    MemShape shape = cacheShape();
+    memApplySuspect(&f, "Node", "0x79c6c00bf0", &shape, 3, 3);
+    memRefreshVerdict(&w.report);
+
+    CHECK(std::string(f.type) == "Node");
+    CHECK(std::string(f.title).rfind("`Node` objects made at app.cxy:10 are not freed", 0) == 0);
+    CHECK(std::string(f.see) == "cxy utils mem path 0x79c6c00bf0");
+    CHECK(f.retention.present);
+    CHECK(f.retention.sampled == 3);
+    CHECK(f.retention.covered == 3);
+    CHECK(std::string(f.retention.ptr) == "0x79c6c00bf0");
+
+    std::string text = render(w, false);
+    CHECK(has(text,
+              "[likely]   G1 `Node` objects made at app.cxy:10 are not freed: 230 of 230 made since "
+              "the baseline are alive\n"
+              "    held by: global cache -> Vector -> buffer app.cxy:13 (3 of 3 sampled objects)\n"
+              "    this is a cache that only grows. Intended? If not, evict entries or bound it.\n"
+              "    fix: "));
+    CHECK(has(text, "    see: cxy utils mem path 0x79c6c00bf0\n"));
+}
+
+TEST_CASE("Mem suspects: some of the sampled objects held elsewhere")
+{
+    Window w = growing(100, 60, 70);
+    w.run();
+    MemShape shape = cacheShape();
+    memApplySuspect(&g1Of(w), "Node", "0x10", &shape, 8, 5);
+    CHECK(has(render(w, false), "(5 of 8 sampled objects)\n"));
+}
+
+TEST_CASE("Mem suspects: objects only reachable through cycles are a leak, not a cache")
+{
+    Window w = healthy();
+    w.specs[1].sites[0] = {.line = 10, .allocs = 3000, .live = 1100, .fresh = 1000};
+    w.specs[0].sites[0].allocs = 2000;
+    w.run();
+    MemFinding &f = g1Of(w);
+    REQUIRE(f.severity == memWatch);
+    CHECK(w.report.verdict == memVerdictWatch);
+
+    MemShape cycle = shapeHeldBy(memHeldCycle);
+    memApplySuspect(&f, "Node", "0x10", &cycle, 4, 4);
+    memRefreshVerdict(&w.report);
+    CHECK(f.severity == memLikely);
+    CHECK(w.report.verdict == memVerdictLikely);
+    std::string text = render(w, false);
+    CHECK(has(text, "    held by: nothing outside a cycle (4 of 4 sampled objects)\n"));
+    CHECK(has(text, "a leak."));
+}
+
+TEST_CASE("Mem suspects: held from outside the heap does not change the severity")
+{
+    Window w = healthy();
+    w.specs[1].sites[0] = {.line = 10, .allocs = 3000, .live = 1100, .fresh = 1000};
+    w.specs[0].sites[0].allocs = 2000;
+    w.run();
+    MemShape outside = shapeHeldBy(memHeldOutside);
+    memApplySuspect(&g1Of(w), "Node", "0x10", &outside, 2, 2);
+    CHECK(g1Of(w).severity == memWatch);
+    CHECK(has(render(w, false), "    held by: held from outside the heap (2 of 2 sampled object"));
+
+    MemShape holder = shapeHeldBy(memHeldOutside);
+    holder.stepCount = 1;
+    snprintf(holder.steps[0], sizeof(holder.steps[0]), "Holder");
+    memApplySuspect(&g1Of(w), "Node", "0x10", &holder, 1, 1);
+    CHECK(has(render(w, false), "    held by: Holder (held from outside the heap) (1 of 1 sampled object)\n"));
+}
+
+TEST_CASE("Mem suspects: a cache that is flattening stays info whatever holds it")
+{
+    Window w = growing(100, 60, 10); // plateau: G1 is info
+    w.run();
+    MemFinding &f = g1Of(w);
+    REQUIRE(f.severity == memInfo);
+    MemShape cycle = shapeHeldBy(memHeldCycle);
+    memApplySuspect(&f, "Node", "0x10", &cycle, 2, 2);
+    CHECK(f.severity == memInfo);
+}
+
+TEST_CASE("Mem suspects: a type that is not known leaves the title alone")
+{
+    Window w = growing(100, 60, 70);
+    w.run();
+    MemFinding &f = g1Of(w);
+    std::string before = f.title;
+    MemShape shape = cacheShape();
+    memApplySuspect(&f, nullptr, "0x10", &shape, 1, 1);
+    CHECK(std::string(f.title) == before);
+    CHECK(std::string(f.type).empty());
+}
+
+TEST_CASE("Mem suspects: JSON has the type, the retention and the suspects")
+{
+    Window w = growing(100, 60, 70);
+    w.run();
+    MemShape shape = cacheShape();
+    memApplySuspect(&g1Of(w), "Node", "0x79c6c00bf0", &shape, 3, 3);
+    JsonDoc doc(w, false);
+    REQUIRE(doc.root != nullptr);
+
+    CHECK(doc.string("findings.0.type") == "Node");
+    CHECK(doc.string("findings.0.retention.heldBy") == "global");
+    CHECK(doc.number("findings.0.retention.sampled") == 3);
+    CHECK(doc.number("findings.0.retention.covered") == 3);
+    REQUIRE(doc.size("findings.0.retention.shape") == 3);
+    CHECK(doc.string("findings.0.retention.shape.0") == "global cache");
+    CHECK(doc.string("findings.0.retention.shape.2") == "buffer app.cxy:13");
+    CHECK(doc.string("findings.0.retention.ptr") == "0x79c6c00bf0");
+    CHECK(doc.string("findings.0.suggest.0") == "cxy utils mem path 0x79c6c00bf0");
+
+    REQUIRE(doc.size("suspects") == 1);
+    CHECK(doc.string("suspects.0.ptr") == "0x79c6c00bf0");
+    CHECK(doc.string("suspects.0.type") == "Node");
+    CHECK(doc.string("suspects.0.site.file") == "app.cxy");
+    CHECK(doc.number("suspects.0.site.line") == 10);
+}
+
+TEST_CASE("Mem suspects: a finding nobody looked into has no retention")
+{
+    Window w = growing(100, 60, 70);
+    JsonDoc doc(w);
+    REQUIRE(doc.root != nullptr);
+    CHECK(doc.size("suspects") == 0);
+    cJSON *retention = doc.at("findings.0.retention");
+    REQUIRE(retention != nullptr);
+    CHECK((retention->type & 0xFF) == cJSON_NULL);
+    CHECK_FALSE(has(render(w), "held by"));
 }
 
 TEST_CASE("Mem report: --fail-on")

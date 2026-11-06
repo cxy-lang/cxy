@@ -12,6 +12,7 @@
 #include "core/log.h"
 #include "utils/mem/report.h"
 #include "utils/mem/rules.h"
+#include "utils/mem/suspects.h"
 #include "utils/mem/watch.h"
 
 #include <stdio.h>
@@ -32,6 +33,8 @@ typedef struct {
     i64 timeout;
     Log *log;
     bool json;
+    bool noGraph;
+    u32 suspects; // growing sites to look into
 } Target;
 
 static void appendReply(const char *data, size_t length, void *ctx)
@@ -79,7 +82,7 @@ static bool request(const Target *t, const char *line, Reply *reply, char *error
 static bool fetchSnapshot(const Target *t, MemSnapshot *out, char *error, size_t errorSize)
 {
     Reply reply;
-    if (!request(t, "snapshot json", &reply, error, errorSize))
+    if (!request(t, t->noGraph ? "snapshot nograph json" : "snapshot json", &reply, error, errorSize))
         return false;
     bool ok = memSnapshotParse(reply.data, out, error, errorSize);
     freeReply(&reply);
@@ -162,6 +165,106 @@ static bool takeSample(void *ctx, u32 index, MemSnapshot *out, char *error, size
     return fetchSnapshot(ctx, out, error, errorSize);
 }
 
+/* ---------------------------------------------------------------- suspects */
+
+// At most this many `path` queries per run: each one forks the program for a moment
+#define SUSPECT_PATH_BUDGET 10
+#define SUSPECT_SAMPLES_MAX 8
+// Objects made since the baseline that are listed to pick samples from
+#define SUSPECT_LIST_LIMIT 3000
+
+static const char *textOf(const cJSON *object, const char *key)
+{
+    const cJSON *item = object != NULL ? cJSON_GetObjectItem(object, key) : NULL;
+    return item != NULL && (item->type & 0xFF) == cJSON_String ? item->valuestring : NULL;
+}
+
+static u64 numberOf(const cJSON *object, const char *key)
+{
+    const cJSON *item = object != NULL ? cJSON_GetObjectItem(object, key) : NULL;
+    return item != NULL && (item->type & 0xFF) == cJSON_Number ? (u64)item->valuedouble : 0;
+}
+
+// Samples objects of one growing site and follows their owners
+static void investigateSite(const Target *t, MemFinding *finding, const cJSON *allocations, u32 samples)
+{
+    u32 total = (u32)cJSON_GetArraySize(allocations);
+    u32 *matches = malloc((total + 1) * sizeof(u32));
+    if (matches == NULL)
+        return;
+    u32 count = 0;
+    for (u32 i = 0; i < total; i++) {
+        const cJSON *entry = cJSON_GetArrayItem(allocations, (int)i);
+        const char *kind = textOf(entry, "kind");
+        const char *file = textOf(entry, "file");
+        if (kind != NULL && strcmp(kind, "object") == 0 && file != NULL &&
+            strcmp(file, finding->file) == 0 && numberOf(entry, "line") == finding->line)
+            matches[count++] = i;
+    }
+
+    u32 picked[SUSPECT_SAMPLES_MAX];
+    u32 wanted = samples < SUSPECT_SAMPLES_MAX ? samples : SUSPECT_SAMPLES_MAX;
+    u32 n = memPickSamples(count, wanted, picked);
+    MemShape shapes[SUSPECT_SAMPLES_MAX];
+    char ptrs[SUSPECT_SAMPLES_MAX][24];
+    u32 followed = 0;
+    for (u32 i = 0; i < n; i++) {
+        const cJSON *entry = cJSON_GetArrayItem(allocations, (int)matches[picked[i]]);
+        const char *ptr = textOf(entry, "ptr");
+        if (ptr == NULL)
+            continue;
+        char line[64], error[256];
+        snprintf(line, sizeof(line), "path %s json", ptr);
+        Reply reply;
+        if (!request(t, line, &reply, error, sizeof(error)))
+            continue;
+        // The object may be gone by now, or the scan may have failed: then there is no shape
+        if (memShapeFromPath(reply.data, &shapes[followed])) {
+            snprintf(ptrs[followed], sizeof(ptrs[0]), "%s", ptr);
+            followed++;
+        }
+        freeReply(&reply);
+    }
+
+    if (followed > 0) {
+        u32 covered = 0;
+        u32 best = memGroupShapes(shapes, followed, &covered);
+        const char *type = textOf(cJSON_GetArrayItem(allocations, (int)matches[0]), "type");
+        memApplySuspect(finding, type, ptrs[best], &shapes[best], followed, covered);
+    }
+    free(matches);
+}
+
+// Best effort: whatever cannot be asked is left out, the report is still right
+static void investigate(const Target *t, MemReport *report)
+{
+    u32 targets[MEM_MAX_FINDINGS];
+    u32 n = 0;
+    for (u32 i = 0; i < report->count && n < t->suspects; i++) {
+        if (report->findings[i].rule == memRuleG1 && report->findings[i].file[0] != '\0')
+            targets[n++] = i;
+    }
+    if (n == 0)
+        return;
+
+    Reply list;
+    char error[256];
+    char line[64];
+    snprintf(line, sizeof(line), "difflist %d json", SUSPECT_LIST_LIMIT);
+    if (!request(t, line, &list, error, sizeof(error)))
+        return;
+    cJSON *doc = cJSON_Parse(list.data);
+    const cJSON *allocations = doc != NULL ? cJSON_GetObjectItem(doc, "allocations") : NULL;
+    if (allocations != NULL && (allocations->type & 0xFF) == cJSON_Array) {
+        u32 perSite = SUSPECT_PATH_BUDGET / n;
+        for (u32 i = 0; i < n; i++)
+            investigateSite(t, &report->findings[targets[i]], allocations, perSite > 0 ? perSite : 1);
+        memRefreshVerdict(report);
+    }
+    cJSON_Delete(doc);
+    freeReply(&list);
+}
+
 /* ------------------------------------------------------------------ report */
 
 // Prints the report of `baseline` and `samples` and returns the exit code
@@ -179,6 +282,8 @@ static int report(const Target *t,
         return EXIT_FAILURE;
     }
     memAnalyze(baseline, samples, count, &config, result);
+    if (!t->noGraph && t->suspects > 0)
+        investigate(t, result);
     if (t->json)
         memReportJson(result, &samples[count - 1], stdout);
     else
@@ -286,10 +391,13 @@ int memAnalyzeCommand(const Options *options, Log *log)
     char path[256];
     if (!memResolveSocket(options, path, sizeof(path), log))
         return EXIT_UNREACHABLE;
+    i64 suspects = options->utils.memSuspects;
     Target target = {.path = path,
                      .timeout = options->utils.memTimeout,
                      .log = log,
-                     .json = options->utils.memJson};
+                     .json = options->utils.memJson,
+                     .noGraph = options->utils.memNoGraph,
+                     .suspects = suspects < 0 ? 0 : (suspects > 20 ? 20 : (u32)suspects)};
 
     if (watching)
         return watch(&target, watchMs, (u32)samples, useFailOn, failOn);

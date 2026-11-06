@@ -210,6 +210,27 @@ For the highest ranked sites (default 3) the client:
 A budget bounds this: at most 10 graph commands per run, each with the usual scan
 time limit. `--no-graph` skips all of it.
 
+As built (`src/cxy/utils/mem/suspects.c`, the asking is in `mem_analyze.c`):
+
+- The suspects are the first `--suspects n` G1 findings (default 3, 0 = none, at most
+  20). Objects come from one `difflist 3000 json` and are matched on the site of the
+  finding. The 10 `path` queries are divided over the suspects (8 for one suspect, 3
+  each for three), the samples are spread over the whole list, not only the newest.
+- A *shape* is the chain of owners without the object itself: `global cache`, a class
+  name for an object (`object file:line` without one), `buffer file:line`. A chain
+  longer than 8 steps keeps its first four and last three. The answers are grouped by
+  shape and the largest group is reported, with how many samples it covers.
+- The way they are held decides the note and the fix: a named global (a cache, the
+  finding stays as it was), held from outside the heap (a local, a thread, a coroutine,
+  the finding stays), only reachable through cycles (a leak: `watch` becomes `likely`,
+  an `info` finding from G2 stays `info`). Nothing is ever lowered.
+- The finding gets the class of the objects (`` `Node` objects made at ... ``), a
+  `retention` (JSON: `heldBy`, `sampled`, `covered`, `shape`, `note`, `ptr`) and one
+  sampled object in `suspects`. `see` becomes `cxy utils mem path <ptr>`.
+- `--no-graph` asks the program for `snapshot nograph json`: counters only, nothing
+  is paused or forked. C1, D1 and K1 are then listed as not checked and no suspects
+  are looked into.
+
 ## 6. Server changes (`libcxy-trace`)
 
 1. **`json` token on every command**, like `nosym`: `types json`, `sites 5 json`,
@@ -354,7 +375,7 @@ In order. Each step is testable alone.
 - [x] `analyze` client: first call marks, second reports, text output, exit codes (`--fail-on`, `--reset`; `src/cxy/utils/commands/mem_analyze.c`, `src/cxy/utils/mem/report.c`)
 - [x] `analyze --json`
 - [x] `analyze --watch` and `--samples`
-- [ ] suspect introspection: sampling, `path`, grouping by shape (R1)
+- [x] suspect introspection: sampling, `path`, grouping by shape (R1), `--suspects`, `--no-graph`
 - [ ] rules X1, B1, H1, M1, A1
 - [ ] end to end trace programs (healthy, leak, cache, plateau, cycle, dangling, zombie)
 - [ ] book chapter: a section on `analyze`

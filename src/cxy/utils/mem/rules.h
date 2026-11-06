@@ -42,6 +42,21 @@ typedef struct {
     double value;
 } MemEvidence;
 
+// Who keeps the objects of a finding alive, found by following sampled objects
+typedef enum { memHeldNone, memHeldGlobal, memHeldOutside, memHeldCycle } MemHeldBy;
+
+#define MEM_SHAPE_MAX 8
+
+typedef struct {
+    bool present;
+    MemHeldBy heldBy;
+    u32 sampled, covered; // objects followed, and how many of them share this chain
+    u32 stepCount;
+    char steps[MEM_SHAPE_MAX][96]; // from the root down, without the object itself
+    char note[200];
+    char ptr[24]; // one of the sampled objects, for `path`
+} MemRetention;
+
 typedef struct {
     MemRule rule;
     MemSeverity severity;
@@ -51,6 +66,10 @@ typedef struct {
     char see[96]; // a command that shows more
     MemEvidence evidence[8];
     u32 evidenceCount;
+    char file[200]; // G1: the allocation site, to find objects made there
+    u64 line;
+    char type[64]; // G1: the class of the objects, once some were looked at
+    MemRetention retention;
 } MemFinding;
 
 typedef struct {
@@ -91,6 +110,9 @@ void memAnalyze(const MemSnapshot *baseline,
                 u32 sampleCount,
                 const MemConfig *config,
                 MemReport *report);
+
+/** Orders the findings by severity and sets the verdict. Run again after a finding changed. */
+void memRefreshVerdict(MemReport *report);
 
 /** True when some finding is at least `threshold` severe (`--fail-on`). */
 bool memReached(const MemReport *report, MemSeverity threshold);

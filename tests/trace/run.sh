@@ -161,7 +161,7 @@ run_program() {
                     if [ -n "$mask" ]; then
                         # shellcheck disable=SC2086
                         "$CXY" utils mem --socket "$sock" $expanded nosym 2>&1 |
-                            sed -E 's/[0-9]+(\.[0-9]+)?/N/g' >> "$work/result.txt"
+                            sed -E -e 's/0x[0-9a-fA-F]+/PTR/g' -e 's/[0-9]+(\.[0-9]+)?/N/g' >> "$work/result.txt"
                         code=${PIPESTATUS[0]}
                         mask=""
                     else

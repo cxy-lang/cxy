@@ -22,9 +22,11 @@ growth       +3.7 KB (objects and buffers), RATES
     fix: make one side a weak reference (@weak Node)
     see: cxy utils mem cycles
 
-[watch]    G1 Objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive
-    fix: find what keeps them with `cxy utils mem path <ptr>`
-    see: cxy utils mem difflist 5
+[watch]    G1 `Node` objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive
+    held by: global cache -> vector.Vector[Node] -> buffer <ROOT>/tests/trace/programs/analyze_flow.cxy:26 (8 of 8 sampled objects)
+    this is a cache that only grows. Intended? If not, evict entries or bound it.
+    fix: evict entries, or bound the size of what the global holds
+    see: cxy utils mem path PTR
 
 [watch]    G3 No Node object was ever freed: 152 made
     fix: check who owns them with `cxy utils mem sites`
@@ -43,9 +45,11 @@ growth       +3.7 KB (objects and buffers), RATES
     fix: make one side a weak reference (@weak Node)
     see: cxy utils mem cycles
 
-[watch]    G1 Objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive
-    fix: find what keeps them with `cxy utils mem path <ptr>`
-    see: cxy utils mem difflist 5
+[watch]    G1 `Node` objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive
+    held by: global cache -> vector.Vector[Node] -> buffer <ROOT>/tests/trace/programs/analyze_flow.cxy:26 (8 of 8 sampled objects)
+    this is a cache that only grows. Intended? If not, evict entries or bound it.
+    fix: evict entries, or bound the size of what the global holds
+    see: cxy utils mem path PTR
 
 [watch]    G3 No Node object was ever freed: 152 made
     fix: check who owns them with `cxy utils mem sites`
@@ -65,9 +69,11 @@ growth       +3.7 KB (objects and buffers), RATES
     fix: make one side a weak reference (@weak Node)
     see: cxy utils mem cycles
 
-[watch]    G1 Objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive
-    fix: find what keeps them with `cxy utils mem path <ptr>`
-    see: cxy utils mem difflist 5
+[watch]    G1 `Node` objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive
+    held by: global cache -> vector.Vector[Node] -> buffer <ROOT>/tests/trace/programs/analyze_flow.cxy:26 (8 of 8 sampled objects)
+    this is a cache that only grows. Intended? If not, evict entries or bound it.
+    fix: evict entries, or bound the size of what the global holds
+    see: cxy utils mem path PTR
 
 [watch]    G3 No Node object was ever freed: 152 made
     fix: check who owns them with `cxy utils mem sites`
@@ -79,10 +85,50 @@ $ analyze --fail-on loud
 [1;31merror[0m: invalid --fail-on 'loud', use info, watch, likely or definite
 [exit 1]
 $ analyze --json
-{"version":1,"program":{"pid":PID},"window":{"seconds":N,"samples":1,"baseline":true},"approximate":false,"enoughActivity":true,"plateau":false,"verdict":"definite","totals":{"objects":{"count":153,"bytes":2456,"deltaCount":152},"buffers":{"count":1,"bytes":1448},"zombies":{"count":0,"bytes":0},"deltaBytes":3752},"rates":{"objectsPerSecond":N,"bytesPerSecond":N},"findings":[{"id":"C1","severity":"definite","subject":"<ROOT>/tests/trace/programs/analyze_flow.cxy:16 <ROOT>/tests/trace/programs/analyze_flow.cxy:15","title":"Leaked cycle: 2 Node objects, 32 bytes","fix":"make one side a weak reference (@weak Node)","evidence":{"nodes":2,"bytes":32},"suggest":["cxy utils mem cycles"]},{"id":"G1","severity":"watch","subject":"<ROOT>/tests/trace/programs/analyze_flow.cxy:26","title":"Objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive","fix":"find what keeps them with `cxy utils mem path <ptr>`","evidence":{"made":150,"alive":150,"ratio":1,"samplesGrowing":0},"suggest":["cxy utils mem difflist 5"]},{"id":"G3","severity":"watch","subject":"Node","title":"No Node object was ever freed: 152 made","fix":"check who owns them with `cxy utils mem sites`","evidence":{"allocs":152,"frees":0},"suggest":["cxy utils mem types"]}],"checked":["D1","Z1","K1"],"notChecked":["G2"],"suspects":[]}
+{"version":1,"program":{"pid":PID},"window":{"seconds":N,"samples":1,"baseline":true},"approximate":false,"enoughActivity":true,"plateau":false,"verdict":"definite","totals":{"objects":{"count":153,"bytes":2456,"deltaCount":152},"buffers":{"count":1,"bytes":1448},"zombies":{"count":0,"bytes":0},"deltaBytes":3752},"rates":{"objectsPerSecond":N,"bytesPerSecond":N},"findings":[{"id":"C1","severity":"definite","subject":"<ROOT>/tests/trace/programs/analyze_flow.cxy:16 <ROOT>/tests/trace/programs/analyze_flow.cxy:15","title":"Leaked cycle: 2 Node objects, 32 bytes","fix":"make one side a weak reference (@weak Node)","evidence":{"nodes":2,"bytes":32},"suggest":["cxy utils mem cycles"],"type":null,"retention":null},{"id":"G1","severity":"watch","subject":"<ROOT>/tests/trace/programs/analyze_flow.cxy:26","title":"`Node` objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive","fix":"evict entries, or bound the size of what the global holds","evidence":{"made":150,"alive":150,"ratio":1,"samplesGrowing":0},"suggest":["cxy utils mem path PTR"],"type":"Node","retention":{"heldBy":"global","sampled":8,"covered":8,"shape":["global cache","vector.Vector[Node]","buffer <ROOT>/tests/trace/programs/analyze_flow.cxy:26"],"note":"this is a cache that only grows. Intended? If not, evict entries or bound it.","ptr":"PTR"}},{"id":"G3","severity":"watch","subject":"Node","title":"No Node object was ever freed: 152 made","fix":"check who owns them with `cxy utils mem sites`","evidence":{"allocs":152,"frees":0},"suggest":["cxy utils mem types"],"type":null,"retention":null}],"checked":["D1","Z1","K1"],"notChecked":["G2"],"suspects":[{"ptr":"PTR","type":"Node","site":{"file":"<ROOT>/tests/trace/programs/analyze_flow.cxy","line":26}}]}
 $ analyze --json --fail-on definite
-{"version":1,"program":{"pid":PID},"window":{"seconds":N,"samples":1,"baseline":true},"approximate":false,"enoughActivity":true,"plateau":false,"verdict":"definite","totals":{"objects":{"count":153,"bytes":2456,"deltaCount":152},"buffers":{"count":1,"bytes":1448},"zombies":{"count":0,"bytes":0},"deltaBytes":3752},"rates":{"objectsPerSecond":N,"bytesPerSecond":N},"findings":[{"id":"C1","severity":"definite","subject":"<ROOT>/tests/trace/programs/analyze_flow.cxy:16 <ROOT>/tests/trace/programs/analyze_flow.cxy:15","title":"Leaked cycle: 2 Node objects, 32 bytes","fix":"make one side a weak reference (@weak Node)","evidence":{"nodes":2,"bytes":32},"suggest":["cxy utils mem cycles"]},{"id":"G1","severity":"watch","subject":"<ROOT>/tests/trace/programs/analyze_flow.cxy:26","title":"Objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive","fix":"find what keeps them with `cxy utils mem path <ptr>`","evidence":{"made":150,"alive":150,"ratio":1,"samplesGrowing":0},"suggest":["cxy utils mem difflist 5"]},{"id":"G3","severity":"watch","subject":"Node","title":"No Node object was ever freed: 152 made","fix":"check who owns them with `cxy utils mem sites`","evidence":{"allocs":152,"frees":0},"suggest":["cxy utils mem types"]}],"checked":["D1","Z1","K1"],"notChecked":["G2"],"suspects":[]}
+{"version":1,"program":{"pid":PID},"window":{"seconds":N,"samples":1,"baseline":true},"approximate":false,"enoughActivity":true,"plateau":false,"verdict":"definite","totals":{"objects":{"count":153,"bytes":2456,"deltaCount":152},"buffers":{"count":1,"bytes":1448},"zombies":{"count":0,"bytes":0},"deltaBytes":3752},"rates":{"objectsPerSecond":N,"bytesPerSecond":N},"findings":[{"id":"C1","severity":"definite","subject":"<ROOT>/tests/trace/programs/analyze_flow.cxy:16 <ROOT>/tests/trace/programs/analyze_flow.cxy:15","title":"Leaked cycle: 2 Node objects, 32 bytes","fix":"make one side a weak reference (@weak Node)","evidence":{"nodes":2,"bytes":32},"suggest":["cxy utils mem cycles"],"type":null,"retention":null},{"id":"G1","severity":"watch","subject":"<ROOT>/tests/trace/programs/analyze_flow.cxy:26","title":"`Node` objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive","fix":"evict entries, or bound the size of what the global holds","evidence":{"made":150,"alive":150,"ratio":1,"samplesGrowing":0},"suggest":["cxy utils mem path PTR"],"type":"Node","retention":{"heldBy":"global","sampled":8,"covered":8,"shape":["global cache","vector.Vector[Node]","buffer <ROOT>/tests/trace/programs/analyze_flow.cxy:26"],"note":"this is a cache that only grows. Intended? If not, evict entries or bound it.","ptr":"PTR"}},{"id":"G3","severity":"watch","subject":"Node","title":"No Node object was ever freed: 152 made","fix":"check who owns them with `cxy utils mem sites`","evidence":{"allocs":152,"frees":0},"suggest":["cxy utils mem types"],"type":null,"retention":null}],"checked":["D1","Z1","K1"],"notChecked":["G2"],"suspects":[{"ptr":"PTR","type":"Node","site":{"file":"<ROOT>/tests/trace/programs/analyze_flow.cxy","line":26}}]}
 [exit 3]
+$ analyze --no-graph
+verdict: WATCH                           window: TIME, 1 sample
+
+memory       live 2.4 KB in 153 objects (+152 objects since the baseline)
+             buffers 1.4 KB   zombies 0
+growth       +3.7 KB (objects and buffers), RATES
+
+[watch]    G1 Objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive
+    fix: find what keeps them with `cxy utils mem path <ptr>`
+    see: cxy utils mem difflist 5
+
+[watch]    G3 No Node object was ever freed: 152 made
+    fix: check who owns them with `cxy utils mem sites`
+    see: cxy utils mem types
+
+ok: no growing zombies
+not checked: C1, D1, K1
+$ analyze --no-graph --json
+{"version":1,"program":{"pid":PID},"window":{"seconds":N,"samples":1,"baseline":true},"approximate":false,"enoughActivity":true,"plateau":false,"verdict":"watch","totals":{"objects":{"count":153,"bytes":2456,"deltaCount":152},"buffers":{"count":1,"bytes":1448},"zombies":{"count":0,"bytes":0},"deltaBytes":3752},"rates":{"objectsPerSecond":N,"bytesPerSecond":N},"findings":[{"id":"G1","severity":"watch","subject":"<ROOT>/tests/trace/programs/analyze_flow.cxy:26","title":"Objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive","fix":"find what keeps them with `cxy utils mem path <ptr>`","evidence":{"made":150,"alive":150,"ratio":1,"samplesGrowing":0},"suggest":["cxy utils mem difflist 5"],"type":null,"retention":null},{"id":"G3","severity":"watch","subject":"Node","title":"No Node object was ever freed: 152 made","fix":"check who owns them with `cxy utils mem sites`","evidence":{"allocs":152,"frees":0},"suggest":["cxy utils mem types"],"type":null,"retention":null}],"checked":["Z1"],"notChecked":["G2","C1","D1","K1"],"suspects":[]}
+$ analyze --suspects 0
+verdict: DEFINITE PROBLEM                window: TIME, 1 sample
+
+memory       live 2.4 KB in 153 objects (+152 objects since the baseline)
+             buffers 1.4 KB   zombies 0
+growth       +3.7 KB (objects and buffers), RATES
+
+[definite] C1 Leaked cycle: 2 Node objects, 32 bytes
+    at: <ROOT>/tests/trace/programs/analyze_flow.cxy:16 <ROOT>/tests/trace/programs/analyze_flow.cxy:15
+    fix: make one side a weak reference (@weak Node)
+    see: cxy utils mem cycles
+
+[watch]    G1 Objects made at <ROOT>/tests/trace/programs/analyze_flow.cxy:26 are not freed: 150 of 150 made since the baseline are alive
+    fix: find what keeps them with `cxy utils mem path <ptr>`
+    see: cxy utils mem difflist 5
+
+[watch]    G3 No Node object was ever freed: 152 made
+    fix: check who owns them with `cxy utils mem sites`
+    see: cxy utils mem types
+
+ok: no dangling borrows, no growing zombies, no root holding most of the heap
 $ analyze --json --reset
 {"version":1,"baseline":{"taken":true,"mark":160}}
 $ analyze --reset

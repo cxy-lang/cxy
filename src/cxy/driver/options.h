@@ -279,6 +279,8 @@ typedef struct Options {
             bool memJson;            // analyze: print JSON, not text
             const char *memWatch;    // analyze: watch for this long (empty = no)
             i64 memSamples;          // analyze: snapshots to take while watching
+            i64 memSuspects;         // analyze: growing sites to look into (0 = none)
+            bool memNoGraph;         // analyze: no ownership graph, nothing is paused
         } utils;
     };
 } Options;

@@ -8,6 +8,11 @@ analyze --fail-on definite
 analyze --fail-on loud
 analyze --json
 analyze --json --fail-on definite
+# no ownership graph: nothing is paused, no cycles, no owners of the growing site
+analyze --no-graph
+analyze --no-graph --json
+# no suspects: the growing site is reported but not looked into
+analyze --suspects 0
 analyze --json --reset
 analyze --reset
 analyze

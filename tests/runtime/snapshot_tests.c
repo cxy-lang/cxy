@@ -142,6 +142,20 @@ static void testSnapshot(void)
 }
 
 // Live objects: all[1] (tick 2), all[2], all[3], all[4]. The buffer is not an object.
+// `snapshot nograph json`: the same counters, no graph, no dangling scan
+static void testSnapshotNoGraph(void)
+{
+    CAPTURE_JSON(snapshotCountersReport(&w));
+    char expectedStart[64];
+    snprintf(expectedStart, sizeof(expectedStart), "{\"version\":1,\"pid\":%d,\"tick\":6,", (int)getpid());
+    CHECK(strncmp(out, expectedStart, strlen(expectedStart)) == 0);
+    CONTAINS("\"objects\":{\"count\":4,\"bytes\":64}");
+    CONTAINS("\"aliveSinceMark\":2}");
+    CONTAINS(",\"hasBaseline\":true,\"approximate\":0,\"graph\":{\"error\":\"skipped\"}}");
+    MISSING("dangling");
+    MISSING("external");
+}
+
 static void testRefs(void)
 {
     all[1]->strong = 5;
@@ -184,6 +198,7 @@ int main(void)
     testMark();
     testCounters();
     testSnapshot();
+    testSnapshotNoGraph();
     testRefs();
     testMarkJson();
 

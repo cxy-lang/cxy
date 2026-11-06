@@ -49,6 +49,37 @@ static void formatWindow(char *out, size_t size, double seconds)
         snprintf(out, size, "%dm%02ds", (int)seconds / 60, (int)seconds % 60);
 }
 
+static const char *heldByToken(MemHeldBy heldBy)
+{
+    switch (heldBy) {
+        case memHeldGlobal: return "global";
+        case memHeldOutside: return "outside";
+        case memHeldCycle: return "cycle";
+        default: return "none";
+    }
+}
+
+// `global cache -> Vector -> buffer app.cxy:13`, how the objects are kept alive
+static void describeRetention(const MemRetention *r, char *out, size_t size)
+{
+    char chain[384] = "";
+    size_t len = 0;
+    for (u32 i = 0; i < r->stepCount && len < sizeof(chain); i++)
+        len += (size_t)snprintf(chain + len,
+                                sizeof(chain) - len,
+                                "%s%s",
+                                i > 0 ? " -> " : "",
+                                r->steps[i]);
+    if (r->heldBy == memHeldCycle)
+        snprintf(out, size, "nothing outside a cycle");
+    else if (r->heldBy == memHeldOutside && len == 0)
+        snprintf(out, size, "held from outside the heap");
+    else if (r->heldBy == memHeldOutside)
+        snprintf(out, size, "%s (held from outside the heap)", chain);
+    else
+        snprintf(out, size, "%s", chain);
+}
+
 static bool findingFor(const MemReport *report, MemRule rule)
 {
     for (u32 i = 0; i < report->count; i++) {
@@ -99,6 +130,18 @@ void memReportText(const MemReport *report, const MemSnapshot *last, u64 minActi
         fprintf(out, "%s %s %s\n", severityLabel(f->severity), memRuleId(f->rule), f->title);
         if (f->subject[0] != '\0' && strstr(f->title, f->subject) == NULL)
             fprintf(out, "    at: %s\n", f->subject);
+        if (f->retention.present) {
+            char chain[512];
+            describeRetention(&f->retention, chain, sizeof(chain));
+            fprintf(out,
+                    "    held by: %s (%u of %u sampled object%s)\n",
+                    chain,
+                    f->retention.covered,
+                    f->retention.sampled,
+                    f->retention.sampled == 1 ? "" : "s");
+            if (f->retention.note[0] != '\0')
+                fprintf(out, "    %s\n", f->retention.note);
+        }
         if (f->fix[0] != '\0')
             fprintf(out, "    fix: %s\n", f->fix);
         if (f->see[0] != '\0')
@@ -188,6 +231,24 @@ static cJSON *findingObject(const MemFinding *f)
     if (f->see[0] != '\0')
         cJSON_AddItemToArray(suggest, cJSON_CreateString(f->see));
     cJSON_AddItemToObject(o, "suggest", suggest);
+    addString(o, "type", f->type[0] != '\0' ? f->type : NULL);
+    if (f->retention.present) {
+        const MemRetention *r = &f->retention;
+        cJSON *retention = cJSON_CreateObject();
+        addString(retention, "heldBy", heldByToken(r->heldBy));
+        addNumber(retention, "sampled", r->sampled);
+        addNumber(retention, "covered", r->covered);
+        cJSON *shape = cJSON_CreateArray();
+        for (u32 i = 0; i < r->stepCount; i++)
+            cJSON_AddItemToArray(shape, cJSON_CreateString(r->steps[i]));
+        cJSON_AddItemToObject(retention, "shape", shape);
+        addString(retention, "note", r->note[0] != '\0' ? r->note : NULL);
+        addString(retention, "ptr", r->ptr[0] != '\0' ? r->ptr : NULL);
+        cJSON_AddItemToObject(o, "retention", retention);
+    }
+    else {
+        cJSON_AddItemToObject(o, "retention", cJSON_CreateNull());
+    }
     return o;
 }
 
@@ -244,7 +305,22 @@ void memReportJson(const MemReport *report, const MemSnapshot *last, FILE *out)
     }
     cJSON_AddItemToObject(root, "checked", checked);
     cJSON_AddItemToObject(root, "notChecked", notChecked);
-    cJSON_AddItemToObject(root, "suspects", cJSON_CreateArray());
+    // One sampled object for each finding that was looked into
+    cJSON *suspects = cJSON_CreateArray();
+    for (u32 i = 0; i < report->count; i++) {
+        const MemFinding *f = &report->findings[i];
+        if (!f->retention.present)
+            continue;
+        cJSON *s = cJSON_CreateObject();
+        addString(s, "ptr", f->retention.ptr[0] != '\0' ? f->retention.ptr : NULL);
+        addString(s, "type", f->type[0] != '\0' ? f->type : NULL);
+        cJSON *site = cJSON_CreateObject();
+        addString(site, "file", f->file);
+        addNumber(site, "line", (double)f->line);
+        cJSON_AddItemToObject(s, "site", site);
+        cJSON_AddItemToArray(suspects, s);
+    }
+    cJSON_AddItemToObject(root, "suspects", suspects);
 
     char *text = cJSON_PrintUnformatted(root);
     if (text != NULL) {

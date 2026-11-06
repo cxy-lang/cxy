@@ -684,7 +684,9 @@ Command(utils,
     f(utils.memReset, Local, Option, 4, ## __VA_ARGS__)                        \
     f(utils.memJson, Local, Option, 5, ## __VA_ARGS__)                         \
     f(utils.memWatch, Local, String, 6, ## __VA_ARGS__)                        \
-    f(utils.memSamples, Local, Int, 7, ## __VA_ARGS__)
+    f(utils.memSamples, Local, Int, 7, ## __VA_ARGS__)                         \
+    f(utils.memSuspects, Local, Int, 8, ## __VA_ARGS__)                        \
+    f(utils.memNoGraph, Local, Option, 9, ## __VA_ARGS__)
 // clang-format on
 
 static void parseSpaceSeperatedList(DynArray *into,
@@ -1335,7 +1337,15 @@ static int parseUtilsCommand(
         Int(Name("samples"),
             Help("analyze --watch: snapshots to take after the baseline, at equal "
                  "intervals (1 to 32)"),
-            Def("3")));
+            Def("3")),
+        Int(Name("suspects"),
+            Help("analyze: how many growing allocation sites to look into, by "
+                 "sampling their objects and following their owners (0 = none)"),
+            Def("3")),
+        Opt(Name("no-graph"),
+            Help("analyze: skip everything that needs the ownership graph "
+                 "(cycles, dangling borrows, owners of suspects), the program is "
+                 "never paused")));
 
     mem_trace.meta.name = "mem";
 

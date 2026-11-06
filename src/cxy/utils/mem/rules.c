@@ -221,6 +221,8 @@ static void ruleG1(const MemSnapshot *baseline,
         if (f == NULL)
             break;
         reported++;
+        snprintf(f->file, sizeof(f->file), "%s", orUnknown(c->site->file));
+        f->line = c->site->line;
         double ratio = (double)c->alive / (double)c->made;
         snprintf(f->subject, sizeof(f->subject), "%s:%llu", orUnknown(c->site->file),
                  (unsigned long long)c->site->line);
@@ -518,6 +520,11 @@ void memAnalyze(const MemSnapshot *baseline,
         ruleK1(last, config, report);
     }
 
+    memRefreshVerdict(report);
+}
+
+void memRefreshVerdict(MemReport *report)
+{
     sortFindings(report);
 
     MemSeverity worst = memInfo;

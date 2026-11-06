@@ -3233,6 +3233,33 @@ static void jsonGraphExternal(JsonWriter *json, const Graph *g)
     jsonEndObject(json);
 }
 
+// The counters of a snapshot, in an open object
+static void snapshotHead(JsonWriter *json, const CounterSet *now, uint32_t approximate)
+{
+    jsonBeginObject(json);
+    jsonFieldUint(json, "version", 1);
+    jsonFieldUint(json, "pid", (uint64_t)getpid());
+    jsonCounterSet(json, now);
+    jsonFieldBool(json, "hasBaseline", hasBaseline);
+    jsonFieldUint(json, "approximate", approximate);
+}
+
+// `snapshot nograph json`: the counters only. Nothing is paused and nothing is forked,
+// there is no graph and no dangling scan in the answer.
+static void snapshotCountersReport(JsonWriter *json)
+{
+    CounterSet now;
+    if (!collectCounters(&now, true)) {
+        jsonErrorTo(json, "out of memory");
+        return;
+    }
+    snapshotHead(json, &now, 0);
+    jsonKey(json, "graph");
+    jsonErrorTo(json, "skipped");
+    jsonEndObject(json);
+    freeCounterSet(&now);
+}
+
 // Runs in the forked child: counters and graph come from the same paused copy, so
 // the numbers agree with each other
 static void snapshotReport(int fd, JsonWriter *json)
@@ -3242,12 +3269,7 @@ static void snapshotReport(int fd, JsonWriter *json)
         jsonErrorTo(json, "out of memory");
         return;
     }
-    jsonBeginObject(json);
-    jsonFieldUint(json, "version", 1);
-    jsonFieldUint(json, "pid", (uint64_t)getpid());
-    jsonCounterSet(json, &now);
-    jsonFieldBool(json, "hasBaseline", hasBaseline);
-    jsonFieldUint(json, "approximate", graphApproximate);
+    snapshotHead(json, &now, graphApproximate);
 
     Graph g = {0};
     jsonKey(json, "graph");
@@ -3317,12 +3339,17 @@ static bool jsonCommand(int fd, const char *cmd, char *args[])
         jsonErrorFd(fd, "unknown command", cmd);
         return true;
     }
+    JsonWriter w;
+    jsonInitFd(&w, fd);
+    if (strcmp(cmd, "snapshot") == 0 && args[1] != NULL && strcmp(args[1], "nograph") == 0) {
+        snapshotCountersReport(&w);
+        jsonReplyEnd(&w, fd);
+        return true;
+    }
     if (isGraphCommand(cmd)) {
         graphCommand(fd, cmd, args[1], args[2], true);
         return true;
     }
-    JsonWriter w;
-    jsonInitFd(&w, fd);
     uint64_t mark = __atomic_load_n(&markGen, __ATOMIC_RELAXED);
     if (strcmp(cmd, "mark") == 0)
         markCommand(fd, &w);
