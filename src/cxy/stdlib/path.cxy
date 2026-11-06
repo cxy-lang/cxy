@@ -289,7 +289,8 @@ pub func basename(path: PathLike): PathLike {
 }
 
 pub func mkdir(path: PathLike, mode: u16 = 0o777): !void {
-    var spath = cast[strview](&path);
+    var full = expand(path);
+    var spath = full.s();
     const status = withNullTermination[i32](
         &spath, (p: ^const char) => {
             return sysstat.mkdir(p, mode)
@@ -300,14 +301,16 @@ pub func mkdir(path: PathLike, mode: u16 = 0o777): !void {
 }
 
 pub func mkdirs(path: PathLike, mode: u16 = 0o777): !void {
-    if (!exists(path)) {
-        var base = dirname(path);
+    // libc does not expand `~`, without this `~/dir` makes a directory named `~`
+    var full = expand(path);
+    if (!exists(full)) {
+        var base = dirname(full);
         var sbase = cast[strview](&base);
-        var spath = cast[strview](&path);
+        var spath = full.s();
 
         if (!sbase.empty() && spath != sbase)
             mkdirs(base, mode)
-        mkdir(path, mode)
+        mkdir(full, mode)
     }
 }
 
