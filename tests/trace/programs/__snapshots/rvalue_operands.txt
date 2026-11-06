@@ -1,0 +1,2 @@
+$ program output
+calls: 2 inverted: true

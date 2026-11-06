@@ -39,45 +39,6 @@ static AstNode *makeStructInitializerForDefaults(TypingContext *ctx,
     return init.first;
 }
 
-static AstNode *transformRValueToLValue(AstVisitor *visitor, AstNode *node)
-{
-    TypingContext *ctx = getAstVisitorContext(visitor);
-    if (node == NULL || !nodeIs(node, CallExpr))
-        return node;
-
-    cstring tmpSymbol = makeAnonymousVariable(ctx->strings, "_rv");
-    AstNode *tmpVar = makeVarDecl(ctx->pool,
-                                  &node->loc,
-                                  (node->flags & flgConst) | flgTemporary,
-                                  tmpSymbol,
-                                  NULL,
-                                  node,
-                                  NULL,
-                                  node->type);
-    astVisit(visitor, node);
-    astModifierAdd(&ctx->blockModifier, tmpVar);
-
-    return makeResolvedPath(ctx->pool,
-                            &node->loc,
-                            tmpSymbol,
-                            tmpVar->flags | flgMove,
-                            tmpVar,
-                            NULL,
-                            tmpVar->type);
-}
-
-static AstNode *transformRValueToLValues(AstVisitor *visitor, AstNode *node)
-{
-    AstNodeList nodes = {};
-    for (AstNode *it = node; it;) {
-        AstNode *tmp = it;
-        it = it->next;
-        tmp->next = NULL;
-        insertAstNode(&nodes, transformRValueToLValue(visitor, tmp));
-    }
-
-    return nodes.first;
-}
 
 static AstNode *createStructInitialize(TypingContext *ctx,
                                        const Type *type,
@@ -403,9 +364,10 @@ void transformToMemberCallExpr(AstVisitor *visitor,
     node->tag = astCallExpr;
     node->type = NULL;
     node->callExpr.callee = callee;
-    if (op != opIs) {
-        node->callExpr.args = transformRValueToLValues(visitor, args);
-    }
+    // An rvalue operand stays where it is written: lowering evaluates it there, in
+    // order, and the memory pass drops it
+    if (op != opIs)
+        node->callExpr.args = args;
 }
 
 const Type *transformToConstructCallExpr(AstVisitor *visitor, AstNode *node)
@@ -488,12 +450,7 @@ bool transformToTruthyOperator(AstVisitor *visitor, AstNode *node)
     }
     else {
         transformToMemberCallExpr(
-            visitor,
-            node,
-            transformRValueToLValue(visitor,
-                                    shallowCloneAstNode(ctx->pool, node)),
-            S_Truthy,
-            NULL);
+            visitor, node, shallowCloneAstNode(ctx->pool, node), S_Truthy, NULL);
         type = checkType(visitor, node);
     }
     type = unwrapType(type, NULL);
@@ -516,11 +473,7 @@ bool transformToComplOperator(AstVisitor *visitor, AstNode *node)
         type = getTypeBase(type);
     } while (type);
 
-    transformToMemberCallExpr(visitor,
-                              node,
-                              transformRValueToLValue(visitor, operand),
-                              S_Compl,
-                              NULL);
+    transformToMemberCallExpr(visitor, node, operand, S_Compl, NULL);
     type = checkType(visitor, node);
     return !typeIs(type, Error);
 }

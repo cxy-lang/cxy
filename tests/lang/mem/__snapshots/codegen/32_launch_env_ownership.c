@@ -21,9 +21,9 @@ typedef int64_t atomic_MemoryOrder;
 #define atomic_MemoryOrder_AcqRel ((atomic_MemoryOrder)4)
 #define atomic_MemoryOrder_SeqCst ((atomic_MemoryOrder)5)
 typedef struct User User;
-typedef struct __closure_env22 __closure_env22;
+typedef struct __closure_env21 __closure_env21;
 typedef struct Result_void Result_void;
-typedef struct __closure_env24 __closure_env24;
+typedef struct __closure_env23 __closure_env23;
 
 struct builtins_Exception_VTable {
   uint64_t __tid;
@@ -116,7 +116,7 @@ struct User {
   int32_t age;
 };
 
-struct __closure_env22 {
+struct __closure_env21 {
   User user;
 };
 
@@ -125,7 +125,7 @@ struct Result_void {
   builtins_Exception * val;
 };
 
-struct __closure_env24 {
+struct __closure_env23 {
   User user;
 };
 
@@ -184,13 +184,13 @@ static void atomic_AtomicI_i32E_store(atomic_AtomicI_i32E * this, int32_t value,
 static atomic_AtomicI_i32E atomic_AtomicI_i32E_op__initCoverI_E();
 static User User_op__copy(User * this);
 static void User_op__destructor(User * this);
-static void __closure_env22_op__destructor(__closure_env22 * this);
+static void __closure_env21_op__destructor(__closure_env21 * this);
 static builtins_OutputStream * builtins_OutputStream_op__lshiftI_i32E(builtins_OutputStream * this, int32_t val);
 static void printlnI_i32E(int32_t args);
-static int32_t __closure_body23(__closure_env22 * this);
+static int32_t __closure_body22(__closure_env21 * this);
 static Result_void detached(User user);
-static void __closure_env24_op__destructor(__closure_env24 * this);
-static int32_t __closure_body25(__closure_env24 * this);
+static void __closure_env23_op__destructor(__closure_env23 * this);
+static int32_t __closure_body24(__closure_env23 * this);
 static Result_void joined(User user);
 static Result_void _main();
 __attribute__((constructor)) static void __init();
@@ -198,8 +198,8 @@ __attribute__((constructor)) static void __init();
 static const __TypeInfo __ti_builtins_StdOutputStream = { .name = "builtins.StdOutputStream", .size = sizeof(builtins_StdOutputStream), .align = _Alignof(builtins_StdOutputStream), .index = 0, .dropFields = builtins_StdOutputStream_op__destructor_fwd };
 static const __TypeInfo __ti_builtins_String = { .name = "builtins.String", .size = sizeof(builtins_String), .align = _Alignof(builtins_String), .index = 1, .dropFields = builtins_String_op__destructor_fwd };
 static const __TypeInfo __ti_thread_ThreadError = { .name = "thread.ThreadError", .size = sizeof(thread_ThreadError), .align = _Alignof(thread_ThreadError), .index = 2, .dropFields = thread_ThreadError_op__destructor_fwd };
-static const __TypeInfo __ti___closure_env22 = { .name = "__closure_env22", .size = sizeof(__closure_env22), .align = _Alignof(__closure_env22), .index = 3, .dropFields = __closure_env22_op__destructor };
-static const __TypeInfo __ti___closure_env24 = { .name = "__closure_env24", .size = sizeof(__closure_env24), .align = _Alignof(__closure_env24), .index = 4, .dropFields = __closure_env24_op__destructor };
+static const __TypeInfo __ti___closure_env21 = { .name = "__closure_env21", .size = sizeof(__closure_env21), .align = _Alignof(__closure_env21), .index = 3, .dropFields = __closure_env21_op__destructor };
+static const __TypeInfo __ti___closure_env23 = { .name = "__closure_env23", .size = sizeof(__closure_env23), .align = _Alignof(__closure_env23), .index = 4, .dropFields = __closure_env23_op__destructor };
 
 builtins_Exception_VTable builtins_Exception_vTable = (builtins_Exception_VTable){.__tid = 95ULL, .what = ((char * (*)(builtins_Exception *))(builtins_Exception_what))};
 builtins_OutputStream_VTable builtins_OutputStream_vTable = (builtins_OutputStream_VTable){.__tid = 193ULL, .append = ((Optional_u64 (*)(builtins_OutputStream *, void *, uint64_t))(nullptr))};
@@ -355,17 +355,17 @@ _L_exit:;
 
 static uint64_t builtins_maxI_u64E(uint64_t a, uint64_t b) {
   uint64_t __ret;
-  uint64_t _if9;
+  uint64_t _if8;
 _L_entry:;
   if (a > b) goto _L_IF0_then; else goto _L_IF0_else;
 _L_IF0_then:;
-  _if9 = a;
+  _if8 = a;
   goto _L_IF0_end;
 _L_IF0_else:;
-  _if9 = b;
+  _if8 = b;
   goto _L_IF0_end;
 _L_IF0_end:;
-  __ret = _if9;
+  __ret = _if8;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -602,17 +602,17 @@ _L_exit:;
 
 static char * thread_ThreadError_what(thread_ThreadError * this) {
   char * __ret;
-  char * _if19;
+  char * _if18;
 _L_entry:;
   if (this->msg == nullptr) goto _L_IF0_then; else goto _L_IF0_else;
 _L_IF0_then:;
-  _if19 = "";
+  _if18 = "";
   goto _L_IF0_end;
 _L_IF0_else:;
-  _if19 = builtins_String_str(((builtins_String *)(this->msg)));
+  _if18 = builtins_String_str(((builtins_String *)(this->msg)));
   goto _L_IF0_end;
 _L_IF0_end:;
-  __ret = _if19;
+  __ret = _if18;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -656,11 +656,11 @@ _L_exit:;
 
 static thread_Handle thread_Handle_op__initCover(_opaque_pthread_t * hdl) {
   thread_Handle __ret;
-  thread_Handle __obj15;
+  thread_Handle __obj14;
 _L_entry:;
-  __obj15 = (thread_Handle){.hdl = ((_opaque_pthread_t *)(nullptr)), ._id = 0ULL};
-  thread_Handle_op__init(&__obj15, hdl);
-  __ret = __obj15;
+  __obj14 = (thread_Handle){.hdl = ((_opaque_pthread_t *)(nullptr)), ._id = 0ULL};
+  thread_Handle_op__init(&__obj14, hdl);
+  __ret = __obj14;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -688,15 +688,15 @@ _L_exit:;
 
 static builtins_String * thread_String_op__initI_sECoverI_sE(char * str) {
   builtins_String * __ret;
-  builtins_String * __obj16;
+  builtins_String * __obj15;
   builtins_String * __t1;
 _L_entry:;
   __t1 = __mm_alloc(&__ti_builtins_String, nullptr);
-  __obj16 = ((builtins_String *)(__t1));
-  memset(__obj16, 0, sizeof(builtins_String));
-  builtins_String___defaults_init(((builtins_String *)(__obj16)));
-  builtins_String_op__initI_sE(((builtins_String *)(__obj16)), str);
-  __ret = __obj16;
+  __obj15 = ((builtins_String *)(__t1));
+  memset(__obj15, 0, sizeof(builtins_String));
+  builtins_String___defaults_init(((builtins_String *)(__obj15)));
+  builtins_String_op__initI_sE(((builtins_String *)(__obj15)), str);
+  __ret = __obj15;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -704,15 +704,15 @@ _L_exit:;
 
 static thread_ThreadError * thread_ThreadError_op__initCover(builtins_String * msg) {
   thread_ThreadError * __ret;
-  thread_ThreadError * __obj17;
+  thread_ThreadError * __obj16;
   thread_ThreadError * __t2;
 _L_entry:;
   __t2 = __mm_alloc(&__ti_thread_ThreadError, nullptr);
-  __obj17 = ((thread_ThreadError *)(__t2));
-  memset(__obj17, 0, sizeof(thread_ThreadError));
-  thread_ThreadError___defaults_init(((thread_ThreadError *)(__obj17)));
-  thread_ThreadError_op__init(((thread_ThreadError *)(__obj17)), msg);
-  __ret = __obj17;
+  __obj16 = ((thread_ThreadError *)(__t2));
+  memset(__obj16, 0, sizeof(thread_ThreadError));
+  thread_ThreadError___defaults_init(((thread_ThreadError *)(__obj16)));
+  thread_ThreadError_op__init(((thread_ThreadError *)(__obj16)), msg);
+  __ret = __obj16;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -720,11 +720,11 @@ _L_exit:;
 
 static thread_Thread thread_Thread_op__initCover(_opaque_pthread_t * hdl, bool joinable) {
   thread_Thread __ret;
-  thread_Thread __obj18;
+  thread_Thread __obj17;
 _L_entry:;
-  __obj18 = (thread_Thread){._joinable = false};
-  thread_Thread_op__init(&__obj18, hdl, joinable);
-  __ret = __obj18;
+  __obj17 = (thread_Thread){._joinable = false};
+  thread_Thread_op__init(&__obj17, hdl, joinable);
+  __ret = __obj17;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -789,11 +789,11 @@ _L_exit:;
 
 static atomic_AtomicI_i32E atomic_AtomicI_i32E_op__initCoverI_E() {
   atomic_AtomicI_i32E __ret;
-  atomic_AtomicI_i32E __obj21;
+  atomic_AtomicI_i32E __obj20;
 _L_entry:;
-  __obj21 = (atomic_AtomicI_i32E){};
-  atomic_AtomicI_i32E_op__initI_E(&__obj21);
-  __ret = __obj21;
+  __obj20 = (atomic_AtomicI_i32E){};
+  atomic_AtomicI_i32E_op__initI_E(&__obj20);
+  __ret = __obj20;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -819,7 +819,7 @@ _L_exit:;
   return;
 }
 
-static void __closure_env22_op__destructor(__closure_env22 * this) {
+static void __closure_env21_op__destructor(__closure_env21 * this) {
 _L_entry:;
   User_op__destructor(&(this->user));
   memset(&(this->user), 0, sizeof(User));
@@ -847,7 +847,7 @@ _L_exit:;
   return;
 }
 
-static int32_t __closure_body23(__closure_env22 * this) {
+static int32_t __closure_body22(__closure_env21 * this) {
   int32_t __ret;
 _L_entry:;
   printlnI_i32E(this->user.age);
@@ -860,18 +860,18 @@ _L_exit:;
 
 static Result_void detached(User user) {
   Result_void __ret;
-  __closure_env22 __t2;
+  __closure_env21 __t2;
   User __copy0;
-  __closure_env22 * __env3;
+  __closure_env21 * __env3;
   Closure_888 __t4;
   Result_Thread __call_res_5;
   builtins_Exception * __mv1;
 _L_entry:;
   __copy0 = User_op__copy(&(user));
-  __t2 = (__closure_env22){.user = __copy0};
-  __env3 = __mm_alloc(&__ti___closure_env22, nullptr);
+  __t2 = (__closure_env21){.user = __copy0};
+  __env3 = __mm_alloc(&__ti___closure_env21, nullptr);
   (*(__env3)) = __t2;
-  __t4 = (Closure_888){ .env = __env3, .fn = __closure_body23, .dtor = __smart_ptr_drop };
+  __t4 = (Closure_888){ .env = __env3, .fn = __closure_body22, .dtor = __smart_ptr_drop };
   __call_res_5 = thread_launch(__t4);
   if (__call_res_5.tag == 1U) goto _L_call_err_0; else goto _L_call_cont_1;
 _L_call_err_0:;
@@ -889,7 +889,7 @@ _L_exit:;
   return __ret;
 }
 
-static void __closure_env24_op__destructor(__closure_env24 * this) {
+static void __closure_env23_op__destructor(__closure_env23 * this) {
 _L_entry:;
   User_op__destructor(&(this->user));
   memset(&(this->user), 0, sizeof(User));
@@ -898,7 +898,7 @@ _L_exit:;
   return;
 }
 
-static int32_t __closure_body25(__closure_env24 * this) {
+static int32_t __closure_body24(__closure_env23 * this) {
   int32_t __ret;
 _L_entry:;
   printlnI_i32E(this->user.age);
@@ -911,18 +911,18 @@ _L_exit:;
 static Result_void joined(User user) {
   Result_void __ret;
   thread_Thread t;
-  __closure_env24 __t7;
+  __closure_env23 __t7;
   User __copy2;
-  __closure_env24 * __env8;
+  __closure_env23 * __env8;
   Closure_888 __t9;
   Result_Thread __call_res_10;
   builtins_Exception * __mv3;
 _L_entry:;
   __copy2 = User_op__copy(&(user));
-  __t7 = (__closure_env24){.user = __copy2};
-  __env8 = __mm_alloc(&__ti___closure_env24, nullptr);
+  __t7 = (__closure_env23){.user = __copy2};
+  __env8 = __mm_alloc(&__ti___closure_env23, nullptr);
   (*(__env8)) = __t7;
-  __t9 = (Closure_888){ .env = __env8, .fn = __closure_body25, .dtor = __smart_ptr_drop };
+  __t9 = (Closure_888){ .env = __env8, .fn = __closure_body24, .dtor = __smart_ptr_drop };
   __call_res_10 = thread_launch(__t9);
   if (__call_res_10.tag == 1U) goto _L_call_err_0; else goto _L_call_cont_1;
 _L_call_err_0:;

@@ -470,14 +470,14 @@ pub class Request {
     _route: &Route
     _addr: &Address
     _ip: String = null
-    _sock: TcpSocket = null
+    _sock: &TcpSocket? = null
 
     @inline
-    func `init`(addr: &Address, settings: ^const parser.llhttp_settings_t, sock: TcpSocket = null) {
+    func `init`(addr: &Address, settings: ^const parser.llhttp_settings_t, sock: &TcpSocket? = null) {
         _addr = addr
         _parser = parser.llhttp_alloc(parser.llhttp_type_t.HTTP_REQUEST, settings)
         _parser.data = this
-        _sock = &&sock
+        _sock = sock
         _ip = String()
         _addr.toString(&_ip, false)
     }
@@ -497,10 +497,10 @@ pub class Request {
 
     @inline
     const func isConnected() {
-        if _sock == null {
-            return false
+        if _sock {
+            return _sock&.isConnected()
         }
-        return _sock.isConnected()
+        return false
     }
 
     @inline
@@ -743,11 +743,6 @@ pub class Request {
     @inline
     const func qparams() {
         return &_qparams
-    }
-
-    @inline
-    func takeSocket() {
-        return &&_sock
     }
 }
 
@@ -1222,13 +1217,13 @@ class Connection[Middlewares] {
     }
 
     func handle() {
-        req = Request(sock.address(), ptrof HTTP_PARSER_SETTINGS, &&sock)
+        req = Request(sock.address(), ptrof HTTP_PARSER_SETTINGS, &sock)
         resp = Response()
         while (!_close && req.isConnected()) {
             handleConnection()
             if (resp.upgrade() != null) {
                 var up = resp.upgrade()
-                up.start(req.takeSocket()) catch {
+                up.start(&&sock) catch {
                     WRN!("Unhandled upgrade error: " << ex!.what())
                 }
                 break

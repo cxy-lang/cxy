@@ -43,20 +43,20 @@ _L_exit:
   return
 }
 
-func main.__closure_env14.op__copy(this: ^__closure_env14): __closure_env14 {
+func main.__closure_env13.op__copy(this: ^__closure_env13): __closure_env13 {
 _L_entry:
   scope.enter 0
-  var __ret: __closure_env14
+  var __ret: __closure_env13
   var __t0: ^Node
   copy this.n -> __t0
-  __ret = __closure_env14 {n: __t0}
+  __ret = __closure_env13 {n: __t0}
   goto _L_exit
 _L_exit:
   scope.exit 0
   return __ret
 }
 
-func main.__closure_env14.op__destructor(this: ^__closure_env14): void {
+func main.__closure_env13.op__destructor(this: ^__closure_env13): void {
 _L_entry:
   scope.enter 0
   drop this.n
@@ -67,7 +67,7 @@ _L_exit:
   return
 }
 
-func __closure_body15(this: ^__closure_env14, x: i32): i32 {
+func __closure_body14(this: ^__closure_env13, x: i32): i32 {
 _L_entry:
   scope.enter 0
   var __ret: i32
@@ -82,14 +82,14 @@ func adder(n: ^Node): Closure_446 {
 _L_entry:
   scope.enter 0
   var __ret: Closure_446
-  var __t1: __closure_env14
+  var __t1: __closure_env13
   var __copy0: ^Node
   copy n -> __copy0
-  __t1 = __closure_env14 {n: __copy0}
-  var __env2: ^__closure_env14
-  __env2 = alloc(__closure_env14)
+  __t1 = __closure_env13 {n: __copy0}
+  var __env2: ^__closure_env13
+  __env2 = alloc(__closure_env13)
   *__env2 = __t1
-  __ret = ClosureValue(__env2, __closure_body15)
+  __ret = ClosureValue(__env2, __closure_body14)
   goto _L_exit
 _L_exit:
   drop n
@@ -101,13 +101,13 @@ func main.Node.op__initCover(id: i32): ^Node {
 _L_entry:
   scope.enter 0
   var __ret: ^Node
-  var __obj16: ^Node
+  var __obj15: ^Node
   var __t3: ^Node
   __t3 = alloc(^Node)
-  __obj16 = <^Node>(__t3)
-  zeromem __obj16
-  Node_op__init(<^Node>(__obj16), id)
-  __ret = __obj16
+  __obj15 = <^Node>(__t3)
+  zeromem __obj15
+  Node_op__init(<^Node>(__obj15), id)
+  __ret = __obj15
   goto _L_exit
 _L_exit:
   scope.exit 0

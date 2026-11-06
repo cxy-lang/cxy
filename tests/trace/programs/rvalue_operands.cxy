@@ -1,0 +1,24 @@
+var counter = 0
+
+class Flag {
+    on: bool
+    func `init`(on: bool) { this.on = on }
+    func `deinit`() { }
+    func `!!`() => on
+    func `~`() => !on
+}
+
+func make(on: bool): Flag {
+    counter = counter + 1
+    return Flag(on)
+}
+
+// An rvalue that is the operand of an overloaded operator is made where it is
+// written: not when `&&` skips it, and it is dropped, so the exit report is empty
+func main(): void {
+    var skip = false
+    if skip && !!make(true) { }
+    var inverted = ~make(false)
+    if make(true) { }
+    println("calls: ", counter, " inverted: ", inverted)
+}

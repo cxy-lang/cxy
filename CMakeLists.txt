@@ -681,6 +681,7 @@ if (ENABLE_UNIT_TESTS)
             tests/lang/middle/memory/test_borrowed_loads.cpp
             tests/lang/middle/memory/test_pairs.cpp
             tests/lang/middle/memory/test_loop_temporaries.cpp
+            tests/lang/middle/memory/test_operator_operands.cpp
             tests/lang/middle/lower/test_info.cpp
             tests/lang/middle/lower/test_synthetic.cpp
             tests/lang/middle/lower/test_access.cpp

@@ -117,17 +117,17 @@ _L_exit:;
 
 static uint64_t builtins_maxI_u64E(uint64_t a, uint64_t b) {
   uint64_t __ret;
-  uint64_t _if9;
+  uint64_t _if8;
 _L_entry:;
   if (a > b) goto _L_IF0_then; else goto _L_IF0_else;
 _L_IF0_then:;
-  _if9 = a;
+  _if8 = a;
   goto _L_IF0_end;
 _L_IF0_else:;
-  _if9 = b;
+  _if8 = b;
   goto _L_IF0_end;
 _L_IF0_end:;
-  __ret = _if9;
+  __ret = _if8;
   goto _L_exit;
 _L_exit:;
   return __ret;
@@ -384,15 +384,15 @@ __attribute__((constructor)) static void builtins___fini_reg(void) { __cxy_regis
 
 static builtins_String * builtins_String_op__initI_sECoverI_sE(char * str) {
   builtins_String * __ret;
-  builtins_String * __obj13;
+  builtins_String * __obj12;
   builtins_String * __t0;
 _L_entry:;
   __t0 = __mm_alloc(&__ti_builtins_String, nullptr);
-  __obj13 = ((builtins_String *)(__t0));
-  memset(__obj13, 0, sizeof(builtins_String));
-  builtins_String___defaults_init(((builtins_String *)(__obj13)));
-  builtins_String_op__initI_sE(((builtins_String *)(__obj13)), str);
-  __ret = __obj13;
+  __obj12 = ((builtins_String *)(__t0));
+  memset(__obj12, 0, sizeof(builtins_String));
+  builtins_String___defaults_init(((builtins_String *)(__obj12)));
+  builtins_String_op__initI_sE(((builtins_String *)(__obj12)), str);
+  __ret = __obj12;
   goto _L_exit;
 _L_exit:;
   return __ret;

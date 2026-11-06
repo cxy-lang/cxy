@@ -5,7 +5,7 @@ typedef struct builtins_Exception builtins_Exception;
 typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct builtins_StdOutputStream builtins_StdOutputStream;
 typedef struct Node Node;
-typedef struct __closure_env14 __closure_env14;
+typedef struct __closure_env13 __closure_env13;
 typedef struct Closure_446 Closure_446;
 typedef struct Result_void Result_void;
 
@@ -43,7 +43,7 @@ struct Node {
   int32_t id;
 };
 
-struct __closure_env14 {
+struct __closure_env13 {
   Node * n;
 };
 
@@ -76,8 +76,8 @@ static void Node_op__init(Node * this, int32_t id);
 static void Node_op__deinit(Node * this);
 static void Node_op__destructor(Node * this);
 static void Node_op__destructor_fwd(void * ptr);
-static void __closure_env14_op__destructor(__closure_env14 * this);
-static int32_t __closure_body15(__closure_env14 * this, int32_t x);
+static void __closure_env13_op__destructor(__closure_env13 * this);
+static int32_t __closure_body14(__closure_env13 * this, int32_t x);
 static Closure_446 adder(Node * n);
 static Node * Node_op__initCover(int32_t id);
 static builtins_OutputStream * builtins_OutputStream_op__lshiftI_i32E(builtins_OutputStream * this, int32_t val);
@@ -85,7 +85,7 @@ static void printlnI_i32E(int32_t args);
 static Result_void _main();
 
 static const __TypeInfo __ti_builtins_StdOutputStream = { .name = "builtins.StdOutputStream", .size = sizeof(builtins_StdOutputStream), .align = _Alignof(builtins_StdOutputStream), .index = 0, .dropFields = builtins_StdOutputStream_op__destructor_fwd };
-static const __TypeInfo __ti___closure_env14 = { .name = "__closure_env14", .size = sizeof(__closure_env14), .align = _Alignof(__closure_env14), .index = 1, .dropFields = __closure_env14_op__destructor };
+static const __TypeInfo __ti___closure_env13 = { .name = "__closure_env13", .size = sizeof(__closure_env13), .align = _Alignof(__closure_env13), .index = 1, .dropFields = __closure_env13_op__destructor };
 static const __TypeInfo __ti_Node = { .name = "Node", .size = sizeof(Node), .align = _Alignof(Node), .index = 2, .dropFields = Node_op__destructor_fwd };
 
 builtins_OutputStream_VTable builtins_OutputStream_vTable = (builtins_OutputStream_VTable){.__tid = 193ULL, .append = ((Optional_u64 (*)(builtins_OutputStream *, void *, uint64_t))(nullptr))};
@@ -295,7 +295,7 @@ _L_exit:;
   return;
 }
 
-static void __closure_env14_op__destructor(__closure_env14 * this) {
+static void __closure_env13_op__destructor(__closure_env13 * this) {
 _L_entry:;
   __smart_ptr_drop(this->n);
   this->n = nullptr;
@@ -304,7 +304,7 @@ _L_exit:;
   return;
 }
 
-static int32_t __closure_body15(__closure_env14 * this, int32_t x) {
+static int32_t __closure_body14(__closure_env13 * this, int32_t x) {
   int32_t __ret;
 _L_entry:;
   __ret = (x + this->n->id);
@@ -315,15 +315,15 @@ _L_exit:;
 
 static Closure_446 adder(Node * n) {
   Closure_446 __ret;
-  __closure_env14 __t1;
+  __closure_env13 __t1;
   Node * __copy0;
-  __closure_env14 * __env2;
+  __closure_env13 * __env2;
 _L_entry:;
   __copy0 = __smart_ptr_get(n);
-  __t1 = (__closure_env14){.n = __copy0};
-  __env2 = __mm_alloc(&__ti___closure_env14, nullptr);
+  __t1 = (__closure_env13){.n = __copy0};
+  __env2 = __mm_alloc(&__ti___closure_env13, nullptr);
   (*(__env2)) = __t1;
-  __ret = (Closure_446){ .env = __env2, .fn = __closure_body15, .dtor = __smart_ptr_drop };
+  __ret = (Closure_446){ .env = __env2, .fn = __closure_body14, .dtor = __smart_ptr_drop };
   goto _L_exit;
 _L_exit:;
   __smart_ptr_drop(n);
@@ -332,14 +332,14 @@ _L_exit:;
 
 static Node * Node_op__initCover(int32_t id) {
   Node * __ret;
-  Node * __obj16;
+  Node * __obj15;
   Node * __t3;
 _L_entry:;
   __t3 = __mm_alloc(&__ti_Node, nullptr);
-  __obj16 = ((Node *)(__t3));
-  memset(__obj16, 0, sizeof(Node));
-  Node_op__init(((Node *)(__obj16)), id);
-  __ret = __obj16;
+  __obj15 = ((Node *)(__t3));
+  memset(__obj15, 0, sizeof(Node));
+  Node_op__init(((Node *)(__obj15)), id);
+  __ret = __obj15;
   goto _L_exit;
 _L_exit:;
   return __ret;
