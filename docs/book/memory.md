@@ -436,6 +436,13 @@ name it with `--pid` or `--socket`. Add `nosym` to a command to skip looking up
 function names (faster, and the stacks are addresses). `--timeout` sets how long
 to wait for an answer, in milliseconds.
 
+If you do not know what to ask, start with [`analyze`](#is-the-memory-normal-analyze):
+it runs the questions for you and says what it found.
+
+Add `json` to a command for the answer as one line of JSON, for scripts and editors
+(`cxy utils mem sites 5 json`). Every command has a JSON form except `ring`, `leaks`
+and `help`.
+
 The examples below use this program: it keeps 50 nodes in a cache, and leaks one
 pair of nodes that own each other.
 
@@ -677,10 +684,184 @@ commands. A few are normal. A zombie that stays forever means a weak reference
 that is never released, usually one held by a leaked object, and the exit report
 lists those under `Weak references keep destroyed objects alive`.
 
+### Is the memory normal? `analyze`
+
+The commands above answer exact questions, you have to know which one to ask and
+how to read the numbers. `analyze` asks them for you and says whether the memory of
+the program looks normal, is worth watching, or is probably a problem, with the
+evidence and the next command to run.
+
+It works in two steps. The first call takes a **baseline** in the running program.
+Then you do the thing you want to check (handle a request, run an action, wait a
+while), and call it again:
+
+```
+$ cxy utils mem analyze
+baseline taken (mark 3). Run the workload, then run `cxy utils mem analyze` again.
+
+  ... the program works ...
+
+$ cxy utils mem analyze
+```
+
+The baseline belongs to the program and goes away with it, nothing is written to
+disk. Calling `analyze` again compares with the **same** baseline, so the window
+gets longer. `cxy utils mem analyze --reset` (or `cxy utils mem mark`) starts a new
+one.
+
+The example is a program that keeps 200 nodes in a global cache after the baseline,
+and leaks one pair of nodes that own each other:
+
+```cxy
+import { Vector } from "stdlib/vector.cxy"
+import "unistd.h" as unistd
+
+class Node {
+    id: i32
+    next: Node
+    func `init`(id: i32) { this.id = id }
+}
+
+class Cache {
+    items: Vector[Node]
+    func `init`() { items = Vector[Node]() }
+    func add(n: Node) { items.push(&&n) }       // line 13
+}
+
+var cache: Cache
+
+func leakCycle() {
+    var a = Node(1)                              // line 19
+    var b = Node(2)                              // line 20
+    a.next = @copy b
+    b.next = @copy a
+}
+
+func main() {
+    cache = Cache()
+    unistd.sleep(8)                              // the baseline is taken here
+    for i in 0..200 {
+        cache.add(Node(i))                       // line 29
+    }
+    leakCycle()
+    unistd.sleep(120)
+}
+```
+
+```
+$ cxy utils mem analyze
+verdict: DEFINITE PROBLEM                window: 9s, 1 sample
+
+memory       live 3.2 KB in 204 objects (+202 objects since the baseline)
+             buffers 2.1 KB   zombies 0   process 1.4 MB
+growth       +5.1 KB (objects and buffers), +22.2 objects/s, +580 B/s
+
+[definite] C1 Leaked cycle: 2 Node objects, 32 bytes
+    at: app.cxy:20 app.cxy:19
+    fix: make one side a weak reference (@weak Node)
+    see: cxy utils mem cycles
+
+[watch]    G1 `Node` objects made at app.cxy:29 are not freed: 200 of 200 made since the baseline are alive
+    held by: global cache -> Cache -> vector.Vector[Node] -> buffer app.cxy:13 (8 of 8 sampled objects)
+    this is a cache that only grows. Intended? If not, evict entries or bound it.
+    fix: evict entries, or bound the size of what the global holds
+    see: cxy utils mem path 0x75fec083b0
+
+[watch]    G3 No Node object was ever freed: 202 made
+    fix: check who owns them with `cxy utils mem sites`
+    see: cxy utils mem types
+
+ok: no dangling borrows, no growing zombies, no root holding most of the heap, no large number of objects held from outside the heap, no buffer allocated again and again, no object with an unusual reference count, process memory matches the traced heap
+```
+
+#### Reading the report
+
+- **The verdict** is the worst finding: `OK`, `WATCH`, `LIKELY PROBLEM` or `DEFINITE
+  PROBLEM`. When too little happened to tell (fewer than 100 objects were made since
+  the baseline) it says `NOT ENOUGH ACTIVITY` and does not say `OK`: run the workload,
+  then ask again.
+- **The first lines** are the totals, how much changed since the baseline, and how
+  fast. `process` is what the whole program holds in memory, traced or not.
+- **Each finding** has a severity (`info`, `watch`, `likely`, `definite`), an id, a
+  sentence, a `fix` to try and a `see` command that shows more. The cycle is
+  `definite`: a cycle that nothing else owns can never be freed.
+- **`held by`** is the answer to "who keeps these alive". `analyze` takes a few of the
+  objects of the growing line, follows their owners with `path`, and reports the chain
+  most of them share. Here a global cache holds all eight it looked at, so this is a
+  cache that grows, not an object nobody can reach. If the chain were only cycles the
+  finding would say so and be a leak.
+- **`ok:`** lists what was checked and found nothing, `not checked:` what could not run
+  (for example the graph checks with `--no-graph`), so "nothing found" never means
+  "not looked at".
+
+The checks:
+
+| Id | Looks for |
+| --- | --- |
+| `G1` | a line whose objects, made since the baseline, are almost all still alive |
+| `G2` | growth that is slowing down: probably a cache filling up, not a leak |
+| `G3` | a class that was made again and again and never freed |
+| `C1` | leaked cycles |
+| `D1` | `&T` fields that point at destroyed objects |
+| `Z1` | weak references that keep destroyed objects alive, and more of them |
+| `K1` | one global holding most of the memory |
+| `X1` | many objects kept alive from outside the heap: a stack, a thread, a coroutine |
+| `B1` | a buffer allocated again and again: a container that grows by reallocation |
+| `H1` | one object with far more owners than the others |
+| `M1` | the process holds much more than the traced heap |
+| `A1` | the growth is recent: work still in flight, not a leak |
+
+They are heuristics. A finding says how sure it is, and why. `B1` cannot tell a
+container that regrows from a new one made for each piece of work, the advice (reserve
+the capacity or reuse it) fits both. A program that is still busy when you ask can
+look like it is leaking, which is what `A1` and `--watch` are for.
+
+#### Watching for a while
+
+Two snapshots cannot tell a leak from a warm-up. With three or more, the rate of
+growth says whether it is still growing or has flattened:
+
+```
+cxy utils mem analyze --watch 30s                # 3 snapshots, one every 10 seconds
+cxy utils mem analyze --watch 30s --samples 5
+```
+
+`--watch` takes a new baseline, then the snapshots at equal intervals, and prints one
+report. A cache that stops growing gets `G2` and its finding drops to `info`. Growth
+that continues in each of the last three snapshots is `likely`. A duration is `500ms`,
+`30s`, `2m` or `1h`; a number alone is seconds.
+
+#### Options
+
+| Option | Does |
+| --- | --- |
+| `--json` | the report as one line of JSON, for scripts and editors |
+| `--fail-on <severity>` | exit with code 3 when a finding is at least `info`, `watch`, `likely` or `definite` |
+| `--reset` | drop the baseline and take a new one |
+| `--watch <time>`, `--samples <n>` | as above, 3 snapshots by default, up to 32 |
+| `--suspects <n>` | how many growing lines to follow to their owners (3, `0` for none) |
+| `--no-graph` | skip the checks that need the ownership graph (cycles, dangling borrows, owners): the program is never paused |
+| `--pid`, `--socket`, `--timeout` | choose the program, as for the other commands |
+
+The exit code is 0 when done, 2 when the program cannot be reached, 3 when a finding
+reached `--fail-on`, and 1 for a bad option. In a test or a CI job:
+
+```
+cxy utils mem analyze                            # baseline, before the workload
+  ... run the workload ...
+cxy utils mem analyze --json --fail-on likely    # fails the job on a likely leak
+```
+
+The JSON has a `version`, the totals and rates, the `findings` (each with its
+`evidence` as numbers, the `retention` chain and the commands to run), the rules that
+ran clean in `checked` and the ones that could not run in `notChecked`. Fields are
+only ever added; `version` changes if one is renamed or removed.
+
 ### All the commands
 
 | Command | Answers |
 | --- | --- |
+| `analyze` | whether the memory looks normal, see [above](#is-the-memory-normal-analyze) |
 | `summary` | live objects and buffers, bytes, totals |
 | `types` | allocations, frees and live count per class |
 | `sites [n]` | live objects per line of code |
@@ -688,6 +869,8 @@ lists those under `Weak references keep destroyed objects alive`.
 | `list [n]` | the latest live objects with their stacks |
 | `leaks` | the full report, like the one printed at exit |
 | `mark`, `diff [n]`, `difflist [n]` | what was allocated since the mark and is still alive |
+| `baseline`, `snapshot json` | what `mark` remembered, and all the numbers `analyze` uses taken at once |
+| `refs [n]` | the live objects with the most owners |
 | `holders <ptr>`, `path <ptr>`, `contains <y> <x>` | who owns an object, and how it is reached |
 | `edges <ptr>`, `tree <ptr> [depth]` | what an object owns |
 | `roots`, `retained [n]`, `cycles [n]` | global owners, what they keep alive, leaked cycles |
@@ -701,6 +884,10 @@ or `holders` line.
 
 - Only objects made after the program started its `main` are traced. Anything
   created before it (global state made by the runtime) is never reported.
+- `analyze` needs a program built with the current compiler: it asks for
+  `snapshot json`, `baseline json` and `mark json`, and says so if the program does
+  not know them. It is for development, the baseline is one per program, so two
+  people running `analyze` against the same program overwrite each other's.
 - `CXY_MEM_SOCKET=0` in the program's environment turns the socket off (the exit
   report still prints), `CXY_MEM_SOCKET=/some/path` chooses the path.
 - Graph commands give up after two minutes by default, `CXY_MEM_SCAN_SECONDS` in
@@ -723,3 +910,4 @@ or `holders` line.
 | forbid copies of a type | `@nocopy` |
 | have the compiler check my ownership | `--warnings=Ownership` |
 | find a leak | `--memory-trace`, then `cxy utils mem` |
+| ask whether the memory looks normal | `cxy utils mem analyze`, run the work, `cxy utils mem analyze` |

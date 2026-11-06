@@ -1,7 +1,10 @@
 # `cxy utils mem analyze`: is my program's memory normal?
 
-Status: design, nothing built yet. Builds on the memory trace
-(`memory-manager.md` section 10, user guide in `docs/book/memory.md`).
+Status: built. Every item of the task list in section 10 is done. Builds on the
+memory trace (`memory-manager.md` section 10). The user guide is the section "Is the
+memory normal? `analyze`" of `docs/book/memory.md`; this document is the design and
+records what was built where it differs.
+Sections 5 and 7 and the "As built" notes are the reference for the rules and the JSON.
 
 ## 1. Why
 
@@ -404,4 +407,4 @@ In order. Each step is testable alone.
 - [x] suspect introspection: sampling, `path`, grouping by shape (R1), `--suspects`, `--no-graph`
 - [x] rules X1, B1, H1, M1, A1
 - [x] end to end trace programs (healthy, leak, cache, plateau, cycle, dangling, zombie), see the table in section 8
-- [ ] book chapter: a section on `analyze`
+- [x] book chapter: a section on `analyze`
