@@ -9,7 +9,8 @@
 # argument the script runs every program and compares by itself.
 #
 # Command file lines: a trace query (`summary`, `sites`, `mark`, ...), `@next`
-# (release the program to its next waitForHarness() call), `#` comments.
+# (release the program to its next waitForHarness() call), `#` comments. In a
+# query `<live:N>` is the address of the Nth live allocation of `list`.
 
 HERE=$(realpath "$(dirname "$0")")
 ROOT=$(realpath "$HERE/../..")
@@ -65,6 +66,20 @@ wait_for() {
     "$CXY" utils wait-for --timeout "$WAIT_MS" --period 100 "$2" > /dev/null 2>&1 && return 0
     echo "timed out waiting for $1" >&2
     return 1
+}
+
+# <socket> <command line>: `<live:N>` becomes the address of the Nth live allocation
+# of `list` (1 is the most recent)
+expand_live() {
+    local sock=$1 text=$2 n addr
+    local re='<live:([0-9]+)>'
+    while [[ $text =~ $re ]]; do
+        n=${BASH_REMATCH[1]}
+        addr=$("$CXY" utils mem --socket "$sock" list 1000 nosym |
+            sed -n 's/^ptr=\(0x[0-9a-f]*\) .*/\1/p' | sed -n "${n}p")
+        text=${text/"<live:$n>"/$addr}
+    done
+    echo "$text"
 }
 
 # <work dir> <n>: shell test, the program printed READY at least n times
@@ -129,8 +144,10 @@ run_program() {
                     ;;
                 *)
                     echo "\$ $line" >> "$work/result.txt"
+                    local expanded
+                    expanded=$(expand_live "$sock" "$line")
                     # shellcheck disable=SC2086
-                    "$CXY" utils mem --socket "$sock" $line nosym >> "$work/result.txt" 2>&1
+                    "$CXY" utils mem --socket "$sock" $expanded nosym >> "$work/result.txt" 2>&1
                     ;;
             esac
         done < "$cmds"

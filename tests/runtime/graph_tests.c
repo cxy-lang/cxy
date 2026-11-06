@@ -45,6 +45,31 @@ static char out[1 << 16];
         fclose(capture);                                                       \
     } while (0)
 
+// Like CAPTURE, with `w` a JSON writer on the same file: `out` holds the document
+#define CAPTURE_JSON(stmt)                                                     \
+    CAPTURE(JsonWriter w; jsonInitFd(&w, fd); stmt; CHECK(jsonFinish(&w)))
+
+#define EXPECT(expected)                                                       \
+    do {                                                                       \
+        if (strcmp(out, expected) != 0) {                                      \
+            printf("FAIL %s:%d\n  expected: %s\n  actual:   %s\n", __FILE__, __LINE__, expected, out); \
+            failures++;                                                        \
+        }                                                                      \
+    } while (0)
+
+// The JSON of a node made by object(), buffer() and global() below
+#define NODE_FIELDS(ptr, size, refs)                                           \
+    "\"kind\":\"object\",\"ptr\":\"" ptr "\",\"size\":" #size ",\"name\":null,\"refs\":" #refs \
+    ",\"type\":null,\"file\":\"test.cxy\",\"line\":1"
+#define NODE(ptr, size, refs) "{" NODE_FIELDS(ptr, size, refs) "}"
+#define BUFFER(ptr, size)                                                      \
+    "{\"kind\":\"buffer\",\"ptr\":\"" ptr "\",\"size\":" #size                  \
+    ",\"name\":null,\"refs\":null,\"type\":null,\"file\":\"test.cxy\",\"line\":2}"
+#define GLOBAL(ptr, name)                                                      \
+    "{\"kind\":\"global\",\"ptr\":\"" ptr "\",\"size\":8,\"name\":\"" name       \
+    "\",\"refs\":null,\"type\":null,\"file\":null,\"line\":0}"
+#define END ",\"approximate\":0}"
+
 static Graph g;
 
 static void reset(void)
@@ -109,22 +134,22 @@ static void testChain(void)
     edge(b, c);
     finish();
 
-    CAPTURE(graphHolders(fd, &g, c));
+    CAPTURE(graphHolders(fd, &g, c, NULL));
     CONTAINS("held by");
     CONTAINS("0x2000");
     MISSING("externalRefs");
 
-    CAPTURE(graphHolders(fd, &g, a));
+    CAPTURE(graphHolders(fd, &g, a, NULL));
     CONTAINS("not owned by any object");
     CONTAINS("externalRefs = 1");
 
-    CAPTURE(graphPath(fd, &g, c));
+    CAPTURE(graphPath(fd, &g, c, NULL));
     CONTAINS("retention path (2 holders deep)");
     CONTAINS("held from outside the heap");
 
-    CAPTURE(graphContains(fd, &g, a, c));
+    CAPTURE(graphContains(fd, &g, a, c, NULL));
     CONTAINS("yes, held through 2 step(s)");
-    CAPTURE(graphContains(fd, &g, c, a));
+    CAPTURE(graphContains(fd, &g, c, a, NULL));
     CONTAINS("no,");
 }
 
@@ -138,10 +163,10 @@ static void testNamedRoot(void)
     edge(a, b);
     finish();
 
-    CAPTURE(graphPath(fd, &g, b));
+    CAPTURE(graphPath(fd, &g, b, NULL));
     CONTAINS("global registry");
     MISSING("held from outside the heap");
-    CAPTURE(graphHolders(fd, &g, a));
+    CAPTURE(graphHolders(fd, &g, a, NULL));
     CONTAINS("global registry");
     MISSING("externalRefs");
 }
@@ -159,13 +184,181 @@ static void testSharedObject(void)
     edge(r2, shared);
     finish();
 
-    CAPTURE(graphRetained(fd, &g, 10));
+    CAPTURE(graphRetained(fd, &g, 10, NULL));
     char expected[256];
     snprintf(expected, sizeof(expected), "%12llu %10llu %12llu %10llu  global first", 100ull, 1ull, 1100ull, 2ull);
     CONTAINS(expected);
     snprintf(expected, sizeof(expected), "%12llu %10llu %12llu %10llu  global second", 200ull, 1ull, 1200ull, 2ull);
     CONTAINS(expected);
     CONTAINS("Total: 3 objects, 4 edges, 2 roots (2 hold other objects)");
+}
+
+// stack -> a -> b -> c, and a global -> x -> y, as JSON
+static void testJsonPaths(void)
+{
+    reset();
+    uint32_t a = object(0x1000, 16, 1), b = object(0x2000, 16, 1), c = object(0x3000, 16, 1);
+    edge(a, b);
+    edge(b, c);
+    finish();
+
+    CAPTURE_JSON(graphHolders(fd, &g, c, &w));
+    EXPECT("{\"node\":" NODE("0x3000", 16, 1) ",\"holders\":[" NODE("0x2000", 16, 1)
+           "],\"holderCount\":1,\"externalRefs\":0,\"inconsistent\":false" END);
+    CAPTURE_JSON(graphHolders(fd, &g, a, &w));
+    EXPECT("{\"node\":" NODE("0x1000", 16, 1) ",\"holders\":[],\"holderCount\":0,"
+           "\"externalRefs\":1,\"inconsistent\":false" END);
+
+    CAPTURE_JSON(graphPath(fd, &g, c, &w));
+    EXPECT("{\"found\":true,\"reason\":null,\"depth\":2,\"heldFromOutside\":true,\"path\":["
+           NODE("0x1000", 16, 1) "," NODE("0x2000", 16, 1) "," NODE("0x3000", 16, 1) "]" END);
+
+    CAPTURE_JSON(graphContains(fd, &g, a, c, &w));
+    EXPECT("{\"contains\":true,\"same\":false,\"steps\":2,\"path\":[" NODE("0x1000", 16, 1) ","
+           NODE("0x2000", 16, 1) "," NODE("0x3000", 16, 1) "]" END);
+    CAPTURE_JSON(graphContains(fd, &g, c, a, &w));
+    EXPECT("{\"contains\":false,\"same\":false,\"steps\":0,\"path\":[]" END);
+    CAPTURE_JSON(graphContains(fd, &g, a, a, &w));
+    EXPECT("{\"contains\":false,\"same\":true,\"steps\":0,\"path\":[]" END);
+
+    // A named root starts the path and nothing is held from outside
+    reset();
+    uint32_t r = global(0x500, "registry");
+    a = object(0x1000, 16, 1);
+    b = object(0x2000, 16, 1);
+    edge(r, a);
+    edge(a, b);
+    finish();
+    CAPTURE_JSON(graphPath(fd, &g, b, &w));
+    EXPECT("{\"found\":true,\"reason\":null,\"depth\":2,\"heldFromOutside\":false,\"path\":["
+           GLOBAL("0x500", "registry") "," NODE("0x1000", 16, 1) "," NODE("0x2000", 16, 1) "]" END);
+
+    // Only cycles above it: no root to start from
+    reset();
+    a = object(0x1000, 16, 1);
+    b = object(0x2000, 16, 1);
+    edge(a, b);
+    edge(b, a);
+    finish();
+    CAPTURE_JSON(graphPath(fd, &g, b, &w));
+    EXPECT("{\"found\":false,\"reason\":\"cycle\",\"depth\":null,\"heldFromOutside\":null,\"path\":[]" END);
+
+    // More edges into an object than it has references
+    reset();
+    a = object(0x1000, 16, 1);
+    b = object(0x2000, 16, 1);
+    c = object(0x3000, 16, 1);
+    edge(a, c);
+    edge(b, c);
+    finish();
+    CAPTURE_JSON(graphHolders(fd, &g, c, &w));
+    EXPECT("{\"node\":" NODE("0x3000", 16, 1) ",\"holders\":[" NODE("0x1000", 16, 1) ","
+           NODE("0x2000", 16, 1) "],\"holderCount\":2,\"externalRefs\":0,\"inconsistent\":true" END);
+
+    // A buffer has no reference count
+    reset();
+    a = object(0x1000, 16, 1);
+    uint32_t buf = buffer(0x2000, 64);
+    edge(a, buf);
+    finish();
+    CAPTURE_JSON(graphHolders(fd, &g, buf, &w));
+    EXPECT("{\"node\":" BUFFER("0x2000", 64) ",\"holders\":[" NODE("0x1000", 16, 1)
+           "],\"holderCount\":1,\"externalRefs\":null,\"inconsistent\":false" END);
+}
+
+// a -> b, a -> c, b -> c: depth cut, a node shown twice, more children than listed
+static void testJsonTree(void)
+{
+    reset();
+    uint32_t a = object(0x1000, 16, 1), b = object(0x2000, 16, 1), c = object(0x3000, 16, 2);
+    edge(a, b);
+    edge(a, c);
+    edge(b, c);
+    finish();
+    uint8_t seen[3] = {0};
+    CAPTURE_JSON(jsonTreeNode(&w, &g, a, 0, 3, seen));
+    EXPECT("{" NODE_FIELDS("0x1000", 16, 1)
+           ",\"seen\":false,\"truncated\":false,\"moreChildren\":0,\"children\":["
+           "{" NODE_FIELDS("0x2000", 16, 1)
+           ",\"seen\":false,\"truncated\":false,\"moreChildren\":0,\"children\":["
+           "{" NODE_FIELDS("0x3000", 16, 2)
+           ",\"seen\":false,\"truncated\":false,\"moreChildren\":0,\"children\":[]}]},"
+           "{" NODE_FIELDS("0x3000", 16, 2)
+           ",\"seen\":true,\"truncated\":false,\"moreChildren\":0,\"children\":[]}]}");
+
+    memset(seen, 0, sizeof(seen));
+    CAPTURE_JSON(jsonTreeNode(&w, &g, b, 0, 0, seen));
+    EXPECT("{" NODE_FIELDS("0x2000", 16, 1)
+           ",\"seen\":false,\"truncated\":true,\"moreChildren\":0,\"children\":[]}");
+
+    // 25 children: 20 are listed, 5 are counted
+    reset();
+    uint32_t parent = object(0x1000, 16, 1);
+    for (int i = 0; i < 25; i++)
+        edge(parent, object(0x10000 + i * 0x100, 8, 1));
+    finish();
+    uint8_t *many = calloc(g.count, 1);
+    CAPTURE_JSON(jsonTreeNode(&w, &g, parent, 0, 3, many));
+    CONTAINS("\"moreChildren\":5,\"children\":[");
+    CHECK(strstr(out, "\"ptr\":\"0x10000\"") != NULL);
+    CHECK(strstr(out, "\"ptr\":\"0x11300\"") != NULL); // the 20th child is the last one listed
+    CHECK(strstr(out, "\"ptr\":\"0x11400\"") == NULL); // the 21st is not listed
+    free(many);
+}
+
+// Two globals, a leaked cycle, and a cap on what is listed
+static void testJsonRetainedAndCycles(void)
+{
+    reset();
+    uint32_t r1 = global(0x500, "first"), r2 = global(0x508, "second");
+    uint32_t own1 = object(0x1000, 100, 1), own2 = object(0x2000, 200, 1);
+    uint32_t shared = object(0x3000, 1000, 2);
+    edge(r1, own1);
+    edge(r1, shared);
+    edge(r2, own2);
+    edge(r2, shared);
+    finish();
+    CAPTURE_JSON(graphRetained(fd, &g, 1, &w));
+    // `second` keeps more of its own alive, so it comes first; `first` is cut off.
+    // The shared object is excluded from both, so only own2 is a site of `second`.
+    CONTAINS("{\"roots\":[{\"node\":" GLOBAL("0x508", "second") ",\"exclusiveBytes\":200,"
+             "\"exclusiveObjects\":1,\"reachBytes\":1200,\"reachObjects\":2,\"sites\":["
+             "{\"file\":\"test.cxy\",\"line\":1,\"objects\":1,\"bytes\":200}]}],");
+    CONTAINS("\"objects\":3,\"edges\":4,\"rootCount\":2,\"holding\":2,\"limited\":true,"
+             "\"unrooted\":{\"objects\":0,\"bytes\":0,\"sites\":[]}" END);
+    MISSING("\"name\":\"first\"");
+
+    reset();
+    CAPTURE_JSON(graphRetained(fd, &g, 10, &w));
+    EXPECT("{\"roots\":[],\"objects\":0,\"edges\":0,\"rootCount\":0,\"holding\":0,\"limited\":false,"
+           "\"unrooted\":{\"objects\":0,\"bytes\":0,\"sites\":[]}" END);
+
+    // x <-> y and nothing else is leaked
+    reset();
+    uint32_t x = object(0x1000, 40, 1), y = object(0x2000, 60, 1);
+    edge(x, y);
+    edge(y, x);
+    finish();
+    CAPTURE_JSON(graphCycles(fd, &g, 10, &w));
+    EXPECT("{\"cycles\":[{\"nodes\":2,\"bytes\":100,\"moreMembers\":0,\"members\":["
+           NODE("0x1000", 40, 1) "," NODE("0x2000", 60, 1) "]}],\"total\":1,\"bytes\":100,\"limited\":false" END);
+
+    // A chain is not a cycle
+    reset();
+    x = object(0x1000, 8, 1);
+    y = object(0x2000, 8, 1);
+    edge(x, y);
+    finish();
+    CAPTURE_JSON(graphCycles(fd, &g, 10, &w));
+    EXPECT("{\"cycles\":[],\"total\":0,\"bytes\":0,\"limited\":false" END);
+
+    // A limit of 0 lists nothing and says so
+    reset();
+    x = object(0x1000, 24, 1);
+    edge(x, x);
+    finish();
+    CAPTURE_JSON(graphCycles(fd, &g, 0, &w));
+    EXPECT("{\"cycles\":[],\"total\":1,\"bytes\":24,\"limited\":true" END);
 }
 
 // A cache: global -> map object -> buffer -> N keys. Keys are in the buffer only.
@@ -183,15 +376,15 @@ static void testCache(void)
     }
     finish();
 
-    CAPTURE(graphRetained(fd, &g, 10));
+    CAPTURE(graphRetained(fd, &g, 10, NULL));
     char expected[256];
     // 32 + 800 + 10 * 50 bytes, 12 nodes, all exclusively the cache's
     snprintf(expected, sizeof(expected), "%12llu %10llu %12llu %10llu  global cache", 1332ull, 12ull, 1332ull, 12ull);
     CONTAINS(expected);
 
-    CAPTURE(graphContains(fd, &g, r, keys[7]));
+    CAPTURE(graphContains(fd, &g, r, keys[7], NULL));
     CONTAINS("yes, held through 3 step(s)");
-    CAPTURE(graphPath(fd, &g, keys[3]));
+    CAPTURE(graphPath(fd, &g, keys[3], NULL));
     CONTAINS("global cache");
     CONTAINS("buffer");
 }
@@ -204,7 +397,7 @@ static void testCycles(void)
     edge(x, y);
     edge(y, x);
     finish();
-    CAPTURE(graphCycles(fd, &g, 10));
+    CAPTURE(graphCycles(fd, &g, 10, NULL));
     CONTAINS("cycle: 2 nodes, 100 bytes");
     CONTAINS("Total: 1 leaked cycles, 100 bytes");
 
@@ -214,7 +407,7 @@ static void testCycles(void)
     edge(x, y);
     edge(y, x);
     finish();
-    CAPTURE(graphCycles(fd, &g, 10));
+    CAPTURE(graphCycles(fd, &g, 10, NULL));
     CONTAINS("Total: 0 leaked cycles, 0 bytes");
 
     // A cycle that something outside the group owns is not garbage either
@@ -226,7 +419,7 @@ static void testCycles(void)
     edge(x, y);
     edge(y, x);
     finish();
-    CAPTURE(graphCycles(fd, &g, 10));
+    CAPTURE(graphCycles(fd, &g, 10, NULL));
     CONTAINS("Total: 0 leaked cycles");
 
     // An object that owns itself
@@ -234,7 +427,7 @@ static void testCycles(void)
     x = object(0x1000, 24, 1);
     edge(x, x);
     finish();
-    CAPTURE(graphCycles(fd, &g, 10));
+    CAPTURE(graphCycles(fd, &g, 10, NULL));
     CONTAINS("cycle: 1 nodes, 24 bytes");
 
     // A chain is not a cycle
@@ -243,7 +436,7 @@ static void testCycles(void)
     y = object(0x2000, 8, 1);
     edge(x, y);
     finish();
-    CAPTURE(graphCycles(fd, &g, 10));
+    CAPTURE(graphCycles(fd, &g, 10, NULL));
     CONTAINS("Total: 0 leaked cycles");
 }
 
@@ -304,7 +497,7 @@ static void testDeepChain(void)
     }
     edge(prev, 0); // closes one huge cycle
     finish();
-    CAPTURE(graphCycles(fd, &g, 10));
+    CAPTURE(graphCycles(fd, &g, 10, NULL));
     CONTAINS("cycle: 200000 nodes");
 }
 
@@ -391,6 +584,9 @@ int main(void)
     testFind();
     testChain();
     testNamedRoot();
+    testJsonPaths();
+    testJsonTree();
+    testJsonRetainedAndCycles();
     testSharedObject();
     testCache();
     testCycles();

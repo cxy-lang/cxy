@@ -1,0 +1,20 @@
+# the graph commands as JSON. <live:N> is the Nth allocation of `list`:
+# 1 held (no owner), 2 and 3 the leaked cycle, 4 and 5 owned by the global `registry`
+list 10
+roots json
+retained json
+retained 1 json
+cycles json
+holders <live:5> json
+holders <live:1> json
+holders 0x1 json
+path <live:4> json
+path <live:3> json
+contains <live:5> <live:4> json
+contains <live:4> <live:5> json
+contains <live:4> <live:4> json
+tree <live:5> json
+tree <live:5> 1 json
+edges <live:5> json
+edges <live:1> json
+edges 0x1 json

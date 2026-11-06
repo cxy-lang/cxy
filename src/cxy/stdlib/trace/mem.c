@@ -1281,6 +1281,7 @@ typedef struct {
     LiveEntry *sorted;    // registry snapshot ordered by address
     size_t count;
     size_t edges;
+    JsonWriter *json; // edges are written as JSON objects into an open array
 } EdgePrinter;
 
 static int compareByPtr(const void *lhs, const void *rhs)
@@ -1308,6 +1309,21 @@ static void printEdge(TraceVisitor *v, const void *from, const void *to)
     if (target == NULL)
         return;
     const LiveEntry *source = from == p->self ? NULL : findEntry(p, from);
+    if (p->json != NULL) {
+        const char *fromKind = from == p->self ? (p->selfName ? "global" : "object")
+                                               : (source && source->buffer ? "buffer" : "object");
+        jsonBeginObject(p->json);
+        jsonFieldPtr(p->json, "from", from);
+        jsonFieldString(p->json, "fromKind", fromKind);
+        jsonFieldPtr(p->json, "to", to);
+        jsonFieldString(p->json, "toKind", target->buffer ? "buffer" : "object");
+        jsonFieldUint(p->json, "size", target->size);
+        jsonFieldString(p->json, "file", target->path);
+        jsonFieldUint(p->json, "line", target->line);
+        jsonEndObject(p->json);
+        p->edges++;
+        return;
+    }
     char src[64];
     if (from == p->self)
         snprintf(src, sizeof(src), "%s", p->selfName ? p->selfName : "self");
@@ -1349,25 +1365,44 @@ static const char *objectTypeName(const void *payload)
     return name;
 }
 
-static void edgesReportFd(int fd, const char *arg)
+// Set in the forked child before it runs a command
+static JsonWriter *graphJson;
+static uint32_t graphApproximate; // threads that did not reach a safepoint
+
+// A one-line failure: plain text, or a JSON error document
+static void reportError(int fd, JsonWriter *json, const char *text)
+{
+    if (json != NULL)
+        jsonErrorTo(json, text);
+    else
+        dprintf(fd, "%s\n", text);
+}
+
+static void edgesReportFd(int fd, const char *arg, JsonWriter *json)
 {
     if (arg == NULL) {
-        dprintf(fd, "usage: edges <ptr>\n");
+        reportError(fd, json, "usage: edges <ptr>");
         return;
     }
     void *ptr = (void *)(uintptr_t)strtoull(arg, NULL, 0);
 
-    EdgePrinter p = {.fd = fd, .self = ptr};
+    EdgePrinter p = {.fd = fd, .self = ptr, .json = json};
     p.sorted = liveSnapshot(0, &p.count);
     qsort(p.sorted, p.count, sizeof(LiveEntry), compareByPtr);
     const LiveEntry *entry = findEntry(&p, ptr);
+    char message[160];
     if (entry == NULL) {
-        dprintf(fd, "no live allocation at %p\n", ptr);
+        snprintf(message, sizeof(message), "no live allocation at %p", ptr);
+        reportError(fd, json, message);
         free(p.sorted);
         return;
     }
     if (entry->buffer) {
-        dprintf(fd, "%p is a buffer, its edges are reported by its owner (try `edges <owner>`)\n", ptr);
+        snprintf(message,
+                 sizeof(message),
+                 "%p is a buffer, its edges are reported by its owner (try `edges <owner>`)",
+                 ptr);
+        reportError(fd, json, message);
         free(p.sorted);
         return;
     }
@@ -1375,15 +1410,33 @@ static void edgesReportFd(int fd, const char *arg)
     const char *typeName = NULL;
     VisitFn visit = objectVisitFn(ptr, &typeName);
     if (visit == NULL) {
-        dprintf(fd, "%p has no edge visitor\n", ptr);
+        snprintf(message, sizeof(message), "%p has no edge visitor", ptr);
+        reportError(fd, json, message);
         free(p.sorted);
         return;
     }
 
-    dprintf(fd, "edges of %p (%s)\n", ptr, typeName ? typeName : "<unknown>");
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonFieldPtr(json, "object", ptr);
+        jsonFieldString(json, "type", typeName);
+        jsonKey(json, "edges");
+        jsonBeginArray(json);
+    }
+    else {
+        dprintf(fd, "edges of %p (%s)\n", ptr, typeName ? typeName : "<unknown>");
+    }
     TraceVisitor visitor = {.edge = printEdge, .bufferBytes = bufferBytesOf, .ctx = &p};
     visit(ptr, &visitor);
-    dprintf(fd, "Total: %llu edges\n", (unsigned long long)p.edges);
+    if (json != NULL) {
+        jsonEndArray(json);
+        jsonFieldUint(json, "total", p.edges);
+        jsonFieldUint(json, "approximate", graphApproximate);
+        jsonEndObject(json);
+    }
+    else {
+        dprintf(fd, "Total: %llu edges\n", (unsigned long long)p.edges);
+    }
     free(p.sorted);
 }
 
@@ -1400,9 +1453,6 @@ typedef struct {
     JsonWriter *json;
 } DanglingScan;
 
-// Set in the forked child before it runs a command
-static JsonWriter *graphJson;
-static uint32_t graphApproximate;
 
 static void jsonDanglingBorrow(DanglingScan *scan, const LiveEntry *owner, const void *from, const void *to)
 {
@@ -1524,32 +1574,61 @@ __attribute__((weak)) extern const uint32_t __cxy_root_count;
  * `roots`: every global that owns something, and what it owns directly. A global
  * is read where it lives, so like `edges` this is racy until the paused snapshot.
  */
-static void rootsReportFd(int fd)
+static void rootsReportFd(int fd, JsonWriter *json)
 {
     uint32_t count = &__cxy_root_count != NULL ? __cxy_root_count : 0;
-    if (count == 0) {
+    if (count == 0 && json == NULL) {
         dprintf(fd, "no roots: no global variable owns a class, buffer or closure\n");
         return;
     }
 
-    EdgePrinter p = {.fd = fd};
+    EdgePrinter p = {.fd = fd, .json = json};
     p.sorted = liveSnapshot(0, &p.count);
     qsort(p.sorted, p.count, sizeof(LiveEntry), compareByPtr);
     TraceVisitor visitor = {.edge = printEdge, .bufferBytes = bufferBytesOf, .ctx = &p};
 
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonKey(json, "roots");
+        jsonBeginArray(json);
+    }
     uint64_t total = 0;
     for (uint32_t i = 0; i < count; i++) {
         const RootRecord *root = &__cxy_roots[i];
-        dprintf(fd, "global %s (%p, %llu bytes)\n", root->name, root->addr, (unsigned long long)root->size);
+        if (json != NULL) {
+            jsonBeginObject(json);
+            jsonFieldString(json, "name", root->name);
+            jsonFieldPtr(json, "ptr", root->addr);
+            jsonFieldUint(json, "size", root->size);
+            jsonKey(json, "edges");
+            jsonBeginArray(json);
+        }
+        else {
+            dprintf(fd, "global %s (%p, %llu bytes)\n", root->name, root->addr, (unsigned long long)root->size);
+        }
         p.self = root->addr;
         p.selfName = root->name;
         p.edges = 0;
         root->visit(&visitor, root->addr);
-        if (p.edges == 0)
+        if (json != NULL) {
+            jsonEndArray(json);
+            jsonEndObject(json);
+        }
+        else if (p.edges == 0) {
             dprintf(fd, "  (owns nothing right now)\n");
+        }
         total += p.edges;
     }
-    dprintf(fd, "Total: %u roots, %llu edges\n", count, (unsigned long long)total);
+    if (json != NULL) {
+        jsonEndArray(json);
+        jsonFieldUint(json, "total", count);
+        jsonFieldUint(json, "edges", total);
+        jsonFieldUint(json, "approximate", graphApproximate);
+        jsonEndObject(json);
+    }
+    else {
+        dprintf(fd, "Total: %u roots, %llu edges\n", count, (unsigned long long)total);
+    }
     free(p.sorted);
 }
 
@@ -1617,6 +1696,7 @@ typedef struct {
     const char *path;
     uint64_t line;
     const char *name; // roots: the global's name
+    const char *type; // objects: the class name, when the object has TypeInfo
     uint32_t refs;    // objects: the strong count when the graph was built
     bool raw;         // a buffer, not an object
     bool root;        // a named global
@@ -1771,6 +1851,8 @@ static bool graphBuild(Graph *g)
                               .raw = rec->kind == KIND_BUFFER};
             if (!node.raw && __cxy_mem_header_refs)
                 node.refs = __cxy_mem_header_refs((void *)node.start);
+            if (!node.raw)
+                node.type = objectTypeName((const void *)node.start);
             if (graphAddNode(g, node) == GRAPH_NONE)
                 return false;
         }
@@ -1850,21 +1932,86 @@ static void printChain(int fd, const Graph *g, const uint32_t *ids, size_t len)
     }
 }
 
-static uint32_t graphResolve(int fd, Graph *g, const char *arg)
+// The fields of a node, written into an open JSON object. Fields that do not
+// apply to the kind of node are null.
+static void jsonGraphNodeFields(JsonWriter *json, const Graph *g, uint32_t id)
+{
+    const GraphNode *n = &g->nodes[id];
+    jsonFieldString(json, "kind", n->root ? "global" : (n->raw ? "buffer" : "object"));
+    jsonFieldPtr(json, "ptr", (void *)n->start);
+    jsonFieldUint(json, "size", n->size);
+    jsonFieldString(json, "name", n->name);
+    if (n->raw)
+        jsonFieldNull(json, "refs");
+    else
+        jsonFieldUint(json, "refs", n->refs);
+    jsonFieldString(json, "type", n->type);
+    jsonFieldString(json, "file", n->path);
+    jsonFieldUint(json, "line", n->line);
+}
+
+static void jsonGraphNode(JsonWriter *json, const Graph *g, uint32_t id)
+{
+    jsonBeginObject(json);
+    jsonGraphNodeFields(json, g, id);
+    jsonEndObject(json);
+}
+
+// `"<key>": [node, ...]`
+static void jsonGraphNodes(JsonWriter *json, const char *key, const Graph *g, const uint32_t *ids, size_t len)
+{
+    jsonKey(json, key);
+    jsonBeginArray(json);
+    for (size_t i = 0; i < len; i++)
+        jsonGraphNode(json, g, ids[i]);
+    jsonEndArray(json);
+}
+
+static void jsonGraphEnd(JsonWriter *json)
+{
+    jsonFieldUint(json, "approximate", graphApproximate);
+    jsonEndObject(json);
+}
+
+static uint32_t graphResolve(int fd, Graph *g, const char *arg, JsonWriter *json)
 {
     if (arg == NULL) {
-        dprintf(fd, "usage: <command> <ptr>\n");
+        reportError(fd, json, "usage: <command> <ptr>");
         return GRAPH_NONE;
     }
     uintptr_t addr = (uintptr_t)strtoull(arg, NULL, 0);
     uint32_t id = graphFind(g, addr);
-    if (id == GRAPH_NONE)
-        dprintf(fd, "%s is not the start of a live object, buffer or global root\n", arg);
+    if (id == GRAPH_NONE) {
+        char message[320];
+        snprintf(message, sizeof(message), "%s is not the start of a live object, buffer or global root", arg);
+        reportError(fd, json, message);
+    }
     return id;
 }
 
-static void graphHolders(int fd, const Graph *g, uint32_t id)
+static void graphHolders(int fd, const Graph *g, uint32_t id, JsonWriter *json)
 {
+    if (json != NULL) {
+        const GraphNode *n = &g->nodes[id];
+        size_t holders = g->inStart[id + 1] - g->inStart[id];
+        jsonBeginObject(json);
+        jsonKey(json, "node");
+        jsonGraphNode(json, g, id);
+        jsonKey(json, "holders");
+        jsonBeginArray(json);
+        size_t listed = 0;
+        for (uint32_t k = g->inStart[id]; k < g->inStart[id + 1] && listed < 50; k++, listed++)
+            jsonGraphNode(json, g, g->edges[g->inEdge[k]].from);
+        jsonEndArray(json);
+        jsonFieldUint(json, "holderCount", holders);
+        if (n->raw)
+            jsonFieldNull(json, "externalRefs");
+        else
+            jsonFieldUint(json, "externalRefs", n->refs > holders ? n->refs - holders : 0);
+        jsonFieldBool(json, "inconsistent", !n->raw && n->refs < holders);
+        jsonGraphEnd(json);
+        return;
+    }
     printGraphNode(fd, g, id);
     dprintf(fd, "\n");
     size_t holders = 0;
@@ -1898,14 +2045,14 @@ static void graphHolders(int fd, const Graph *g, uint32_t id)
 }
 
 // Shortest chain from a node nothing tracked points at, down to `target`
-static void graphPath(int fd, const Graph *g, uint32_t target)
+static void graphPath(int fd, const Graph *g, uint32_t target, JsonWriter *json)
 {
     size_t n = g->count;
     uint32_t *queue = malloc(n * sizeof(uint32_t)), *prev = malloc(n * sizeof(uint32_t));
     uint32_t *ids = malloc(n * sizeof(uint32_t));
     uint8_t *seen = calloc(n, 1);
     if (!queue || !prev || !ids || !seen) {
-        dprintf(fd, "error: out of memory\n");
+        reportError(fd, json, json ? "out of memory" : "error: out of memory");
         goto done;
     }
 
@@ -1930,7 +2077,18 @@ static void graphPath(int fd, const Graph *g, uint32_t target)
     }
 
     if (root == GRAPH_NONE) {
-        dprintf(fd, "no root: every chain of holders ends in a cycle\n");
+        if (json != NULL) {
+            jsonBeginObject(json);
+            jsonFieldBool(json, "found", false);
+            jsonFieldString(json, "reason", "cycle");
+            jsonFieldNull(json, "depth");
+            jsonFieldNull(json, "heldFromOutside");
+            jsonGraphNodes(json, "path", g, NULL, 0);
+            jsonGraphEnd(json);
+        }
+        else {
+            dprintf(fd, "no root: every chain of holders ends in a cycle\n");
+        }
         goto done;
     }
 
@@ -1940,6 +2098,16 @@ static void graphPath(int fd, const Graph *g, uint32_t target)
     while (v != target) {
         v = g->edges[prev[v]].to;
         ids[len++] = v;
+    }
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonFieldBool(json, "found", true);
+        jsonFieldNull(json, "reason");
+        jsonFieldUint(json, "depth", len - 1);
+        jsonFieldBool(json, "heldFromOutside", !g->nodes[root].root);
+        jsonGraphNodes(json, "path", g, ids, len);
+        jsonGraphEnd(json);
+        goto done;
     }
     dprintf(fd, "retention path (%llu holders deep):\n", (unsigned long long)(len - 1));
     printChain(fd, g, ids, len);
@@ -1954,10 +2122,23 @@ done:
 }
 
 // Is `inner` held, directly or through other objects and buffers, by `outer`
-static void graphContains(int fd, const Graph *g, uint32_t outer, uint32_t inner)
+static void jsonContainsDoc(JsonWriter *json, bool contains, bool same, const Graph *g, const uint32_t *chain, size_t len)
+{
+    jsonBeginObject(json);
+    jsonFieldBool(json, "contains", contains);
+    jsonFieldBool(json, "same", same);
+    jsonFieldUint(json, "steps", len > 0 ? len - 1 : 0);
+    jsonGraphNodes(json, "path", g, chain, len);
+    jsonGraphEnd(json);
+}
+
+static void graphContains(int fd, const Graph *g, uint32_t outer, uint32_t inner, JsonWriter *json)
 {
     if (outer == inner) {
-        dprintf(fd, "same allocation\n");
+        if (json != NULL)
+            jsonContainsDoc(json, false, true, g, NULL, 0);
+        else
+            dprintf(fd, "same allocation\n");
         return;
     }
     size_t n = g->count;
@@ -1965,7 +2146,7 @@ static void graphContains(int fd, const Graph *g, uint32_t outer, uint32_t inner
     uint32_t *ids = malloc(n * sizeof(uint32_t));
     uint8_t *seen = calloc(n, 1);
     if (!queue || !prev || !ids || !seen) {
-        dprintf(fd, "error: out of memory\n");
+        reportError(fd, json, json ? "out of memory" : "error: out of memory");
         goto done;
     }
 
@@ -1990,7 +2171,10 @@ static void graphContains(int fd, const Graph *g, uint32_t outer, uint32_t inner
     }
 
     if (!found) {
-        dprintf(fd, "no, %p does not hold %p\n", (void *)g->nodes[outer].start, (void *)g->nodes[inner].start);
+        if (json != NULL)
+            jsonContainsDoc(json, false, false, g, NULL, 0);
+        else
+            dprintf(fd, "no, %p does not hold %p\n", (void *)g->nodes[outer].start, (void *)g->nodes[inner].start);
         goto done;
     }
 
@@ -1998,11 +2182,15 @@ static void graphContains(int fd, const Graph *g, uint32_t outer, uint32_t inner
     size_t len = 0;
     for (uint32_t v = inner; v != outer; v = g->edges[prev[v]].from)
         ids[len++] = v;
-    dprintf(fd, "yes, held through %llu step(s):\n", (unsigned long long)len);
     uint32_t *chain = queue; // queue is no longer needed
     chain[0] = outer;
     for (size_t i = 0; i < len; i++)
         chain[i + 1] = ids[len - 1 - i];
+    if (json != NULL) {
+        jsonContainsDoc(json, true, false, g, chain, len + 1);
+        goto done;
+    }
+    dprintf(fd, "yes, held through %llu step(s):\n", (unsigned long long)len);
     printChain(fd, g, chain, len + 1);
 
 done:
@@ -2010,6 +2198,28 @@ done:
     free(prev);
     free(ids);
     free(seen);
+}
+
+static void jsonTreeNode(JsonWriter *json, const Graph *g, uint32_t id, int depth, int maxDepth, uint8_t *seen)
+{
+    uint32_t children = g->outStart[id + 1] - g->outStart[id];
+    bool shownAbove = seen[id];
+    bool cut = depth >= maxDepth;
+    seen[id] = 1;
+    jsonBeginObject(json);
+    jsonGraphNodeFields(json, g, id);
+    jsonFieldBool(json, "seen", shownAbove);
+    jsonFieldBool(json, "truncated", !shownAbove && cut && children > 0);
+    jsonFieldUint(json, "moreChildren", !shownAbove && !cut && children > 20 ? children - 20 : 0);
+    jsonKey(json, "children");
+    jsonBeginArray(json);
+    if (!shownAbove && !cut) {
+        uint32_t shown = 0;
+        for (uint32_t k = g->outStart[id]; k < g->outStart[id + 1] && shown < 20; k++, shown++)
+            jsonTreeNode(json, g, g->edges[g->outEdge[k]].to, depth + 1, maxDepth, seen);
+    }
+    jsonEndArray(json);
+    jsonEndObject(json);
 }
 
 static void graphTreeNode(int fd,
@@ -2056,14 +2266,16 @@ static int compareNodeSite(const void *lhs, const void *rhs)
     return l->line < r->line ? -1 : (l->line > r->line ? 1 : 0);
 }
 
-// The sites that account for most of `ids` (reorders it)
-static void printTopSites(int fd, const Graph *g, uint32_t *ids, size_t count, size_t top)
+typedef struct {
+    const char *path;
+    uint64_t line, objs, bytes;
+} TopSite;
+
+// The sites that account for most of `ids` (reorders it), largest first. Returns
+// how many of `best` are filled.
+static size_t topSites(const Graph *g, uint32_t *ids, size_t count, size_t top, TopSite best[8])
 {
-    typedef struct {
-        const char *path;
-        uint64_t line, objs, bytes;
-    } Site;
-    Site best[8] = {{0}};
+    memset(best, 0, 8 * sizeof(TopSite));
     if (top > 8)
         top = 8;
 
@@ -2071,7 +2283,7 @@ static void printTopSites(int fd, const Graph *g, uint32_t *ids, size_t count, s
     qsort(ids, count, sizeof(uint32_t), compareNodeSite);
     for (size_t i = 0; i < count;) {
         const GraphNode *first = &g->nodes[ids[i]];
-        Site s = {.path = first->path, .line = first->line};
+        TopSite s = {.path = first->path, .line = first->line};
         for (; i < count && compareNodeSite(&ids[i], &(uint32_t){(uint32_t)(first - g->nodes)}) == 0; i++) {
             s.objs++;
             s.bytes += g->nodes[ids[i]].size;
@@ -2085,7 +2297,32 @@ static void printTopSites(int fd, const Graph *g, uint32_t *ids, size_t count, s
             }
         }
     }
-    for (size_t j = 0; j < top && best[j].objs > 0; j++) {
+    size_t found = 0;
+    while (found < top && best[found].objs > 0)
+        found++;
+    return found;
+}
+
+static void jsonTopSites(JsonWriter *json, const TopSite *sites, size_t count)
+{
+    jsonKey(json, "sites");
+    jsonBeginArray(json);
+    for (size_t i = 0; i < count; i++) {
+        jsonBeginObject(json);
+        jsonFieldString(json, "file", sites[i].path);
+        jsonFieldUint(json, "line", sites[i].line);
+        jsonFieldUint(json, "objects", sites[i].objs);
+        jsonFieldUint(json, "bytes", sites[i].bytes);
+        jsonEndObject(json);
+    }
+    jsonEndArray(json);
+}
+
+static void printTopSites(int fd, const Graph *g, uint32_t *ids, size_t count, size_t top)
+{
+    TopSite best[8];
+    size_t found = topSites(g, ids, count, top, best);
+    for (size_t j = 0; j < found; j++) {
         if (best[j].path != NULL)
             dprintf(fd,
                     "      %12llu bytes %8llu objs  %s:%llu\n",
@@ -2128,18 +2365,52 @@ static inline uint64_t nodeBytes(const Graph *g, uint32_t v)
  * root keeps alive (freed if it goes away), `reach` also counts objects other
  * roots hold too. A cache is a root with a large `excl`.
  */
-static void graphRetained(int fd, const Graph *g, size_t limit)
+static void jsonRetainedEnd(JsonWriter *json,
+                            uint64_t objects,
+                            uint64_t edges,
+                            uint64_t roots,
+                            uint64_t holding,
+                            bool limited,
+                            uint64_t unrooted,
+                            uint64_t unrootedBytes,
+                            const TopSite *sites,
+                            size_t siteCount)
+{
+    jsonEndArray(json);
+    jsonFieldUint(json, "objects", objects);
+    jsonFieldUint(json, "edges", edges);
+    jsonFieldUint(json, "rootCount", roots);
+    jsonFieldUint(json, "holding", holding);
+    jsonFieldBool(json, "limited", limited);
+    jsonKey(json, "unrooted");
+    jsonBeginObject(json);
+    jsonFieldUint(json, "objects", unrooted);
+    jsonFieldUint(json, "bytes", unrootedBytes);
+    jsonTopSites(json, sites, siteCount);
+    jsonEndObject(json);
+    jsonGraphEnd(json);
+}
+
+static void graphRetained(int fd, const Graph *g, size_t limit, JsonWriter *json)
 {
     size_t n = g->count;
     if (n == 0) {
-        dprintf(fd, "no live allocations\n");
+        if (json != NULL) {
+            jsonBeginObject(json);
+            jsonKey(json, "roots");
+            jsonBeginArray(json);
+            jsonRetainedEnd(json, 0, 0, 0, 0, false, 0, 0, NULL, 0);
+        }
+        else {
+            dprintf(fd, "no live allocations\n");
+        }
         return;
     }
     uint32_t *claim = calloc(n, sizeof(uint32_t)), *stamp = calloc(n, sizeof(uint32_t));
     uint32_t *stack = malloc(n * sizeof(uint32_t)), *ids = malloc(n * sizeof(uint32_t));
     RootInfo *roots = malloc(n * sizeof(RootInfo));
     if (!claim || !stamp || !stack || !ids || !roots) {
-        dprintf(fd, "error: out of memory\n");
+        reportError(fd, json, json ? "out of memory" : "error: out of memory");
         goto done;
     }
 
@@ -2192,7 +2463,14 @@ static void graphRetained(int fd, const Graph *g, size_t limit)
     }
 
     qsort(roots, rootCount, sizeof(RootInfo), compareRootInfo);
-    dprintf(fd, "%12s %10s %12s %10s  %s\n", "excl.bytes", "excl.objs", "reach.bytes", "reach.objs", "root");
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonKey(json, "roots");
+        jsonBeginArray(json);
+    }
+    else {
+        dprintf(fd, "%12s %10s %12s %10s  %s\n", "excl.bytes", "excl.objs", "reach.bytes", "reach.objs", "root");
+    }
     size_t shown = 0, holding = 0;
     for (size_t i = 0; i < rootCount; i++) {
         const RootInfo *info = &roots[i];
@@ -2202,21 +2480,58 @@ static void graphRetained(int fd, const Graph *g, size_t limit)
         if (shown >= limit)
             continue;
         shown++;
-        dprintf(fd,
-                "%12llu %10llu %12llu %10llu  ",
-                (unsigned long long)info->exBytes,
-                (unsigned long long)info->exObjs,
-                (unsigned long long)info->bytes,
-                (unsigned long long)info->objs);
-        printGraphNode(fd, g, info->id);
-        dprintf(fd, "\n");
+        if (json == NULL) {
+            dprintf(fd,
+                    "%12llu %10llu %12llu %10llu  ",
+                    (unsigned long long)info->exBytes,
+                    (unsigned long long)info->exObjs,
+                    (unsigned long long)info->bytes,
+                    (unsigned long long)info->objs);
+            printGraphNode(fd, g, info->id);
+            dprintf(fd, "\n");
+        }
 
         size_t count = 0;
         for (uint32_t v = 0; v < n; v++) {
             if (claim[v] == info->slot && !g->nodes[v].root)
                 ids[count++] = v;
         }
-        printTopSites(fd, g, ids, count, 3);
+        if (json != NULL) {
+            TopSite sites[8];
+            size_t found = topSites(g, ids, count, 3, sites);
+            jsonBeginObject(json);
+            jsonKey(json, "node");
+            jsonGraphNode(json, g, info->id);
+            jsonFieldUint(json, "exclusiveBytes", info->exBytes);
+            jsonFieldUint(json, "exclusiveObjects", info->exObjs);
+            jsonFieldUint(json, "reachBytes", info->bytes);
+            jsonFieldUint(json, "reachObjects", info->objs);
+            jsonTopSites(json, sites, found);
+            jsonEndObject(json);
+        }
+        else {
+            printTopSites(fd, g, ids, count, 3);
+        }
+    }
+    if (json != NULL) {
+        size_t count = 0;
+        for (uint32_t v = 0; v < n; v++) {
+            if (claim[v] == 0 && !g->nodes[v].root)
+                ids[count++] = v;
+        }
+        TopSite sites[8];
+        size_t found = unrooted > 0 ? topSites(g, ids, count, 3, sites) : 0;
+        jsonRetainedEnd(json,
+                        n - rootNodes,
+                        g->edgeCount,
+                        rootCount,
+                        holding,
+                        holding > shown,
+                        unrooted,
+                        unrootedBytes,
+                        sites,
+                        found);
+        goto done;
     }
     dprintf(fd,
             "Total: %llu objects, %llu edges, %llu roots (%llu hold other objects)%s\n",
@@ -2327,13 +2642,13 @@ done:
     return ok;
 }
 
-static void graphCycles(int fd, const Graph *g, size_t limit)
+static void graphCycles(int fd, const Graph *g, size_t limit, JsonWriter *json)
 {
     size_t n = g->count;
     uint32_t *comp = malloc((n ? n : 1) * sizeof(uint32_t));
     uint32_t compCount = 0;
     if (comp == NULL || !graphComponents(g, comp, &compCount)) {
-        dprintf(fd, "error: out of memory\n");
+        reportError(fd, json, json ? "out of memory" : "error: out of memory");
         free(comp);
         return;
     }
@@ -2343,7 +2658,7 @@ static void graphCycles(int fd, const Graph *g, size_t limit)
     uint8_t *selfLoop = calloc(compCount, 1), *entered = calloc(compCount, 1);
     uint8_t *external = calloc(compCount, 1);
     if (!size || !order || !bytes || !selfLoop || !entered || !external) {
-        dprintf(fd, "error: out of memory\n");
+        reportError(fd, json, json ? "out of memory" : "error: out of memory");
         free(size);
         free(order);
         free(bytes);
@@ -2382,10 +2697,32 @@ static void graphCycles(int fd, const Graph *g, size_t limit)
     qsort(order, leaked, sizeof(uint32_t), compareCycleBytes);
 
     size_t shown = limit < leaked ? limit : leaked;
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonKey(json, "cycles");
+        jsonBeginArray(json);
+    }
     for (size_t i = 0; i < shown; i++) {
         uint32_t c = order[i];
-        dprintf(fd, "cycle: %u nodes, %llu bytes\n", size[c], (unsigned long long)bytes[c]);
         uint32_t members = 0;
+        if (json != NULL) {
+            jsonBeginObject(json);
+            jsonFieldUint(json, "nodes", size[c]);
+            jsonFieldUint(json, "bytes", bytes[c]);
+            jsonFieldUint(json, "moreMembers", size[c] > 12 ? size[c] - 12 : 0);
+            jsonKey(json, "members");
+            jsonBeginArray(json);
+            for (uint32_t v = 0; v < n && members < 12; v++) {
+                if (comp[v] == c) {
+                    jsonGraphNode(json, g, v);
+                    members++;
+                }
+            }
+            jsonEndArray(json);
+            jsonEndObject(json);
+            continue;
+        }
+        dprintf(fd, "cycle: %u nodes, %llu bytes\n", size[c], (unsigned long long)bytes[c]);
         for (uint32_t v = 0; v < n; v++) {
             if (comp[v] != c)
                 continue;
@@ -2398,11 +2735,20 @@ static void graphCycles(int fd, const Graph *g, size_t limit)
             dprintf(fd, "\n");
         }
     }
-    dprintf(fd,
-            "Total: %llu leaked cycles, %llu bytes%s\n",
-            (unsigned long long)leaked,
-            (unsigned long long)leakedBytes,
-            leaked > shown ? ", showing the largest" : "");
+    if (json != NULL) {
+        jsonEndArray(json);
+        jsonFieldUint(json, "total", leaked);
+        jsonFieldUint(json, "bytes", leakedBytes);
+        jsonFieldBool(json, "limited", leaked > shown);
+        jsonGraphEnd(json);
+    }
+    else {
+        dprintf(fd,
+                "Total: %llu leaked cycles, %llu bytes%s\n",
+                (unsigned long long)leaked,
+                (unsigned long long)leakedBytes,
+                leaked > shown ? ", showing the largest" : "");
+    }
 
     free(size);
     free(order);
@@ -2417,57 +2763,66 @@ static void graphCycles(int fd, const Graph *g, size_t limit)
 static void runGraphCommand(int fd, const char *cmd, const char *arg1, const char *arg2)
 {
     // These read the paused copy too, but need no graph
+    JsonWriter *json = graphJson;
     if (strcmp(cmd, "edges") == 0) {
-        edgesReportFd(fd, arg1);
+        edgesReportFd(fd, arg1, json);
         return;
     }
     if (strcmp(cmd, "roots") == 0) {
-        rootsReportFd(fd);
+        rootsReportFd(fd, json);
         return;
     }
     if (strcmp(cmd, "dangling") == 0) {
-        danglingReportFd(fd, graphJson);
+        danglingReportFd(fd, json);
         return;
     }
 
     Graph g = {0};
     if (!graphBuild(&g)) {
-        dprintf(fd, "error: out of memory while building the graph\n");
+        reportError(fd, json, json ? "out of memory while building the graph" : "error: out of memory while building the graph");
         return;
     }
 
     if (strcmp(cmd, "retained") == 0) {
-        graphRetained(fd, &g, parseLimit(arg1));
+        graphRetained(fd, &g, parseLimit(arg1), json);
     }
-
     else if (strcmp(cmd, "cycles") == 0) {
-        graphCycles(fd, &g, parseLimit(arg1));
+        graphCycles(fd, &g, parseLimit(arg1), json);
     }
     else {
-        uint32_t id = graphResolve(fd, &g, arg1);
+        uint32_t id = graphResolve(fd, &g, arg1, json);
         if (id != GRAPH_NONE) {
             if (strcmp(cmd, "holders") == 0) {
-                graphHolders(fd, &g, id);
+                graphHolders(fd, &g, id, json);
             }
             else if (strcmp(cmd, "path") == 0) {
-                graphPath(fd, &g, id);
+                graphPath(fd, &g, id, json);
             }
             else if (strcmp(cmd, "contains") == 0) {
-                uint32_t inner = graphResolve(fd, &g, arg2);
+                uint32_t inner = graphResolve(fd, &g, arg2, json);
                 if (inner != GRAPH_NONE)
-                    graphContains(fd, &g, id, inner);
+                    graphContains(fd, &g, id, inner, json);
             }
             else {
                 int depth = arg2 ? atoi(arg2) : 3;
+                depth = depth < 0 ? 0 : (depth > 8 ? 8 : depth);
                 uint8_t *seen = calloc(g.count, 1);
                 if (seen != NULL) {
-                    graphTreeNode(fd, &g, id, 0, depth < 0 ? 0 : (depth > 8 ? 8 : depth), seen);
+                    if (json != NULL) {
+                        jsonBeginObject(json);
+                        jsonFieldUint(json, "depth", depth);
+                        jsonKey(json, "tree");
+                        jsonTreeNode(json, &g, id, 0, depth, seen);
+                        jsonGraphEnd(json);
+                    }
+                    else {
+                        graphTreeNode(fd, &g, id, 0, depth, seen);
+                    }
                     free(seen);
                 }
             }
         }
     }
-
 }
 
 static void graphCrashHandler(int sig)
@@ -2567,6 +2922,18 @@ static const char *const knownCommands[] = {
     "mark",    "diff",    "difflist", "holders", "path",   "contains", "retained",
     "cycles",  "tree",    "edges",    "roots", "dangling", "help",   NULL};
 
+// Commands answered from the paused, forked copy of the registry
+static bool isGraphCommand(const char *cmd)
+{
+    static const char *const names[] = {"holders", "path",  "contains", "retained", "cycles",
+                                        "tree",    "edges", "roots",    "dangling", NULL};
+    for (int i = 0; names[i] != NULL; i++) {
+        if (strcmp(cmd, names[i]) == 0)
+            return true;
+    }
+    return false;
+}
+
 static bool isKnownCommand(const char *cmd)
 {
     for (int i = 0; knownCommands[i] != NULL; i++) {
@@ -2587,8 +2954,8 @@ static bool jsonCommand(int fd, const char *cmd, char *args[])
         jsonErrorFd(fd, "unknown command", cmd);
         return true;
     }
-    if (strcmp(cmd, "dangling") == 0) {
-        graphCommand(fd, cmd, NULL, NULL, true);
+    if (isGraphCommand(cmd)) {
+        graphCommand(fd, cmd, args[1], args[2], true);
         return true;
     }
     JsonWriter w;
@@ -2673,11 +3040,7 @@ static void handleCommand(int fd, char *line)
         sitesReportFd(fd, mark, parseLimit(args[1]), NULL);
     else if (strcmp(cmd, "difflist") == 0)
         liveReportFd(fd, mark, parseLimit(args[1]), sym, false, NULL, NULL);
-    else if (strcmp(cmd, "holders") == 0 || strcmp(cmd, "path") == 0 ||
-             strcmp(cmd, "contains") == 0 || strcmp(cmd, "retained") == 0 ||
-             strcmp(cmd, "cycles") == 0 || strcmp(cmd, "tree") == 0 ||
-             strcmp(cmd, "edges") == 0 || strcmp(cmd, "roots") == 0 ||
-             strcmp(cmd, "dangling") == 0)
+    else if (isGraphCommand(cmd))
         graphCommand(fd, cmd, args[1], args[2], false);
     else
         dprintf(fd, "unknown command '%s', try 'help'\n", cmd);

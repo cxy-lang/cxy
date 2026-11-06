@@ -28,7 +28,9 @@ and `--lib` are forwarded through `CXY_COMPILER` and `CXY_STDLIB`.
 - `programs/<name>.cxy`: workload. Calls `waitForHarness()` (from `_harness.cxy`)
   when the state to inspect is reached. It prints `READY`, then blocks on stdin.
 - `programs/<name>.cmds`: one query per line, sent in order. `@next` releases the
-  program to its next `waitForHarness()`. `#` starts a comment.
+  program to its next `waitForHarness()`. `#` starts a comment. In a query,
+  `<live:N>` is replaced by the address of the Nth allocation of `list` (1 is the
+  most recent), so commands that take a pointer can be tested.
 - No `.cmds` file: the program runs to completion and its output (the exit leak
   report) is snapshotted.
 - `programs/__snapshots/<name>.txt`: normalized output. Addresses become `PTR`, stack
