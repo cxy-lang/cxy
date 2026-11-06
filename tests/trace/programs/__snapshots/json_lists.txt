@@ -1,0 +1,22 @@
+$ list json
+{"allocations":[{"ptr":"PTR","kind":"buffer","size":64,"refs":null,"type":null,"file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":17,"gen":3},{"ptr":"PTR","kind":"object","size":24,"refs":1,"type":"vector.Vector[i32]","file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":17,"gen":2},{"ptr":"PTR","kind":"object","size":4,"refs":1,"type":"Node","file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":16,"gen":1}],"count":3,"bytes":92,"limited":false}
+$ zombies json
+{"zombies":[],"total":0,"bytes":0,"limited":false}
+$ dangling json
+{"dangling":[],"total":0,"approximate":0}
+$ mark
+mark 3
+@next
+$ diff json
+{"sites":[{"file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":25,"count":1,"bytes":8},{"file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":23,"count":1,"bytes":4},{"file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":26,"count":1,"bytes":4}],"liveAllocations":3,"liveBytes":16,"siteCount":3,"limited":false}
+$ difflist json
+{"allocations":[{"ptr":"PTR","kind":"object","size":4,"refs":1,"type":"Node","file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":26,"gen":8},{"ptr":"PTR","kind":"object","size":8,"refs":1,"type":"View","file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":25,"gen":7},{"ptr":"PTR","kind":"object","size":4,"refs":1,"type":"Node","file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":23,"gen":5}],"count":3,"bytes":16,"limited":false}
+$ difflist 1 json
+{"allocations":[{"ptr":"PTR","kind":"object","size":4,"refs":1,"type":"Node","file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":26,"gen":8}],"count":3,"bytes":16,"limited":true}
+$ zombies json
+{"zombies":[{"ptr":"PTR","size":4,"weak":1,"file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":21}],"total":1,"bytes":4,"limited":false}
+$ zombies 0 json
+{"zombies":[{"ptr":"PTR","size":4,"weak":1,"file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":21}],"total":1,"bytes":4,"limited":false}
+$ dangling json
+{"dangling":[{"owner":"PTR","ownerType":"View","file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":25,"target":"PTR","events":[{"op":"alloc","refs":1,"file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":24},{"op":"drop","refs":1,"file":"<ROOT>/tests/trace/programs/json_lists.cxy","line":26}]}],"total":1,"approximate":0}
+$ program output

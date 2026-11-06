@@ -1,0 +1,28 @@
+import { Vector } from "stdlib/vector.cxy"
+import { waitForHarness } from "./_harness.cxy"
+
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+    func `deinit`() { }
+}
+
+class View {
+    src: &Node
+    func `init`(n: &Node) { this.src = n }
+}
+
+func main(): void {
+    var a = Node(1)
+    var v = Vector[i32]()
+    v.push(5)
+    waitForHarness()
+    // after the mark: a zombie, and a borrow that dangles
+    var c = Node(3)
+    var w = Weak[Node](c)
+    c = Node(4)
+    var n = Node(5)
+    var view = View(&n)
+    n = Node(6)
+    waitForHarness()
+}

@@ -1,0 +1,12 @@
+# list, zombies and dangling as JSON, before and after a mark
+list json
+zombies json
+dangling json
+mark
+@next
+diff json
+difflist json
+difflist 1 json
+zombies json
+zombies 0 json
+dangling json

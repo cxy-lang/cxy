@@ -534,13 +534,10 @@ static const TraceEvent *findAllocEvent(const void *ptr)
     return NULL;
 }
 
-static void ringDumpFd(int fd, const void *ptr, bool sym)
+// The latest lifecycle epoch of `ptr`, newest event first, ending at its alloc
+static uint32_t ringEpoch(const void *ptr, const TraceEvent *epoch[64])
 {
-    dprintf(fd, "\n--- Lifecycle Timeline for %p in __cxy_mem_ring ---\n", ptr);
     uint32_t current = __atomic_load_n(&ringIdx, __ATOMIC_RELAXED);
-
-    // Latest lifecycle epoch, walking backwards until its alloc
-    const TraceEvent *epoch[64];
     uint32_t epochCount = 0;
     for (uint32_t i = 0; i < CXY_TRACE_RING_SIZE && epochCount < 64; i++) {
         uint32_t idx = (current + CXY_TRACE_RING_SIZE - 1 - i) % CXY_TRACE_RING_SIZE;
@@ -551,6 +548,14 @@ static void ringDumpFd(int fd, const void *ptr, bool sym)
                 break;
         }
     }
+    return epochCount;
+}
+
+static void ringDumpFd(int fd, const void *ptr, bool sym)
+{
+    dprintf(fd, "\n--- Lifecycle Timeline for %p in __cxy_mem_ring ---\n", ptr);
+    const TraceEvent *epoch[64];
+    uint32_t epochCount = ringEpoch(ptr, epoch);
 
     if (epochCount == 0) {
         dprintf(fd, "  (no trace events recorded for %p)\n", ptr);
@@ -583,12 +588,54 @@ typedef struct {
     void *ctx;
 } ReportHooks;
 
+static const char *objectTypeName(const void *payload);
+
+// One live allocation as a JSON object. Buffers have no refs and no type.
+static void jsonLiveEntry(JsonWriter *json, const LiveEntry *e)
+{
+    jsonBeginObject(json);
+    jsonFieldPtr(json, "ptr", e->ptr);
+    jsonFieldString(json, "kind", e->buffer ? "buffer" : "object");
+    jsonFieldUint(json, "size", e->size);
+    if (e->buffer) {
+        jsonFieldNull(json, "refs");
+        jsonFieldNull(json, "type");
+    }
+    else {
+        jsonFieldUint(json, "refs", __cxy_mem_header_refs ? __cxy_mem_header_refs(e->ptr) : 0);
+        jsonFieldString(json, "type", objectTypeName(e->ptr));
+    }
+    jsonFieldString(json, "file", e->path);
+    jsonFieldUint(json, "line", e->line);
+    jsonFieldUint(json, "gen", e->gen);
+    jsonEndObject(json);
+}
+
+static void liveReportJson(JsonWriter *json, const LiveEntry *snap, size_t count, size_t limit)
+{
+    uint64_t totalBytes = 0;
+    for (size_t i = 0; i < count; i++)
+        totalBytes += snap[i].size;
+    size_t shown = (limit == 0 || limit > count) ? count : limit;
+    jsonBeginObject(json);
+    jsonKey(json, "allocations");
+    jsonBeginArray(json);
+    for (size_t i = 0; i < shown; i++)
+        jsonLiveEntry(json, &snap[i]);
+    jsonEndArray(json);
+    jsonFieldUint(json, "count", count);
+    jsonFieldUint(json, "bytes", totalBytes);
+    jsonFieldBool(json, "limited", shown < count);
+    jsonEndObject(json);
+}
+
 static void liveReportFd(int fd,
                          uint64_t minGen,
                          size_t limit,
                          bool sym,
                          bool leakStyle,
-                         const ReportHooks *hooks)
+                         const ReportHooks *hooks,
+                         JsonWriter *json)
 {
     size_t count = 0;
     LiveEntry *snap = liveSnapshot(minGen, &count);
@@ -599,6 +646,11 @@ static void liveReportFd(int fd,
                 snap[kept++] = snap[i];
         }
         count = kept;
+    }
+    if (json != NULL) {
+        liveReportJson(json, snap, count, limit);
+        free(snap);
+        return;
     }
     if (count == 0) {
         if (!leakStyle)
@@ -692,6 +744,25 @@ static void jsonErrorTo(JsonWriter *json, const char *message)
     jsonBeginObject(json);
     jsonFieldString(json, "error", message);
     jsonEndObject(json);
+}
+
+// Ends a reply: the document is complete and valid, then the line ends
+static void jsonReplyEnd(JsonWriter *w, int fd)
+{
+    if (jsonFinish(w))
+        (void)!write(fd, "\n", 1);
+}
+
+static void jsonErrorFd(int fd, const char *message, const char *cmd)
+{
+    JsonWriter w;
+    jsonInitFd(&w, fd);
+    jsonBeginObject(&w);
+    jsonFieldString(&w, "error", message);
+    if (cmd != NULL)
+        jsonFieldString(&w, "command", cmd);
+    jsonEndObject(&w);
+    jsonReplyEnd(&w, fd);
 }
 
 static void sitesReportFd(int fd, uint64_t minGen, size_t limit, JsonWriter *json)
@@ -790,7 +861,7 @@ static void sitesReportFd(int fd, uint64_t minGen, size_t limit, JsonWriter *jso
  * first on each list. At exit one is a weak reference that was never released.
  * `weak` is how many weak references are left.
  */
-static void zombiesReportFd(int fd, size_t limit, bool exitStyle)
+static void zombiesReportFd(int fd, size_t limit, bool exitStyle, JsonWriter *json)
 {
     uint64_t total[2];
     __cxy_mem_trace_zombies(total);
@@ -799,6 +870,11 @@ static void zombiesReportFd(int fd, size_t limit, bool exitStyle)
     if (exitStyle)
         dprintf(fd, "=== Weak references keep destroyed objects alive ===\n");
 
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonKey(json, "zombies");
+        jsonBeginArray(json);
+    }
     size_t shown = 0;
     pthread_mutex_lock(&listsLock);
     for (TraceList *l = allLists; l != NULL; l = l->next) {
@@ -808,6 +884,17 @@ static void zombiesReportFd(int fd, size_t limit, bool exitStyle)
                 continue;
             // weakFlags is the second word of the header in front of the payload
             const uint32_t *flags = (const uint32_t *)((const char *)recPayload(rec) - OBJ_HEADER_SIZE + 4);
+            if (json != NULL) {
+                jsonBeginObject(json);
+                jsonFieldPtr(json, "ptr", recPayload(rec));
+                jsonFieldUint(json, "size", rec->size);
+                jsonFieldUint(json, "weak", *flags >> 8);
+                jsonFieldString(json, "file", rec->site ? rec->site->file : NULL);
+                jsonFieldUint(json, "line", rec->site ? rec->site->line : 0);
+                jsonEndObject(json);
+                shown++;
+                continue;
+            }
             dprintf(fd,
                     "%sptr=%p size=%llu weak=%u @ %s:%llu\n",
                     exitStyle ? "[ZOMBIE] " : "",
@@ -821,6 +908,14 @@ static void zombiesReportFd(int fd, size_t limit, bool exitStyle)
         pthread_mutex_unlock(&l->lock);
     }
     pthread_mutex_unlock(&listsLock);
+    if (json != NULL) {
+        jsonEndArray(json);
+        jsonFieldUint(json, "total", total[0]);
+        jsonFieldUint(json, "bytes", total[1]);
+        jsonFieldBool(json, "limited", shown < total[0]);
+        jsonEndObject(json);
+        return;
+    }
     dprintf(fd,
             "Total: %llu zombies (%llu bytes)\n",
             (unsigned long long)total[0],
@@ -1247,6 +1342,13 @@ static VisitFn objectVisitFn(const void *payload, const char **typeName)
     return (VisitFn)(*type)->visit;
 }
 
+static const char *objectTypeName(const void *payload)
+{
+    const char *name = NULL;
+    objectVisitFn(payload, &name);
+    return name;
+}
+
 static void edgesReportFd(int fd, const char *arg)
 {
     if (arg == NULL) {
@@ -1295,7 +1397,38 @@ typedef struct {
     const void *owner;
     const char *ownerType;
     size_t found;
+    JsonWriter *json;
 } DanglingScan;
+
+// Set in the forked child before it runs a command
+static JsonWriter *graphJson;
+static uint32_t graphApproximate;
+
+static void jsonDanglingBorrow(DanglingScan *scan, const LiveEntry *owner, const void *from, const void *to)
+{
+    JsonWriter *json = scan->json;
+    jsonBeginObject(json);
+    jsonFieldPtr(json, "owner", from);
+    jsonFieldString(json, "ownerType", scan->ownerType);
+    jsonFieldString(json, "file", owner ? owner->path : NULL);
+    jsonFieldUint(json, "line", owner ? owner->line : 0);
+    jsonFieldPtr(json, "target", to);
+    jsonKey(json, "events");
+    jsonBeginArray(json);
+    const TraceEvent *epoch[64];
+    uint32_t n = ringEpoch(to, epoch);
+    for (uint32_t i = 0; i < n; i++) {
+        const TraceEvent *ev = epoch[n - 1 - i];
+        jsonBeginObject(json);
+        jsonFieldString(json, "op", ev->op);
+        jsonFieldUint(json, "refs", ev->refs);
+        jsonFieldString(json, "file", ev->path);
+        jsonFieldUint(json, "line", ev->line);
+        jsonEndObject(json);
+    }
+    jsonEndArray(json);
+    jsonEndObject(json);
+}
 
 static void reportDanglingBorrow(TraceVisitor *v, const void *from, const void *to)
 {
@@ -1303,6 +1436,11 @@ static void reportDanglingBorrow(TraceVisitor *v, const void *from, const void *
     if (findEntry(&scan->printer, to) != NULL)
         return;
     const LiveEntry *owner = findEntry(&scan->printer, scan->owner);
+    if (scan->json != NULL) {
+        jsonDanglingBorrow(scan, owner, from, to);
+        scan->found++;
+        return;
+    }
     dprintf(scan->printer.fd,
             "dangling: %s %p @ %s:%llu borrows %p, which is no longer live\n",
             scan->ownerType ? scan->ownerType : "object",
@@ -1330,15 +1468,20 @@ static uint64_t noBufferBytes(TraceVisitor *v, const void *ptr)
     return 0;
 }
 
-static void danglingReportFd(int fd)
+static void danglingReportFd(int fd, JsonWriter *json)
 {
-    DanglingScan scan = {.printer = {.fd = fd}};
+    DanglingScan scan = {.printer = {.fd = fd}, .json = json};
     scan.printer.sorted = liveSnapshot(0, &scan.printer.count);
     qsort(scan.printer.sorted, scan.printer.count, sizeof(LiveEntry), compareByPtr);
     TraceVisitor visitor = {.edge = ignoreEdge,
                             .bufferBytes = noBufferBytes,
                             .borrow = reportDanglingBorrow,
                             .ctx = &scan};
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonKey(json, "dangling");
+        jsonBeginArray(json);
+    }
     for (size_t i = 0; i < scan.printer.count; i++) {
         const LiveEntry *entry = &scan.printer.sorted[i];
         if (entry->buffer)
@@ -1350,6 +1493,14 @@ static void danglingReportFd(int fd)
         scan.owner = entry->ptr;
         scan.ownerType = typeName;
         visit(entry->ptr, &visitor);
+    }
+    if (json != NULL) {
+        jsonEndArray(json);
+        jsonFieldUint(json, "total", scan.found);
+        jsonFieldUint(json, "approximate", graphApproximate);
+        jsonEndObject(json);
+        free(scan.printer.sorted);
+        return;
     }
     dprintf(fd, "Total: %llu dangling borrows\n", (unsigned long long)scan.found);
     free(scan.printer.sorted);
@@ -2275,7 +2426,7 @@ static void runGraphCommand(int fd, const char *cmd, const char *arg1, const cha
         return;
     }
     if (strcmp(cmd, "dangling") == 0) {
-        danglingReportFd(fd);
+        danglingReportFd(fd, graphJson);
         return;
     }
 
@@ -2322,7 +2473,11 @@ static void runGraphCommand(int fd, const char *cmd, const char *arg1, const cha
 static void graphCrashHandler(int sig)
 {
     static const char msg[] = "error: the scan crashed while reading memory\n";
-    (void)!write(graphFd, msg, sizeof(msg) - 1);
+    static const char jsonMsg[] = "\n{\"error\":\"the scan crashed while reading memory\"}\n";
+    if (graphJson != NULL)
+        (void)!write(graphFd, jsonMsg, sizeof(jsonMsg) - 1);
+    else
+        (void)!write(graphFd, msg, sizeof(msg) - 1);
     _exit(128 + sig);
 }
 
@@ -2332,7 +2487,7 @@ static void graphCrashHandler(int sig)
  * is consistent. The child never takes it again and leaves with _exit() so
  * none of the program's exit handlers run.
  */
-static void graphCommand(int fd, const char *cmd, const char *arg1, const char *arg2)
+static void graphCommand(int fd, const char *cmd, const char *arg1, const char *arg2, bool asJson)
 {
     uint32_t running = pauseThreads();
     lockAllLists();
@@ -2352,16 +2507,27 @@ static void graphCommand(int fd, const char *cmd, const char *arg1, const char *
         sigaddset(&unblock, SIGSEGV);
         sigaddset(&unblock, SIGBUS);
         pthread_sigmask(SIG_UNBLOCK, &unblock, NULL);
+        JsonWriter writer;
+        if (asJson) {
+            jsonInitFd(&writer, fd);
+            graphJson = &writer;
+        }
+        graphApproximate = running;
         runGraphCommand(fd, cmd, arg1, arg2);
+        if (asJson)
+            jsonReplyEnd(&writer, fd);
         _exit(0);
     }
     unlockAllLists();
     resumeThreads();
     if (pid < 0) {
-        dprintf(fd, "error: fork failed: %s\n", strerror(errno));
+        if (asJson)
+            jsonErrorFd(fd, "fork failed", cmd);
+        else
+            dprintf(fd, "error: fork failed: %s\n", strerror(errno));
         return;
     }
-    if (running > 0)
+    if (running > 0 && !asJson)
         dprintf(fd,
                 "note: approximate, %u active thread(s) did not reach a safepoint in time "
                 "(CXY_MEM_PAUSE_MS)\n",
@@ -2379,7 +2545,10 @@ static void graphCommand(int fd, const char *cmd, const char *arg1, const char *
         if (waited >= limitMs) {
             kill(pid, SIGKILL);
             waitpid(pid, &status, 0);
-            dprintf(fd, "error: scan timed out (CXY_MEM_SCAN_SECONDS)\n");
+            if (asJson)
+                jsonErrorFd(fd, "scan timed out (CXY_MEM_SCAN_SECONDS)", cmd);
+            else
+                dprintf(fd, "error: scan timed out (CXY_MEM_SCAN_SECONDS)\n");
             return;
         }
         usleep(10000);
@@ -2407,25 +2576,6 @@ static bool isKnownCommand(const char *cmd)
     return false;
 }
 
-// Ends a reply: the document is complete and valid, then the line ends
-static void jsonReplyEnd(JsonWriter *w, int fd)
-{
-    if (jsonFinish(w))
-        (void)!write(fd, "\n", 1);
-}
-
-static void jsonErrorFd(int fd, const char *message, const char *cmd)
-{
-    JsonWriter w;
-    jsonInitFd(&w, fd);
-    jsonBeginObject(&w);
-    jsonFieldString(&w, "error", message);
-    if (cmd != NULL)
-        jsonFieldString(&w, "command", cmd);
-    jsonEndObject(&w);
-    jsonReplyEnd(&w, fd);
-}
-
 // Answers `cmd` as JSON. False when the command has no JSON form (yet).
 static bool jsonCommand(int fd, const char *cmd, char *args[])
 {
@@ -2437,12 +2587,25 @@ static bool jsonCommand(int fd, const char *cmd, char *args[])
         jsonErrorFd(fd, "unknown command", cmd);
         return true;
     }
+    if (strcmp(cmd, "dangling") == 0) {
+        graphCommand(fd, cmd, NULL, NULL, true);
+        return true;
+    }
     JsonWriter w;
     jsonInitFd(&w, fd);
+    uint64_t mark = __atomic_load_n(&markGen, __ATOMIC_RELAXED);
     if (strcmp(cmd, "summary") == 0)
         summaryFd(fd, &w);
     else if (strcmp(cmd, "sites") == 0)
         sitesReportFd(fd, 0, parseLimit(args[1]), &w);
+    else if (strcmp(cmd, "diff") == 0)
+        sitesReportFd(fd, mark, parseLimit(args[1]), &w);
+    else if (strcmp(cmd, "list") == 0)
+        liveReportFd(fd, 0, parseLimit(args[1]), false, false, NULL, &w);
+    else if (strcmp(cmd, "difflist") == 0)
+        liveReportFd(fd, mark, parseLimit(args[1]), false, false, NULL, &w);
+    else if (strcmp(cmd, "zombies") == 0)
+        zombiesReportFd(fd, parseLimit(args[1]), false, &w);
     else if (strcmp(cmd, "types") == 0)
         typesReportFd(fd, &w);
     else if (strcmp(cmd, "sitecounts") == 0)
@@ -2485,11 +2648,11 @@ static void handleCommand(int fd, char *line)
     else if (strcmp(cmd, "sites") == 0)
         sitesReportFd(fd, 0, parseLimit(args[1]), NULL);
     else if (strcmp(cmd, "list") == 0)
-        liveReportFd(fd, 0, parseLimit(args[1]), sym, false, NULL);
+        liveReportFd(fd, 0, parseLimit(args[1]), sym, false, NULL, NULL);
     else if (strcmp(cmd, "leaks") == 0)
-        liveReportFd(fd, 0, 0, sym, true, NULL);
+        liveReportFd(fd, 0, 0, sym, true, NULL, NULL);
     else if (strcmp(cmd, "zombies") == 0)
-        zombiesReportFd(fd, parseLimit(args[1]), false);
+        zombiesReportFd(fd, parseLimit(args[1]), false, NULL);
     else if (strcmp(cmd, "types") == 0)
         typesReportFd(fd, NULL);
     else if (strcmp(cmd, "sitecounts") == 0)
@@ -2509,13 +2672,13 @@ static void handleCommand(int fd, char *line)
     else if (strcmp(cmd, "diff") == 0)
         sitesReportFd(fd, mark, parseLimit(args[1]), NULL);
     else if (strcmp(cmd, "difflist") == 0)
-        liveReportFd(fd, mark, parseLimit(args[1]), sym, false, NULL);
+        liveReportFd(fd, mark, parseLimit(args[1]), sym, false, NULL, NULL);
     else if (strcmp(cmd, "holders") == 0 || strcmp(cmd, "path") == 0 ||
              strcmp(cmd, "contains") == 0 || strcmp(cmd, "retained") == 0 ||
              strcmp(cmd, "cycles") == 0 || strcmp(cmd, "tree") == 0 ||
              strcmp(cmd, "edges") == 0 || strcmp(cmd, "roots") == 0 ||
              strcmp(cmd, "dangling") == 0)
-        graphCommand(fd, cmd, args[1], args[2]);
+        graphCommand(fd, cmd, args[1], args[2], false);
     else
         dprintf(fd, "unknown command '%s', try 'help'\n", cmd);
 }
@@ -2750,7 +2913,7 @@ void __cxy_mem_trace_report(void)
 
     // Without a graph every live block is reported, as before
     ReportHooks hooks = {.keep = isLeak, .note = leakNote, .ctx = &ctx};
-    liveReportFd(STDOUT_FILENO, 0, 0, true, true, reached != NULL ? &hooks : NULL);
+    liveReportFd(STDOUT_FILENO, 0, 0, true, true, reached != NULL ? &hooks : NULL, NULL);
     if (reached != NULL && retained > 0) {
         size_t leaks = 0;
         for (uint32_t v = 0; v < g.count; v++) {
@@ -2760,7 +2923,7 @@ void __cxy_mem_trace_report(void)
         if (leaks > 0)
             dprintf(STDOUT_FILENO, "(%llu blocks owned by named globals are not counted)\n", (unsigned long long)retained);
     }
-    zombiesReportFd(STDOUT_FILENO, 0, true);
+    zombiesReportFd(STDOUT_FILENO, 0, true, NULL);
     free(reached);
     free(comp);
     free(compSize);
