@@ -58,7 +58,8 @@ normalize() {
         -e 's#/tmp/cxy-trace\.[A-Za-z0-9]+#<TMP>#g' \
         -e '/^ +#[0-9]+ /d' \
         -e '/Allocation callstack:/d' \
-        -e 's/0x[0-9a-fA-F]+/PTR/g'
+        -e 's/0x[0-9a-fA-F]+/PTR/g' \
+        -e 's/"timeMs":[0-9]+/"timeMs":TIME/g'
 }
 
 # <description> <sh command>: polls the command with `cxy utils wait-for`

@@ -1,0 +1,9 @@
+# mark keeps the counters, snapshot reads them again with the graph
+baseline json
+baseline
+mark json
+baseline
+@next
+baseline json
+snapshot
+snapshot json

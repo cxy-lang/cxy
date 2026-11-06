@@ -11,10 +11,10 @@ TIMEOUT="${RC_TEST_TIMEOUT:-120}"
 ONLY=""
 
 # Test sources, with the extra files each one links
-# (graph_tests.c includes the trace library source itself, json_tests.c parses what
+# (graph_tests.c and snapshot_tests.c include the trace library source itself, json_tests.c parses what
 # the writer produced with the cJSON of the compiler)
 TESTS=("rc_tests.c" "trace_tests.c:$ROOT/src/cxy/stdlib/trace/mem.c" "graph_tests.c"
-       "json_tests.c:$ROOT/src/3rdParty/cJSON.c")
+       "snapshot_tests.c" "json_tests.c:$ROOT/src/3rdParty/cJSON.c")
 
 while [[ $# -gt 0 ]]; do
     case $1 in

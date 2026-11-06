@@ -186,13 +186,19 @@ time limit. `--no-graph` skips all of it.
 1. **`json` token on every command**, like `nosym`: `types json`, `sites 5 json`,
    `path 0x... json`. Text output does not change, so the existing trace snapshots
    keep passing. Commands convert one at a time.
-2. **`snapshot`** (JSON only): totals, per type and per site (live and cumulative),
-   buffer and object bytes, zombies, top retained roots, cycles, dangling count,
-   unexplained owners, the allocation tick and a monotonic time in milliseconds.
-3. **`mark` stores a baseline**: the same counters as `snapshot`, the tick and the
-   time. `baseline` says whether one exists. This is what makes "the first call
-   marks, the second compares" work without any file on disk: the baseline belongs
-   to the program and goes away with it.
+2. **`snapshot json`** (JSON only, runs in the forked copy): the counters below,
+   then `graph` (`nodes`, `edges`, `external` = objects and references held from
+   outside the heap, `retained` = the 5 largest roots, `cycles` = the 5 largest) and
+   `dangling`. The graph parts are the reports of the same names, nested.
+3. **`mark` stores a baseline**: a *counter set*: the tick, a monotonic time in
+   milliseconds, the mark, object / buffer / zombie counts and bytes, objects ever
+   allocated, per type (`allocs`, `frees`, `live`, `bytes`) and per site (`allocs`,
+   `bytes` cumulative, `live`, `liveBytes`, `aliveSinceMark`). `snapshot` starts with
+   the same set, so two of them subtract. `baseline json` returns the stored set
+   (`{"exists":false}` when there is none), `mark json` returns
+   `{"mark","tick","timeMs","baseline"}`. This is what makes "the first call marks,
+   the second compares" work without any file on disk: the baseline belongs to the
+   program and goes away with it.
 4. **`refs [n]`**: the live objects with the highest reference counts (new, for H1).
 5. **A small streaming JSON writer** in `libcxy-trace` (decided, see section 9). The
    server writes JSON directly to the socket, nothing is built in memory first. It
@@ -303,7 +309,7 @@ In order. Each step is testable alone.
 - [x] `json` output for `summary`, `types`, `sites`, `sitecounts` with snapshot tests
 - [x] `json` output for `list`, `diff`, `difflist`, `zombies`, `dangling`
 - [x] `json` output for the graph commands: `holders`, `path`, `edges`, `tree`, `roots`, `retained`, `cycles`, `contains`
-- [ ] `mark` stores a baseline, `baseline` reports it, `snapshot` command, runtime tests
+- [x] `mark` stores a baseline, `baseline` reports it, `snapshot` command, runtime tests
 - [ ] `refs [n]` command
 - [ ] rule engine and its unit tests: G1, G2, G3, C1, D1, Z1, K1
 - [ ] `analyze` client: first call marks, second reports, text output, exit codes

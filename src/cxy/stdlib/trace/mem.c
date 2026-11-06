@@ -1084,8 +1084,9 @@ void __cxy_mem_trace_type_free(uint32_t type)
         __atomic_fetch_add(&c->types[type].frees, 1, __ATOMIC_RELAXED);
 }
 
-// Sums every thread's arrays into freshly allocated tables
-static void sumCounters(SiteCount **sites, TypeCount **types)
+// Sums every thread's arrays into freshly allocated tables. A forked child passes
+// `locked` false: the lock may have been held by a thread that is not in the copy.
+static void sumCountersEx(SiteCount **sites, TypeCount **types, bool locked)
 {
     uint32_t ns = siteTableSize(), nt = typeTableSize();
     *sites = calloc(ns + 1, sizeof(SiteCount));
@@ -1093,7 +1094,8 @@ static void sumCounters(SiteCount **sites, TypeCount **types)
     if (*sites == NULL || *types == NULL)
         return;
 
-    pthread_mutex_lock(&countersLock);
+    if (locked)
+        pthread_mutex_lock(&countersLock);
     for (Counters *c = allCounters; c != NULL; c = c->next) {
         for (uint32_t i = 0; i < ns; i++) {
             (*sites)[i].allocs += __atomic_load_n(&c->sites[i].allocs, __ATOMIC_RELAXED);
@@ -1105,7 +1107,13 @@ static void sumCounters(SiteCount **sites, TypeCount **types)
             (*types)[i].frees += __atomic_load_n(&c->types[i].frees, __ATOMIC_RELAXED);
         }
     }
-    pthread_mutex_unlock(&countersLock);
+    if (locked)
+        pthread_mutex_unlock(&countersLock);
+}
+
+static void sumCounters(SiteCount **sites, TypeCount **types)
+{
+    sumCountersEx(sites, types, true);
 }
 
 typedef struct {
@@ -1643,7 +1651,9 @@ static void helpFd(int fd)
             "  list [n]             most recent live allocations with stacks (default %d)\n"
             "  leaks                full report, same as the exit-time leak report\n"
             "  ring <ptr>           lifecycle timeline of one pointer\n"
-            "  mark                 remember the current allocation generation\n"
+            "  mark                 remember the current allocation generation and counters\n"
+            "  baseline             what `mark` remembered\n"
+            "  snapshot json        counters and graph findings in one paused copy (JSON only)\n"
             "  edges <ptr>          what this object owns (exact, from the visit glue)\n"
             "  roots                global variables that own something, and what they own\n"
             "  dangling             `&T` fields whose target was destroyed\n"
@@ -2759,6 +2769,8 @@ static void graphCycles(int fd, const Graph *g, size_t limit, JsonWriter *json)
     free(comp);
 }
 
+static void snapshotReport(int fd, JsonWriter *json);
+
 // Runs in the forked child
 static void runGraphCommand(int fd, const char *cmd, const char *arg1, const char *arg2)
 {
@@ -2774,6 +2786,10 @@ static void runGraphCommand(int fd, const char *cmd, const char *arg1, const cha
     }
     if (strcmp(cmd, "dangling") == 0) {
         danglingReportFd(fd, json);
+        return;
+    }
+    if (strcmp(cmd, "snapshot") == 0) {
+        snapshotReport(fd, json);
         return;
     }
 
@@ -2910,6 +2926,259 @@ static void graphCommand(int fd, const char *cmd, const char *arg1, const char *
     }
 }
 
+/* ------------------------------------------------------- baseline, snapshot */
+
+/*
+ * A CounterSet is every number a rule needs, taken at one moment: totals, the
+ * cumulative counters per type and per site, and per site how many objects are alive
+ * now and how many of those were born after the last `mark`. `mark` stores one as
+ * the baseline (it belongs to the program, nothing is written to disk), `snapshot`
+ * takes one in a forked copy together with the graph.
+ */
+typedef struct {
+    uint64_t allocs, bytes;    // cumulative
+    uint64_t live, liveBytes;  // alive now
+    uint64_t fresh;            // alive now and born after the mark
+} SiteStat;
+
+typedef struct {
+    uint64_t tick, timeMs, markGen;
+    uint64_t objects, objectBytes, buffers, bufferBytes;
+    uint64_t zombies, zombieBytes, objectsAllocated;
+    uint32_t typeCount, siteCount;
+    TypeCount *types;
+    SiteStat *sites;
+} CounterSet;
+
+static void freeCounterSet(CounterSet *s)
+{
+    free(s->types);
+    free(s->sites);
+    memset(s, 0, sizeof(*s));
+}
+
+// `locked` is false in a forked child, where the registry is a private copy
+static bool collectCounters(CounterSet *s, bool locked)
+{
+    memset(s, 0, sizeof(*s));
+    uint32_t ns = siteTableSize(), nt = typeTableSize();
+    SiteCount *sums = NULL;
+    TypeCount *types = NULL;
+    sumCountersEx(&sums, &types, locked);
+    s->sites = calloc(ns + 1, sizeof(SiteStat));
+    if (sums == NULL || types == NULL || s->sites == NULL) {
+        free(sums);
+        free(types);
+        freeCounterSet(s);
+        return false;
+    }
+    s->types = types;
+    s->typeCount = nt;
+    s->siteCount = ns;
+    s->markGen = __atomic_load_n(&markGen, __ATOMIC_RELAXED);
+    s->tick = __atomic_load_n(&tick, __ATOMIC_RELAXED);
+    s->timeMs = nowNs() / 1000000ull;
+
+    if (locked)
+        pthread_mutex_lock(&listsLock);
+    for (TraceList *l = allLists; l != NULL; l = l->next) {
+        if (locked)
+            pthread_mutex_lock(&l->lock);
+        s->objects += l->objects;
+        s->objectBytes += l->objectBytes;
+        s->buffers += l->buffers;
+        s->bufferBytes += l->bufferBytes;
+        s->zombies += l->zombies;
+        s->zombieBytes += l->zombieBytes;
+        s->objectsAllocated += l->objectAllocs;
+        for (const TraceRec *rec = l->head; rec != NULL && ns > 0; rec = rec->next) {
+            if (rec->kind == KIND_ZOMBIE || rec->site == NULL || rec->site->index >= ns)
+                continue;
+            SiteStat *st = &s->sites[rec->site->index];
+            st->live++;
+            st->liveBytes += rec->size;
+            if (rec->birthTick > s->markGen)
+                st->fresh++;
+        }
+        if (locked)
+            pthread_mutex_unlock(&l->lock);
+    }
+    if (locked)
+        pthread_mutex_unlock(&listsLock);
+
+    for (uint32_t i = 0; i < ns; i++) {
+        s->sites[i].allocs = sums[i].allocs;
+        s->sites[i].bytes = sums[i].bytes;
+    }
+    free(sums);
+    return true;
+}
+
+static void jsonCountPair(JsonWriter *json, const char *key, uint64_t count, uint64_t bytes)
+{
+    jsonKey(json, key);
+    jsonBeginObject(json);
+    jsonFieldUint(json, "count", count);
+    jsonFieldUint(json, "bytes", bytes);
+    jsonEndObject(json);
+}
+
+// The fields of a CounterSet, written into an open object. Types and sites that
+// never allocated and have nothing alive are left out.
+static void jsonCounterSet(JsonWriter *json, const CounterSet *s)
+{
+    jsonFieldUint(json, "tick", s->tick);
+    jsonFieldUint(json, "timeMs", s->timeMs);
+    jsonFieldUint(json, "mark", s->markGen);
+    jsonCountPair(json, "objects", s->objects, s->objectBytes);
+    jsonCountPair(json, "buffers", s->buffers, s->bufferBytes);
+    jsonCountPair(json, "zombies", s->zombies, s->zombieBytes);
+    jsonFieldUint(json, "objectsAllocated", s->objectsAllocated);
+
+    jsonKey(json, "types");
+    jsonBeginArray(json);
+    for (uint32_t i = 0; i < s->typeCount; i++) {
+        const TypeCount *t = &s->types[i];
+        if (t->allocs == 0)
+            continue;
+        const TypeRecord *info = __cxy_types[i];
+        jsonBeginObject(json);
+        jsonFieldString(json, "name", info != NULL ? info->name : NULL);
+        jsonFieldUint(json, "allocs", t->allocs);
+        jsonFieldUint(json, "frees", t->frees);
+        jsonFieldUint(json, "live", t->allocs > t->frees ? t->allocs - t->frees : 0);
+        jsonFieldUint(json, "bytes", t->bytes);
+        jsonEndObject(json);
+    }
+    jsonEndArray(json);
+
+    jsonKey(json, "sites");
+    jsonBeginArray(json);
+    for (uint32_t i = 0; i < s->siteCount; i++) {
+        const SiteStat *st = &s->sites[i];
+        if (st->allocs == 0 && st->live == 0)
+            continue;
+        const SiteRecord *site = __cxy_sites[i];
+        jsonBeginObject(json);
+        jsonFieldString(json, "file", site != NULL ? site->file : NULL);
+        jsonFieldUint(json, "line", site != NULL ? site->line : 0);
+        jsonFieldUint(json, "column", site != NULL ? site->column : 0);
+        jsonFieldString(json, "function", site != NULL ? site->function : NULL);
+        jsonFieldUint(json, "allocs", st->allocs);
+        jsonFieldUint(json, "bytes", st->bytes);
+        jsonFieldUint(json, "live", st->live);
+        jsonFieldUint(json, "liveBytes", st->liveBytes);
+        jsonFieldUint(json, "aliveSinceMark", st->fresh);
+        jsonEndObject(json);
+    }
+    jsonEndArray(json);
+}
+
+static CounterSet baseline;
+static bool hasBaseline;
+
+// `mark`: remember the allocation clock for `diff`, and the counters for `analyze`
+static void markCommand(int fd, JsonWriter *json)
+{
+    uint64_t gen = __atomic_load_n(&tick, __ATOMIC_RELAXED);
+    __atomic_store_n(&markGen, gen, __ATOMIC_RELAXED);
+    CounterSet now;
+    if (collectCounters(&now, true)) {
+        freeCounterSet(&baseline);
+        baseline = now;
+        hasBaseline = true;
+    }
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonFieldUint(json, "mark", gen);
+        jsonFieldUint(json, "tick", hasBaseline ? baseline.tick : gen);
+        jsonFieldUint(json, "timeMs", hasBaseline ? baseline.timeMs : 0);
+        jsonFieldBool(json, "baseline", hasBaseline);
+        jsonEndObject(json);
+    }
+    else {
+        dprintf(fd, "mark %llu\n", (unsigned long long)gen);
+    }
+}
+
+static void baselineReport(int fd, JsonWriter *json)
+{
+    if (json != NULL) {
+        jsonBeginObject(json);
+        jsonFieldBool(json, "exists", hasBaseline);
+        if (hasBaseline)
+            jsonCounterSet(json, &baseline);
+        jsonEndObject(json);
+    }
+    else if (!hasBaseline) {
+        dprintf(fd, "no baseline, `mark` takes one\n");
+    }
+    else {
+        dprintf(fd,
+                "baseline: tick %llu, %llu live objects (%llu bytes), %llu allocated since start\n",
+                (unsigned long long)baseline.tick,
+                (unsigned long long)baseline.objects,
+                (unsigned long long)baseline.objectBytes,
+                (unsigned long long)baseline.objectsAllocated);
+    }
+}
+
+// Objects with more references than the graph has edges into them: the rest is
+// held outside the heap (a stack, a coroutine, an unnamed global)
+static void jsonGraphExternal(JsonWriter *json, const Graph *g)
+{
+    uint64_t objects = 0, refs = 0;
+    for (uint32_t v = 0; v < g->count; v++) {
+        const GraphNode *n = &g->nodes[v];
+        uint32_t incoming = g->inStart[v + 1] - g->inStart[v];
+        if (!n->raw && n->refs > incoming) {
+            objects++;
+            refs += n->refs - incoming;
+        }
+    }
+    jsonBeginObject(json);
+    jsonFieldUint(json, "objects", objects);
+    jsonFieldUint(json, "refs", refs);
+    jsonEndObject(json);
+}
+
+// Runs in the forked child: counters and graph come from the same paused copy, so
+// the numbers agree with each other
+static void snapshotReport(int fd, JsonWriter *json)
+{
+    CounterSet now;
+    if (!collectCounters(&now, false)) {
+        jsonErrorTo(json, "out of memory");
+        return;
+    }
+    jsonBeginObject(json);
+    jsonFieldUint(json, "version", 1);
+    jsonCounterSet(json, &now);
+    jsonFieldBool(json, "hasBaseline", hasBaseline);
+    jsonFieldUint(json, "approximate", graphApproximate);
+
+    Graph g = {0};
+    jsonKey(json, "graph");
+    if (!graphBuild(&g)) {
+        jsonErrorTo(json, "out of memory while building the graph");
+    }
+    else {
+        jsonBeginObject(json);
+        jsonFieldUint(json, "nodes", g.count);
+        jsonFieldUint(json, "edges", g.edgeCount);
+        jsonKey(json, "external");
+        jsonGraphExternal(json, &g);
+        jsonKey(json, "retained");
+        graphRetained(fd, &g, 5, json);
+        jsonKey(json, "cycles");
+        graphCycles(fd, &g, 5, json);
+        jsonEndObject(json);
+    }
+    jsonKey(json, "dangling");
+    danglingReportFd(fd, json);
+    jsonEndObject(json);
+}
+
 /* -------------------------------------------------------------------- json */
 
 /*
@@ -2920,13 +3189,15 @@ static void graphCommand(int fd, const char *cmd, const char *arg1, const char *
 static const char *const knownCommands[] = {
     "summary", "sites",   "list",     "leaks", "zombies",  "types",  "sitecounts", "ring",
     "mark",    "diff",    "difflist", "holders", "path",   "contains", "retained",
-    "cycles",  "tree",    "edges",    "roots", "dangling", "help",   NULL};
+    "cycles",  "tree",    "edges",    "roots", "dangling", "help",   "baseline", "snapshot",
+    NULL};
 
 // Commands answered from the paused, forked copy of the registry
 static bool isGraphCommand(const char *cmd)
 {
     static const char *const names[] = {"holders", "path",  "contains", "retained", "cycles",
-                                        "tree",    "edges", "roots",    "dangling", NULL};
+                                        "tree",    "edges", "roots",    "dangling", "snapshot",
+                                        NULL};
     for (int i = 0; names[i] != NULL; i++) {
         if (strcmp(cmd, names[i]) == 0)
             return true;
@@ -2961,7 +3232,11 @@ static bool jsonCommand(int fd, const char *cmd, char *args[])
     JsonWriter w;
     jsonInitFd(&w, fd);
     uint64_t mark = __atomic_load_n(&markGen, __ATOMIC_RELAXED);
-    if (strcmp(cmd, "summary") == 0)
+    if (strcmp(cmd, "mark") == 0)
+        markCommand(fd, &w);
+    else if (strcmp(cmd, "baseline") == 0)
+        baselineReport(fd, &w);
+    else if (strcmp(cmd, "summary") == 0)
         summaryFd(fd, &w);
     else if (strcmp(cmd, "sites") == 0)
         sitesReportFd(fd, 0, parseLimit(args[1]), &w);
@@ -3031,11 +3306,12 @@ static void handleCommand(int fd, char *line)
         }
         ringDumpFd(fd, (void *)(uintptr_t)strtoull(args[1], NULL, 0), sym);
     }
-    else if (strcmp(cmd, "mark") == 0) {
-        uint64_t gen = __atomic_load_n(&tick, __ATOMIC_RELAXED);
-        __atomic_store_n(&markGen, gen, __ATOMIC_RELAXED);
-        dprintf(fd, "mark %llu\n", (unsigned long long)gen);
-    }
+    else if (strcmp(cmd, "mark") == 0)
+        markCommand(fd, NULL);
+    else if (strcmp(cmd, "baseline") == 0)
+        baselineReport(fd, NULL);
+    else if (strcmp(cmd, "snapshot") == 0)
+        dprintf(fd, "snapshot answers as JSON only, try `snapshot json`\n");
     else if (strcmp(cmd, "diff") == 0)
         sitesReportFd(fd, mark, parseLimit(args[1]), NULL);
     else if (strcmp(cmd, "difflist") == 0)

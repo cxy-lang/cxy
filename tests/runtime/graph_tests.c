@@ -19,43 +19,7 @@ const TypeRecord *const __cxy_types[] = {NULL};
 const uint32_t __cxy_root_count = 0;
 const RootRecord __cxy_roots[] = {{NULL, NULL, 0, NULL}};
 
-static int failures = 0;
-static char out[1 << 16];
-
-#define CHECK(cond)                                                            \
-    do {                                                                       \
-        if (!(cond)) {                                                         \
-            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);             \
-            failures++;                                                        \
-        }                                                                      \
-    } while (0)
-
-#define CONTAINS(text) CHECK(strstr(out, text) != NULL)
-#define MISSING(text) CHECK(strstr(out, text) == NULL)
-
-// Runs `stmt` with `fd` writing to a scratch file and leaves the text in `out`
-#define CAPTURE(stmt)                                                          \
-    do {                                                                       \
-        FILE *capture = tmpfile();                                             \
-        int fd = fileno(capture);                                              \
-        stmt;                                                                  \
-        fseek(capture, 0, SEEK_SET);                                           \
-        size_t got = fread(out, 1, sizeof(out) - 1, capture);                  \
-        out[got] = '\0';                                                       \
-        fclose(capture);                                                       \
-    } while (0)
-
-// Like CAPTURE, with `w` a JSON writer on the same file: `out` holds the document
-#define CAPTURE_JSON(stmt)                                                     \
-    CAPTURE(JsonWriter w; jsonInitFd(&w, fd); stmt; CHECK(jsonFinish(&w)))
-
-#define EXPECT(expected)                                                       \
-    do {                                                                       \
-        if (strcmp(out, expected) != 0) {                                      \
-            printf("FAIL %s:%d\n  expected: %s\n  actual:   %s\n", __FILE__, __LINE__, expected, out); \
-            failures++;                                                        \
-        }                                                                      \
-    } while (0)
+#include "capture.h"
 
 // The JSON of a node made by object(), buffer() and global() below
 #define NODE_FIELDS(ptr, size, refs)                                           \
@@ -304,6 +268,22 @@ static void testJsonTree(void)
     CHECK(strstr(out, "\"ptr\":\"0x11300\"") != NULL); // the 20th child is the last one listed
     CHECK(strstr(out, "\"ptr\":\"0x11400\"") == NULL); // the 21st is not listed
     free(many);
+}
+
+// Objects with more references than edges into them are held from outside the heap
+static void testJsonExternal(void)
+{
+    reset();
+    uint32_t a = object(0x1000, 16, 3), b = object(0x2000, 16, 1), c = object(0x3000, 16, 1);
+    uint32_t buf = buffer(0x4000, 64);
+    edge(a, b);
+    edge(a, buf);
+    (void)c;
+    finish();
+    // a: 3 references, none from the heap (3 outside). b: 1 and 1 edge. c: 1 outside.
+    // The buffer has no count.
+    CAPTURE_JSON(jsonGraphExternal(&w, &g));
+    EXPECT("{\"objects\":2,\"refs\":4}");
 }
 
 // Two globals, a leaked cycle, and a cap on what is listed
@@ -586,6 +566,7 @@ int main(void)
     testNamedRoot();
     testJsonPaths();
     testJsonTree();
+    testJsonExternal();
     testJsonRetainedAndCycles();
     testSharedObject();
     testCache();
