@@ -39,6 +39,6 @@ class ClientApplication {
 
 func main(): !void {
     var app = ClientApplication("chat".S)
-    var client = wsConnect[ClientApplication]("ws://127.0.0.1:8004/wss", app)
+    var client = wsConnect[ClientApplication]("ws://127.0.0.1:8004/wss", &app)
     client.listen()
 }

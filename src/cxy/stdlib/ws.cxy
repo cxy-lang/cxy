@@ -405,15 +405,15 @@ pub class WebSocketClient {
 
 class WebSocketStream[Application]: WebSocketClient {
     require!(Application.isClass, "Application must be a class")
-    _app: Application
+    _app: &Application
 
-    func `init`(sock: Socket, app: Application) {
+    func `init`(sock: Socket, app: &Application) {
         super(&&sock)
-        _app = &&app
+        _app = app
     }
 
     @static
-    func connect(url: strview, app: Application): !This {
+    func connect(url: strview, app: &Application): !This {
         var sock = _connect(url, app)
         var client = This(&&sock, app)
 
@@ -433,7 +433,7 @@ class WebSocketStream[Application]: WebSocketClient {
     }
 
     @static
-    func _connect(url: strview, @unused app: Application): !Socket {
+    func _connect(url: strview, @unused app: &Application): !Socket {
         var sessUrl: String = null
         if (url.startswith("ws://".s)) {
             sessUrl = String("http://")
@@ -613,7 +613,7 @@ class WebSocketStream[Application]: WebSocketClient {
 }
 
 @inline
-pub func wsConnect[Application](url: strview, app: Application): !WebSocketClient {
-    var stream: WebSocketClient = WebSocketStream[Application].connect(url, &&app)
+pub func wsConnect[Application](url: strview, app: &Application): !WebSocketClient {
+    var stream: WebSocketClient = WebSocketStream[Application].connect(url, app)
     return &&stream
 }
