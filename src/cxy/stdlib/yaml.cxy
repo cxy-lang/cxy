@@ -131,6 +131,16 @@ test {
         version: String = null
         config = Config()
     }
+
+    struct Secrets {
+        func `init`(){}
+        @json(b64)
+        plain: String = null
+        @json(b64)
+        maybe: String? = null
+        @json(b64)
+        absent: String? = null
+    }
 }
 
 test "parse - multiple documents" {
@@ -158,6 +168,22 @@ test "fromYaml - struct casting" {
     var person = fromYaml[Person]("name: John\nage: 30")
     ok!(person.name == "John")
     ok!(person.age == 30)
+}
+
+// "SGVsbG8=" is "Hello" in base64
+test "fromYaml - b64 members, optional too" {
+    var secrets = fromYaml[Secrets]("plain: SGVsbG8=\nmaybe: SGVsbG8=\nabsent: null")
+    ok!(secrets.plain == "Hello")
+    ok!(!!secrets.maybe)
+    ok!(secrets.maybe&.s() == "Hello")
+    ok!(!secrets.absent)
+
+    var missing = fromYaml[Secrets]("plain: SGVsbG8=")
+    ok!(!missing.maybe)
+
+    // b64: false keeps the text as it is
+    var raw = fromYaml[Secrets]("plain: SGVsbG8=\nmaybe: SGVsbG8=", false)
+    ok!(raw.maybe&.s() == "SGVsbG8=")
 }
 
 test "fromYaml - nested struct" {

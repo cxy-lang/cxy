@@ -234,11 +234,24 @@ pub class YamlSerializer {
             }
         }
 
-        #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
-            // Base64 encode string fields with @json(b64: true)
-            _output << " \""
-            base64.encode(_output, &it.#{mk_ident!(name)})
-            _output << '"'
+        #if (Mm.isString && jsonAttr && jsonAttr.["b64"]) {
+            // Base64 encode string fields with @json(b64: true), optional ones too
+            #if M.isOptional {
+                if (!it.#{mk_ident!(name)}) {
+                    _output << " null"
+                }
+                else {
+                    const value = *it.#{mk_ident!(name)}
+                    _output << " \""
+                    base64.encode(_output, &value)
+                    _output << '"'
+                }
+            }
+            else {
+                _output << " \""
+                base64.encode(_output, &it.#{mk_ident!(name)})
+                _output << '"'
+            }
         }
         else #if needsNewline {
             _output << '\n'
@@ -455,6 +468,15 @@ test {
         port: i64 = 80
     }
 
+    struct Secrets {
+        @json(b64)
+        plain: String = null
+        @json(b64)
+        maybe: String? = null
+        @json(b64)
+        absent: String? = null
+    }
+
     struct OptionalValues {
         users = HashMap[strview, User?]()
     }
@@ -629,6 +651,16 @@ test "toYaml - tuple fields" {
     ok!(output2.contains("pair:\n  - 5\n  - true"))
     ok!(output2.contains("mixed:\n  - name\n  - 9"))
     ok!(output2.contains("port: 80"))
+}
+
+// "SGVsbG8=" is "Hello" in base64
+test "toYaml - b64 members, optional too" {
+    var secrets = Secrets{plain: "Hello".S, maybe: "Hello".S}
+    var output = String()
+    toYaml(&output, &secrets)
+    ok!(output.contains("plain: \"SGVsbG8=\""))
+    ok!(output.contains("maybe: \"SGVsbG8=\""))
+    ok!(output.contains("absent: null"))
 }
 
 test "toYaml - optional map values" {

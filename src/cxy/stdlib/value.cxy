@@ -465,7 +465,7 @@ pub struct Value {
         #if Target.isOptional {
             #const M = Target.targetType;
             match (_value) {
-                Null => return None[M]()
+                Null => return null
                 ... => return castBase64[M]()
             }
         }
@@ -591,7 +591,18 @@ pub struct Value {
                             }
                             else {
                                 if (!!val && !val&.isNull()) {
-                                    value.#{mk_ident!(member.name)} = val&.cast[M](b64)
+                                    #if jsonAttr && jsonAttr.[:b64] {
+                                        // base64 encoding requested
+                                        if (b64) {
+                                            value.#{mk_ident!(member.name)} = val&.castBase64[M]()
+                                        }
+                                        else {
+                                            value.#{mk_ident!(member.name)} = val&.cast[M](b64)
+                                        }
+                                    }
+                                    else {
+                                        value.#{mk_ident!(member.name)} = val&.cast[M](b64)
+                                    }
                                 }
                             }
                         }}
