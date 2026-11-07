@@ -124,6 +124,12 @@ pub class Vector[T] {
         _data.[b] = &&tmp;
     }
 
+    const func `[..]`(s: u64, e: u64? = null) {
+        var end = e ?? _size
+        assert!(s < end && end <= _size)
+        return slice!(ptroff!(_data + s), end - s)
+    }
+
     @inline
     func back() {
         assert!(_size > 0)
