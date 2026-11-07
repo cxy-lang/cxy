@@ -330,7 +330,7 @@ pub class YamlSerializer {
                 _output << "- "
 
                 var member = it.#{i};
-                toYaml(&member)
+                toYaml[#{typeof!(member)}](&member)
             }
         }
         else #if (T.isSlice || T.isArray || T.annotations.[:isVector]) {
@@ -446,6 +446,12 @@ test {
         items: Vector[String]? = null
         inner: User? = null
         labels: HashMap[strview, strview]? = null
+        port: i64 = 80
+    }
+
+    struct WithTuples {
+        pair: (i64, bool)? = null
+        mixed: (String, i64)? = null
         port: i64 = 80
     }
 
@@ -605,6 +611,24 @@ test "toYaml - set optional collections and structs" {
     ok!(output.contains("items:\n  - one"))
     ok!(output.contains("inner:\n  name: bob"))
     ok!(output.contains("labels: null"))
+}
+
+test "toYaml - tuple fields" {
+    var none = WithTuples{}
+    var output1 = String()
+    toYaml(&output1, &none)
+    ok!(output1.contains("pair: null"))
+    ok!(output1.contains("mixed: null"))
+    ok!(output1.contains("port: 80"))
+
+    var set = WithTuples{}
+    set.pair = (5`i64, true)
+    set.mixed = ("name".S, 9`i64)
+    var output2 = String()
+    toYaml(&output2, &set)
+    ok!(output2.contains("pair:\n  - 5\n  - true"))
+    ok!(output2.contains("mixed:\n  - name\n  - 9"))
+    ok!(output2.contains("port: 80"))
 }
 
 test "toYaml - optional map values" {
