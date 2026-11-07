@@ -338,33 +338,41 @@ static bool isAbstractMethodImplemented(const Type *cls,
     return false;
 }
 
-// The methods a base class declares without a body must have one by now
-bool checkAbstractMethodsImplemented(TypingContext *ctx, AstNode *node)
+#define MAX_INHERITANCE_DEPTH 64
+
+// The first abstract method that `cls` has no body for, looking from the topmost base
+// down to `cls` itself, or NULL. A method counts as implemented when `cls` or a class
+// between it and the one that declares the method has a body for it.
+const AstNode *findUnimplementedAbstractMethod(const Type *cls)
 {
-    const Type *cls = unThisType(node->type);
-    for (const Type *base = baseClassOf(cls); base; base = baseClassOf(base)) {
-        const AstNode *decl = getTypeDecl(base);
+    const Type *chain[MAX_INHERITANCE_DEPTH];
+    u32 depth = 0;
+    cls = unThisType(cls);
+    for (const Type *it = cls; it && depth < MAX_INHERITANCE_DEPTH;
+         it = baseClassOf(it))
+        chain[depth++] = it;
+
+    while (depth > 0) {
+        const Type *declaring = chain[--depth];
+        const AstNode *decl = getTypeDecl(declaring);
         if (decl == NULL || !nodeIs(decl, ClassDecl))
             continue;
         for (const AstNode *member = decl->classDecl.members; member;
              member = member->next) {
-            if (!nodeIs(member, FuncDecl) || !hasFlag(member, Abstract) ||
-                member->type == NULL || !typeIs(member->type, Func))
-                continue;
-            if (isAbstractMethodImplemented(cls, base, member))
-                continue;
-            logError(ctx->L,
-                     &node->loc,
-                     "class '{t}' must implement the abstract method `{s}` of "
-                     "'{t}'",
-                     (FormatArg[]){{.t = cls},
-                                   {.s = member->funcDecl.name},
-                                   {.t = base}});
-            logNote(ctx->L, &member->loc, "abstract method declared here", NULL);
-            node->type = ERROR_TYPE(ctx);
+            if (nodeIs(member, FuncDecl) && hasFlag(member, Abstract) &&
+                !isAbstractMethodImplemented(cls, declaring, member))
+                return member;
         }
     }
-    return !typeIs(node->type, Error);
+    return NULL;
+}
+
+// A class that still has an abstract method to implement is abstract too: it
+// compiles, and an instance of it is refused where it is made
+void inheritanceMarkAbstract(AstNode *node)
+{
+    if (findUnimplementedAbstractMethod(node->type) != NULL)
+        node->flags |= flgAbstract;
 }
 
 AstNode *inheritanceBuildVTable(TypingContext *ctx, AstNode *node)

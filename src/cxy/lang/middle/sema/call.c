@@ -297,6 +297,12 @@ void checkCallExpr(AstVisitor *visitor, AstNode *node)
                          "cannot create an instance of '{t}' because it is an "
                          "abstract type",
                          (FormatArg[]){{.t = rawType}});
+                const AstNode *method = findUnimplementedAbstractMethod(rawType);
+                if (method != NULL)
+                    logNote(ctx->L,
+                            &method->loc,
+                            "abstract method `{s}` has no implementation",
+                            (FormatArg[]){{.s = method->funcDecl.name}});
                 node->type = ERROR_TYPE(ctx);
                 return;
             }
