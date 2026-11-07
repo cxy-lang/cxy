@@ -712,15 +712,58 @@ static void aeRemoveTimerEvent(aeEventLoop *eventLoop, aeTimeEvent *te)
         te->next->prev = te->prev;
 }
 
-static void aeFileEventTimeout(aeEventLoop *eventLoop, int fd, aeFileEvent *fe)
+/* Takes a timer out of the time event list. Its links are left as they are, a
+ * pass over the list that is standing on it still needs `next`. */
+static void aeStopTimer(aeEventLoop *eventLoop, aeTimeEvent *te)
 {
-    fe->timer.when_ms = fe->timer.when_sec = 0;
-    int mask = fe->mask;
-    aeDeleteFileEvent(eventLoop, fd, fe->mask);
-    if (mask & AE_READABLE)
-        fe->rfileProc(eventLoop, fd, fe->clientData, AE_TIMEOUT);
-    else if (mask & AE_WRITABLE)
-        fe->wfileProc(eventLoop, fd, fe->clientData, AE_TIMEOUT);
+    if (te->id == 0)
+        return;
+    aeRemoveTimerEvent(eventLoop, te);
+    te->id = 0;
+}
+
+/* Arms the timeout of one direction of `fd`, replacing the one it had */
+static void aeArmTimer(aeEventLoop *eventLoop,
+                       aeTimeEvent *te,
+                       int fd,
+                       uint64_t timeout)
+{
+    aeStopTimer(eventLoop, te);
+    if (timeout > 0) {
+        te->fd = fd;
+        aeAddTimeEvent(eventLoop, te, timeout);
+    }
+}
+
+static aeTimeEvent *aeReadTimer(aeFileEvent *fe)
+{
+    return (aeTimeEvent *)&fe->rtimer;
+}
+
+static aeTimeEvent *aeWriteTimer(aeFileEvent *fe)
+{
+    return (aeTimeEvent *)&fe->wtimer;
+}
+
+/* One handler registered for both directions is called once for both */
+static int aeSameHandler(const aeFileEvent *fe)
+{
+    return fe->rfileProc == fe->wfileProc && fe->rclientData == fe->wclientData;
+}
+
+/* The wait of one direction timed out: only that direction is removed, the other
+ * one may belong to another coroutine. A single handler for both goes together. */
+static void aeFileEventTimeout(aeEventLoop *eventLoop, int fd, int isRead)
+{
+    aeFileEvent *fe = &eventLoop->events[fd];
+    int direction = isRead ? AE_READABLE : AE_WRITABLE;
+    if (!(fe->mask & direction))
+        return;
+    aeFileProc *proc = isRead ? fe->rfileProc : fe->wfileProc;
+    void *clientData = isRead ? fe->rclientData : fe->wclientData;
+    aeDeleteFileEvent(
+        eventLoop, fd, aeSameHandler(fe) ? fe->mask : direction);
+    proc(eventLoop, fd, clientData, AE_TIMEOUT);
 }
 
 /* Wakeup callback - just drains the pipe/eventfd */
@@ -752,6 +795,8 @@ aeEventLoop *aeCreateEventLoop(void *context, int setsize)
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent) * setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL)
         goto err;
+    /* no timer is linked, no handler is set, nothing is registered */
+    memset(eventLoop->events, 0, sizeof(aeFileEvent) * setsize);
     eventLoop->setsize = setsize;
     eventLoop->lastTime = time(NULL);
     eventLoop->timeEventHead = NULL;
@@ -764,12 +809,9 @@ aeEventLoop *aeCreateEventLoop(void *context, int setsize)
     if (aeApiCreate(eventLoop) == -1)
         goto err;
 
-    /* Events with mask == AE_NONE are not set. So let's initialize the
-     * vector with it, before anything is registered: a registration made
-     * first is wiped, and the wakeup fd then stays readable and is never
-     * drained, so every wait returns at once. */
-    for (i = 0; i < setsize; i++)
-        eventLoop->events[i].mask = AE_NONE;
+    /* The events were cleared above, before anything is registered: a
+     * registration made first would be wiped, and the wakeup fd then stays
+     * readable and is never drained, so every wait returns at once. */
     
     /* Create wakeup pipe/eventfd for cross-thread signaling */
 #ifdef __linux__
@@ -831,10 +873,9 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize)
         zrealloc(eventLoop->fired, sizeof(aeFiredEvent) * setsize);
     eventLoop->setsize = setsize;
 
-    /* Make sure that if we created new slots, they are initialized with
-     * an AE_NONE mask. */
+    /* New slots start empty: no mask, no handler, no linked timer. */
     for (i = eventLoop->maxfd + 1; i < setsize; i++)
-        eventLoop->events[i].mask = AE_NONE;
+        memset(&eventLoop->events[i], 0, sizeof(aeFileEvent));
     return AE_OK;
 }
 
@@ -875,21 +916,19 @@ enum Status aeCreateFileEvent(aeEventLoop *eventLoop,
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
 
-    if (timeout > 0) {
-        fe->timer.fd = fd;
-        aeAddTimeEvent(eventLoop, (aeTimeEvent *)fe, timeout);
-    }
-    else {
-        // Zero the time
-        fe->timer = (__typeof(fe->timer)){};
-    }
-
-    fe->mask |= mask;
-    if (mask & AE_READABLE)
+    /* Each direction keeps its own handler data and timeout, a later
+     * registration of the other one must not change them. */
+    if (mask & AE_READABLE) {
         fe->rfileProc = proc;
-    if (mask & AE_WRITABLE)
+        fe->rclientData = clientData;
+        aeArmTimer(eventLoop, aeReadTimer(fe), fd, timeout);
+    }
+    if (mask & AE_WRITABLE) {
         fe->wfileProc = proc;
-    fe->clientData = clientData;
+        fe->wclientData = clientData;
+        aeArmTimer(eventLoop, aeWriteTimer(fe), fd, timeout);
+    }
+    fe->mask |= mask;
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
     return AE_OK;
@@ -908,6 +947,10 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, enum State mask)
     if (mask & AE_WRITABLE)
         mask |= AE_BARRIER;
 
+    if (mask & AE_READABLE)
+        aeStopTimer(eventLoop, aeReadTimer(fe));
+    if (mask & AE_WRITABLE)
+        aeStopTimer(eventLoop, aeWriteTimer(fe));
     aeApiDelEvent(eventLoop, fd, mask);
     fe->mask = fe->mask & (~mask);
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
@@ -1142,8 +1185,15 @@ static int processTimeEvents(aeEventLoop *eventLoop)
                 }
             }
             else {
-                aeRemoveTimerEvent(eventLoop, te);
-                aeFileEventTimeout(eventLoop, te->fd, (aeFileEvent *)te);
+                /* The wait of one direction of a file descriptor timed out.
+                 * Its handler may change the list, so look at it again from
+                 * the start, the timer that fired is out of it. */
+                aeFileEvent *fe = &eventLoop->events[te->fd];
+                int isRead = (void *)te == (void *)&fe->rtimer;
+                aeStopTimer(eventLoop, te);
+                aeFileEventTimeout(eventLoop, fe - eventLoop->events, isRead);
+                te = eventLoop->timeEventHead;
+                continue;
             }
         }
         te = te->next;
@@ -1253,9 +1303,21 @@ int aeProcessEvents(aeEventLoop *eventLoop, enum Flags flags, int64_t timeout)
              * before replying to a client. */
             int invert = fe->mask & AE_BARRIER;
 
-            aeTimeEvent *te = (aeTimeEvent *)fe;
-            if (te->when_sec > 0 || te->when_ms > 0)
-                aeRemoveTimerEvent(eventLoop, te);
+            /* What fired is no longer waited for, so its timeout is off. One
+             * handler for both directions is one wait. */
+            int same = aeSameHandler(fe);
+            int ready = fe->mask & mask;
+            if (ready & AE_READABLE || same)
+                aeStopTimer(eventLoop, aeReadTimer(fe));
+            if (ready & AE_WRITABLE || same)
+                aeStopTimer(eventLoop, aeWriteTimer(fe));
+
+            /* Each direction has its own handler data, and is told about its
+             * own direction. The handler of both gets the whole mask once. */
+            aeFileProc *rproc = fe->rfileProc, *wproc = fe->wfileProc;
+            void *rdata = fe->rclientData, *wdata = fe->wclientData;
+            int rmask = same ? mask : mask & AE_READABLE;
+            int wmask = same ? mask : mask & AE_WRITABLE;
 
             /* Note the "fe->mask & mask & ..." code: maybe an already
              * processed event removed an element that fired and we still
@@ -1263,15 +1325,15 @@ int aeProcessEvents(aeEventLoop *eventLoop, enum Flags flags, int64_t timeout)
              *
              * Fire the readable event if the call sequence is not
              * inverted. */
-            if (!invert && fe->mask & mask & AE_READABLE) {
-                fe->rfileProc(eventLoop, fd, fe->clientData, mask);
+            if (!invert && ready & AE_READABLE) {
+                rproc(eventLoop, fd, rdata, rmask);
                 fired++;
             }
 
             /* Fire the writable event. */
             if (fe->mask & mask & AE_WRITABLE) {
-                if (!fired || fe->wfileProc != fe->rfileProc) {
-                    fe->wfileProc(eventLoop, fd, fe->clientData, mask);
+                if (!fired || !same) {
+                    wproc(eventLoop, fd, wdata, wmask);
                     fired++;
                 }
             }
@@ -1279,8 +1341,8 @@ int aeProcessEvents(aeEventLoop *eventLoop, enum Flags flags, int64_t timeout)
             /* If we have to invert the call, fire the readable event now
              * after the writable one. */
             if (invert && fe->mask & mask & AE_READABLE) {
-                if (!fired || fe->wfileProc != fe->rfileProc) {
-                    fe->rfileProc(eventLoop, fd, fe->clientData, mask);
+                if (!fired || !same) {
+                    rproc(eventLoop, fd, rdata, rmask);
                     fired++;
                 }
             }

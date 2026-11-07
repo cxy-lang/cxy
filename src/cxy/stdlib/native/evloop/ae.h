@@ -64,14 +64,18 @@ typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
     int fd;
 
 /* File event structure */
+/* A read and a write wait on one fd can belong to different coroutines, so each
+ * direction has its own client data and its own timeout timer. `id` of a timer is
+ * 0 while it is not in the time event list. */
 typedef struct aeFileEvent {
     struct {
         AE_TIMER_BASE(struct aeFileEvent)
-    } timer;
+    } rtimer, wtimer;
     int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
     aeFileProc *rfileProc;
     aeFileProc *wfileProc;
-    void *clientData;
+    void *rclientData;
+    void *wclientData;
 } aeFileEvent;
 
 /* Time event structure */
