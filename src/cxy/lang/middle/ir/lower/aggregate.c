@@ -76,6 +76,36 @@ void lowerTupleExpr(AstVisitor *visitor, AstNode *node)
         makeIrStructConst(ctx->pool, &node->loc, elemsFirst, count, tupType);
 }
 
+// An array stored in a slice field is converted to a slice first, the way a call
+// argument is. Otherwise the field is built from the array itself. NULL when the
+// field is not a slice or the value already is one. A literal is always converted,
+// its recorded type may already be the slice.
+static IrNode *lowerStructFieldSlice(AstVisitor *visitor, AstNode *f)
+{
+    LowerContext *ctx = getAstVisitorContext(visitor);
+    AstNode *value = f->fieldExpr.value;
+    const Type *fieldAstType = resolveUnThisUnwrapType(f->type);
+    if (!ctx->currentFunc || !isSliceType(fieldAstType))
+        return NULL;
+    if (!nodeIs(value, ArrayExpr) &&
+        (!isArrayType(value->type) || isSliceType(value->type)))
+        return NULL;
+
+    cstring tempName = makeStringf(ctx->strings, "__t%u", ctx->tempCounter++);
+    IrNode *sliceTemp = makeIrVarDecl(ctx->pool,
+                                      &value->loc,
+                                      flgNone,
+                                      tempName,
+                                      tempName,
+                                      lowerType(ctx, fieldAstType),
+                                      ctx->currentScopeId);
+    markCompilerVar(sliceTemp, irClassTransient);
+    emitStmt(ctx, sliceTemp);
+    lowerSliceIntoTarget(
+        ctx, visitor, value, makeIrVarRef(ctx->pool, &value->loc, sliceTemp));
+    return makeIrVarRef(ctx->pool, &value->loc, sliceTemp);
+}
+
 void lowerStructExpr(AstVisitor *visitor, AstNode *node)
 {
     LowerContext *ctx = getAstVisitorContext(visitor);
@@ -83,7 +113,9 @@ void lowerStructExpr(AstVisitor *visitor, AstNode *node)
     IrNode *fieldsFirst = NULL, *fieldsLast = NULL;
     u64 count = 0;
     for (AstNode *f = node->structExpr.fields; f; f = f->next) {
-        IrNode *fVal = lowerCompositeElement(visitor, f->fieldExpr.value);
+        IrNode *fVal = lowerStructFieldSlice(visitor, f);
+        if (fVal == NULL)
+            fVal = lowerCompositeElement(visitor, f->fieldExpr.value);
         cstring name = f->fieldExpr.name;
         u32 index = UINT32_MAX;
         if (f->fieldExpr.structField && nodeIs(f->fieldExpr.structField, FieldDecl)) {

@@ -1,0 +1,26 @@
+struct Slices {
+    items: [i32] = []
+    port: i64 = 80
+}
+
+func total(s: &Slices): i32 {
+    var sum: i32 = 0
+    var n = len!(s.items)
+    for i in 0..n {
+        sum = sum + s.items.[i]
+    }
+    return sum
+}
+
+// An array stored in a slice field of a struct literal is a slice of that array
+func main(): void {
+    var literal = Slices{items: [1`i32, 2`i32, 3`i32]}
+    println("literal:  len ", len!(literal.items), " sum ", total(&literal))
+
+    var arr = [4`i32, 5`i32]
+    var variable = Slices{items: arr}
+    println("variable: len ", len!(variable.items), " sum ", total(&variable))
+
+    var empty = Slices{}
+    println("default:  len ", len!(empty.items), " port ", empty.port)
+}

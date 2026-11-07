@@ -205,6 +205,9 @@ void lowerSliceIntoTarget(LowerContext *ctx,
     const Type *exprAstType = expr->type;
     const IrType *elemIrType = targetLValue->type->strct.fields[0].type;
     u64 len = isArrayType(exprAstType) ? exprAstType->array.len : 0;
+    // a literal knows its length, whatever type it was given
+    if (nodeIs(expr, ArrayExpr))
+        len = countAstNodes(expr->arrayExpr.elements);
 
     IrNode *ptrTarget = makeIrMember(
         ctx->pool, &targetLValue->loc, targetLValue, 0, S_ptr, elemIrType);
