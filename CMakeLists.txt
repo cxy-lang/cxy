@@ -527,6 +527,7 @@ set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/os.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/path.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/redis.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/sort.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/sse.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/ssl.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/table.cxy
