@@ -161,3 +161,14 @@ test "sort[T]: orders classes by their own `<`" {
     ok!(sorted.[2].id == 3)
     ok!(items.[0].id == 3)
 }
+
+test "sort[String]: orders strings alphabetically, not by length" {
+    var names = [String("zeta"), String("beta"), String("alpha"), String("abc"), String("ab"), String("b")]
+    var sorted = sort[String](names)
+    ok!(sorted.[0] == "ab")
+    ok!(sorted.[1] == "abc")
+    ok!(sorted.[2] == "alpha")
+    ok!(sorted.[3] == "b")
+    ok!(sorted.[4] == "beta")
+    ok!(sorted.[5] == "zeta")
+}

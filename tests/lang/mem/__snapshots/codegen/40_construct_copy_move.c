@@ -75,8 +75,8 @@ static void _main();
 static const __TypeInfo __ti_builtins_StdOutputStream = { .name = "builtins.StdOutputStream", .size = sizeof(builtins_StdOutputStream), .align = _Alignof(builtins_StdOutputStream), .index = 0, .dropFields = builtins_StdOutputStream_op__destructor_fwd };
 static const __TypeInfo __ti_Node = { .name = "Node", .size = sizeof(Node), .align = _Alignof(Node), .index = 1, .dropFields = Node_op__destructor_fwd };
 
-builtins_OutputStream_VTable builtins_OutputStream_vTable = (builtins_OutputStream_VTable){.__tid = 193ULL, .append = ((Optional_u64 (*)(builtins_OutputStream *, void *, uint64_t))(nullptr))};
-builtins_OutputStream_VTable builtins_StdOutputStream_vTable = (builtins_OutputStream_VTable){.__tid = ((uint64_t)(312)), .append = ((Optional_u64 (*)(builtins_OutputStream *, void *, uint64_t))(builtins_StdOutputStream_append))};
+builtins_OutputStream_VTable builtins_OutputStream_vTable = (builtins_OutputStream_VTable){.__tid = 194ULL, .append = ((Optional_u64 (*)(builtins_OutputStream *, void *, uint64_t))(nullptr))};
+builtins_OutputStream_VTable builtins_StdOutputStream_vTable = (builtins_OutputStream_VTable){.__tid = ((uint64_t)(313)), .append = ((Optional_u64 (*)(builtins_OutputStream *, void *, uint64_t))(builtins_StdOutputStream_append))};
 builtins_OutputStream * builtins_stdout;
 builtins_OutputStream * builtins_stderr;
 int64_t builtins_SysConfPageSize;
@@ -204,10 +204,10 @@ _L_exit:;
 static builtins_StdOutputStream * builtins_StdOutputStream_op__initCover(int32_t fd) {
   builtins_StdOutputStream * __ret;
   builtins_StdOutputStream * __obj7;
-  builtins_StdOutputStream * __t98;
+  builtins_StdOutputStream * __t108;
 _L_entry:;
-  __t98 = __mm_alloc(&__ti_builtins_StdOutputStream, nullptr);
-  __obj7 = ((builtins_StdOutputStream *)(__t98));
+  __t108 = __mm_alloc(&__ti_builtins_StdOutputStream, nullptr);
+  __obj7 = ((builtins_StdOutputStream *)(__t108));
   memset(__obj7, 0, sizeof(builtins_StdOutputStream));
   builtins_StdOutputStream___defaults_init(((builtins_StdOutputStream *)(__obj7)));
   builtins_StdOutputStream_op__init(((builtins_StdOutputStream *)(__obj7)), fd);

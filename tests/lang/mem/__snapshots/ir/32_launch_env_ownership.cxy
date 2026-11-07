@@ -266,7 +266,7 @@ _L_entry:
   var __env3: ^__closure_env21
   __env3 = alloc(__closure_env21)
   *__env3 = __t2
-  var __t4: Closure_888
+  var __t4: Closure_889
   __t4 = ClosureValue(__env3, __closure_body22)
   var __call_res_5: !Thread
   __call_res_5 = thread_launch(__t4)
@@ -336,7 +336,7 @@ _L_entry:
   var __env8: ^__closure_env23
   __env8 = alloc(__closure_env23)
   *__env8 = __t7
-  var __t9: Closure_888
+  var __t9: Closure_889
   __t9 = ClosureValue(__env8, __closure_body24)
   var __call_res_10: !Thread
   __call_res_10 = thread_launch(__t9)

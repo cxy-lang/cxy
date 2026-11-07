@@ -362,23 +362,30 @@ pub struct strview {
         return trimLeft().trimRight()
     }
 
+    // Lexicographic: the common prefix decides, then the shorter string is smaller
     const func compare(other: &const This) {
-        if (_size == other._size)
-            return strncmp(this.s, other.s, _size)
+        var common = _size
+        if (other._size < common)
+            common = other._size
+        const order = strncmp(this.s, other.s, common)
+        if (order != 0)
+            return order
+        else if (_size == other._size)
+            return 0
         else if (_size < other._size)
             return -1
         else
             return 1
     }
 
-    @inline const func `==`(other: &const This) => compare(other) == 0
-    @inline const func `!=`(other: &const This) => compare(other) != 0
+    @inline const func `==`(other: &const This) => _size == other._size && compare(other) == 0
+    @inline const func `!=`(other: &const This) => _size != other._size || compare(other) != 0
     @inline const func `<`(other: &const This) => compare(other) < 0
     @inline const func `<=`(other: &const This) => compare(other) <= 0
     @inline const func `>`(other: &const This) => compare(other) > 0
     @inline const func `>=`(other: &const This) => compare(other) >= 0
-    @inline const func `==`(other: This) => compare(&other) == 0
-    @inline const func `!=`(other: This) => compare(&other) != 0
+    @inline const func `==`(other: This) => _size == other._size && compare(&other) == 0
+    @inline const func `!=`(other: This) => _size != other._size || compare(&other) != 0
     @inline const func `<`(other: This) => compare(&other) < 0
     @inline const func `<=`(other: This) => compare(&other) <= 0
     @inline const func `>`(other: This) => compare(&other) > 0
@@ -940,16 +947,21 @@ pub class String : OutputStream {
         }
     }
 
+    // Lexicographic: the first differing byte decides, then the shorter is smaller
     const func compare(other: ^const char, size: u64) {
-        if (_size != size)
-            return <i32>(_size - size)
-
-        for (const i : 0.._size) {
+        var common = _size
+        if (size < common)
+            common = size
+        for (const i : 0..common) {
             if (_data.[i] != other.[i])
-                return (<i32>_data.[i]) - (<i32>other.[i])
+                return (<i32>(<u8>_data.[i])) - (<i32>(<u8>other.[i]))
         }
 
-        return <i32>0
+        if (_size == size)
+            return <i32>0
+        if (_size < size)
+            return <i32>-1
+        return <i32>1
     }
 
     @inline
@@ -965,10 +977,12 @@ pub class String : OutputStream {
         compare(other.data(), other.size())
 
     @inline
-    const func `==`(other: &const String) => compare(other) == 0
+    const func `==`(other: &const String) =>
+        _size == other._size && compare(other) == 0
 
     @inline
-    const func `!=`(other: &const String) => compare(other) != 0
+    const func `!=`(other: &const String) =>
+        _size != other._size || compare(other) != 0
 
     @inline
     const func `<`(other: &const String) => compare(other) < 0
@@ -1001,10 +1015,12 @@ pub class String : OutputStream {
     const func `>=`(other: const string) => compare(other) >= 0
 
     @inline
-    const func `==`(other: const __string) => compare(other) == 0
+    const func `==`(other: const __string) =>
+        _size == other.size() && compare(other) == 0
 
     @inline
-    const func `!=`(other: const __string) => compare(other) != 0
+    const func `!=`(other: const __string) =>
+        _size != other.size() || compare(other) != 0
 
     @inline
     const func `<`(other: const __string) => compare(other) < 0
