@@ -128,3 +128,32 @@ func main(): void {}
     CHECK_FALSE(mentions(cc, "not an override"));
     CHECK_FALSE(mentions(cc, "cannot override"));
 }
+
+TEST_CASE("Closed override: a class with a virtual method of its own is checked too")
+{
+    TestCompiler cc;
+    CHECK(cc.compile(std::string(closed) + R"(
+class Leaf: Middle {
+    func `init`() { super() }
+    func who(): i32 => 3
+    virtual func extra(): i32 => 4
+}
+func main(): void {}
+)"));
+    CHECK(mentions(cc, "is not an override"));
+}
+
+TEST_CASE("Closed override: @override is an error in a class with a virtual method of its own")
+{
+    TestCompiler cc;
+    CHECK_FALSE(cc.compile(std::string(closed) + R"(
+class Leaf: Middle {
+    func `init`() { super() }
+    @override
+    func who(): i32 => 3
+    virtual func extra(): i32 => 4
+}
+func main(): void {}
+)"));
+    CHECK(mentions(cc, "cannot override"));
+}

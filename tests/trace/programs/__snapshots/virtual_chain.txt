@@ -6,3 +6,6 @@ Middle through Base
   who 2  other 10
 OpenLeaf through Base (Open kept `who` virtual)
   who 3  other 10
+Declares through Base (Middle closed `who`)
+  who 2  other 10
+Declares through itself: 4  extra 40

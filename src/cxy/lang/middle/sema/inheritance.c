@@ -163,6 +163,33 @@ static AstNode *makeMemberFunctionRef(TypingContext *ctx,
         NULL);
 }
 
+static inline AstNode *baseClassDecl(AstNode *cls)
+{
+    return cls->classDecl.base ? resolvePath(cls->classDecl.base) : NULL;
+}
+
+static bool hasVirtualDeclAbove(AstNode *cls, cstring name)
+{
+    for (cls = baseClassDecl(cls); cls; cls = baseClassDecl(cls)) {
+        AstNode *decl = findMemberDeclInType(cls->type, name);
+        if (decl && nodeIs(decl, FuncDecl) && hasFlag(decl, Virtual))
+            return true;
+    }
+    return false;
+}
+
+// Whether the nearest class above `node` that declares `name` overrode a virtual
+// method without `virtual`. Such a class closes the slot for the classes below.
+static bool isSlotClosedAbove(AstNode *node, cstring name)
+{
+    for (AstNode *it = baseClassDecl(node); it; it = baseClassDecl(it)) {
+        AstNode *decl = findMemberDeclInType(it->type, name);
+        if (decl && nodeIs(decl, FuncDecl))
+            return !hasFlag(decl, Virtual) && hasVirtualDeclAbove(it, name);
+    }
+    return false;
+}
+
 static void inheritanceChainBuildVTableType(TypingContext *ctx,
                                             AstNodeList *members,
                                             AstNodeList *init,
@@ -173,9 +200,10 @@ static void inheritanceChainBuildVTableType(TypingContext *ctx,
         inheritanceChainBuildVTableType(ctx, members, init, resolvePath(base));
         AstNode *field = init->first;
         for (; field; field = field->next) {
-            AstNode *member =
-                findMemberDeclInType(node->type, field->_namedNode.name);
-            if (nodeIs(member, FuncDecl)) {
+            cstring name = field->_namedNode.name;
+            AstNode *member = findMemberDeclInType(node->type, name);
+            if (nodeIs(member, FuncDecl) &&
+                (hasFlag(member, Virtual) || !isSlotClosedAbove(node, name))) {
                 field->fieldExpr.value =
                     makeMemberFunctionRef(ctx, node, member);
             }
@@ -307,11 +335,6 @@ AstNode *inheritanceVirtualBase(AstNode *node)
     return base;
 }
 
-static inline AstNode *baseClassDecl(AstNode *cls)
-{
-    return cls->classDecl.base ? resolvePath(cls->classDecl.base) : NULL;
-}
-
 // The method of `name` that fills the vtable slot for `node`: the one nearest
 // `virtualBase`. A class that overrides without `virtual` closes the slot, so a
 // method of the same name further down is not an override. The method that
@@ -336,22 +359,12 @@ static AstNode *findVTableOverride(AstNode *node,
     return found;
 }
 
-static bool hasVirtualDeclAbove(AstNode *cls, cstring name)
-{
-    for (cls = baseClassDecl(cls); cls; cls = baseClassDecl(cls)) {
-        AstNode *decl = findMemberDeclInType(cls->type, name);
-        if (decl && nodeIs(decl, FuncDecl) && hasFlag(decl, Virtual))
-            return true;
-    }
-    return false;
-}
-
 // A method named like a vtable slot that a class above closed, by overriding it
 // without `virtual`, is a new method. It is an error when it says `@override`.
 void inheritanceCheckClosedOverrides(TypingContext *ctx, AstNode *node)
 {
     AstNode *virtualBase = inheritanceVirtualBase(node);
-    if (virtualBase == NULL || hasFlag(node, Virtual))
+    if (virtualBase == NULL)
         return;
 
     AstNode *base = baseClassDecl(node);

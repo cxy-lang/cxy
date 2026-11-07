@@ -31,6 +31,13 @@ class OpenLeaf: Open {
     func who(): i32 => 3
 }
 
+// declares a virtual method of its own, and a `who` that Middle already closed
+class Declares: Middle {
+    func `init`() { super() }
+    func who(): i32 => 4
+    virtual func extra(): i32 => 40
+}
+
 func viaBase(b: &Base): void {
     println("  who ", b.who(), "  other ", b.other())
 }
@@ -48,4 +55,9 @@ func main(): void {
     var open = OpenLeaf()
     println("OpenLeaf through Base (Open kept `who` virtual)")
     viaBase(&open)
+
+    var declares = Declares()
+    println("Declares through Base (Middle closed `who`)")
+    viaBase(&declares)
+    println("Declares through itself: ", declares.who(), "  extra ", declares.extra())
 }
