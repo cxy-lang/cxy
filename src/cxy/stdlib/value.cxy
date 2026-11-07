@@ -504,6 +504,7 @@ pub struct Value {
         else #if (Target.isString && Target.isClass) {
             match (_value) {
                 String as s => return s
+                Null => return null as String
                 ... => raise TypeError(f"Expected string, got {typeName()}")
             }
         }
@@ -584,7 +585,8 @@ pub struct Value {
                                     value.#{mk_ident!(member.name)} = val&.cast[M](b64)
                                 }
                                 else {
-                                    if (!!val) {
+                                    // `optional` says the key may be absent, a null value is the same
+                                    if (!!val && !val&.isNull()) {
                                         value.#{mk_ident!(member.name)} = val&.cast[M](b64)
                                     }
                                 }

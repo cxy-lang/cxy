@@ -226,11 +226,36 @@ pub class YamlSerializer {
             _output << #{name} << ":"
         }
 
+        // A collection with nothing in it is written empty, a bare key reads back as null
+        #if (!M.isOptional && (M.annotations.[:isVector] || M.annotations.[:isMap])) {
+            if (it.#{mk_ident!(name)} == null || it.#{mk_ident!(name)}.empty()) {
+                #if M.annotations.[:isMap] {
+                    _output << " {}"
+                }
+                else {
+                    _output << " []"
+                }
+                return
+            }
+        }
+
         // A null optional that would be a block has nothing to put on the next lines
         #if M.isOptional && needsNewline {
             if (!it.#{mk_ident!(name)}) {
                 _output << " null"
                 return
+            }
+            #if (Mm.annotations.[:isVector] || Mm.annotations.[:isMap]) {
+                const inner = *it.#{mk_ident!(name)}
+                if (inner.empty()) {
+                    #if Mm.annotations.[:isMap] {
+                        _output << " {}"
+                    }
+                    else {
+                        _output << " []"
+                    }
+                    return
+                }
             }
         }
 
@@ -312,22 +337,12 @@ pub class YamlSerializer {
                 #const M = member.Tinfo
                 #const jsonAttr = member.attributes.[:json]
 
-                #if M.isOptional && jsonAttr && jsonAttr.[:optional] {
-                    if !!it.#{mk_ident!(name)} {
-                        _fieldToYaml[#{name}](&it, first, item)
-                        if first && item {
-                            _currentIndent += _indent
-                        }
-                        first = false
-                    }
+                // `@json(optional)` members are written too, a null one as null
+                _fieldToYaml[#{name}](&it, first, item)
+                if first && item {
+                    _currentIndent += _indent
                 }
-                else {
-                    _fieldToYaml[#{name}](&it, first, item)
-                    if first && item {
-                        _currentIndent += _indent
-                    }
-                    first = false
-                }
+                first = false
             }
             if item && !first {
                 _currentIndent -= _indent
@@ -477,6 +492,14 @@ test {
         absent: String? = null
     }
 
+    struct Collections {
+        emptyItems = Vector[String]()
+        emptyLabels = HashMap[strview, strview]()
+        noItems: Vector[String] = null
+        noLabels: HashMap[strview, strview] = null
+        name: String = null
+    }
+
     struct OptionalValues {
         users = HashMap[strview, User?]()
     }
@@ -597,8 +620,8 @@ test "toYaml - optional fields" {
     var output1 = String()
     toYaml(&output1, &config1)
 
-    // Optional null field should be skipped
-    ok!(!output1.contains("name:"))
+    // A null `@json(optional)` member is written, as null
+    ok!(output1.contains("name: null"))
     ok!(output1.contains("port: 8080"))
 
     var config2 = Config{name: "MyApp".S, port: 8080}
@@ -661,6 +684,31 @@ test "toYaml - b64 members, optional too" {
     ok!(output.contains("plain: \"SGVsbG8=\""))
     ok!(output.contains("maybe: \"SGVsbG8=\""))
     ok!(output.contains("absent: null"))
+}
+
+// A collection with nothing in it is an empty collection, never a bare key
+test "toYaml - empty and null collections" {
+    var obj = Collections{}
+    var output = String()
+    toYaml(&output, &obj)
+
+    ok!(output.contains("emptyItems: []"))
+    ok!(output.contains("emptyLabels: {}"))
+    ok!(output.contains("noItems: []"))
+    ok!(output.contains("noLabels: {}"))
+    // a null string stays null
+    ok!(output.contains("name: null"))
+}
+
+test "toYaml - collections with items are unchanged" {
+    var obj = Collections{}
+    obj.emptyItems.push("one".S)
+    obj.emptyLabels.["env"] = "prod".s
+    var output = String()
+    toYaml(&output, &obj)
+
+    ok!(output.contains("emptyItems:\n  - one"))
+    ok!(output.contains("emptyLabels:\n  env: prod"))
 }
 
 test "toYaml - optional map values" {

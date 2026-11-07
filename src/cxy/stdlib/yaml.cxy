@@ -2,6 +2,7 @@ module yaml
 
 import { Value } from "stdlib/value.cxy"
 import { Vector } from "stdlib/vector.cxy"
+import test { HashMap } from "stdlib/hash.cxy"
 import { YamlParser } from "./yaml/parser.cxy"
 import { YamlSerializer } from "./yaml/serializer.cxy"
 import { YamlError as _YamlError } from "./yaml/common.cxy"
@@ -132,6 +133,13 @@ test {
         config = Config()
     }
 
+    struct Agent {
+        func `init`(){}
+        name: String = null
+        @json(optional: true)
+        parameters = HashMap[String, String]()
+    }
+
     struct Secrets {
         func `init`(){}
         @json(b64)
@@ -184,6 +192,47 @@ test "fromYaml - b64 members, optional too" {
     // b64: false keeps the text as it is
     var raw = fromYaml[Secrets]("plain: SGVsbG8=\nmaybe: SGVsbG8=", false)
     ok!(raw.maybe&.s() == "SGVsbG8=")
+}
+
+// `@json(optional)` says the key may be absent, a null value counts as absent
+test "fromYaml - optional member with a null value" {
+    var missing = fromYaml[Agent]("name: build")
+    ok!(missing.parameters.size() == 0)
+
+    var bare = fromYaml[Agent]("name: build\nparameters:")
+    ok!(bare.name == "build")
+    ok!(bare.parameters.size() == 0)
+
+    var explicit = fromYaml[Agent]("name: build\nparameters: null")
+    ok!(explicit.parameters.size() == 0)
+
+    var empty = fromYaml[Agent]("name: build\nparameters: {}")
+    ok!(empty.parameters.size() == 0)
+}
+
+test "fromYaml - a null string is null" {
+    var bare = fromYaml[Agent]("name:")
+    ok!(bare.name == null)
+
+    var explicit = fromYaml[Agent]("name: null")
+    ok!(explicit.name == null)
+}
+
+test "toYaml - what is written can be read back" {
+    var agent = Agent{}
+    agent.name = "build".S
+    var out = String()
+    toYaml(&out, &agent)
+
+    var back = fromYaml[Agent](out.s())
+    ok!(back.name == "build")
+    ok!(back.parameters.size() == 0)
+
+    agent.parameters.["env".S] = "prod".S
+    var out2 = String()
+    toYaml(&out2, &agent)
+    var back2 = fromYaml[Agent](out2.s())
+    ok!(back2.parameters.size() == 1)
 }
 
 test "fromYaml - nested struct" {
