@@ -1,0 +1,8 @@
+$ program output
+Leaf through Base (who is closed by Middle)
+  who 2  other 30
+Leaf through itself: 3
+Middle through Base
+  who 2  other 10
+OpenLeaf through Base (Open kept `who` virtual)
+  who 3  other 10

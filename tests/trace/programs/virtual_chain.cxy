@@ -1,0 +1,51 @@
+// A method is overridden only while every class above it says `virtual`. A class
+// that overrides it without `virtual` closes the chain: a method of the same name
+// further down is a different method.
+class Base {
+    func `init`() {}
+    virtual func who(): i32 => 1
+    virtual func other(): i32 => 10
+}
+
+// `who` is closed here, `other` is not declared
+class Middle: Base {
+    func `init`() { super() }
+    func who(): i32 => 2
+}
+
+// `who` is a new method here. `other` overrides Base.other.
+class Leaf: Middle {
+    func `init`() { super() }
+    func who(): i32 => 3
+    func other(): i32 => 30
+}
+
+// `virtual` keeps the chain open
+class Open: Base {
+    func `init`() { super() }
+    virtual func who(): i32 => 2
+}
+
+class OpenLeaf: Open {
+    func `init`() { super() }
+    func who(): i32 => 3
+}
+
+func viaBase(b: &Base): void {
+    println("  who ", b.who(), "  other ", b.other())
+}
+
+func main(): void {
+    var leaf = Leaf()
+    println("Leaf through Base (who is closed by Middle)")
+    viaBase(&leaf)
+    println("Leaf through itself: ", leaf.who())
+
+    var middle = Middle()
+    println("Middle through Base")
+    viaBase(&middle)
+
+    var open = OpenLeaf()
+    println("OpenLeaf through Base (Open kept `who` virtual)")
+    viaBase(&open)
+}

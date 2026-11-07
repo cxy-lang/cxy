@@ -174,6 +174,7 @@ AstNode *inheritanceMakeVTableMember(TypingContext *ctx,
                                      AstNode *init);
 AstNode *inheritanceBuildVTableType(AstVisitor *visitor, AstNode *node);
 AstNode *inheritanceBuildVTable(TypingContext *ctx, AstNode *node);
+AstNode *inheritanceVirtualBase(AstNode *node);
 const AstNode *findUnimplementedAbstractMethod(const Type *cls);
 void inheritanceMarkAbstract(AstNode *node);
 

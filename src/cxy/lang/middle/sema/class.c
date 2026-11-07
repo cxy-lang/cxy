@@ -328,7 +328,7 @@ void checkClassDecl(AstVisitor *visitor, AstNode *node)
         goto checkClassInterfacesError;
 
     u8 isVirtual = hasFlag(node, Virtual);
-    if (hasFlag(base, Virtual) && !isVirtual) {
+    if (!isVirtual && inheritanceVirtualBase(node) != NULL) {
         // Add - vtable: &Base_VTable member
         vTableMember = inheritanceMakeVTableMember(ctx, node, NULL);
     }

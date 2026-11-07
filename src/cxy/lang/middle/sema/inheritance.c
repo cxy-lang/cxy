@@ -296,11 +296,39 @@ AstNode *inheritanceBuildVTableType(AstVisitor *visitor, AstNode *node)
     return member;
 }
 
+// The nearest class above `node` that declares a virtual method and so owns a vtable
+// type, skipping classes that only override. NULL when there is none.
+AstNode *inheritanceVirtualBase(AstNode *node)
+{
+    AstNode *base =
+        node->classDecl.base ? resolvePath(node->classDecl.base) : NULL;
+    while (base && !hasFlag(base, Virtual))
+        base = base->classDecl.base ? resolvePath(base->classDecl.base) : NULL;
+    return base;
+}
+
+// The method of `name` that fills the vtable slot for `node`: the one nearest
+// `virtualBase`. A class that overrides without `virtual` closes the slot, so a
+// method of the same name further down is not an override.
+static AstNode *findVTableOverride(AstNode *node,
+                                   const AstNode *virtualBase,
+                                   cstring name)
+{
+    AstNode *found = NULL;
+    for (AstNode *it = node; it && it != virtualBase;
+         it = it->classDecl.base ? resolvePath(it->classDecl.base) : NULL) {
+        AstNode *decl = findMemberDeclInType(it->type, name);
+        if (decl && nodeIs(decl, FuncDecl))
+            found = decl;
+    }
+    return found;
+}
+
 AstNode *inheritanceMakeVTableMember(TypingContext *ctx,
                                      AstNode *node,
                                      AstNode *init)
 {
-    AstNode *type = getVTableType(resolvePath(node->classDecl.base));
+    AstNode *type = getVTableType(inheritanceVirtualBase(node));
     const Type *type_ = makePointerType(ctx->types, type->type, flgNone);
     AstNode *member =
         makeStructField(ctx->pool,
@@ -377,7 +405,7 @@ void inheritanceMarkAbstract(AstNode *node)
 
 AstNode *inheritanceBuildVTable(TypingContext *ctx, AstNode *node)
 {
-    AstNode *base = resolvePath(node->classDecl.base);
+    AstNode *base = inheritanceVirtualBase(node);
     AstNode *def = getVTableDefault(base), *type = getVTableType(base);
 
     AstNodeList value = {NULL};
@@ -398,7 +426,7 @@ AstNode *inheritanceBuildVTable(TypingContext *ctx, AstNode *node)
     member = member->next;
     for (; member; member = member->next) {
         AstNode *func =
-            findMemberDeclInType(node->type, member->_namedNode.name);
+            findVTableOverride(node, base, member->_namedNode.name);
         if (func != NULL) {
             // Change the function we resolve to
             insertAstNode(
