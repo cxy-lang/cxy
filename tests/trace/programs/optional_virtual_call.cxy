@@ -19,6 +19,8 @@ func viaOptionalRef(b: &Base?): void { b&.ping() }
 func viaOptionalOwner(b: Base?): void { b&.ping() }
 func tagOptionalRef(b: &Base?): void { b&.tag() }
 func plainOptionalRef(b: &Base?): void { b&.plain() }
+func safeOptionalRef(b: &Base?): void { b?.ping() }
+func safeOptionalOwner(b: Base?): void { b?.ping() }
 
 // An override is reached through an optional receiver too
 func main(): void {
@@ -45,4 +47,18 @@ func main(): void {
     last = 0
     plainOptionalRef(&d)
     println("not virtual     plain -> ", last)
+
+    // `?.` is the null safe call: it dispatches virtually, and skips an empty optional
+    last = 0
+    safeOptionalRef(&d)
+    println("safe ref        ping -> ", last)
+
+    last = 0
+    safeOptionalOwner(o)
+    println("safe owner      ping -> ", last)
+
+    last = 0
+    var none: Base? = null
+    safeOptionalOwner(none)
+    println("safe, empty     ping -> ", last)
 }

@@ -134,3 +134,26 @@ func main(): void {}
     CHECK(usesVtable(ir));
     CHECK_FALSE(callsDirectly(ir, "ping"));
 }
+
+// `b?.m()` for a method that returns nothing has an optional of void as its result.
+// There is nothing to hold, so the type is only the `ok` flag: a `void` member
+// is not C.
+TEST_CASE("Null safe call: an optional of void has no value member")
+{
+    CompileOptions options;
+    options.stage = "Codegen";
+    options.keepGeneratedC = true;
+    TestCompiler cc(options);
+    REQUIRE(cc.compile(std::string(program) + R"(
+func safe(b: &Base?): void { b?.ping() }
+func main(): void {
+    var d = Derived()
+    safe(&d)
+}
+)"));
+    INFO(cc.diagnostics());
+
+    const std::string c = cc.generatedC();
+    CHECK(c.find("void val;") == std::string::npos);
+    CHECK(c.find("Optional_void") != std::string::npos);
+}

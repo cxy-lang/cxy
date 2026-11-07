@@ -473,6 +473,8 @@ static const IrType *lowerOptionalType(LowerContext *ctx, const Type *type)
                   .type = getIrPrimitiveType(ctx->types, irTypeBool),
                   .bits = 0};
     fields[1] = (IrField){.name = S_val, .type = targetType, .bits = 0};
+    // an optional of `void` (the result of `b?.m()`) holds nothing but the flag
+    u64 fieldCount = isVoidType(type->optional.target) ? 1 : 2;
     cstring name = makeDescriptiveOptionalName(ctx, type, targetType);
     cstring display = makeDescriptiveOptionalDisplay(ctx, targetType);
     Flags flags = isDestructible(type) ? flgReferenceMembers : flgNone;
@@ -483,7 +485,7 @@ static const IrType *lowerOptionalType(LowerContext *ctx, const Type *type)
         name,
         display,
         fields,
-        2);
+        fieldCount);
     ((IrType *)result)->index = type->index;
     return result;
 }

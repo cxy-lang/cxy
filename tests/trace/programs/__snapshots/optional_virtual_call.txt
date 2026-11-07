@@ -4,3 +4,6 @@ optional owner  ping -> 2
 optional ref    ping -> 2
 optional ref    tag  -> 7
 not virtual     plain -> 5
+safe ref        ping -> 2
+safe owner      ping -> 2
+safe, empty     ping -> 0
