@@ -226,6 +226,14 @@ pub class YamlSerializer {
             _output << #{name} << ":"
         }
 
+        // A null optional that would be a block has nothing to put on the next lines
+        #if M.isOptional && needsNewline {
+            if (!it.#{mk_ident!(name)}) {
+                _output << " null"
+                return
+            }
+        }
+
         #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
             // Base64 encode string fields with @json(b64: true)
             _output << " \""
@@ -347,8 +355,12 @@ pub class YamlSerializer {
         else #if (T.annotations.[:isMap]) {
             #const K = typeof!(T.KeyType)
             #const V = typeof!(T.ValueType)
-            #const needsNewline = !V.isString && (V.isStruct || V.isTuple || V.isSlice || V.isArray ||
-                                  V.annotations.[:isVector] || V.annotations.[:isMap])
+            #const Vm = V
+            #if Vm.isOptional {
+                #{Vm = Vm.targetType}
+            }
+            #const needsNewline = !Vm.isString && (Vm.isStruct || Vm.isTuple || Vm.isSlice || Vm.isArray ||
+                                  Vm.annotations.[:isVector] || Vm.annotations.[:isMap])
 
             var first = true
             for (const key, value: it) {
@@ -366,6 +378,12 @@ pub class YamlSerializer {
                 }
 
                 _output << ":"
+                #if V.isOptional && needsNewline {
+                    if (!value) {
+                        _output << " null"
+                        continue
+                    }
+                }
                 #if needsNewline {
                     _output << '\n'
                     _currentIndent += _indent
@@ -422,6 +440,17 @@ test {
 
     struct Labels {
         tags = HashMap[strview, strview]()
+    }
+
+    struct OptionalFields {
+        items: Vector[String]? = null
+        inner: User? = null
+        labels: HashMap[strview, strview]? = null
+        port: i64 = 80
+    }
+
+    struct OptionalValues {
+        users = HashMap[strview, User?]()
     }
 
     func toYaml[T](os: &OutputStream, it: &const T, @unused item: bool = false): !void {
@@ -549,6 +578,45 @@ test "toYaml - optional fields" {
     toYaml(&output2, &config2)
     ok!(output2.contains("name: MyApp"))
     ok!(output2.contains("port: 8080"))
+}
+
+// A null optional that is written as a block must stay on its key's line, a bare
+// `null` on the next line is not valid YAML
+test "toYaml - null optional collections and structs" {
+    var obj = OptionalFields{}
+    var output = String()
+    toYaml(&output, &obj)
+
+    ok!(output.contains("items: null"))
+    ok!(output.contains("inner: null"))
+    ok!(output.contains("labels: null"))
+    ok!(output.contains("port: 80"))
+    ok!(!output.contains(":\nnull"))
+}
+
+test "toYaml - set optional collections and structs" {
+    var obj = OptionalFields{}
+    obj.items = Vector[String]()
+    obj.items&.push("one".S)
+    obj.inner = User{name: "bob".S, id: 7}
+
+    var output = String()
+    toYaml(&output, &obj)
+    ok!(output.contains("items:\n  - one"))
+    ok!(output.contains("inner:\n  name: bob"))
+    ok!(output.contains("labels: null"))
+}
+
+test "toYaml - optional map values" {
+    var obj = OptionalValues{}
+    obj.users.["none"] = null
+    obj.users.["set"] = User{name: "bob".S, id: 7}
+
+    var output = String()
+    toYaml(&output, &obj)
+    ok!(output.contains("none: null"))
+    ok!(output.contains("set:\n"))
+    ok!(output.contains("name: bob"))
 }
 
 test "toYaml - primitives" {
