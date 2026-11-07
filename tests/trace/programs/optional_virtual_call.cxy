@@ -1,0 +1,48 @@
+var last = 0
+
+class Base {
+    virtual func ping(): void { last = 1 }
+    virtual func tag(): void
+    func plain(): void { last = 5 }
+}
+
+class Derived: Base {
+    func `init`() {}
+    @override
+    func ping(): void { last = 2 }
+    @override
+    func tag(): void { last = 7 }
+}
+
+func viaPlainRef(b: &Base): void { b.ping() }
+func viaOptionalRef(b: &Base?): void { b&.ping() }
+func viaOptionalOwner(b: Base?): void { b&.ping() }
+func tagOptionalRef(b: &Base?): void { b&.tag() }
+func plainOptionalRef(b: &Base?): void { b&.plain() }
+
+// An override is reached through an optional receiver too
+func main(): void {
+    var d = Derived()
+    var r: &Base = &d
+
+    last = 0
+    viaPlainRef(r)
+    println("plain ref       ping -> ", last)
+
+    var o: Base? = @copy d
+    last = 0
+    viaOptionalOwner(o)
+    println("optional owner  ping -> ", last)
+
+    last = 0
+    viaOptionalRef(&d)
+    println("optional ref    ping -> ", last)
+
+    last = 0
+    tagOptionalRef(&d)
+    println("optional ref    tag  -> ", last)
+
+    last = 0
+    plainOptionalRef(&d)
+    println("not virtual     plain -> ", last)
+}

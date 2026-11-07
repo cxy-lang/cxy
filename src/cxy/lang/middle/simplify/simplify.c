@@ -105,9 +105,23 @@ static AstNode *hoistToTemporary(SimplifyContext *ctx,
     return var;
 }
 
+// The type a method is looked up on. A redirect (`b&.m()`) stands for what `b`
+// holds, its own type is the method's, so it is read from `b`. An optional receiver
+// is looked through, `&T?` and `T?` alike.
+static const Type *receiverType(const AstNode *target)
+{
+    const Type *type = target->type;
+    if (nodeIs(target, MemberExpr) && target->memberExpr.isRedirect &&
+        target->memberExpr.member == NULL)
+        type = target->memberExpr.target->type;
+    if (isOptionalType(type))
+        type = getOptionalTargetType(type);
+    return stripReference(type);
+}
+
 static bool isVirtualDispatch(const AstNode *target, const AstNode *member)
 {
-    const Type *type = stripReference(target->type);
+    const Type *type = receiverType(target);
     if (!isClassOrStructType(type))
         return false;
     AstNode *decl = getTypeDecl(type), *func = getTypeDecl(member->type);
@@ -120,7 +134,7 @@ static AstNode *virtualDispatch(SimplifyContext *ctx,
                                 AstNode *member)
 {
     // [target].vtable.[member](target, [args])
-    AstNode *decl = getTypeDecl(target->type),
+    AstNode *decl = getTypeDecl(receiverType(target)),
             *vTable = decl->classDecl.members,
             *vTableFunc = findMemberDeclInType(vTable->type->pointer.pointed,
                                                member->ident.value);
@@ -130,6 +144,14 @@ static AstNode *virtualDispatch(SimplifyContext *ctx,
     }
     else {
         base = deepCloneAstNode(ctx->pool, target);
+    }
+    // The table belongs to what an optional holds: read through it, the way `&.`
+    // does (a member with no name and `isRedirect`, lowered to `.val`)
+    if (isOptionalType(target->type)) {
+        const Type *held = getOptionalTargetType(target->type);
+        base = makeMemberExpr(
+            ctx->pool, &target->loc, flgNone, base, NULL, NULL, held);
+        base->memberExpr.isRedirect = true;
     }
 
     return makeMemberExpr(ctx->pool,

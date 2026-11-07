@@ -1,0 +1,6 @@
+$ program output
+plain ref       ping -> 2
+optional owner  ping -> 2
+optional ref    ping -> 2
+optional ref    tag  -> 7
+not virtual     plain -> 5
