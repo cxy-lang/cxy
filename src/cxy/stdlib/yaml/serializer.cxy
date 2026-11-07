@@ -239,6 +239,13 @@ pub class YamlSerializer {
             }
         }
 
+        #if (!M.isOptional && M.isSlice) {
+            if (len!(it.#{mk_ident!(name)}) == 0) {
+                _output << " []"
+                return
+            }
+        }
+
         // A null optional that would be a block has nothing to put on the next lines
         #if M.isOptional && needsNewline {
             if (!it.#{mk_ident!(name)}) {
@@ -254,6 +261,13 @@ pub class YamlSerializer {
                     else {
                         _output << " []"
                     }
+                    return
+                }
+            }
+            else #if Mm.isSlice {
+                const inner = *it.#{mk_ident!(name)}
+                if (len!(inner) == 0) {
+                    _output << " []"
                     return
                 }
             }
@@ -500,6 +514,14 @@ test {
         name: String = null
     }
 
+    struct Slices {
+        none: [i32] = []
+        pair: [i32, 2] = [1`i32, 2`i32]
+        maybe: [i32]? = null
+        maybeEmpty: [i32]? = []
+        port: i64 = 80
+    }
+
     struct OptionalValues {
         users = HashMap[strview, User?]()
     }
@@ -709,6 +731,18 @@ test "toYaml - collections with items are unchanged" {
 
     ok!(output.contains("emptyItems:\n  - one"))
     ok!(output.contains("emptyLabels:\n  env: prod"))
+}
+
+test "toYaml - empty slices" {
+    var obj = Slices{}
+    var output = String()
+    toYaml(&output, &obj)
+
+    ok!(output.contains("none: []"))
+    ok!(output.contains("pair:\n  - 1\n  - 2"))
+    ok!(output.contains("maybe: null"))
+    ok!(output.contains("maybeEmpty: []"))
+    ok!(output.contains("port: 80"))
 }
 
 test "toYaml - optional map values" {
