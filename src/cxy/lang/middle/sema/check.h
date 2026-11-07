@@ -174,6 +174,7 @@ AstNode *inheritanceMakeVTableMember(TypingContext *ctx,
                                      AstNode *init);
 AstNode *inheritanceBuildVTableType(AstVisitor *visitor, AstNode *node);
 AstNode *inheritanceBuildVTable(TypingContext *ctx, AstNode *node);
+bool checkAbstractMethodsImplemented(TypingContext *ctx, AstNode *node);
 
 const Type *transformToConstructCallExpr(AstVisitor *visitor, AstNode *node);
 const Type *transformToInitCoverCallExpr(AstVisitor *visitor,

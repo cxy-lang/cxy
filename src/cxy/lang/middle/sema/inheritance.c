@@ -315,6 +315,58 @@ AstNode *inheritanceMakeVTableMember(TypingContext *ctx,
     return member;
 }
 
+static const Type *baseClassOf(const Type *type)
+{
+    const TypeInheritance *inheritance = getTypeInheritance(unThisType(type));
+    return inheritance && inheritance->base ? unThisType(inheritance->base)
+                                            : NULL;
+}
+
+// Whether `cls`, or a class between it and `declaring`, has a body for `method`. A
+// method is matched by name, the way the vtable slot of an override is.
+static bool isAbstractMethodImplemented(const Type *cls,
+                                        const Type *declaring,
+                                        const AstNode *method)
+{
+    for (; cls && cls != declaring; cls = baseClassOf(cls)) {
+        const NamedTypeMember *found =
+            findClassMember(cls, method->funcDecl.name);
+        if (found && found->decl && nodeIs(found->decl, FuncDecl) &&
+            !hasFlag(found->decl, Abstract))
+            return true;
+    }
+    return false;
+}
+
+// The methods a base class declares without a body must have one by now
+bool checkAbstractMethodsImplemented(TypingContext *ctx, AstNode *node)
+{
+    const Type *cls = unThisType(node->type);
+    for (const Type *base = baseClassOf(cls); base; base = baseClassOf(base)) {
+        const AstNode *decl = getTypeDecl(base);
+        if (decl == NULL || !nodeIs(decl, ClassDecl))
+            continue;
+        for (const AstNode *member = decl->classDecl.members; member;
+             member = member->next) {
+            if (!nodeIs(member, FuncDecl) || !hasFlag(member, Abstract) ||
+                member->type == NULL || !typeIs(member->type, Func))
+                continue;
+            if (isAbstractMethodImplemented(cls, base, member))
+                continue;
+            logError(ctx->L,
+                     &node->loc,
+                     "class '{t}' must implement the abstract method `{s}` of "
+                     "'{t}'",
+                     (FormatArg[]){{.t = cls},
+                                   {.s = member->funcDecl.name},
+                                   {.t = base}});
+            logNote(ctx->L, &member->loc, "abstract method declared here", NULL);
+            node->type = ERROR_TYPE(ctx);
+        }
+    }
+    return !typeIs(node->type, Error);
+}
+
 AstNode *inheritanceBuildVTable(TypingContext *ctx, AstNode *node)
 {
     AstNode *base = resolvePath(node->classDecl.base);

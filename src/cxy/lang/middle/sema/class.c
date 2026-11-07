@@ -405,6 +405,8 @@ void checkClassDecl(AstVisitor *visitor, AstNode *node)
 
     if (!checkTypeImplementsAllMembers(ctx, node))
         node->type = ERROR_TYPE(ctx);
+    else if (!checkAbstractMethodsImplemented(ctx, node))
+        node->type = ERROR_TYPE(ctx);
 
 checkClassMembersError:
     free(members);
