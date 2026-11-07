@@ -307,21 +307,79 @@ AstNode *inheritanceVirtualBase(AstNode *node)
     return base;
 }
 
+static inline AstNode *baseClassDecl(AstNode *cls)
+{
+    return cls->classDecl.base ? resolvePath(cls->classDecl.base) : NULL;
+}
+
 // The method of `name` that fills the vtable slot for `node`: the one nearest
 // `virtualBase`. A class that overrides without `virtual` closes the slot, so a
-// method of the same name further down is not an override.
+// method of the same name further down is not an override. The method that
+// `virtualBase` itself declares `virtual` is the slot's default, not an override.
 static AstNode *findVTableOverride(AstNode *node,
                                    const AstNode *virtualBase,
-                                   cstring name)
+                                   cstring name,
+                                   AstNode **owner)
 {
     AstNode *found = NULL;
-    for (AstNode *it = node; it && it != virtualBase;
-         it = it->classDecl.base ? resolvePath(it->classDecl.base) : NULL) {
+    for (AstNode *it = node; it; it = baseClassDecl(it)) {
         AstNode *decl = findMemberDeclInType(it->type, name);
-        if (decl && nodeIs(decl, FuncDecl))
+        if (decl && nodeIs(decl, FuncDecl) &&
+            (it != virtualBase || !hasFlag(decl, Virtual))) {
             found = decl;
+            if (owner)
+                *owner = it;
+        }
+        if (it == virtualBase)
+            break;
     }
     return found;
+}
+
+static bool hasVirtualDeclAbove(AstNode *cls, cstring name)
+{
+    for (cls = baseClassDecl(cls); cls; cls = baseClassDecl(cls)) {
+        AstNode *decl = findMemberDeclInType(cls->type, name);
+        if (decl && nodeIs(decl, FuncDecl) && hasFlag(decl, Virtual))
+            return true;
+    }
+    return false;
+}
+
+// A method named like a vtable slot that a class above closed, by overriding it
+// without `virtual`, is a new method. It is an error when it says `@override`.
+void inheritanceCheckClosedOverrides(TypingContext *ctx, AstNode *node)
+{
+    AstNode *virtualBase = inheritanceVirtualBase(node);
+    if (virtualBase == NULL || hasFlag(node, Virtual))
+        return;
+
+    AstNode *base = baseClassDecl(node);
+    for (AstNode *member = node->classDecl.members; member;
+         member = member->next) {
+        if (!nodeIs(member, FuncDecl) || hasFlag(member, Virtual))
+            continue;
+        cstring name = member->_namedNode.name;
+        AstNode *owner = NULL;
+        AstNode *closer = findVTableOverride(base, virtualBase, name, &owner);
+        if (closer == NULL || !hasVirtualDeclAbove(owner, name))
+            continue;
+
+        FormatArg args[] = {{.s = name}, {.s = getDeclarationName(owner)}};
+        if (findAttribute(member, S_override))
+            logError(ctx->L,
+                     &member->loc,
+                     "method `{s}` cannot override the one in '{s}', it was "
+                     "overridden there without `virtual`",
+                     args);
+        else
+            logWarning(ctx->L,
+                       &member->loc,
+                       "method `{s}` is not an override: '{s}' overrides it "
+                       "without `virtual`, so it is closed",
+                       args);
+        logNote(ctx->L, &closer->loc, "overridden here without `virtual`", NULL);
+    }
 }
 
 AstNode *inheritanceMakeVTableMember(TypingContext *ctx,
@@ -426,7 +484,7 @@ AstNode *inheritanceBuildVTable(TypingContext *ctx, AstNode *node)
     member = member->next;
     for (; member; member = member->next) {
         AstNode *func =
-            findVTableOverride(node, base, member->_namedNode.name);
+            findVTableOverride(node, base, member->_namedNode.name, NULL);
         if (func != NULL) {
             // Change the function we resolve to
             insertAstNode(

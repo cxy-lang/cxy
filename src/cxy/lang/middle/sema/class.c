@@ -405,8 +405,10 @@ void checkClassDecl(AstVisitor *visitor, AstNode *node)
 
     if (!checkTypeImplementsAllMembers(ctx, node))
         node->type = ERROR_TYPE(ctx);
-    else
+    else {
         inheritanceMarkAbstract(node);
+        inheritanceCheckClosedOverrides(ctx, node);
+    }
 
 checkClassMembersError:
     free(members);
