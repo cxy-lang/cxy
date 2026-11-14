@@ -212,6 +212,10 @@ static const Type *toCxy(IncludeContext &ctx, const clang::RecordDecl *record)
         // the type needs to be this
         return ctx.recordsStack.top().type;
     }
+    auto *definition = record->getDefinition();
+    auto converted = ctx.recordTypes.find(definition);
+    if (definition != nullptr && converted != ctx.recordTypes.end())
+        return converted->second;
     auto flags = flgExtern | flgPublic;
     auto name = getCDeclName(ctx, *record);
     auto type = record->isUnion()
@@ -451,6 +455,8 @@ static AstNode *toCxy(IncludeContext &ctx, const clang::RecordDecl &decl)
 
     const_cast<Type *>(ctx.recordsStack.top().type)->_this.that = node->type;
     ctx.recordsStack.pop();
+    if (decl.isThisDeclarationADefinition())
+        ctx.recordTypes[&decl] = node->type;
 
     return node;
 }
@@ -648,10 +654,13 @@ struct CToCxyConverter : clang::ASTConsumer {
                 ctx.addDeclaration(
                     toCxy(ctx, *llvm::cast<clang::FunctionDecl>(decl)));
                 break;
-            case clang::Decl::Record:
-                ctx.addDeclaration(
-                    toCxy(ctx, llvm::cast<clang::RecordDecl>(*decl)));
+            case clang::Decl::Record: {
+                auto &record = llvm::cast<clang::RecordDecl>(*decl);
+                // Already converted when a typedef or a function used it
+                if (ctx.recordTypes.count(&record) == 0)
+                    ctx.addDeclaration(toCxy(ctx, record));
                 break;
+            }
             case clang::Decl::Enum: {
                 ctx.addDeclaration(
                     toCxy(ctx, llvm::cast<clang::EnumDecl>(*decl)));

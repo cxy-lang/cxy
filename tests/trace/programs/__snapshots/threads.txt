@@ -14,11 +14,11 @@ $ types
 Total: 1 types
 $ sitecounts
     allocs        bytes  site
-         1            4  <ROOT>/tests/trace/programs/threads.cxy:13:17 (__closure_body19)
-         1            4  <ROOT>/tests/trace/programs/threads.cxy:14:17 (__closure_body19)
-         1            4  <ROOT>/tests/trace/programs/threads.cxy:17:17 (__closure_body21)
-         1            4  <ROOT>/tests/trace/programs/threads.cxy:18:17 (__closure_body21)
-         1            4  <ROOT>/tests/trace/programs/threads.cxy:19:17 (__closure_body21)
+         1            4  <ROOT>/tests/trace/programs/threads.cxy:13:17 (__closure_body18)
+         1            4  <ROOT>/tests/trace/programs/threads.cxy:14:17 (__closure_body18)
+         1            4  <ROOT>/tests/trace/programs/threads.cxy:17:17 (__closure_body20)
+         1            4  <ROOT>/tests/trace/programs/threads.cxy:18:17 (__closure_body20)
+         1            4  <ROOT>/tests/trace/programs/threads.cxy:19:17 (__closure_body20)
          1            4  <ROOT>/tests/trace/programs/threads.cxy:23:16 (main)
 Total: 6 sites
 $ program output

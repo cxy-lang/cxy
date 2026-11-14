@@ -35,6 +35,8 @@ struct IncludeContext {
     cxy::CImporter &importer;
     FileLoc loc{};
     std::stack<CurrentRecord> recordsStack{};
+    // A record is converted once, whichever declaration reaches it first
+    std::map<const clang::TagDecl *, const Type *> recordTypes{};
     cstring typeDeclName{nullptr};
     std::map<clang::FileID, std::set<clang::FileID>> incs{};
 
