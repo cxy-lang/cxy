@@ -748,7 +748,7 @@ static void initializeOptions(StrPool *strings, Options *options)
 #else
     FormatState state = newFormatState(NULL, true);
     exec("clang -E -v -x c /dev/null 2>&1 | grep -e \"^ /\" | cut -d \" \" "
-         "-f 2 | xargs realpath",
+         "-f 2 | xargs -r realpath",
          &state);
     char *includeDirs = formatStateToString(&state);
     const char *p = includeDirs;

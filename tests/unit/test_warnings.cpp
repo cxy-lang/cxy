@@ -7,6 +7,7 @@
 #include "core/log.h"
 
 #include <cstring>
+#include <initializer_list>
 
 namespace {
 

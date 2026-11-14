@@ -1,6 +1,8 @@
 FROM alpine:latest
 # Install packages
 RUN apk add --update \
+    build-base \
+    binutils \
     cmake \
     make \
     llvm21-dev \
@@ -9,6 +11,7 @@ RUN apk add --update \
     llvm21-gtest \
     clang21-static \
     clang21-dev \
+    clang21-extra-tools \
     rsync \
     gdb \
     openssl \
@@ -17,9 +20,11 @@ RUN apk add --update \
     git \
     curl-dev
 
-# Link llvm-config21 to llvm-config
-RUN ln -sf /usr/lib/llvm21/bin/llvm-config /usr/bin/llvm-config
-RUN ls /usr/bin/llvm-config
+# Link llvm and clang binaries to /usr/bin
+RUN ln -sf /usr/lib/llvm21/bin/llvm-config /usr/bin/llvm-config && \
+    ln -sf /usr/lib/llvm21/bin/clang /usr/bin/clang && \
+    ln -sf /usr/lib/llvm21/bin/clang++ /usr/bin/clang++
+RUN ls /usr/bin/llvm-config /usr/bin/clang
 
 # Needed by cxy compiler
 ENV CXY_OS=__ALPINE__

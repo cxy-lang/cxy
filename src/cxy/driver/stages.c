@@ -407,7 +407,7 @@ u64 parseCompilerStages(Log *L, cstring str)
 {
     CompilerStage stages = ccsInvalid;
     char *copy = strdup(str);
-    char *start = copy, *end = strchr(str, '|');
+    char *start = copy, *end = strchr(copy, '|');
 
     while (start) {
         char *last = end;

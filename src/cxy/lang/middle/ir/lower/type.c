@@ -239,10 +239,10 @@ static cstring makeJoinedIrTypeName(LowerContext *ctx,
         if (len < (int)sizeof(buf) - 32)
             len += snprintf(buf + len, sizeof(buf) - len, "%s", dName);
     }
-    if (len < (int)sizeof(buf) - 4)
+    if (len < (int)sizeof(buf) - 5)
         snprintf(buf + len, sizeof(buf) - len, ")");
     else
-        snprintf(buf + sizeof(buf) - 4, 4, "...)");
+        snprintf(buf + sizeof(buf) - 5, 5, "...)");
     return makeString(ctx->strings, buf);
 }
 

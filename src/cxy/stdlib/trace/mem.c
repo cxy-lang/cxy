@@ -14,7 +14,12 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <dlfcn.h>
+#if defined(__has_include)
+#if __has_include(<execinfo.h>)
 #include <execinfo.h>
+#define CXY_HAS_EXECINFO 1
+#endif
+#endif
 #if defined(__APPLE__)
 #include <mach/mach.h>
 #endif
@@ -188,7 +193,13 @@ static void symbolizeStackFd(int fd, void *const *stack, int count)
     }
 #endif
 
+#if defined(CXY_HAS_EXECINFO)
     backtrace_symbols_fd((void *const *)stack, count, fd);
+#else
+    for (int i = 0; i < count; i++) {
+        dprintf(fd, "    #%-2d %p\n", i, stack[i]);
+    }
+#endif
 }
 
 void __cxy_symbolize_stack(void *const *stack, int count)
@@ -3840,7 +3851,11 @@ void __cxy_mem_trace_event(void *ptr, const char *op, uint32_t refs, const char 
     ev->path = path;
     ev->line = line;
     ev->refs = refs;
+#if defined(CXY_HAS_EXECINFO)
     ev->stackSize = backtrace(ev->stack, CXY_TRACE_STACK_DEPTH);
+#else
+    ev->stackSize = 0;
+#endif
 }
 
 void __cxy_mem_trace_dump(void *ptr)

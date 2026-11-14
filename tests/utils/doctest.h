@@ -496,7 +496,13 @@ DOCTEST_GCC_SUPPRESS_WARNING_POP
 // https://github.com/doctest/doctest/issues/126
 // https://github.com/doctest/doctest/issues/356
 #if DOCTEST_CLANG
+#if defined(__has_include) && __has_include(<version>)
+#include <version>
+#elif __cplusplus >= 202002L
+#include <version>
+#else
 #include <ciso646>
+#endif
 #endif // clang
 
 #ifdef _LIBCPP_VERSION
