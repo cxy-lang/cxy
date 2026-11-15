@@ -34,7 +34,7 @@ void lowerSwitchStmt(AstVisitor *visitor, AstNode *node)
     }
 
     IrCase *cases =
-        allocFromMemPool(ctx->pool, sizeof(IrCase) * (totalCases ?: 1));
+        callocFromMemPool(ctx->pool, totalCases ?: 1, sizeof(IrCase));
     u64 caseIdx = 0;
     IrNode *defaultBB = NULL;
 
@@ -122,8 +122,9 @@ void lowerMatchStmt(AstVisitor *visitor, AstNode *node)
             defaultCase = c;
     }
 
+    // Zeroed: a match case sets no `endNode`, and the visitors read it
     IrCase *cases =
-        allocFromMemPool(ctx->pool, sizeof(IrCase) * (casesCount ?: 1));
+        callocFromMemPool(ctx->pool, casesCount ?: 1, sizeof(IrCase));
     IrNode **caseBBs =
         allocFromMemPool(ctx->pool, sizeof(IrNode *) * (casesCount ?: 1));
 
