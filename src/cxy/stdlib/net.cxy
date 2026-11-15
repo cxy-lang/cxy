@@ -214,6 +214,8 @@ pub struct Address {
 pub func unixAddress(path: string): Address {
     var addr = Address()
     var sun = addr.addr !: ^un.sockaddr_un;
+    if (path == null)
+        return addr
     var size = strlen(path);
     if (size == 0 || size >= sizeof!(sun.sun_path))
         return addr
@@ -710,6 +712,9 @@ test "Address: a unix address prints as its path" {
 
 test "Address: an empty or too long unix path is not an address" {
     ok!(!unixAddress(""))
+    // the data of an empty String is null
+    var empty = String()
+    ok!(!unixAddress(empty.str()))
     var tooBig = String()
     for (const i: 0..200)
         tooBig.appendChar('a')

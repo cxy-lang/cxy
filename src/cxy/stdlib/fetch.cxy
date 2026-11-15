@@ -1,7 +1,9 @@
 module fetch
 
-import { Address, Socket, BufferedSocketOutputStream, getRemoteAddress } from "./net.cxy"
+import { Address, Socket, BufferedSocketOutputStream, getRemoteAddress, unixAddress } from "./net.cxy"
+import "unistd.h" as unistd
 import { TcpSocket, tcpConnect } from "./tcp.cxy"
+import { UnixSocket, UnixListener, unixConnect } from "./unix.cxy"
 import { SslSocket } from "./ssl.cxy"
 import { Path, getFileSize } from "./path.cxy"
 import { Vector } from "./vector.cxy"
@@ -642,11 +644,17 @@ pub class Session {
         }
 
         @unlikely if (_sock == null || !_sock) {
-            var fd = tcpConnect(_addr, _timeout)
-            if (isHttps())
-                _sock = SslSocket.create(fd, _addr, _hostname.str())
-            else
-                _sock = TcpSocket(fd, _addr)
+            if (_addr.isUnix()) {
+                var fd = unixConnect(_addr, _timeout)
+                _sock = UnixSocket(fd, _addr)
+            }
+            else {
+                var fd = tcpConnect(_addr, _timeout)
+                if (isHttps())
+                    _sock = SslSocket.create(fd, _addr, _hostname.str())
+                else
+                    _sock = TcpSocket(fd, _addr)
+            }
         }
         // Submit request
         _req.submit(&_sock, _timeout)
@@ -692,6 +700,22 @@ pub class Session {
         return head(&&resource, &hdrs)
     }
 
+    // A session on the unix domain socket at `path`, for a server such as the docker
+    // daemon. The Host header says `localhost`. TLS is not used over a unix socket.
+    @static
+    func createUnix(path: strview, timeout: u64 = 20000.u64): !Session {
+        if (path.empty())
+            raise HttpError("Invalid unix socket path, it is empty")
+        var pathStr = String(path)
+        var addr = unixAddress(pathStr.str());
+        if (!addr)
+            raise HttpError(f"Invalid unix socket path '{path}'")
+        return This("http".s, String("localhost"), 80`u16, &&addr, timeout)
+    }
+
+    // `http+unix://<socket path>` names a unix socket, the path percent-encoded so
+    // that its slashes are not taken for the resource: `http+unix://%2Ftmp%2Fa.sock`.
+    // A `+` in the path has to be written `%2B`.
     @static
     func create(url: strview, timeout: u64 = 20000.u64): !Session {
         var idx = url.find("://")
@@ -702,6 +726,16 @@ pub class Session {
         if (idx) {
             proto = url.substr(0, <i64>*idx)
             host = url.substr(*idx + 3)
+        }
+
+        if (proto == "https+unix".s)
+            raise HttpError("TLS is not supported over a unix socket")
+        if (proto == "http+unix".s) {
+            if (host.empty())
+                raise HttpError("Invalid url, the unix socket path is missing")
+            var path = String();
+            base64.percentDecode(&path, &host)
+            return createUnix(path.s(), timeout)
         }
 
         idx = host.rIndexOf(':'`char)
@@ -937,4 +971,107 @@ test "Form URL encoding multiple fields exact format" {
     ok!(output.s().contains("a=1"))
     ok!(output.s().contains("b=2"))
     ok!(output.s().contains("&"))
+}
+
+// Answers one request on a unix socket with a fixed response and keeps the request
+class CannedServer {
+    listener: UnixListener
+    request = String()
+
+    func `init`(path: string) {
+        unistd.unlink(path !: ^const char)
+        listener = UnixListener(unixAddress(path))
+    }
+
+    @task
+    func serve(): void {
+        var conn = listener.accept(5000);
+        if (!conn)
+            return
+        var buf: [char, 512] = [];
+        var n = (*conn).receive(buf, 512, 5000);
+        if (n)
+            request.append(buf !: ^const char, *n)
+        var reply = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
+        var sent = (*conn).sendBuffer(reply !: ^const void, len!(reply), 5000);
+    }
+}
+
+test "Session: a unix socket path is fetched from" {
+    var server = CannedServer("/tmp/cxy-fetch-session.sock")
+    ok!(server.listener.listen())
+    var task = @async server.serve()
+
+    var session = Session.createUnix("/tmp/cxy-fetch-session.sock") catch {
+        ok!(false, "create failed")
+        return
+    }
+    var resp = session.perform(Method.Get, "/status") catch {
+        ok!(false, "request failed")
+        return
+    }
+    ok!(resp.ok())
+    ok!(resp.body() == "hello")
+    task.join() catch {
+        ok!(false, "server task raised")
+    }
+    ok!(server.request.s().contains("GET /status HTTP/1.1"))
+    ok!(server.request.s().contains("Host: localhost"))
+}
+
+test "fetch: a http+unix url names the socket with a percent-encoded path" {
+    var server = CannedServer("/tmp/cxy-fetch-url.sock")
+    ok!(server.listener.listen())
+    var task = @async server.serve()
+
+    var resp = fetch("http+unix://%2Ftmp%2Fcxy-fetch-url.sock/api/v1/ping") catch {
+        ok!(false, "fetch failed")
+        return
+    }
+    ok!(resp.ok())
+    ok!(resp.body() == "hello")
+    task.join() catch {
+        ok!(false, "server task raised")
+    }
+    ok!(server.request.s().contains("GET /api/v1/ping HTTP/1.1"))
+}
+
+test "Session: a session built from a unix address connects to it" {
+    var server = CannedServer("/tmp/cxy-fetch-addr.sock")
+    ok!(server.listener.listen())
+    var task = @async server.serve()
+
+    var session = Session("http", String("localhost"), 80`u16, unixAddress("/tmp/cxy-fetch-addr.sock"));
+    var resp = session.perform(Method.Get, "/") catch {
+        ok!(false, "request failed")
+        return
+    }
+    ok!(resp.ok())
+    task.join() catch {
+        ok!(false, "server task raised")
+    }
+}
+
+test "Session: createUnix refuses an empty path" {
+    var raised = false;
+    Session.createUnix("") catch {
+        raised = true
+    }
+    ok!(raised)
+}
+
+test "Session: a http+unix url without a path is refused" {
+    var raised = false;
+    Session.create("http+unix://") catch {
+        raised = true
+    }
+    ok!(raised)
+}
+
+test "Session: TLS is not available over a unix socket" {
+    var raised = false;
+    Session.create("https+unix://%2Ftmp%2Fx.sock") catch {
+        raised = true
+    }
+    ok!(raised)
 }
