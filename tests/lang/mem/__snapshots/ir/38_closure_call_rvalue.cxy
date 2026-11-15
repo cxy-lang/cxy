@@ -78,10 +78,10 @@ _L_exit:
   return __ret
 }
 
-func adder(n: ^Node): Closure_447 {
+func adder(n: ^Node): Closure_439 {
 _L_entry:
   scope.enter 0
-  var __ret: Closure_447
+  var __ret: Closure_439
   var __t1: __closure_env13
   var __copy0: ^Node
   copy n -> __copy0
@@ -144,7 +144,7 @@ _L_entry:
   var total: i32
   total = 0
   var __t4: ^Node
-  var __t5: Closure_447
+  var __t5: Closure_439
   var __t6: i32
   goto _L_WHILE0_cond
 _L_WHILE0_cond:
@@ -162,7 +162,7 @@ _L_WHILE0_exit:
   printlnI_i32E(total)
   var __t7: ^Node
   __t7 = Node_op__initCover(<i32>(10))
-  var __t8: Closure_447
+  var __t8: Closure_439
   __t8 = adder(__t7)
   var __t9: i32
   __t9 = __t8.fn(__t8.env, 5)

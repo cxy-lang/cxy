@@ -74,6 +74,18 @@ _L_exit:
   return __ret
 }
 
+func main.OutputStream.op__lshiftI_i8E(this: ^OutputStream, val: i8): ^OutputStream {
+_L_entry:
+  scope.enter 0
+  var __ret: ^OutputStream
+  builtins_OutputStream_appendSignedInt(this, <i128>(val))
+  __ret = this
+  goto _L_exit
+_L_exit:
+  scope.exit 0
+  return __ret
+}
+
 func printlnI_i8E(args: i8): void {
 _L_entry:
   scope.enter 0

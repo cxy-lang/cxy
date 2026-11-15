@@ -57,7 +57,6 @@ static void builtins_StdOutputStream_op__destructor_fwd(void * ptr);
 static void builtins_StdOutputStream___defaults_init(builtins_StdOutputStream * this);
 static builtins_StdOutputStream * builtins_StdOutputStream_op__initCover(int32_t fd);
 static builtins_OutputStream * builtins_OutputStream_op__lshiftI_wE(builtins_OutputStream * this, int32_t val);
-static builtins_OutputStream * builtins_OutputStream_op__lshiftI_i8E(builtins_OutputStream * this, int8_t val);
 __attribute__((constructor)) static void builtins___init();
 static void builtins___fini();
 
@@ -67,6 +66,7 @@ static void Node_op__destructor(Node * this);
 static void Node_op__destructor_fwd(void * ptr);
 static Node * Node_op__initCover(int32_t id);
 static Node * next();
+static builtins_OutputStream * builtins_OutputStream_op__lshiftI_i8E(builtins_OutputStream * this, int8_t val);
 static void printlnI_i8E(int8_t args);
 static Result_void _main();
 
@@ -225,16 +225,6 @@ _L_exit:;
   return __ret;
 }
 
-static builtins_OutputStream * builtins_OutputStream_op__lshiftI_i8E(builtins_OutputStream * this, int8_t val) {
-  builtins_OutputStream * __ret;
-_L_entry:;
-  builtins_OutputStream_appendSignedInt(this, ((int128_t)(val)));
-  __ret = this;
-  goto _L_exit;
-_L_exit:;
-  return __ret;
-}
-
 __attribute__((constructor)) static void builtins___init() {
 _L_entry:;
   builtins_stdout = builtins_StdOutputStream_op__initCover(((int32_t)(1)));
@@ -312,6 +302,16 @@ static Node * next() {
 _L_entry:;
   counter = (counter + 1);
   __ret = Node_op__initCover(((int32_t)(counter)));
+  goto _L_exit;
+_L_exit:;
+  return __ret;
+}
+
+static builtins_OutputStream * builtins_OutputStream_op__lshiftI_i8E(builtins_OutputStream * this, int8_t val) {
+  builtins_OutputStream * __ret;
+_L_entry:;
+  builtins_OutputStream_appendSignedInt(this, ((int128_t)(val)));
+  __ret = this;
   goto _L_exit;
 _L_exit:;
   return __ret;

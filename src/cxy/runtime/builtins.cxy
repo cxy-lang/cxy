@@ -1443,6 +1443,27 @@ pub class MemoryOutputStream : OutputStream {
     }
 }
 
+// Writes the digits of `value` (0 to 999) at `at` and gives the next position
+func styleDigits(buf: ^char, at: u64, value: i32): u64 {
+    var pos = at;
+    if (value >= 100) {
+        buf.[pos] = <char>(48 + value / 100)
+        pos++
+    }
+    if (value >= 10) {
+        buf.[pos] = <char>(48 + (value / 10) % 10)
+        pos++
+    }
+    buf.[pos] = <char>(48 + value % 10)
+    return pos + 1
+}
+
+func styleFlag(buf: ^char, at: u64, digit: char): u64 {
+    buf.[at] = digit
+    buf.[at + 1] = ';'`char
+    return at + 2
+}
+
 struct Style {
     color = 0`i8;
     - _bg = 0`i8;
@@ -1452,26 +1473,34 @@ struct Style {
     - _blink = false;
     - _faded = false
 
+    // The sequence is built in a plain buffer on the stack, no object is made for it:
+    // the longest one is 21 bytes
     const func `str`(os: &OutputStream) {
-        var tmp: [i8, 64] = [];
-        var mos = stackAlloc!(#MemoryOutputStream, tmp, 64);
-        mos << "\x1B["
+        var buf: [char, 32] = [];
+        var p = buf !: ^char;
+        p.[0] = <char>27
+        p.[1] = '['`char
+        var n = 2`u64;
         if (color != 0) {
             if (_bold)
-                mos << "1;"
+                n = styleFlag(p, n, '1'`char)
             if (_faded)
-                mos << "2;"
+                n = styleFlag(p, n, '2'`char)
             if (_italics)
-                mos << "3;"
+                n = styleFlag(p, n, '3'`char)
             if (_underline)
-                mos << "4;"
+                n = styleFlag(p, n, '4'`char)
             if (_blink)
-                mos << "5;"
-            if (_bg)
-                mos << _bg << ";"
+                n = styleFlag(p, n, '5'`char)
+            if (_bg) {
+                n = styleDigits(p, n, <i32>_bg)
+                p.[n] = ';'`char
+                n++
+            }
         }
-        mos << color << 'm';
-        os << mos
+        n = styleDigits(p, n, <i32>color)
+        p.[n] = 'm'`char
+        os.append(p, n + 1)
     }
 
     const func `()`(cfg: string, bg: This) {

@@ -1,0 +1,6 @@
+$ program output
+[31mred[0m
+[1;4;31mbold underline[0m
+[1;32;31mbold on green[0m
+[2;3;36mfaded italics[0m
+[1;2;3;4;5;37mall of them[0m

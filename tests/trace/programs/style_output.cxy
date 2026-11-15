@@ -1,0 +1,9 @@
+// Printing a Style builds its escape sequence in a buffer on the stack. In a debug
+// build that must not trip the check on borrowed references.
+func main(): void {
+    stdout << RED << "red" << DEF << '\n'
+    stdout << RED("b|u") << "bold underline" << DEF << '\n'
+    stdout << RED("b", GRN) << "bold on green" << DEF << '\n'
+    stdout << cxy("f|i") << "faded italics" << DEF << '\n'
+    stdout << WHT("b|i|f|p|u") << "all of them" << DEF << '\n'
+}

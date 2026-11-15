@@ -6,7 +6,7 @@ typedef struct builtins_Exception_VTable builtins_Exception_VTable;
 typedef struct builtins_StdOutputStream builtins_StdOutputStream;
 typedef struct Node Node;
 typedef struct __closure_env13 __closure_env13;
-typedef struct Closure_447 Closure_447;
+typedef struct Closure_439 Closure_439;
 typedef struct Result_void Result_void;
 
 struct builtins_OutputStream_VTable {
@@ -47,7 +47,7 @@ struct __closure_env13 {
   Node * n;
 };
 
-struct Closure_447 {
+struct Closure_439 {
   void * env;
   int32_t (*fn)(void *, int32_t);
   void (*dtor)(void *);
@@ -78,7 +78,7 @@ static void Node_op__destructor(Node * this);
 static void Node_op__destructor_fwd(void * ptr);
 static void __closure_env13_op__destructor(__closure_env13 * this);
 static int32_t __closure_body14(__closure_env13 * this, int32_t x);
-static Closure_447 adder(Node * n);
+static Closure_439 adder(Node * n);
 static Node * Node_op__initCover(int32_t id);
 static builtins_OutputStream * builtins_OutputStream_op__lshiftI_i32E(builtins_OutputStream * this, int32_t val);
 static void printlnI_i32E(int32_t args);
@@ -313,8 +313,8 @@ _L_exit:;
   return __ret;
 }
 
-static Closure_447 adder(Node * n) {
-  Closure_447 __ret;
+static Closure_439 adder(Node * n) {
+  Closure_439 __ret;
   __closure_env13 __t1;
   Node * __copy0;
   __closure_env13 * __env2;
@@ -323,7 +323,7 @@ _L_entry:;
   __t1 = (__closure_env13){.n = __copy0};
   __env2 = __mm_alloc(&__ti___closure_env13, nullptr);
   (*(__env2)) = __t1;
-  __ret = (Closure_447){ .env = __env2, .fn = __closure_body14, .dtor = __smart_ptr_drop };
+  __ret = (Closure_439){ .env = __env2, .fn = __closure_body14, .dtor = __smart_ptr_drop };
   goto _L_exit;
 _L_exit:;
   __smart_ptr_drop(n);
@@ -368,10 +368,10 @@ static Result_void _main() {
   Result_void __ret;
   int32_t total;
   Node * __t4;
-  Closure_447 __t5;
+  Closure_439 __t5;
   int32_t __t6;
   Node * __t7;
-  Closure_447 __t8;
+  Closure_439 __t8;
   int32_t __t9;
 _L_entry:;
   total = 0;

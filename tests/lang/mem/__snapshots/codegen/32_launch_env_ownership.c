@@ -10,7 +10,7 @@ typedef struct __darwin_pthread_handler_rec __darwin_pthread_handler_rec;
 typedef struct thread_ThreadError thread_ThreadError;
 typedef struct thread_Handle thread_Handle;
 typedef struct thread_Thread thread_Thread;
-typedef struct Closure_887 Closure_887;
+typedef struct Closure_879 Closure_879;
 typedef union Result_Thread_val Result_Thread_val;
 typedef struct Result_Thread Result_Thread;
 typedef struct atomic_AtomicI_i32E atomic_AtomicI_i32E;
@@ -91,7 +91,7 @@ struct thread_Thread {
   bool _joinable;
 };
 
-struct Closure_887 {
+struct Closure_879 {
   void * env;
   int32_t (*fn)(void *);
   void (*dtor)(void *);
@@ -175,7 +175,7 @@ extern bool __cxy_thread_launch(_opaque_pthread_t * * hdl, void * cl, uint64_t s
 static builtins_String * thread_String_op__initI_sECoverI_sE(char * str);
 static thread_ThreadError * thread_ThreadError_op__initCover(builtins_String * msg);
 static thread_Thread thread_Thread_op__initCover(_opaque_pthread_t * hdl, bool joinable);
-static Result_Thread thread_launch(Closure_887 fn);
+static Result_Thread thread_launch(Closure_879 fn);
 
 
 static void atomic_AtomicI_i32E_op__initI_E(atomic_AtomicI_i32E * this);
@@ -587,7 +587,7 @@ _L_exit:;
 
 __attribute__((constructor)) static void builtins___fini_reg(void) { __cxy_register_process_fini(builtins___fini); }
 
-builtins_Exception_VTable thread_ThreadError_vTable = (builtins_Exception_VTable){.__tid = ((uint64_t)(855)), .what = ((char * (*)(builtins_Exception *))(thread_ThreadError_what))};
+builtins_Exception_VTable thread_ThreadError_vTable = (builtins_Exception_VTable){.__tid = ((uint64_t)(847)), .what = ((char * (*)(builtins_Exception *))(thread_ThreadError_what))};
 
 static void thread_ThreadError_op__init(thread_ThreadError * this, builtins_String * msg) {
 _L_entry:;
@@ -730,7 +730,7 @@ _L_exit:;
   return __ret;
 }
 
-static Result_Thread thread_launch(Closure_887 fn) {
+static Result_Thread thread_launch(Closure_879 fn) {
   Result_Thread __ret;
   _opaque_pthread_t * hdl;
   bool status;
@@ -739,7 +739,7 @@ static Result_Thread thread_launch(Closure_887 fn) {
   thread_ThreadError * __t5;
   thread_Thread __t6;
 _L_entry:;
-  __t3 = sizeof(Closure_887);
+  __t3 = sizeof(Closure_879);
   status = __cxy_thread_launch(&hdl, ((void *)(&fn)), __t3);
   if ((!(status))) goto _L_IF0_then; else goto _L_IF0_end;
 _L_IF0_then:;
@@ -750,7 +750,7 @@ _L_IF0_then:;
   __ret.val._1 = __t5;
   goto _L_exit;
 _L_IF0_end:;
-  memset(&fn, 0, sizeof(Closure_887));
+  memset(&fn, 0, sizeof(Closure_879));
   __ret.tag = 0U;
   __t6 = thread_Thread_op__initCover(hdl, true);
   __ret.val._0 = __t6;
@@ -863,7 +863,7 @@ static Result_void detached(User user) {
   __closure_env20 __t2;
   User __copy0;
   __closure_env20 * __env3;
-  Closure_887 __t4;
+  Closure_879 __t4;
   Result_Thread __call_res_5;
   builtins_Exception * __mv1;
 _L_entry:;
@@ -871,7 +871,7 @@ _L_entry:;
   __t2 = (__closure_env20){.user = __copy0};
   __env3 = __mm_alloc(&__ti___closure_env20, nullptr);
   (*(__env3)) = __t2;
-  __t4 = (Closure_887){ .env = __env3, .fn = __closure_body21, .dtor = __smart_ptr_drop };
+  __t4 = (Closure_879){ .env = __env3, .fn = __closure_body21, .dtor = __smart_ptr_drop };
   __call_res_5 = thread_launch(__t4);
   if (__call_res_5.tag == 1U) goto _L_call_err_0; else goto _L_call_cont_1;
 _L_call_err_0:;
@@ -914,7 +914,7 @@ static Result_void joined(User user) {
   __closure_env22 __t7;
   User __copy2;
   __closure_env22 * __env8;
-  Closure_887 __t9;
+  Closure_879 __t9;
   Result_Thread __call_res_10;
   builtins_Exception * __mv3;
 _L_entry:;
@@ -922,7 +922,7 @@ _L_entry:;
   __t7 = (__closure_env22){.user = __copy2};
   __env8 = __mm_alloc(&__ti___closure_env22, nullptr);
   (*(__env8)) = __t7;
-  __t9 = (Closure_887){ .env = __env8, .fn = __closure_body23, .dtor = __smart_ptr_drop };
+  __t9 = (Closure_879){ .env = __env8, .fn = __closure_body23, .dtor = __smart_ptr_drop };
   __call_res_10 = thread_launch(__t9);
   if (__call_res_10.tag == 1U) goto _L_call_err_0; else goto _L_call_cont_1;
 _L_call_err_0:;
