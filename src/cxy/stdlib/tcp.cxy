@@ -1,154 +1,25 @@
 module tcp
 
-import { Address, Socket } from "./net.cxy"
+import { Address, Socket, StreamSocket, configureSocket } from "./net.cxy"
 import { State } from "./coro.cxy"
 
 import "sys/socket.h" as socket
 import "unistd.h" as unistd
 import "errno.h" as errno
-import "fcntl.h" as fcntl
-
-##if (!defined MACOS) {
-    import "sys/sendfile.h" as sf
-}
 
 #if (!defined MACOS) {
     #if (!defined __ALPINE__) {
         macro SOCK_STREAM socket.__socket_type.SOCK_STREAM
     }
-
-    @inline
-    func Socket_sendfile(outFd: i32, inFd: i32, off: ^u64, count: u64) {
-        var offset = <i64>*off;
-        var status = sf.sendfile(outFd, inFd, ptrof offset, count)
-        if (status >= 0)
-            *off = offset
-        return status
-    }
-}
-else {
-    @inline
-    func Socket_sendfile(outFd: i32, inFd: i32, off: ^u64, count: u64) {
-        var size = <i64> count;
-        var status = socket.sendfile(inFd, outFd, <i64>*off, ptrof size, null, 0`i32)
-        if (status >= 0)
-            *off = *off + size
-        return status
-    }
 }
 
-func configureSocket(fd: i32)  {
-    /* Make the socket non-blocking. */
-    var opt = fcntl.fcntl(fd, F_GETFL!, 0);
-    if (opt == -1)
-        opt = 0;
-    @unused var rc = fcntl.fcntl(fd, F_SETFL!, opt | O_NONBLOCK!);
-    assert!(rc != -1);
-    /*  Allow re-using the same local address rapidly. */
-    opt = 1;
-    rc = socket.setsockopt(fd, SOL_SOCKET!, SO_REUSEADDR!, ptrof opt, <u32>sizeof!(opt));
-    assert!(rc == 0);
-}
-
-pub class TcpSocket: Socket {
+pub class TcpSocket: StreamSocket {
     func `init`(fd: i32, addr: Address) {
         super(fd, &&addr)
     }
 
     func `init`() {
         super(-1`i32, Address())
-    }
-
-    func receive(buffer: ^void, size: u64, timeout: u64 = 0): u64? {
-        var remaining = size;
-        var data = buffer !: ^char;
-        var total: u64 = 0;
-
-        while (super._fd != -1 && remaining > 0) {
-            var sz = socket.recv(super._fd, ptrof data.[total], remaining, 0);
-            if (sz == 0) {
-                if (total > 0)
-                    return total
-
-                close()
-                return null
-            }
-
-            if (sz == -1 || sz == 0) {
-                if (errno! != EAGAIN! && errno! != EWOULDBLOCK!) {
-                    if (errno! == ECONNRESET!)
-                        close()
-                    return null
-                }
-
-                if (total > 0)
-                    return total
-
-                if (!wait(timeout, State.AE_READABLE))
-                    return null
-
-                continue
-            }
-
-            total += sz
-            remaining -= sz
-        }
-
-        return total
-    }
-
-    func sendBuffer(buffer: ^const void, size: u64, timeout: u64 = 0): u64? {
-        var data = buffer !: ^const char;
-        var remaining = size;
-        var total: u64 = 0;
-        while (super._fd != -1 && remaining > 0) {
-            var sz = socket.send(super._fd, ptrof data.[total], remaining, 0);
-            if (sz == -1 || sz == 0) {
-                if(errno! == EPIPE!) {
-                    errno! = ECONNRESET!
-                    close()
-                    return null
-                }
-
-                if (errno! != EAGAIN! && errno! != EWOULDBLOCK!)
-                    return null
-
-                if (!wait(timeout, State.AE_WRITABLE))
-                    return null
-
-                continue
-            }
-
-            total += sz
-            remaining -= sz
-        }
-        errno! = 0
-        return total
-    }
-
-    func sendFile(fd: i32, offset: u64, count: u64, timeout: u64 = 0): u64? {
-        var toffset = offset + count
-        var remaining = count
-        while (toffset > offset) {
-            var sz = Socket_sendfile(super._fd, fd, ptrof offset, remaining)
-            if (sz == -1 || sz == 0) {
-                if (errno!  == EPIPE!) {
-                    errno! = ECONNRESET!
-                    close()
-                    return null
-                }
-
-                if (errno! != EAGAIN! && errno! != EWOULDBLOCK!)
-                    return null
-
-                if (!wait(timeout, State.AE_WRITABLE))
-                    return null
-                continue
-            }
-            remaining -= sz
-        }
-        errno! = 0
-        return count
     }
 }
 
@@ -274,4 +145,46 @@ pub func tcpConnect(addr: Address, timeout: u64 = 0): !i32 {
     errno! = 0
     configureSocket(fd)
     return fd
+}
+
+class EchoServer {
+    listener: TcpListener
+
+    func `init`(addr: Address) {
+        listener = TcpListener(addr)
+    }
+
+    // Answers one connection with what it received
+    @task
+    func serve(): void {
+        var conn = listener.accept(5000);
+        if (!conn)
+            return
+        var buf: [char, 32] = [];
+        var n = (*conn).receive(buf, 32, 5000);
+        if (n)
+            (*conn).sendBuffer(buf, *n, 5000)
+    }
+}
+
+test "TcpSocket: bytes sent come back from an echo server" {
+    var server = EchoServer(Address("127.0.0.1", 0))
+    ok!(server.listener.listen())
+    var port = server.listener.address().port()
+    var task = @async server.serve()
+
+    var addr = Address("127.0.0.1", port)
+    var fd = tcpConnect(addr, 5000) catch {
+        ok!(false, "connect failed")
+        return
+    }
+    var sock = TcpSocket(fd, addr)
+    ok!(!!(sock.sendBuffer("hello" !: ^const void, 5, 5000)))
+    var buf: [char, 8] = [];
+    var n = sock.receive(buf, 5, 5000);
+    ok!(!!n && *n == 5)
+    ok!(buf.[0] == 'h' && buf.[4] == 'o')
+    task.join() catch {
+        ok!(false, "server task raised")
+    }
 }
