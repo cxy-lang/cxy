@@ -567,8 +567,15 @@ void unnamedEnumToCxy(IncludeContext &ctx,
             ctx.strings, option->getName().data(), option->getName().size());
         auto value = option->getInitVal();
         auto optionLoc = toCxy(ctx, option->getSourceRange());
+        // In C an enumerator is an `int` when its value fits, whatever type the
+        // enum has. Functions like sysconf take the constants as an `int`.
+        auto literalType = value.isRepresentableByInt64() &&
+                                   value.getExtValue() >= INT32_MIN &&
+                                   value.getExtValue() <= INT32_MAX
+                               ? getPrimitiveType(ctx.types, prtI32)
+                               : type;
         auto expr = makeIntegerLiteral(
-            ctx.pool, &optionLoc, value.getExtValue(), nullptr, type);
+            ctx.pool, &optionLoc, value.getExtValue(), nullptr, literalType);
         auto macro = makeMacroDeclAstNode(ctx.pool,
                                           &optionLoc,
                                           flgPublic | flgExtern,
