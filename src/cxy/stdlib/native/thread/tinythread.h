@@ -86,6 +86,11 @@ extern "C" {
 /* Platform specific includes */
 #if defined(_TTHREAD_POSIX_)
   #include <pthread.h>
+  /* Newer libc declares once_flag, ONCE_FLAG_INIT and call_once in stdlib.h */
+  #include <stdlib.h>
+  #if defined(ONCE_FLAG_INIT)
+    #define _TTHREAD_LIBC_ONCE_
+  #endif
 #elif defined(_TTHREAD_WIN32_)
   #ifndef WIN32_LEAN_AND_MEAN
     #define WIN32_LEAN_AND_MEAN
@@ -462,7 +467,7 @@ int tss_set(tss_t key, void *val);
     CRITICAL_SECTION lock;
   } once_flag;
   #define ONCE_FLAG_INIT {0,}
-#else
+#elif !defined(_TTHREAD_LIBC_ONCE_)
   #define once_flag pthread_once_t
   #define ONCE_FLAG_INIT PTHREAD_ONCE_INIT
 #endif
@@ -474,7 +479,7 @@ int tss_set(tss_t key, void *val);
  */
 #if defined(_TTHREAD_WIN32_)
   void call_once(once_flag *flag, void (*func)(void));
-#else
+#elif !defined(_TTHREAD_LIBC_ONCE_)
   #define call_once(flag,func) pthread_once(flag,func)
 #endif
 
