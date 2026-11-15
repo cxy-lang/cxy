@@ -973,27 +973,29 @@ test "Form URL encoding multiple fields exact format" {
     ok!(output.s().contains("&"))
 }
 
-// Answers one request on a unix socket with a fixed response and keeps the request
-class CannedServer {
-    listener: UnixListener
-    request = String()
+test {
+    // Answers one request on a unix socket with a fixed response and keeps the request
+    class CannedServer {
+        listener: UnixListener
+        request = String()
 
-    func `init`(path: string) {
-        unistd.unlink(path !: ^const char)
-        listener = UnixListener(unixAddress(path))
-    }
+        func `init`(path: string) {
+            unistd.unlink(path !: ^const char)
+            listener = UnixListener(unixAddress(path))
+        }
 
-    @task
-    func serve(): void {
-        var conn = listener.accept(5000);
-        if (!conn)
-            return
-        var buf: [char, 512] = [];
-        var n = (*conn).receive(buf, 512, 5000);
-        if (n)
-            request.append(buf !: ^const char, *n)
-        var reply = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
-        var sent = (*conn).sendBuffer(reply !: ^const void, len!(reply), 5000);
+        @task
+        func serve(): void {
+            var conn = listener.accept(5000);
+            if (!conn)
+                return
+            var buf: [char, 512] = [];
+            var n = (*conn).receive(buf, 512, 5000);
+            if (n)
+                request.append(buf !: ^const char, *n)
+            var reply = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
+            var sent = (*conn).sendBuffer(reply !: ^const void, len!(reply), 5000);
+        }
     }
 }
 

@@ -231,17 +231,19 @@ test "UnixSocket: bytes sent come back from an echo server" {
     }
 }
 
-func pathExists(path: string): bool {
-    var st = Stat{}
-    return lstat(path, ptrof st) == 0
-}
+test {
+    func pathExists(path: string): bool {
+        var st = Stat{}
+        return lstat(path, ptrof st) == 0
+    }
 
-// A socket file with nobody behind it, as a crashed server leaves it
-func leaveStaleSocket(path: string) {
-    var addr = unixAddress(path)
-    var fd = socket.socket(AF_UNIX!, <i32>SOCK_STREAM!, 0);
-    socket.bind(fd, addr.nativeAddr(), <u32>addr.len())
-    unistd.close(fd)
+    // A socket file with nobody behind it, as a crashed server leaves it
+    func leaveStaleSocket(path: string) {
+        var addr = unixAddress(path)
+        var fd = socket.socket(AF_UNIX!, <i32>SOCK_STREAM!, 0);
+        socket.bind(fd, addr.nativeAddr(), <u32>addr.len())
+        unistd.close(fd)
+    }
 }
 
 test "UnixListener: closing it removes the socket file" {
@@ -302,28 +304,30 @@ test "unixConnect: a path nobody listens on raises" {
     ok!(raised)
 }
 
-class FileServer {
-    listener: UnixListener
-    path: String
-    size: u64
+test {
+    class FileServer {
+        listener: UnixListener
+        path: String
+        size: u64
 
-    func `init`(addr: Address, path: string, size: u64) {
-        listener = UnixListener(addr)
-        this.path = String(path)
-        this.size = size
-    }
+        func `init`(addr: Address, path: string, size: u64) {
+            listener = UnixListener(addr)
+            this.path = String(path)
+            this.size = size
+        }
 
-    // Sends the file to the first connection with sendFile
-    @task
-    func serve(): void {
-        var conn = listener.accept(5000);
-        if (!conn)
-            return
-        var fd = fcntl.open(path.str() !: ^const char, <i32>O_RDONLY!);
-        if (fd == -1)
-            return
-        var sent = (*conn).sendFile(fd, 0, size, 5000);
-        unistd.close(fd)
+        // Sends the file to the first connection with sendFile
+        @task
+        func serve(): void {
+            var conn = listener.accept(5000);
+            if (!conn)
+                return
+            var fd = fcntl.open(path.str() !: ^const char, <i32>O_RDONLY!);
+            if (fd == -1)
+                return
+            var sent = (*conn).sendFile(fd, 0, size, 5000);
+            unistd.close(fd)
+        }
     }
 }
 
