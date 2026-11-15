@@ -310,6 +310,25 @@ bool evalExplicitConstruction(AstVisitor *visitor,
     return !typeIs(type, Error);
 }
 
+// `U{}` zero initializes a C union. Only one of its fields is live and C decides
+// which, so none can be named.
+static void checkUntaggedUnionExpr(TypingContext *ctx,
+                                   AstNode *node,
+                                   const Type *target)
+{
+    if (node->structExpr.fields != NULL) {
+        logError(ctx->L,
+                 &node->structExpr.fields->loc,
+                 "cannot initialize a field of union '{t}', an empty "
+                 "initializer zeroes it",
+                 (FormatArg[]){{.t = target}});
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
+    node->structExpr.left->type = target;
+    node->type = target;
+}
+
 void checkStructExpr(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
@@ -323,6 +342,10 @@ void checkStructExpr(AstVisitor *visitor, AstNode *node)
         return;
     }
     target = resolveType(target);
+    if (typeIs(target, UntaggedUnion)) {
+        checkUntaggedUnionExpr(ctx, node, target);
+        return;
+    }
     if (!isStructType(target)) {
         logError(ctx->L,
                  &node->structExpr.left->loc,
