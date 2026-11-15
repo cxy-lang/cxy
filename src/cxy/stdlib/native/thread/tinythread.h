@@ -86,10 +86,13 @@ extern "C" {
 /* Platform specific includes */
 #if defined(_TTHREAD_POSIX_)
   #include <pthread.h>
-  /* Newer libc declares once_flag, ONCE_FLAG_INIT and call_once in stdlib.h */
-  #include <stdlib.h>
-  #if defined(ONCE_FLAG_INIT)
-    #define _TTHREAD_LIBC_ONCE_
+  /* Newer glibc declares once_flag and call_once in stdlib.h. Do not include
+     stdlib.h here: a C import of this header would then also bring in
+     sys/types.h and take pid_t away from it. */
+  #if defined(__GLIBC__) && defined(__GLIBC_USE)
+    #if __GLIBC_USE(ISOC23)
+      #define _TTHREAD_LIBC_ONCE_
+    #endif
   #endif
 #elif defined(_TTHREAD_WIN32_)
   #ifndef WIN32_LEAN_AND_MEAN
