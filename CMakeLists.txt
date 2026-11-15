@@ -698,6 +698,7 @@ if (ENABLE_UNIT_TESTS)
             tests/lang/middle/lower/test_conditional_operands.cpp
             tests/lang/middle/lower/test_coalesce.cpp
             tests/lang/middle/lower/test_struct_slice.cpp
+            tests/lang/middle/lower/test_catch_discard.cpp
             tests/lang/middle/lower/test_optional_virtual_call.cpp
             tests/lang/middle/abstract/test_abstract_methods.cpp
             tests/lang/middle/abstract/test_closed_overrides.cpp

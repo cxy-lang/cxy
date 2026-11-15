@@ -221,6 +221,7 @@ _L_entry:
   var __t7: !^String
   __t7 = produceString(<i32>(10))
   var __catch_res8: ^String
+  __catch_res8 = null
   if __t7.tag == 1 goto _L_catch_0 else goto _L_cont_1
 _L_catch_0:
   var __t9: ^String
@@ -251,6 +252,7 @@ _L_entry:
   var __t10: !^String
   __t10 = produceString(<i32>(-1))
   var __catch_res11: ^String
+  __catch_res11 = null
   if __t10.tag == 1 goto _L_catch_0 else goto _L_cont_1
 _L_catch_0:
   var __t12: ^String
@@ -281,6 +283,7 @@ _L_entry:
   var __t13: !^String
   __t13 = produceString(<i32>(-5))
   var __catch_res14: ^String
+  __catch_res14 = null
   if __t13.tag == 1 goto _L_catch_0 else goto _L_cont_1
 _L_catch_0:
   scope.enter 1
@@ -351,6 +354,7 @@ _L_entry:
   var __t18: !^String
   __t18 = testBubbleUpDestructible(<i32>(20))
   var __catch_res19: ^String
+  __catch_res19 = null
   if __t18.tag == 1 goto _L_catch_0 else goto _L_cont_1
 _L_catch_0:
   var __t20: ^String
@@ -371,6 +375,7 @@ _L_merge_1:
   var __t21: !^String
   __t21 = testBubbleUpDestructible(<i32>(-20))
   var __catch_res22: ^String
+  __catch_res22 = null
   if __t21.tag == 1 goto _L_catch_1 else goto _L_cont_2
 _L_catch_1:
   var __t23: ^String
@@ -407,6 +412,7 @@ _L_entry:
   var __t24: !^String
   __t24 = produceString(x)
   var __catch_res25: ^String
+  __catch_res25 = null
   if __t24.tag == 1 goto _L_catch_0 else goto _L_cont_1
 _L_catch_0:
   scope.enter 1
@@ -447,6 +453,7 @@ _L_entry:
   var __t26: !^String
   __t26 = produceString(x)
   var __catch_res27: ^String
+  __catch_res27 = null
   if __t26.tag == 1 goto _L_catch_0 else goto _L_cont_1
 _L_catch_0:
   scope.enter 1
@@ -528,6 +535,7 @@ _L_entry:
   var __t30: !^String
   __t30 = testReraiseDestructible(<i32>(10))
   var __catch_res31: ^String
+  __catch_res31 = null
   if __t30.tag == 1 goto _L_catch_0 else goto _L_cont_1
 _L_catch_0:
   var __t32: ^String
@@ -548,6 +556,7 @@ _L_merge_1:
   var __t33: !^String
   __t33 = testReraiseDestructible(<i32>(-10))
   var __catch_res34: ^String
+  __catch_res34 = null
   if __t33.tag == 1 goto _L_catch_1 else goto _L_cont_2
 _L_catch_1:
   var __t35: ^String
@@ -568,6 +577,7 @@ _L_merge_2:
   var __t36: !^String
   __t36 = testRaiseCaught(<i32>(10))
   var __catch_res37: ^String
+  __catch_res37 = null
   if __t36.tag == 1 goto _L_catch_2 else goto _L_cont_3
 _L_catch_2:
   var __t38: ^String
@@ -588,6 +598,7 @@ _L_merge_3:
   var __t39: !^String
   __t39 = testRaiseCaught(<i32>(-10))
   var __catch_res40: ^String
+  __catch_res40 = null
   if __t39.tag == 1 goto _L_catch_3 else goto _L_cont_4
 _L_catch_3:
   var __t41: ^String

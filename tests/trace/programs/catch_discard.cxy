@@ -1,0 +1,35 @@
+// The result of `f() catch { ... }` is dropped when the statement ends. When the
+// catch body does not give a value that result was never set, and dropping it read
+// whatever the stack held.
+class Node {
+    id: i32
+    func `init`(id: i32) { this.id = id }
+}
+
+func make(fail: bool): !Node {
+    if fail {
+        raise Exception("no")
+    }
+    return Node(1)
+}
+
+func caught(): bool {
+    var failed = false
+    make(true) catch {
+        failed = true
+    }
+    return failed
+}
+
+func notCaught(): bool {
+    var failed = false
+    make(false) catch {
+        failed = true
+    }
+    return failed
+}
+
+func main(): void {
+    println("error path: ", caught())
+    println("value path: ", notCaught())
+}

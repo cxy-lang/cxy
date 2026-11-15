@@ -383,6 +383,18 @@ void lowerCatchExpr(AstVisitor *visitor, AstNode *node)
                                   ctx->currentScopeId);
         markCompilerVar(targetVar, irClassTransient);
         emitStmt(ctx, targetVar);
+        if (isIrTypeDestructible(irTargetType)) {
+            // Only the paths that give a value set it, and it is dropped where they
+            // meet: it has to start empty for the one that gives none
+            IrNode *ref = makeIrVarRef(ctx->pool, &node->loc, targetVar);
+            // zeromem of a pointer clears what it points to, so a class is set to null
+            IrNode *clear =
+                irTargetType->tag == irTypePointer
+                    ? makeIrAssign(ctx->pool, &node->loc, ref, makeIrNullConst(ctx->pool, &node->loc, irTargetType))
+                    : makeIrZeromem(ctx->pool, &node->loc, ref);
+            clear->flags |= flgUnmanaged;
+            emitStmt(ctx, clear);
+        }
     }
 
     const IrType *u32Type = getIrPrimitiveType(ctx->types, irTypeU32);
