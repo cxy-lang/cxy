@@ -8,6 +8,7 @@ import "netinet/in.h" as inet
 import "sys/socket.h" as socket
 import "errno.h" as errno
 import "fcntl.h" as fcntl
+import "sys/un.h" as un
 
 ##if (defined MACOS) {
     import "netinet6/in6.h" as inet6
@@ -48,8 +49,13 @@ pub enum IPVersion {
     V6
 }
 
+// What comes before `sun_path` in a `sockaddr_un`: the family, and on macOS the
+// length byte too. Both are 2 bytes.
+macro UNIX_PATH_OFFSET 2
+
 pub struct Address {
-    addr: [i8, 32]
+    // Big enough for a `sockaddr_un` (106 bytes on macOS, 110 on Linux)
+    addr: [i8, 128]
 
     func `init`() {
         (addr !: ^sockaddr).sa_family = <u8>AF_UNSPEC!
@@ -117,10 +123,28 @@ pub struct Address {
     const func family() => (addr !: ^sockaddr).sa_family
 
     @inline
-    const func len() => family() == AF_INET!? sizeof!(#inet.sockaddr_in) : sizeof!(#sockaddr_in6)
+    const func isUnix() => family() == AF_UNIX!
+
+    // The path of a unix address, empty for any other
+    const func path(): string {
+        if (!isUnix())
+            return ""
+        return ((addr !: ^const un.sockaddr_un).sun_path) !: string
+    }
+
+    // The size of the address as `bind` and `connect` take it
+    const func len(): u64 {
+        if (family() == AF_INET!)
+            return sizeof!(#inet.sockaddr_in)
+        if (isUnix())
+            return <u64>UNIX_PATH_OFFSET! + strlen(path()) + 1
+        return sizeof!(#sockaddr_in6)
+    }
 
     @inline
     const func port() {
+        if (isUnix())
+            return 0`u16
         if (family() == AF_INET!)
             return ntohs((addr !: ^inet.sockaddr_in).sin_port)
         else
@@ -137,6 +161,16 @@ pub struct Address {
     const func `!!`() => family() != AF_UNSPEC!
 
     const func toString(os: &OutputStream, includePort: bool = true) {
+        if (isUnix()) {
+            // the peer of an accepted unix socket has no path
+            var name = path();
+            if (name.[0] == '\0'`char)
+                os.appendString("(unnamed)")
+            else
+                os.appendString(name)
+            return
+        }
+
         var buffer: [char, 46] = [];
         var rc = false;
         if (family() == AF_INET!) {
@@ -173,6 +207,23 @@ pub struct Address {
     const func `str`(os: &OutputStream) {
         toString(os)
     }
+}
+
+// The address of a unix domain socket. A path that is empty or does not fit in a
+// `sockaddr_un` (104 bytes on macOS, 108 on Linux) gives an invalid address.
+pub func unixAddress(path: string): Address {
+    var addr = Address()
+    var sun = addr.addr !: ^un.sockaddr_un;
+    var size = strlen(path);
+    if (size == 0 || size >= sizeof!(sun.sun_path))
+        return addr
+
+    memcpy(ptrof sun.sun_path, path !: ^const void, size + 1)
+    sun.sun_family = <u8>AF_UNIX!
+    #if (defined MACOS) {
+        sun.sun_len = <u8>(UNIX_PATH_OFFSET! + size + 1)
+    }
+    return addr
 }
 
 pub func getLocalAddress(name: string, port: u16, mode: IPVersion = IPVersion.Any) {
@@ -637,4 +688,39 @@ pub class BufferedSocketOutputStream : BufferedOutputStream {
         this.sync()
         return sock.sendFile(fd, offset, count, timeout)
     }
+}
+
+test "Address: a unix address keeps its path" {
+    var addr = unixAddress("/tmp/cxy-net.sock")
+    ok!(!!addr)
+    ok!(addr.isUnix())
+    ok!(addr.family() == AF_UNIX!)
+    ok!(strcmp(addr.path(), "/tmp/cxy-net.sock") == 0)
+    ok!(addr.port() == 0)
+    // the length is what bind and connect take: the family, the path and its NUL
+    ok!(addr.len() == 2 + strlen("/tmp/cxy-net.sock") + 1)
+}
+
+test "Address: a unix address prints as its path" {
+    var addr = unixAddress("/tmp/cxy-net.sock")
+    var text = String()
+    addr.toString(&text)
+    ok!(text == "/tmp/cxy-net.sock")
+}
+
+test "Address: an empty or too long unix path is not an address" {
+    ok!(!unixAddress(""))
+    var tooBig = String()
+    for (const i: 0..200)
+        tooBig.appendChar('a')
+    ok!(!unixAddress(tooBig.str()))
+}
+
+test "Address: IP addresses are as they were" {
+    var v4 = Address("127.0.0.1", 8080)
+    ok!(!!v4 && !v4.isUnix() && v4.port() == 8080)
+    ok!(v4.len() == sizeof!(#inet.sockaddr_in))
+    var text = String()
+    v4.toString(&text)
+    ok!(text == "127.0.0.1:8080")
 }

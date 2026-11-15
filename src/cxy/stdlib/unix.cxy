@@ -1,0 +1,355 @@
+module unix
+
+import { Address, StreamSocket, configureSocket, unixAddress } from "./net.cxy"
+import { State } from "./coro.cxy"
+import { lstat, Stat } from "./os.cxy"
+
+import "sys/socket.h" as socket
+import "unistd.h" as unistd
+import "errno.h" as errno
+import "fcntl.h" as fcntl
+
+#if (!defined MACOS) {
+    #if (!defined __ALPINE__) {
+        macro SOCK_STREAM socket.__socket_type.SOCK_STREAM
+    }
+}
+
+// In `st_mode` the file type is the bits of 0170000 and a socket is 0140000
+macro S_TYPE_MASK 0xF000
+macro S_TYPE_SOCKET 0xC000
+
+pub class UnixSocket: StreamSocket {
+    func `init`(fd: i32, addr: Address) {
+        super(fd, &&addr)
+    }
+
+    func `init`() {
+        super(-1`i32, Address())
+    }
+}
+
+exception UnixError(msg: String) => msg == null? "": msg.str()
+
+// What is at the path of a unix address
+enum PathState {
+    Free,       // nothing
+    InUse,      // a socket someone listens on
+    Stale,      // a socket nobody listens on any more
+    NotSocket   // something else, which is never removed
+}
+
+func probePath(addr: &Address): PathState {
+    var st = Stat{}
+    if (lstat(addr.path(), ptrof st) != 0)
+        return PathState.Free
+    if ((<u32>st.st_mode & S_TYPE_MASK!) != S_TYPE_SOCKET!)
+        return PathState.NotSocket
+
+    var fd = socket.socket(AF_UNIX!, <i32>SOCK_STREAM!, 0);
+    if (fd == -1)
+        return PathState.InUse
+    // Non-blocking: a full backlog says EAGAIN, which means in use
+    configureSocket(fd)
+    var rc = socket.connect(fd, addr.nativeAddr(), <u32>addr.len());
+    var err = errno!;
+    unistd.close(fd)
+    if (rc != 0 && err == ECONNREFUSED!)
+        return PathState.Stale
+    return PathState.InUse
+}
+
+pub class UnixListener {
+    - bind: Address
+    - fd: i32
+    // Whether this listener made the socket file, so closing it removes the file
+    - created: bool
+
+    func `init`(addr: Address) {
+        bind = addr
+        fd = -1
+        created = false
+    }
+
+    func `!!`() => (this !: ^void) != null && fd != -1
+
+    const func address() => &bind
+
+    // A socket file left behind by a process that is gone is replaced. A path that
+    // a live server listens on, or that is not a socket, is an error (EADDRINUSE).
+    func listen(backlog: i32 = 127) {
+        if (!bind.isUnix()) {
+            errno! = EINVAL!
+            return false
+        }
+
+        var state = probePath(&bind);
+        if (state == PathState.Stale) {
+            if (unistd.unlink(bind.path() !: ^const char) != 0 && errno! != ENOENT!)
+                return false
+        }
+        else if (state != PathState.Free) {
+            errno! = EADDRINUSE!
+            return false
+        }
+
+        fd = socket.socket(AF_UNIX!, <i32>SOCK_STREAM!, 0)
+        if (fd == -1)
+            return false
+        configureSocket(fd)
+
+        var rc = socket.bind(fd, bind.nativeAddr(), <u32>bind.len());
+        if (rc == -1) {
+            var err = errno!;
+            close()
+            errno! = err
+            return false
+        }
+        created = true
+
+        rc = socket.listen(fd, backlog)
+        if (rc != 0) {
+            var err = errno!;
+            close()
+            errno! = err
+            return false
+        }
+        return true
+    }
+
+    func accept(timeout: u64 = 0): UnixSocket? {
+        var addr = Address();
+        while (this) {
+            var len = <u32> sizeof!(addr);
+            var accepted = socket.accept(fd, addr.nativeAddr(), ptrof len);
+            if (accepted >= 0) {
+                configureSocket(accepted)
+                return UnixSocket(accepted, addr)
+            }
+
+            if (errno! != EAGAIN! && errno! != EWOULDBLOCK!)
+                return null
+            var rc = fdWaitRead(fd, timeout);
+            if (rc != State.AE_READABLE) {
+                errno! = ETIMEDOUT!;
+                return null
+            }
+        }
+        return null
+    }
+
+    @inline
+    func close(): void { shutdown() }
+
+    func shutdown(how: i32 = <i32>SHUT_RDWR!): void {
+        if (fd != -1) {
+            socket.shutdown(fd, how)
+            unistd.close(fd)
+            fd = -1
+        }
+        if (created) {
+            unistd.unlink(bind.path() !: ^const char)
+            created = false
+        }
+    }
+
+    func `deinit`() { close(); }
+}
+
+// Connects to the socket at `addr` and gives the non-blocking fd. On Linux a
+// non-blocking connect says EAGAIN while the listener's backlog is full, so it is
+// tried again until `timeout` (0 is no limit).
+pub func unixConnect(addr: Address, timeout: u64 = 0): !i32 {
+    if (!addr.isUnix())
+        raise UnixError(f"{addr} is not a unix address")
+
+    var fd = socket.socket(AF_UNIX!, <i32>SOCK_STREAM!, 0);
+    if (fd == -1)
+        raise UnixError(f"socket.socket({addr}) failed: {strerr()}")
+    configureSocket(fd)
+
+    var waited: u64 = 0;
+    while {
+        var rc = socket.connect(fd, addr.nativeAddr(), <i32>addr.len());
+        if (rc == 0)
+            break
+
+        if (errno! != EAGAIN! || (timeout != 0 && waited >= timeout)) {
+            var msg = f"socket.connect({addr}) failed: {strerr()}";
+            unistd.close(fd)
+            raise UnixError(msg)
+        }
+        sleepAsync(10)
+        waited += 10
+    }
+
+    errno! = 0
+    return fd
+}
+
+test {
+    class EchoServer {
+        listener: UnixListener
+
+        func `init`(addr: Address) {
+            listener = UnixListener(addr)
+        }
+
+        // Answers one connection with what it received
+        @task
+        func serve(): void {
+            var conn = listener.accept(5000);
+            if (!conn)
+                return
+            var buf: [char, 32] = [];
+            var n = (*conn).receive(buf, 32, 5000);
+            if (n)
+                (*conn).sendBuffer(buf, *n, 5000)
+        }
+    }
+}
+
+test "UnixSocket: bytes sent come back from an echo server" {
+    unistd.unlink("/tmp/cxy-unix-echo.sock")
+    var addr = unixAddress("/tmp/cxy-unix-echo.sock")
+    var server = EchoServer(addr)
+    ok!(server.listener.listen())
+    var task = @async server.serve()
+
+    var fd = unixConnect(addr, 5000) catch {
+        ok!(false, "connect failed")
+        return
+    }
+    var sock = UnixSocket(fd, addr)
+    ok!(!!(sock.sendBuffer("hello" !: ^const void, 5, 5000)))
+    var buf: [char, 8] = [];
+    var n = sock.receive(buf, 5, 5000);
+    ok!(!!n && *n == 5)
+    ok!(buf.[0] == 'h' && buf.[4] == 'o')
+    task.join() catch {
+        ok!(false, "server task raised")
+    }
+}
+
+func pathExists(path: string): bool {
+    var st = Stat{}
+    return lstat(path, ptrof st) == 0
+}
+
+// A socket file with nobody behind it, as a crashed server leaves it
+func leaveStaleSocket(path: string) {
+    var addr = unixAddress(path)
+    var fd = socket.socket(AF_UNIX!, <i32>SOCK_STREAM!, 0);
+    socket.bind(fd, addr.nativeAddr(), <u32>addr.len())
+    unistd.close(fd)
+}
+
+test "UnixListener: closing it removes the socket file" {
+    unistd.unlink("/tmp/cxy-unix-close.sock")
+    var listener = UnixListener(unixAddress("/tmp/cxy-unix-close.sock"))
+    ok!(listener.listen())
+    ok!(pathExists("/tmp/cxy-unix-close.sock"))
+    listener.close()
+    ok!(!pathExists("/tmp/cxy-unix-close.sock"))
+}
+
+test "UnixListener: a stale socket file is replaced" {
+    unistd.unlink("/tmp/cxy-unix-stale.sock")
+    leaveStaleSocket("/tmp/cxy-unix-stale.sock")
+    ok!(pathExists("/tmp/cxy-unix-stale.sock"))
+
+    var listener = UnixListener(unixAddress("/tmp/cxy-unix-stale.sock"))
+    ok!(listener.listen())
+    listener.close()
+}
+
+test "UnixListener: a path a live server listens on is refused" {
+    unistd.unlink("/tmp/cxy-unix-live.sock")
+    var first = UnixListener(unixAddress("/tmp/cxy-unix-live.sock"))
+    ok!(first.listen())
+
+    var second = UnixListener(unixAddress("/tmp/cxy-unix-live.sock"))
+    ok!(!second.listen())
+    ok!(errno! == EADDRINUSE!)
+    // the live server keeps its file
+    ok!(pathExists("/tmp/cxy-unix-live.sock"))
+    first.close()
+}
+
+test "UnixListener: a file that is not a socket is never removed" {
+    unistd.unlink("/tmp/cxy-unix-file.sock")
+    unistd.close(fcntl.creat("/tmp/cxy-unix-file.sock" !: ^const char, 420))
+
+    var listener = UnixListener(unixAddress("/tmp/cxy-unix-file.sock"))
+    ok!(!listener.listen())
+    ok!(errno! == EADDRINUSE!)
+    ok!(pathExists("/tmp/cxy-unix-file.sock"))
+    unistd.unlink("/tmp/cxy-unix-file.sock")
+}
+
+test "UnixListener: an address that is not a unix one is refused" {
+    var listener = UnixListener(Address("127.0.0.1", 0))
+    ok!(!listener.listen())
+    ok!(errno! == EINVAL!)
+}
+
+test "unixConnect: a path nobody listens on raises" {
+    unistd.unlink("/tmp/cxy-unix-none.sock")
+    var raised = false;
+    unixConnect(unixAddress("/tmp/cxy-unix-none.sock"), 1000) catch {
+        raised = true
+    }
+    ok!(raised)
+}
+
+class FileServer {
+    listener: UnixListener
+    path: String
+    size: u64
+
+    func `init`(addr: Address, path: string, size: u64) {
+        listener = UnixListener(addr)
+        this.path = String(path)
+        this.size = size
+    }
+
+    // Sends the file to the first connection with sendFile
+    @task
+    func serve(): void {
+        var conn = listener.accept(5000);
+        if (!conn)
+            return
+        var fd = fcntl.open(path.str() !: ^const char, <i32>O_RDONLY!);
+        if (fd == -1)
+            return
+        var sent = (*conn).sendFile(fd, 0, size, 5000);
+        unistd.close(fd)
+    }
+}
+
+test "UnixSocket: sendFile sends a file over a unix socket" {
+    unistd.unlink("/tmp/cxy-unix-file.txt")
+    var out = fcntl.creat("/tmp/cxy-unix-file.txt" !: ^const char, 420);
+    unistd.write(out, "0123456789abcdef" !: ^const void, 16)
+    unistd.close(out)
+
+    unistd.unlink("/tmp/cxy-unix-send.sock")
+    var addr = unixAddress("/tmp/cxy-unix-send.sock")
+    var server = FileServer(addr, "/tmp/cxy-unix-file.txt", 16)
+    ok!(server.listener.listen())
+    var task = @async server.serve()
+
+    var fd = unixConnect(addr, 5000) catch {
+        ok!(false, "connect failed")
+        return
+    }
+    var sock = UnixSocket(fd, addr)
+    var buf: [char, 32] = [];
+    var n = sock.receive(buf, 16, 5000);
+    ok!(!!n && *n == 16)
+    ok!(buf.[0] == '0' && buf.[9] == '9' && buf.[15] == 'f')
+    task.join() catch {
+        ok!(false, "server task raised")
+    }
+    unistd.unlink("/tmp/cxy-unix-file.txt")
+}
