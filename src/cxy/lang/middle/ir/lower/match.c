@@ -39,8 +39,9 @@ void lowerSwitchStmt(AstVisitor *visitor, AstNode *node)
     IrNode *defaultBB = NULL;
 
     u64 caseStmtCount = countAstNodes(node->switchStmt.cases);
+    // Zeroed: cases that share a body have no block yet, and pass 1 tests for it
     IrNode **caseBBs =
-        allocFromMemPool(ctx->pool, sizeof(IrNode *) * (caseStmtCount ?: 1));
+        callocFromMemPool(ctx->pool, caseStmtCount ?: 1, sizeof(IrNode *));
 
     // Pass 1: Create a single basic block per shared body
     u32 cIdx = 0;

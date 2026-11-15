@@ -166,7 +166,7 @@ static void initPrimitive(IrTypeTable *table, IrTypeTag tag, cstring name, u64 s
 
 IrTypeTable *newIrTypeTable(MemPool *pool, StrPool *strings)
 {
-    IrTypeTable *table = allocFromMemPool(pool, sizeof(IrTypeTable));
+    IrTypeTable *table = callocFromMemPool(pool, 1, sizeof(IrTypeTable));
     table->pool = pool;
     table->strings = strings;
     table->types = newHashTable(sizeof(IrType *), pool);
