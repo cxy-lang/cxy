@@ -55,6 +55,25 @@ static BinaryOperatorKind getBinaryOperatorKind(Operator op)
     }
 }
 
+// Whether the operand is passed by reference to the overload it matches. A lookup
+// by name returns an arbitrary one of the overloads, so only matching the operand
+// tells which one is called.
+static bool operandNeedsReference(const NamedTypeMember *overload,
+                                  const AstNode *param,
+                                  const Type *rhs)
+{
+    if (isReferenceType(rhs) || !isReferable(rhs))
+        return false;
+
+    if (overload->type != NULL && typeIs(overload->type, Func)) {
+        const Type *matched = matchOverloadedFunction(
+            NULL, overload->type, (const Type *[]){rhs}, 1, NULL, flgNone);
+        if (matched != NULL && matched->func.paramsCount > 0)
+            return isReferenceType(matched->func.params[0]);
+    }
+    return nodeIs(param->funcParam.type, ReferenceType);
+}
+
 static bool checkClassBinaryOperatorOverload(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
@@ -79,8 +98,7 @@ static bool checkClassBinaryOperatorOverload(AstVisitor *visitor, AstNode *node)
     if (nodeIsThisParam(param))
         param = param->next;
 
-    if (nodeIs(param->funcParam.type, ReferenceType) && !isReferenceType(rhs) &&
-        isReferable(rhs)) {
+    if (operandNeedsReference(overload, param, rhs)) {
         node->binaryExpr.rhs = makeReferenceOfExpr(ctx->pool,
                                                    &node->binaryExpr.rhs->loc,
                                                    flgNone,
