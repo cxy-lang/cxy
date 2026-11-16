@@ -99,6 +99,19 @@ struct BlobPart {
     }
 }
 
+// A text field that carries a content type of its own
+struct TextPart {
+    _name: String
+    _value: String
+    _contentType: String
+
+    func `init`(name: String, value: String, contentType: strview) {
+        _name = &&name
+        _value = &&value
+        _contentType = String(contentType)
+    }
+}
+
 // A name or a filename sits between double quotes in a part header. As browsers do
 // (the HTML form data rules), a quote, CR and LF in it are written %22, %0D and %0A,
 // so no name can end its quotes or start a header of its own.
@@ -139,6 +152,7 @@ pub class Form {
     - _data = HeaderMap();
     - _uploads = Vector[FileUpload]();
     - _blobs = Vector[BlobPart]();
+    - _typed = Vector[TextPart]();
 
     func `init`(boundary: String) {
         this._boundary = boundary
@@ -155,17 +169,30 @@ pub class Form {
         _encoding = .MultipartForm
     }
 
+    // A text field with a content type of its own, such as the `application/json`
+    // metadata that goes with a file. Only a multipart part can say it, so the form
+    // is sent as multipart. An empty content type is a plain field.
+    func add(name: String, value: String, contentType: strview) {
+        if (contentType.empty()) {
+            _data.[&&name] = &&value
+            return
+        }
+        _typed.push(TextPart(&&name, &&value, contentType))
+        _encoding = .MultipartForm
+    }
+
     // A part whose bytes are in memory, they are copied. The form is sent as
-    // multipart, the parts in this order: fields, files, then these.
+    // multipart, the parts in this order: fields, typed fields, files, then these.
     func upload(name: String, filename: String, data: [u8], contentType: strview = "".s) {
         _blobs.push(BlobPart(&&name, &&filename, data, contentType))
         _encoding = .MultipartForm
     }
 
     @inline
-    const func `!!`() => !_data.empty() || !_uploads.empty() || !_blobs.empty();
+    const func `!!`() => hasParts();
 
-    - const func hasParts() => !_data.empty() || !_uploads.empty() || !_blobs.empty();
+    - const func hasParts(): bool =>
+        !_data.empty() || !_typed.empty() || !_uploads.empty() || !_blobs.empty();
 
     - const func urlEncode(os: &OutputStream) {
         var first = true
@@ -186,6 +213,15 @@ pub class Form {
             partEscape(os, item.0.s())
             os << '"' << CRLF!
                << CRLF! << item.1 << CRLF!
+        }
+
+        for (const item, _: _typed) {
+            os << "--" << _boundary << CRLF!
+               << CONTENT_DISPOSITION
+            partEscape(os, item._name.s())
+            os << '"' << CRLF!
+               << CONTENT_TYPE << item._contentType << CRLF!
+               << CRLF! << item._value << CRLF!
         }
 
         for (const item, _: _uploads) {
@@ -256,6 +292,19 @@ pub class Form {
               + 1 /* +1 for the last '"' */
               + partEscapedSize(item.0.s())
               + item.1.size()
+            )
+        }
+
+        for (const item, _: _typed) {
+            size += (
+                2 /*--*/
+              + _boundary.size()
+              + 8 /* 4 * CRLF */
+              + CONTENT_DISPOSITION.size()
+              + 1 /* +1 for the last '"' */
+              + partEscapedSize(item._name.s())
+              + CONTENT_TYPE.size() + item._contentType.size() + 2 /* CRLF */
+              + item._value.size()
             )
         }
 
@@ -1560,6 +1609,67 @@ test "Form: a part from memory without a content type is application/octet-strea
     var sock = CaptureSocket();
     ok!(submitForm(form, &sock))
     ok!(sock.captured.s().contains("Content-Type: application/octet-stream"))
+}
+
+test "Form: an empty part from memory is a well formed part" {
+    var none: ^u8 = null;
+    var empty = slice!(none, 0);
+    var form = Form(String("xyz"))
+    form.upload(String("blob"), String("empty.bin"), empty, "text/plain".s)
+    var sock = CaptureSocket();
+    ok!(submitForm(form, &sock))
+
+    var raw = sock.captured.s();
+    ok!(raw.contains("name=\"blob\"; filename=\"empty.bin\""))
+    // the headers end, no bytes, the CRLF that ends the part, the closing boundary
+    ok!(raw.contains("\r\n\r\n\r\n--xyz--"))
+    var end = raw.find("\r\n\r\n");
+    ok!(!!end)
+    ok!(sock.captured.size() == *end + 4 + declaredLength(raw))
+}
+
+test "Form: a text field can carry a content type" {
+    var payload: [u8, 300] = [];
+    fillPayload(ptrof payload.[0])
+
+    var form = Form(String("xyz"))
+    form.add(String("plain"), String("text"))
+    form.add(String("meta"), String("{\"a\":1}"), "application/json".s)
+    form.upload(String("img"), String("pic.png"), payload, "image/png".s)
+    var sock = CaptureSocket();
+    ok!(submitForm(form, &sock))
+
+    var raw = sock.captured.s();
+    ok!(raw.contains("name=\"meta\"\r\nContent-Type: application/json\r\n\r\n{\"a\":1}\r\n"))
+    // a field without a type has none
+    ok!(raw.contains("name=\"plain\"\r\n\r\ntext\r\n"))
+    var end = raw.find("\r\n\r\n");
+    ok!(!!end)
+    ok!(sock.captured.size() == *end + 4 + declaredLength(raw))
+}
+
+test "Form: a typed text field makes the form multipart" {
+    var form = Form(String("xyz"))
+    form.add(String("meta"), String("{}"), "application/json".s)
+    var sock = CaptureSocket();
+    ok!(submitForm(form, &sock))
+
+    var raw = sock.captured.s();
+    ok!(raw.contains("Content-Type: multipart/form-data; boundary=xyz"))
+    ok!(raw.contains("name=\"meta\"\r\nContent-Type: application/json"))
+    ok!(memcmp(sock.captured.data() + (sock.captured.size() - 7), "--xyz--", 7) == 0)
+    var end = raw.find("\r\n\r\n");
+    ok!(!!end)
+    ok!(sock.captured.size() == *end + 4 + declaredLength(raw))
+}
+
+test "Form: a text field with an empty content type is a plain one" {
+    var form = Form(String("xyz"))
+    form.add(String("k"), String("v"), "".s)
+    var sock = CaptureSocket();
+    ok!(submitForm(form, &sock))
+    ok!(sock.captured.s().contains("application/x-www-form-urlencoded"))
+    ok!(!sock.captured.s().contains("multipart"))
 }
 
 test "Form: a quote or a line break in a name is escaped, in every kind of part" {
