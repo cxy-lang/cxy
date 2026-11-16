@@ -77,6 +77,58 @@ struct FileUpload {
     const func `==`(other: &const This) => _name == &other._name
 }
 
+// A part whose bytes are in memory
+struct BlobPart {
+    _name: String
+    _filename: String
+    _contentType: String
+    _data: String
+
+    // The bytes are copied. An empty content type is application/octet-stream.
+    func `init`(name: String, filename: String, data: [u8], contentType: strview) {
+        _name = &&name
+        _filename = &&filename
+        _contentType = contentType.empty()
+            ? String("application/octet-stream")
+            : String(contentType)
+        var size = len!(data);
+        if (size == 0)
+            _data = String()
+        else
+            _data = String((ptrof data.[0]) !: ^const char, size)
+    }
+}
+
+// A name or a filename sits between double quotes in a part header. As browsers do
+// (the HTML form data rules), a quote, CR and LF in it are written %22, %0D and %0A,
+// so no name can end its quotes or start a header of its own.
+func partEscape(os: &OutputStream, text: strview) {
+    var p = text.data() !: ^const u8
+    for (const i: 0..text.size()) {
+        const c = p.[i]
+        if (c == '"'`u8)
+            os << "%22"
+        else if (c == 13`u8)
+            os << "%0D"
+        else if (c == 10`u8)
+            os << "%0A"
+        else
+            os << <char>c
+    }
+}
+
+// The size of `text` once written by partEscape
+func partEscapedSize(text: strview): u64 {
+    var p = text.data() !: ^const u8
+    var size = text.size();
+    for (const i: 0..text.size()) {
+        const c = p.[i]
+        if (c == '"'`u8 || c == 13`u8 || c == 10`u8)
+            size += 2
+    }
+    return size
+}
+
 const CONTENT_DISPOSITION = "Content-Disposition: form-data; name=\"".s;
 const CONTENT_DISPOSITION_FILENAME = "\"; filename=\"".s;
 const CONTENT_TYPE = "Content-Type: ".s;
@@ -86,6 +138,7 @@ pub class Form {
     - _boundary: String = null;
     - _data = HeaderMap();
     - _uploads = Vector[FileUpload]();
+    - _blobs = Vector[BlobPart]();
 
     func `init`(boundary: String) {
         this._boundary = boundary
@@ -102,8 +155,17 @@ pub class Form {
         _encoding = .MultipartForm
     }
 
+    // A part whose bytes are in memory, they are copied. The form is sent as
+    // multipart, the parts in this order: fields, files, then these.
+    func upload(name: String, filename: String, data: [u8], contentType: strview = "".s) {
+        _blobs.push(BlobPart(&&name, &&filename, data, contentType))
+        _encoding = .MultipartForm
+    }
+
     @inline
-    const func `!!`() => !_data.empty() || !_uploads.empty();
+    const func `!!`() => !_data.empty() || !_uploads.empty() || !_blobs.empty();
+
+    - const func hasParts() => !_data.empty() || !_uploads.empty() || !_blobs.empty();
 
     - const func urlEncode(os: &OutputStream) {
         var first = true
@@ -121,20 +183,18 @@ pub class Form {
         for (const item: _data) {
             os << "--" << _boundary << CRLF!
                << CONTENT_DISPOSITION
-               << item.0 << '"' << CRLF!
+            partEscape(os, item.0.s())
+            os << '"' << CRLF!
                << CRLF! << item.1 << CRLF!
-        }
-
-        if (_uploads.empty()) {
-            os << "--" << _boundary << "--"
-            return
         }
 
         for (const item, _: _uploads) {
             os << "--" << _boundary << CRLF!
                << CONTENT_DISPOSITION
-               << item.name() << CONTENT_DISPOSITION_FILENAME << item.path().name()
-               << "\"" << CRLF!
+            partEscape(os, item.name().s())
+            os << CONTENT_DISPOSITION_FILENAME
+            partEscape(os, item.path().name())
+            os << "\"" << CRLF!
 
             if (!item.contentType().empty())
                 os << CONTENT_TYPE << item.contentType() << CRLF!
@@ -147,11 +207,24 @@ pub class Form {
             os << CRLF!
         }
 
+        for (const item, _: _blobs) {
+            os << "--" << _boundary << CRLF!
+               << CONTENT_DISPOSITION
+            partEscape(os, item._name.s())
+            os << CONTENT_DISPOSITION_FILENAME
+            partEscape(os, item._filename.s())
+            os << "\"" << CRLF!
+               << CONTENT_TYPE << item._contentType << CRLF!
+               << CRLF!
+            os.append(item._data.data(), item._data.size())
+            os << CRLF!
+        }
+
         os << "--" << _boundary << "--"
     }
 
     const func encode(os: &BufferedSocketOutputStream): !void {
-        if (_data.empty() && _uploads.empty())
+        if (!hasParts())
             return
         if (_encoding == .UrlEncode)
             urlEncode(os)
@@ -181,14 +254,9 @@ pub class Form {
               + 8 /* 4 * CRLF */
               + CONTENT_DISPOSITION.size()
               + 1 /* +1 for the last '"' */
-              + item.0.size()
+              + partEscapedSize(item.0.s())
               + item.1.size()
             )
-        }
-
-        if (_uploads.empty()) {
-            size += ( 4 /* 2 * -- */ + _boundary.size())
-            return size
         }
 
         for (const item, _: _uploads) {
@@ -197,9 +265,9 @@ pub class Form {
                 + _boundary.size()
                 + 4 /* 2 * CRLF */
                 + CONTENT_DISPOSITION.size()
-                + item.name().size()
+                + partEscapedSize(item.name().s())
                 + CONTENT_DISPOSITION_FILENAME.size()
-                + item.path().name().size()
+                + partEscapedSize(item.path().name())
                 + 1 /* '"' */
             )
 
@@ -207,6 +275,22 @@ pub class Form {
                 size += (CONTENT_TYPE.size() + item.contentType().size() + 2 /* CRLF */ )
             size += 2 /* CRLF */
             size += (item.size() + 2 /* CRLF */ )
+        }
+
+        for (const item, _: _blobs) {
+            size += (
+                  2 /* -- */
+                + _boundary.size()
+                + 4 /* 2 * CRLF */
+                + CONTENT_DISPOSITION.size()
+                + partEscapedSize(item._name.s())
+                + CONTENT_DISPOSITION_FILENAME.size()
+                + partEscapedSize(item._filename.s())
+                + 1 /* '"' */
+                + CONTENT_TYPE.size() + item._contentType.size() + 2 /* CRLF */
+                + 2 /* CRLF */
+                + item._data.size() + 2 /* CRLF */
+            )
         }
 
         size +=  (
@@ -217,7 +301,7 @@ pub class Form {
     }
 
     - const func size(): !u64 {
-        if (_data.empty() && _uploads.empty())
+        if (!hasParts())
             return 0`u64
         if (_encoding == .UrlEncode)
             return urlEncodedSize()
@@ -1413,6 +1497,96 @@ test "Response: bytes gives the body whatever bytes it holds" {
 test "Response: bytes is empty when there is no body" {
     var resp = Response(ptrof HTTP_PARSER_SETTINGS);
     ok!(len!(resp.bytes()) == 0)
+}
+
+// The request a form makes, as it goes on the wire
+func submitForm(form: Form, sock: &CaptureSocket): bool {
+    var req = Request();
+    req.reset(Method.Post, "/up", true)
+    req.setForm(form) catch {
+        return false
+    }
+    req.submit(sock) catch {
+        return false
+    }
+    return true
+}
+
+test "Form: a part from memory is sent with its bytes, in a body of the size declared" {
+    unistd.unlink("/tmp/cxy-fetch-part2.txt" !: ^const char)
+    var out = fcntl.creat("/tmp/cxy-fetch-part2.txt" !: ^const char, 420);
+    unistd.write(out, "0123456789" !: ^const void, 10)
+    unistd.close(out)
+
+    var payload: [u8, 300] = [];
+    fillPayload(ptrof payload.[0])
+
+    var form = Form(String("xyz"))
+    form.add(String("field"), String("value"))
+    form.upload(String("doc"), Path("/tmp/cxy-fetch-part2.txt"), "text/plain".s)
+    form.upload(String("img"), String("pic.png"), payload, "image/png".s)
+    var sock = CaptureSocket();
+    ok!(submitForm(form, &sock))
+    unistd.unlink("/tmp/cxy-fetch-part2.txt" !: ^const char)
+
+    var raw = sock.captured.s();
+    var end = raw.find("\r\n\r\n");
+    ok!(!!end)
+    // Content-Length is the size of the whole body, and the body is nothing more
+    ok!(sock.captured.size() == *end + 4 + declaredLength(raw))
+
+    ok!(raw.contains("name=\"field\""))
+    ok!(raw.contains("name=\"doc\"; filename=\"cxy-fetch-part2.txt\""))
+    ok!(raw.contains("name=\"img\"; filename=\"pic.png\""))
+    ok!(raw.contains("Content-Type: image/png"))
+
+    // the bytes follow the headers of their part, exactly
+    var part = raw.find("name=\"img\"");
+    ok!(!!part)
+    var headersEnd = raw.substr(*part).find("\r\n\r\n");
+    ok!(!!headersEnd)
+    var bytes = sock.captured.data() + (*part + *headersEnd + 4);
+    ok!(memcmp(bytes, ptrof payload.[0], 300) == 0)
+    // and a CRLF after them, then the closing boundary ends the body
+    ok!(memcmp(bytes + 300, "\r\n--xyz--", 9) == 0)
+    ok!(memcmp(sock.captured.data() + (sock.captured.size() - 7), "--xyz--", 7) == 0)
+}
+
+test "Form: a part from memory without a content type is application/octet-stream" {
+    var payload: [u8, 300] = [];
+    fillPayload(ptrof payload.[0])
+    var form = Form(String("xyz"))
+    form.upload(String("blob"), String("data.bin"), payload, "".s)
+    var sock = CaptureSocket();
+    ok!(submitForm(form, &sock))
+    ok!(sock.captured.s().contains("Content-Type: application/octet-stream"))
+}
+
+test "Form: a quote or a line break in a name is escaped, in every kind of part" {
+    unistd.unlink("/tmp/cxy-fetch-q\"uote.txt" !: ^const char)
+    var out = fcntl.creat("/tmp/cxy-fetch-q\"uote.txt" !: ^const char, 420);
+    unistd.write(out, "abc" !: ^const void, 3)
+    unistd.close(out)
+
+    var payload: [u8, 300] = [];
+    fillPayload(ptrof payload.[0])
+
+    var form = Form(String("xyz"))
+    form.add(String("a\"b"), String("value"))
+    form.upload(String("c\"d"), Path("/tmp/cxy-fetch-q\"uote.txt"), "text/plain".s)
+    form.upload(String("e\r\nf"), String("g\"h\r\ni.bin"), payload, "image/png".s)
+    var sock = CaptureSocket();
+    ok!(submitForm(form, &sock))
+    unistd.unlink("/tmp/cxy-fetch-q\"uote.txt" !: ^const char)
+
+    var raw = sock.captured.s();
+    ok!(raw.contains("name=\"a%22b\""))
+    ok!(raw.contains("name=\"c%22d\"; filename=\"cxy-fetch-q%22uote.txt\""))
+    ok!(raw.contains("name=\"e%0D%0Af\"; filename=\"g%22h%0D%0Ai.bin\""))
+    // the sizes of the escaped names are counted
+    var end = raw.find("\r\n\r\n");
+    ok!(!!end)
+    ok!(sock.captured.size() == *end + 4 + declaredLength(raw))
 }
 
 test "Session: TLS is not available over a unix socket" {
