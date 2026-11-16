@@ -226,6 +226,11 @@ pub class Form {
     }
 }
 
+// A method whose requests carry a body: an empty one still declares its length
+// (RFC 9110 8.6). The others send no Content-Length unless they have a body.
+func takesBody(method: Method) =>
+    method == Method.Post || method == Method.Put || method == Method.Patch
+
 pub class Request {
     - _headers = HeaderMap();
     - _args = HashMap[String, String]();
@@ -379,7 +384,7 @@ pub class Request {
         sos << " HTTP/1.1" << CRLF!
         encodeHeaders(&sos)
         var size = contentLength();
-        if (size > 0)
+        if (size > 0 || takesBody(_method))
             sos << "Content-Length: " << size << CRLF!
         sos << "Date: " << Time() << CRLF!
         sos << CRLF!
@@ -455,6 +460,16 @@ pub class Response {
 
     @[prop]
     const func body() => &_body
+
+    // The body as bytes, whatever they are, empty when there is none. The slice
+    // points into the response, it is valid while the response is.
+    const func bytes(): [u8] {
+        if (_body == null || _body.size() == 0) {
+            var none: ^u8 = null;
+            return slice!(none, 0)
+        }
+        return slice!(_body.data() !: ^u8, _body.size())
+    }
 
     @inline
     func header(name: String, value: String) => _headers.[&&name] = &&value
@@ -1327,6 +1342,77 @@ test "Request: nothing follows a multipart form and its size is exact" {
     ok!(!!end)
     // Content-Length is the size of the whole body, and the body is nothing more
     ok!(sock.captured.size() == *end + 4 + declaredLength(raw))
+}
+
+// What a request with no body declares, for a method
+func emptyRequestHeaders(method: Method): String {
+    var req = Request();
+    req.reset(method, "/a", true)
+    var sock = CaptureSocket();
+    req.submit(&sock) catch {
+        return String()
+    }
+    return String(sock.captured.data(), sock.captured.size())
+}
+
+test "Request: an empty body of a method that takes one declares Content-Length 0" {
+    var post = emptyRequestHeaders(Method.Post);
+    var put = emptyRequestHeaders(Method.Put);
+    var patch = emptyRequestHeaders(Method.Patch);
+    ok!(post.s().contains("POST /a HTTP/1.1"))
+    ok!(post.s().contains("Content-Length: 0"))
+    ok!(put.s().contains("Content-Length: 0"))
+    ok!(patch.s().contains("Content-Length: 0"))
+}
+
+test "Request: a method that takes no body declares no Content-Length" {
+    var get = emptyRequestHeaders(Method.Get);
+    var head = emptyRequestHeaders(Method.Head);
+    var del = emptyRequestHeaders(Method.Delete);
+    var options = emptyRequestHeaders(Method.Options);
+    // a request was written at all, so the checks below are about the header
+    ok!(get.s().contains("GET /a HTTP/1.1"))
+    ok!(head.s().contains("HEAD /a HTTP/1.1"))
+    ok!(del.s().contains("DELETE /a HTTP/1.1"))
+    ok!(options.s().contains("OPTIONS /a HTTP/1.1"))
+    ok!(!get.s().contains("Content-Length"))
+    ok!(!head.s().contains("Content-Length"))
+    ok!(!del.s().contains("Content-Length"))
+    ok!(!options.s().contains("Content-Length"))
+}
+
+test "Request: a body still declares its own length" {
+    var req = Request();
+    req.reset(Method.Post, "/a", true)
+    req.body("hello")
+    var sock = CaptureSocket();
+    req.submit(&sock) catch {
+        ok!(false, "submit raised")
+        return
+    }
+    ok!(sock.captured.s().contains("Content-Length: 5"))
+    ok!(!sock.captured.s().contains("Content-Length: 0"))
+}
+
+test "Response: bytes gives the body whatever bytes it holds" {
+    var payload: [u8, 300] = [];
+    fillPayload(ptrof payload.[0])
+
+    var resp = Response(ptrof HTTP_PARSER_SETTINGS);
+    // the body arrives in parts
+    resp.onBodyPart((ptrof payload.[0]) !: ^const char, 100)
+    resp.onBodyPart((ptrof payload.[100]) !: ^const char, 200)
+
+    var got = resp.bytes();
+    ok!(len!(got) == 300)
+    ok!(memcmp(ptrof got.[0], ptrof payload.[0], 300) == 0)
+    // the NUL in it does not cut the body short
+    ok!(got.[10] == 0 && got.[299] == 255)
+}
+
+test "Response: bytes is empty when there is no body" {
+    var resp = Response(ptrof HTTP_PARSER_SETTINGS);
+    ok!(len!(resp.bytes()) == 0)
 }
 
 test "Session: TLS is not available over a unix socket" {
