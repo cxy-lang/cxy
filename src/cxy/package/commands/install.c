@@ -216,7 +216,11 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
 
             // Get commit hash and checksum after installation
             char installedPath[1024];
-            snprintf(installedPath, sizeof(installedPath), "%s/%s", targetPackagesDir, resolved->name);
+            if (!formatFits(installedPath, sizeof(installedPath), "%s/%s", targetPackagesDir, resolved->name)) {
+                logWarning(log, NULL, "path of package '{s}' is too long",
+                          (FormatArg[]){{.s = resolved->name}});
+                continue;
+            }
 
             // Get current commit if not already set
             if (!resolved->commit && resolved->repository) {

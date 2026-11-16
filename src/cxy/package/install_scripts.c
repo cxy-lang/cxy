@@ -477,8 +477,12 @@ bool executeInstallScripts(const PackageMetadata *meta,
         if (packagesDir[0] != '/') {
             char cwd[PATH_MAX];
             if (getcwd(cwd, sizeof(cwd)) != NULL) {
-                snprintf(absolutePackagesDir, sizeof(absolutePackagesDir),
-                         "%s/%s", cwd, packagesDir);
+                if (!formatFits(absolutePackagesDir, sizeof(absolutePackagesDir),
+                                "%s/%s", cwd, packagesDir)) {
+                    logError(log, NULL, "packages directory path too long: {s}",
+                             (FormatArg[]){{.s = packagesDir}});
+                    return false;
+                }
             } else {
                 // Last resort: use as-is
                 strncpy(absolutePackagesDir, packagesDir, sizeof(absolutePackagesDir) - 1);

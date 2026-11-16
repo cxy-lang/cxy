@@ -38,6 +38,21 @@ static size_t convertStrToCharOrd(const char *ptr, int base, u32 *res)
     return (ord <= 255 && errno == 0) ? next - ptr : 0;
 }
 
+bool formatFits(char *buf, size_t size, const char *fmt, ...)
+{
+    if (size == 0)
+        return false;
+    va_list args;
+    va_start(args, fmt);
+    int written = vsnprintf(buf, size, fmt, args);
+    va_end(args);
+    if (written < 0) {
+        buf[0] = '\0';
+        return false;
+    }
+    return (size_t)written < size;
+}
+
 __uint128_t strtou128(const char *str, char **endptr, int base)
 {
     if (str == NULL || base < 2 || base > 36) {

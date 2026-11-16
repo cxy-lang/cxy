@@ -344,6 +344,34 @@ TEST_CASE("formati128 Buffer Handling") {
     }
 }
 
+TEST_CASE("formatFits: says whether the text fit") {
+    char buf[8];
+
+    SUBCASE("fits") {
+        CHECK(formatFits(buf, sizeof(buf), "%s/%s", "ab", "cd"));
+        CHECK(strcmp(buf, "ab/cd") == 0);
+    }
+
+    SUBCASE("fits exactly, the terminator included") {
+        CHECK(formatFits(buf, sizeof(buf), "%s", "1234567"));
+        CHECK(strcmp(buf, "1234567") == 0);
+    }
+
+    SUBCASE("one byte too many does not fit") {
+        CHECK_FALSE(formatFits(buf, sizeof(buf), "%s", "12345678"));
+        // what is there is the start of it, and ends in a NUL
+        CHECK(strcmp(buf, "1234567") == 0);
+    }
+
+    SUBCASE("a path with a suffix that is cut does not fit") {
+        CHECK_FALSE(formatFits(buf, sizeof(buf), "%s/Cxyfile.yaml", "/a/b"));
+    }
+
+    SUBCASE("an empty buffer holds nothing") {
+        CHECK_FALSE(formatFits(buf, 0, "%s", "x"));
+    }
+}
+
 TEST_CASE("Format Round-trip Consistency") {
     char buffer[64];
     char *endptr;

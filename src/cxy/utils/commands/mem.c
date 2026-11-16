@@ -67,7 +67,9 @@ static int collectSockets(MemSocket *out, int max)
             continue;
 
         MemSocket *s = &out[count];
-        snprintf(s->path, sizeof(s->path), "%s/%s", MEM_SOCKET_DIR, ent->d_name);
+        // a name that does not fit in a socket path cannot be one of ours
+        if (!formatFits(s->path, sizeof(s->path), "%s/%s", MEM_SOCKET_DIR, ent->d_name))
+            continue;
         struct stat st;
         s->mtime = stat(s->path, &st) == 0 ? st.st_mtime : 0;
         s->pid = pid;

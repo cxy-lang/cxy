@@ -448,7 +448,11 @@ bool packageUpdateCommand(const Options *options, StrPool *strings, Log *log)
                 ResolvedDependency *resolved = &((ResolvedDependency *)newCtx.resolved.elems)[i];
 
                 char installedPath[1024];
-                snprintf(installedPath, sizeof(installedPath), "%s/%s", targetPackagesDir, resolved->name);
+                if (!formatFits(installedPath, sizeof(installedPath), "%s/%s", targetPackagesDir, resolved->name)) {
+                    logWarning(log, NULL, "path of package '{s}' is too long",
+                              (FormatArg[]){{.s = resolved->name}});
+                    continue;
+                }
 
                 // Get current commit
                 if (resolved->repository && !resolved->commit) {

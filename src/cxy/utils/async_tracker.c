@@ -244,11 +244,11 @@ void asyncTrackerCleanup(Log *log)
         // Remove log file if output was captured
         if (processes[i].captureOutput) {
             char logPath[1024];
-            snprintf(logPath, sizeof(logPath),
-                     "%s/.async-cmd-%d.log",
-                     g_async_tracker.build_dir,
-                     processes[i].pid);
-            unlink(logPath);  // Ignore errors
+            if (formatFits(logPath, sizeof(logPath),
+                           "%s/.async-cmd-%d.log",
+                           g_async_tracker.build_dir,
+                           processes[i].pid))
+                unlink(logPath);  // Ignore errors
         }
     }
 

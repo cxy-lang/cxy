@@ -749,7 +749,11 @@ bool verifyInstalledPackage(const ResolvedDependency *resolved,
 
     // Verify Cxyfile.yaml exists
     char cxyfilePath[1024];
-    snprintf(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", packagePath);
+    if (!formatFits(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", packagePath)) {
+        logError(log, NULL, "path of package '{s}' is too long",
+                (FormatArg[]){{.s = resolved->name}});
+        return false;
+    }
     if (stat(cxyfilePath, &st) != 0 || !S_ISREG(st.st_mode)) {
         logError(log, NULL, "package '{s}' missing Cxyfile.yaml",
                 (FormatArg[]){{.s = resolved->name}});

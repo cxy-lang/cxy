@@ -1298,7 +1298,10 @@ bool findAndLoadCxyfile(const char *startDir, PackageMetadata *meta, StrPool *st
 
     // Search up the directory tree
     while (true) {
-        snprintf(path, sizeof(path), "%s/Cxyfile.yaml", currentDir);
+        if (!formatFits(path, sizeof(path), "%s/Cxyfile.yaml", currentDir)) {
+            logError(log, NULL, "directory path too long: {s}", (FormatArg[]){{.s = currentDir}});
+            return false;
+        }
 
         struct stat st;
         if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) {
@@ -1881,7 +1884,10 @@ bool installDependency(const PackageDependency *dep,
     if (stat(targetPath, &st) == 0 && S_ISDIR(st.st_mode)) {
         // Already installed, check if it has Cxyfile.yaml
         char cxyfilePath[1024];
-        snprintf(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", targetPath);
+        if (!formatFits(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", targetPath)) {
+            logError(log, NULL, "path of package '{s}' is too long", (FormatArg[]){{.s = dep->name}});
+            return false;
+        }
 
         if (stat(cxyfilePath, &st) == 0 && S_ISREG(st.st_mode)) {
             printStatusSticky(log, "Package '%s' already installed", dep->name);
@@ -1990,7 +1996,10 @@ bool installDependency(const PackageDependency *dep,
 
     // Verify Cxyfile.yaml exists
     char cxyfilePath[1024];
-    snprintf(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", targetPath);
+    if (!formatFits(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", targetPath)) {
+        logError(log, NULL, "path of package '{s}' is too long", (FormatArg[]){{.s = dep->name}});
+        return false;
+    }
 
     if (stat(cxyfilePath, &st) != 0 || !S_ISREG(st.st_mode)) {
         logError(log, NULL, "cloned repository does not contain Cxyfile.yaml - not a valid Cxy package", NULL);

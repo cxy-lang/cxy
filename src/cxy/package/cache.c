@@ -125,10 +125,12 @@ static bool expandSingleGlob(const char *packageDir,
         // Build full base directory path
         char fullBaseDir[2048];
         // If baseDir is already absolute, use it as-is
-        if (baseDir[0] == '/') {
-            snprintf(fullBaseDir, sizeof(fullBaseDir), "%s", baseDir);
-        } else {
-            snprintf(fullBaseDir, sizeof(fullBaseDir), "%s/%s", packageDir, baseDir);
+        bool fits = baseDir[0] == '/'
+            ? formatFits(fullBaseDir, sizeof(fullBaseDir), "%s", baseDir)
+            : formatFits(fullBaseDir, sizeof(fullBaseDir), "%s/%s", packageDir, baseDir);
+        if (!fits) {
+            logError(log, NULL, "path too long: {s}", (FormatArg[]){{.s = baseDir}});
+            return false;
         }
 
         // Recursively find all matching files

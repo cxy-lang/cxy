@@ -139,7 +139,10 @@ static bool expandGlobPattern(const char *packageDir,
 
         // Build full base directory path
         char fullBaseDir[2048];
-        snprintf(fullBaseDir, sizeof(fullBaseDir), "%s/%s", packageDir, baseDir);
+        if (!formatFits(fullBaseDir, sizeof(fullBaseDir), "%s/%s", packageDir, baseDir)) {
+            logError(log, NULL, "path too long: {s}", (FormatArg[]){{.s = baseDir}});
+            return false;
+        }
 
         // Recursively find all .cxy files matching the pattern
         size_t beforeCount = files->size;
@@ -437,11 +440,13 @@ bool packageTestCommand(const Options *options, StrPool *strings, Log *log)
     // Auto-run install scripts if needed (install sections defined but .install.dev.yaml missing or stale)
     if (meta.install.size > 0 || meta.installDev.size > 0) {
         char installYamlPath[2048];
-        snprintf(installYamlPath, sizeof(installYamlPath), "%s/.install.dev.yaml", buildDir);
-
         struct stat installSt, cxyfileSt;
         char cxyfilePath[2048];
-        snprintf(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", packageDir);
+        if (!formatFits(installYamlPath, sizeof(installYamlPath), "%s/.install.dev.yaml", buildDir) ||
+            !formatFits(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", packageDir)) {
+            logError(log, NULL, "build directory or package path is too long", NULL);
+            return false;
+        }
 
         bool needsInstall = (stat(installYamlPath, &installSt) != 0);
 

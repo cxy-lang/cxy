@@ -4722,7 +4722,6 @@ AstNode *parseProgram(Parser *P)
                 } E4C_CATCH(ParserException) {
                     synchronize(E4C_EXCEPTION.ctx);
                 } E4C_CATCH(ParserAbort) { return NULL; })
-            printf("");
         }
 
         while (!isEoF(P)) {

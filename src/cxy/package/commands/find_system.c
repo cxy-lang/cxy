@@ -345,16 +345,16 @@ static bool tryHomebrew(const char *packageName,
                     
                     // Add include directory
                     char includePath[1024];
-                    snprintf(includePath, sizeof(includePath), "%s/include", prefix);
-                    if (stat(includePath, &st) == 0 && S_ISDIR(st.st_mode)) {
+                    if (formatFits(includePath, sizeof(includePath), "%s/include", prefix) &&
+                        stat(includePath, &st) == 0 && S_ISDIR(st.st_mode)) {
                         cstring path = makeString(strings, includePath);
                         pushOnDynArray(&result->includeDirs, &path);
                     }
                     
                     // Add lib directory
                     char libPath[1024];
-                    snprintf(libPath, sizeof(libPath), "%s/lib", prefix);
-                    if (stat(libPath, &st) == 0 && S_ISDIR(st.st_mode)) {
+                    if (formatFits(libPath, sizeof(libPath), "%s/lib", prefix) &&
+                        stat(libPath, &st) == 0 && S_ISDIR(st.st_mode)) {
                         cstring path = makeString(strings, libPath);
                         pushOnDynArray(&result->libDirs, &path);
                     }

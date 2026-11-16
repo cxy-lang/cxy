@@ -213,9 +213,9 @@ bool utilsAsyncCmdStartCommand(const Options *options, StrPool *strings, Log *lo
         // Write PID to .async-last-pid file so scripts can read it
         // even when stdout is captured by the progress runner pipe.
         char lastPidPath[1024];
-        snprintf(lastPidPath, sizeof(lastPidPath), "%s/.async-last-pid", buildDir);
-
-        FILE *fp = fopen(lastPidPath, "w");
+        FILE *fp = formatFits(lastPidPath, sizeof(lastPidPath), "%s/.async-last-pid", buildDir)
+                       ? fopen(lastPidPath, "w")
+                       : NULL;
         if (fp) {
             fprintf(fp, "%d\n", pid);
             fclose(fp);
@@ -300,7 +300,10 @@ bool utilsAsyncCmdLogsCommand(const Options *options, StrPool *strings, Log *log
     }
 
     char logPath[1024];
-    snprintf(logPath, sizeof(logPath), "%s/.async-cmd-%d.log", buildDir, pid);
+    if (!formatFits(logPath, sizeof(logPath), "%s/.async-cmd-%d.log", buildDir, pid)) {
+        logError(log, NULL, "build directory path too long: {s}", (FormatArg[]){{.s = buildDir}});
+        return false;
+    }
 
     FILE *fp = fopen(logPath, "r");
     if (!fp) {

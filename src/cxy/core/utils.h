@@ -298,6 +298,10 @@ size_t convertEscapeSeq(const char *str, size_t n, u32 *res);
 size_t escapeString(const char *str, size_t n, char *dst, size_t size);
 size_t readChar(cstring str, size_t len, u32 *res);
 __uint128_t strtou128(const char *str, char **endptr, int base);
+
+// snprintf that says whether everything fit, the terminator included. When it did not,
+// `buf` holds the start of the text and ends in a NUL (it is empty when `size` is 0).
+attr(format, printf, 3, 4) bool formatFits(char *buf, size_t size, const char *fmt, ...);
 i64 formati128(__int128_t value, char *buffer, size_t buffer_size);
 i64 formatu128(__uint128_t value, char *buffer, size_t buffer_size);
 

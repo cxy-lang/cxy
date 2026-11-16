@@ -132,8 +132,9 @@ void memApplySuspect(MemFinding *f,
         static const char lead[] = "Objects ";
         if (strncmp(f->title, lead, sizeof(lead) - 1) == 0) {
             char rest[sizeof(f->title)];
-            snprintf(rest, sizeof(rest), "%s", f->title + sizeof(lead) - 1);
-            snprintf(f->title, sizeof(f->title), "`%s` objects %s", f->type, rest);
+            (void)formatFits(rest, sizeof(rest), "%s", f->title + sizeof(lead) - 1);
+            // the title is for people, one that grew past its field is cut
+            (void)formatFits(f->title, sizeof(f->title), "`%s` objects %s", f->type, rest);
         }
     }
 

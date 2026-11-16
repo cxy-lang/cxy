@@ -479,14 +479,22 @@ static cstring resolvePackageDependency(CompilerDriver *driver,
 
     // Determine file path within package
     char fullPath[PATH_MAX];
+    bool fits;
     if (slash) {
         // File-specific import: @package-name/path/file.cxy
         const char *filePath = slash + 1;
-        snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, filePath);
+        fits = formatFits(fullPath, sizeof(fullPath), "%s/%s", basePath, filePath);
     }
     else {
         // Module-level import: @package-name -> index.cxy
-        snprintf(fullPath, sizeof(fullPath), "%s/index.cxy", basePath);
+        fits = formatFits(fullPath, sizeof(fullPath), "%s/index.cxy", basePath);
+    }
+    if (!fits) {
+        logError(driver->L,
+                 &source->loc,
+                 "path of package '{s}' is too long",
+                 (FormatArg[]){{.s = packageName}});
+        return NULL;
     }
 
     // Verify file exists

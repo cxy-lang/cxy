@@ -79,8 +79,13 @@ static bool removePackageFromDisk(const char *packageName, const char *packagesD
     }
     
     // Build remove command
+    // A cut command would remove another path, so one that does not fit is not run
     char rmCmd[2048];
-    snprintf(rmCmd, sizeof(rmCmd), "rm -rf \"%s\"", packagePath);
+    if (!formatFits(rmCmd, sizeof(rmCmd), "rm -rf \"%s\"", packagePath)) {
+        logWarning(log, NULL, "path of package '{s}' is too long to remove",
+                  (FormatArg[]){{.s = packageName}});
+        return false;
+    }
     
     if (system(rmCmd) != 0) {
         logWarning(log, NULL, "failed to remove package directory: {s}",

@@ -16,8 +16,12 @@ jobs:
       - name: Check out the repo
         uses: actions/checkout@v4
 
+      # clang, as the Docker images and the release builds use. GCC is the default
+      # compiler in the container and also builds the tree.
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 
       - name: Build
         run: cmake --build build --parallel

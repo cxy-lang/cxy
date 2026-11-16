@@ -262,11 +262,13 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
     // Auto-run install scripts if needed (install sections defined but .install.yaml missing or stale)
     if (meta.install.size > 0) {
         char installYamlPath[1024];
-        snprintf(installYamlPath, sizeof(installYamlPath), "%s/.install.yaml", buildDir);
-
         struct stat installSt, cxyfileSt;
         char cxyfilePath[1024];
-        snprintf(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", packageDir);
+        if (!formatFits(installYamlPath, sizeof(installYamlPath), "%s/.install.yaml", buildDir) ||
+            !formatFits(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", packageDir)) {
+            logError(log, NULL, "build directory or package path is too long", NULL);
+            return false;
+        }
 
         bool needsInstall = (stat(installYamlPath, &installSt) != 0);
 

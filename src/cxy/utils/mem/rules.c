@@ -237,7 +237,8 @@ static void ruleG1(const MemSnapshot *baseline,
         double ratio = (double)c->alive / (double)c->made;
         snprintf(f->subject, sizeof(f->subject), "%s:%llu", orUnknown(c->site->file),
                  (unsigned long long)c->site->line);
-        snprintf(f->title,
+        // A title longer than its field is cut: it is for people, and `subject` has the site
+        (void)formatFits(f->title,
                  sizeof(f->title),
                  "Objects made at %s are not freed: %llu of %llu made since the baseline are "
                  "alive%s",
@@ -258,7 +259,7 @@ static void ruleG1(const MemSnapshot *baseline,
             MemFinding *a = addFinding(report, memRuleA1, memInfo);
             if (a != NULL) {
                 snprintf(a->subject, sizeof(a->subject), "%s", f->subject);
-                snprintf(a->title,
+                (void)formatFits(a->title,
                          sizeof(a->title),
                          "%llu of the %llu objects made at %s that are alive were made in the last "
                          "tenth of the window: work still in flight, not necessarily growth",
@@ -564,7 +565,7 @@ static void ruleB1(const MemSnapshot *baseline, const MemSnapshot *last, const M
         if (f == NULL)
             break;
         snprintf(f->subject, sizeof(f->subject), "%s:%llu", orUnknown(c->site->file), (unsigned long long)c->site->line);
-        snprintf(f->title,
+        (void)formatFits(f->title,
                  sizeof(f->title),
                  "Buffers made at %s were allocated %llu times since the baseline, %llu of "
                  "those are still alive: a container growing by reallocation?",
@@ -621,7 +622,7 @@ static void ruleH1(const MemSnapshot *baseline, const Series *series, const MemC
     char before[64] = "";
     if (compare)
         snprintf(before, sizeof(before), ", it was %llu at the baseline", (unsigned long long)baseline->maxRefs);
-    snprintf(f->title,
+    (void)formatFits(f->title,
              sizeof(f->title),
              "%s made at %s has %llu references%s, the average is %.1f: a hot shared object, or "
              "a retain that is never released",
