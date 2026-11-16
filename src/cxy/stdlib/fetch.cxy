@@ -289,6 +289,29 @@ pub class Request {
         setContentType(&&contentType)
     }
 
+    // The body is the bytes of `data`, any byte, NUL included. They are copied, so
+    // `data` need not outlive the request. The content type is `contentType` when
+    // given, else the one already set, else `application/octet-stream`.
+    func setBytes(data: [u8], contentType: String = null): !void {
+        if (_body != null)
+            raise HttpError("Request body already set as a string buffer")
+        else if (_form)
+            raise HttpError("Request body already set as a form")
+        else if (_sendFile)
+            raise HttpError("Request body already set as a file")
+
+        var size = len!(data);
+        if (size == 0)
+            _body = String()
+        else
+            _body = String((ptrof data.[0]) !: ^const char, size)
+
+        if (contentType != null)
+            setContentType(&&contentType)
+        else if (!_headers.contains("Content-Type"))
+            setContentType("application/octet-stream")
+    }
+
     func cleanup() {
         _args.clear()
         _headers.clear()
@@ -1065,6 +1088,121 @@ test "Session: createUnix refuses an empty path" {
 test "Session: a http+unix url without a path is refused" {
     var raised = false;
     Session.create("http+unix://") catch {
+        raised = true
+    }
+    ok!(raised)
+}
+
+// A socket that keeps what is written to it
+class CaptureSocket: Socket {
+    captured = String()
+
+    func `init`() {
+        super(-1`i32, Address())
+    }
+
+    func receive(buffer: ^void, size: u64, timeout: u64 = 0): u64? => 0`u64
+
+    func sendBuffer(buffer: ^const void, size: u64, timeout: u64 = 0): u64? {
+        captured.append(buffer !: ^const char, size)
+        return size
+    }
+
+    func sendFile(fd: i32, offset: u64, count: u64, timeout: u64 = 0): u64? => 0`u64
+}
+
+// 300 bytes with every kind of byte in them: a NUL, a CRLF CRLF, and 0xFF
+func fillPayload(data: ^u8) {
+    for (const i: 0..300) {
+        data.[i] = <u8>(i % 256)
+    }
+    data.[10] = 0
+    data.[20] = 13
+    data.[21] = 10
+    data.[22] = 13
+    data.[23] = 10
+    data.[299] = 255`u8
+}
+
+test "Request: a byte slice is sent as the body whatever bytes it holds" {
+    var payload: [u8, 300] = [];
+    fillPayload(ptrof payload.[0])
+
+    var req = Request();
+    req.reset(Method.Post, "/upload", true)
+    req.setBytes(payload) catch {
+        ok!(false, "setBytes raised")
+        return
+    }
+    var sock = CaptureSocket();
+    req.submit(&sock) catch {
+        ok!(false, "submit raised")
+        return
+    }
+
+    var raw = sock.captured.s();
+    ok!(raw.contains("POST /upload HTTP/1.1"))
+    ok!(raw.contains("Content-Length: 300"))
+    ok!(raw.contains("Content-Type: application/octet-stream"))
+
+    // the body follows the first empty line, and is exactly the payload
+    var end = raw.find("\r\n\r\n");
+    ok!(!!end)
+    var body = sock.captured.data() + (*end + 4);
+    ok!(memcmp(body, ptrof payload.[0], 300) == 0)
+}
+
+test "Request: setBytes keeps a content type set before it and takes an explicit one" {
+    var payload: [u8, 300] = [];
+    fillPayload(ptrof payload.[0])
+
+    var first = Request();
+    first.reset(Method.Post, "/a", true)
+    first.setContentType("image/png")
+    first.setBytes(payload) catch {
+        ok!(false, "setBytes raised")
+        return
+    }
+    var sock1 = CaptureSocket();
+    first.submit(&sock1) catch {
+        ok!(false, "submit raised")
+        return
+    }
+    ok!(sock1.captured.s().contains("Content-Type: image/png"))
+    ok!(!sock1.captured.s().contains("octet-stream"))
+
+    var second = Request();
+    second.reset(Method.Post, "/b", true)
+    second.setBytes(payload, "application/x-custom") catch {
+        ok!(false, "setBytes raised")
+        return
+    }
+    var sock2 = CaptureSocket();
+    second.submit(&sock2) catch {
+        ok!(false, "submit raised")
+        return
+    }
+    ok!(sock2.captured.s().contains("Content-Type: application/x-custom"))
+}
+
+test "Request: setBytes is refused when a body is already set" {
+    var payload: [u8, 300] = [];
+    fillPayload(ptrof payload.[0])
+
+    var text = Request();
+    text.reset(Method.Post, "/a", true)
+    text.body("text")
+    var raised = false;
+    text.setBytes(payload) catch {
+        raised = true
+    }
+    ok!(raised)
+
+    var twice = Request();
+    twice.reset(Method.Post, "/b", true)
+    twice.setBytes(payload)
+    raised = false
+    twice.setBytes(payload) catch {
         raised = true
     }
     ok!(raised)
