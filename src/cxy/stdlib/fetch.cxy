@@ -769,7 +769,9 @@ pub class Session {
     - _headers = HeaderMap();
     - _timeout = 20000`u64; /* 20 sec */
     - _addr = Address();
-    - _proto = strview("http");
+    // Whether the protocol is https. The protocol itself is not kept: it can be a view
+    // into the url, which may not outlive the session.
+    - _https = false;
     - _sock: Socket = null;
     - _sslCtx: SslContext = null;
     - _req: Request = null;
@@ -778,7 +780,7 @@ pub class Session {
     - _pending: String = null;
 
     func `init`(proto: strview, host: String, port: u16, addr: Address, timeout: u64 = 20000`u64) {
-        _proto = &&proto
+        _https = proto == "https".s
         _port = port
         _addr = &&addr
         _hostname = &&host
@@ -787,7 +789,7 @@ pub class Session {
     }
 
     @inline
-    func isHttps() => _proto == "https".s
+    func isHttps() => _https
 
     // How an https server is trusted, and the client certificate to show it: CA files
     // and mutual TLS. Without one the server is verified against the system roots.
@@ -931,7 +933,7 @@ pub class Session {
         var hostStr = String(host)
         var addr = getRemoteAddress(hostStr.str(), port);
         TRC1!(f"Connected to host: '{proto}://{host}:{port}'")
-        return This(proto == "https".s ? "https".s : "http".s, hostStr, port, &&addr, timeout)
+        return This(proto, hostStr, port, &&addr, timeout)
     }
 
     // Note: bytes that arrived with the response headers (events of an event
@@ -1710,6 +1712,27 @@ test "Form: a quote or a line break in a name is escaped, in every kind of part"
     var end = raw.find("\r\n\r\n");
     ok!(!!end)
     ok!(sock.captured.size() == *end + 4 + declaredLength(raw))
+}
+
+test "Session: the protocol does not depend on the url it was read from" {
+    var secure = String("https://127.0.0.1:8443");
+    var plain = String("http://127.0.0.1:8080");
+    var s1 = Session.create(secure.s()) catch {
+        ok!(false, "create https raised")
+        return
+    }
+    var s2 = Session.create(plain.s()) catch {
+        ok!(false, "create http raised")
+        return
+    }
+    ok!(s1.isHttps())
+    ok!(!s2.isHttps())
+
+    // the urls are gone as far as the sessions are concerned: their bytes change
+    memset(secure.data() !: ^void, 'x'`i32, secure.size())
+    memset(plain.data() !: ^void, 'x'`i32, plain.size())
+    ok!(s1.isHttps())
+    ok!(!s2.isHttps())
 }
 
 test "Session: TLS is not available over a unix socket" {
