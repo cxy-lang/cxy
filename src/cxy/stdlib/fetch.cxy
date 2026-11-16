@@ -931,7 +931,7 @@ pub class Session {
         var hostStr = String(host)
         var addr = getRemoteAddress(hostStr.str(), port);
         TRC1!(f"Connected to host: '{proto}://{host}:{port}'")
-        return This(proto, hostStr, port, &&addr, timeout)
+        return This(proto == "https".s ? "https".s : "http".s, hostStr, port, &&addr, timeout)
     }
 
     // Note: bytes that arrived with the response headers (events of an event

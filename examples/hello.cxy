@@ -1,15 +1,14 @@
+// Does not compile, on purpose: `cancel` has no body so it is abstract, and
+// `Forgot` inherits it without implementing it. Expect:
+//   class 'Forgot' must implement the abstract method `cancel` of 'Base'
+import { Vector } from "../src/cxy/stdlib/vector.cxy"
+import { sortInPlace } from "../src/cxy/stdlib/sort.cxy"
 
-class Node {
-    id: i32
-    func `init`(id: i32) { this.id = id }
-}
-
-class Holder {
-    n: Node
-    func `init`() {}
-}
-
-func main() {
-    var h = Holder()
-    println(h.n.id)
+func main(): void {
+    var v = Vector[String]()
+    v.push("zeta")
+    v.push("beta")
+    v.push("alpha")
+    sortInPlace[String](&v)
+    println(v)
 }
