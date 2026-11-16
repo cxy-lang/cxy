@@ -2,6 +2,7 @@ module fetch
 
 import { Address, Socket, BufferedSocketOutputStream, getRemoteAddress, unixAddress } from "./net.cxy"
 import "unistd.h" as unistd
+import "fcntl.h" as fcntl
 import { TcpSocket, tcpConnect } from "./tcp.cxy"
 import { UnixSocket, UnixListener, unixConnect } from "./unix.cxy"
 import { SslSocket } from "./ssl.cxy"
@@ -392,13 +393,14 @@ pub class Request {
         }
         else if (_sendFile) {
             // Send the file
-            sos.sendFile(_sendFile&.raw(), _sendFile&.count, 0)
+            sos.sendFile(_sendFile&.raw(), _sendFile&.offset, _sendFile&.count)
         }
         else if (_form) {
-            // Encode the for
+            // Encode the form
             _form&.encode(&sos)
         }
-        sos << CRLF!
+        // Nothing follows the body: Content-Length ends the message, and a byte more
+        // would start the next request on this connection (RFC 9112)
     }
 }
 
@@ -1108,7 +1110,39 @@ class CaptureSocket: Socket {
         return size
     }
 
-    func sendFile(fd: i32, offset: u64, count: u64, timeout: u64 = 0): u64? => 0`u64
+    func sendFile(fd: i32, offset: u64, count: u64, timeout: u64 = 0): u64? {
+        var buf: [char, 256] = [];
+        var copied = 0`u64;
+        while (copied < count) {
+            var want = count - copied;
+            if (want > 256)
+                want = 256
+            var n = unistd.pread(fd, buf !: ^void, want, <i64>(offset + copied));
+            if (n <= 0)
+                break
+            captured.append(buf !: ^const char, <u64>n)
+            copied += <u64>n
+        }
+        return copied
+    }
+}
+
+// The Content-Length a captured request declares
+func declaredLength(raw: strview): u64 {
+    var at = raw.find("Content-Length: ");
+    if (!at)
+        return 0`u64
+    return raw.substr(*at + 16).toi[u64]()
+}
+
+// A request ends where its Content-Length says: nothing follows the body, as RFC 9112
+// has it, or the next request on the connection starts with stray bytes
+func endsWithItsBody(sock: &CaptureSocket, length: u64): bool {
+    var raw = sock.captured.s();
+    var end = raw.find("\r\n\r\n");
+    if (!end)
+        return false
+    return declaredLength(raw) == length && sock.captured.size() == *end + 4 + length
 }
 
 // 300 bytes with every kind of byte in them: a NUL, a CRLF CRLF, and 0xFF
@@ -1206,6 +1240,93 @@ test "Request: setBytes is refused when a body is already set" {
         raised = true
     }
     ok!(raised)
+}
+
+test "Request: nothing follows a string body" {
+    var req = Request();
+    req.reset(Method.Post, "/a", true)
+    req.body("hello world")
+    var sock = CaptureSocket();
+    req.submit(&sock) catch {
+        ok!(false, "submit raised")
+        return
+    }
+    ok!(endsWithItsBody(&sock, 11))
+}
+
+test "Request: nothing follows a byte slice body" {
+    var payload: [u8, 300] = [];
+    fillPayload(ptrof payload.[0])
+    var req = Request();
+    req.reset(Method.Post, "/a", true)
+    req.setBytes(payload)
+    var sock = CaptureSocket();
+    req.submit(&sock) catch {
+        ok!(false, "submit raised")
+        return
+    }
+    ok!(endsWithItsBody(&sock, 300))
+}
+
+test "Request: nothing follows a url encoded form" {
+    var form = Form(String("boundary"))
+    form.add(String("a"), String("1"))
+    form.add(String("b"), String("2"))
+    var req = Request();
+    req.reset(Method.Post, "/a", true)
+    req.setForm(form)
+    var sock = CaptureSocket();
+    req.submit(&sock) catch {
+        ok!(false, "submit raised")
+        return
+    }
+    // a=1&b=2
+    ok!(endsWithItsBody(&sock, 7))
+}
+
+test "Request: nothing follows a file body" {
+    unistd.unlink("/tmp/cxy-fetch-body.txt" !: ^const char)
+    var out = fcntl.creat("/tmp/cxy-fetch-body.txt" !: ^const char, 420);
+    unistd.write(out, "0123456789" !: ^const void, 10)
+    unistd.close(out)
+
+    var req = Request();
+    req.reset(Method.Post, "/a", true)
+    req.setFile(Path("/tmp/cxy-fetch-body.txt"), String("text/plain"))
+    var sock = CaptureSocket();
+    req.submit(&sock) catch {
+        ok!(false, "submit raised")
+        return
+    }
+    unistd.unlink("/tmp/cxy-fetch-body.txt" !: ^const char)
+    ok!(endsWithItsBody(&sock, 10))
+    ok!(sock.captured.s().contains("0123456789"))
+}
+
+test "Request: nothing follows a multipart form and its size is exact" {
+    unistd.unlink("/tmp/cxy-fetch-part.txt" !: ^const char)
+    var out = fcntl.creat("/tmp/cxy-fetch-part.txt" !: ^const char, 420);
+    unistd.write(out, "0123456789" !: ^const void, 10)
+    unistd.close(out)
+
+    var form = Form(String("xyz"))
+    form.add(String("field"), String("value"))
+    form.upload(String("file"), Path("/tmp/cxy-fetch-part.txt"), "text/plain".s)
+    var req = Request();
+    req.reset(Method.Post, "/a", true)
+    req.setForm(form)
+    var sock = CaptureSocket();
+    req.submit(&sock) catch {
+        ok!(false, "submit raised")
+        return
+    }
+    unistd.unlink("/tmp/cxy-fetch-part.txt" !: ^const char)
+    var raw = sock.captured.s();
+    ok!(raw.contains("--xyz--"))
+    var end = raw.find("\r\n\r\n");
+    ok!(!!end)
+    // Content-Length is the size of the whole body, and the body is nothing more
+    ok!(sock.captured.size() == *end + 4 + declaredLength(raw))
 }
 
 test "Session: TLS is not available over a unix socket" {
