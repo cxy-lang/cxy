@@ -549,6 +549,7 @@ set(CXY_STD_LIB_TEST_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/json.spec.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/weak.spec.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/coro.spec.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/tls.spec.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/spec.cxy
 )
 

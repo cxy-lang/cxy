@@ -5,7 +5,7 @@ import "unistd.h" as unistd
 import "fcntl.h" as fcntl
 import { TcpSocket, tcpConnect } from "./tcp.cxy"
 import { UnixSocket, UnixListener, unixConnect } from "./unix.cxy"
-import { SslSocket } from "./ssl.cxy"
+import { SslSocket, SslContext } from "./ssl.cxy"
 import { Path, getFileSize } from "./path.cxy"
 import { Vector } from "./vector.cxy"
 import { HashMap } from "./hash.cxy"
@@ -771,6 +771,7 @@ pub class Session {
     - _addr = Address();
     - _proto = strview("http");
     - _sock: Socket = null;
+    - _sslCtx: SslContext = null;
     - _req: Request = null;
     - _hostname: String = null;
     // Bytes of the last response that followed its headers, see takeSocketAndPending
@@ -787,6 +788,12 @@ pub class Session {
 
     @inline
     func isHttps() => _proto == "https".s
+
+    // How an https server is trusted, and the client certificate to show it: CA files
+    // and mutual TLS. Without one the server is verified against the system roots.
+    func tls(ctx: SslContext): void {
+        _sslCtx = &&ctx
+    }
 
     @inline
     func header(name: String, value: String): void { _headers.[&&name] = &&value }
@@ -823,7 +830,9 @@ pub class Session {
             }
             else {
                 var fd = tcpConnect(_addr, _timeout)
-                if (isHttps())
+                if (isHttps() && _sslCtx != null)
+                    _sock = SslSocket.create(fd, _addr, _hostname.str(), _sslCtx.raw())
+                else if (isHttps())
                     _sock = SslSocket.create(fd, _addr, _hostname.str())
                 else
                     _sock = TcpSocket(fd, _addr)
@@ -953,7 +962,9 @@ pub class Session {
     }
 }
 
-pub func fetch(url: strview, builder: RequestBuilder = null): !Response {
+// `tls` says how an https server is trusted, and gives the client certificate to show
+// it: CA files, mutual TLS. Without one the server is verified against the system roots.
+pub func fetch(url: strview, builder: RequestBuilder = null, tls: SslContext = null): !Response {
     var method = Method.Get
     if (!url.empty() && url.[0] == '@'`char) {
         var methodName = url.substr(1)
@@ -982,6 +993,8 @@ pub func fetch(url: strview, builder: RequestBuilder = null): !Response {
     }
 
     var session = Session.create(url);
+    if (tls != null)
+        session.tls(&&tls)
     session.userAgent("Cxy/0.0.1")
     return session.perform(method, resource, &&builder)
 }

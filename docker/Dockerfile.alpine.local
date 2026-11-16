@@ -13,7 +13,7 @@ LABEL build=${BUILD_ID}
 
 # Install packages
 RUN apk add --update --no-cache \
-    git curl jq bash bash-completion dcron
+    ca-certificates git curl jq bash bash-completion dcron
 
 # Copy local source code
 COPY . /tmp/cxy-src

@@ -12,6 +12,10 @@ import "openssl/ssl.h" as SSL
 import "openssl/err.h" as ERR
 import "openssl/crypto.h" as CRYPTO
 import "openssl/types.h" as TYPES
+import "openssl/x509_vfy.h" as X509V
+import "openssl/x509.h" as X509
+import "sys/socket.h" as socket
+import "arpa/inet.h" as arpa
 
 @__cc:clib "crypto"
 @__cc:clib "ssl"
@@ -57,6 +61,17 @@ var sslClientCtx = initialize();
 
 const LOG_TAG = "SSL_PROTO";
 
+// A client context that verifies the certificate of a server, and its host name,
+// against the roots of the system (the OpenSSL default paths, SSL_CERT_FILE and
+// SSL_CERT_DIR included)
+func newClientCtx() {
+    var ctx = SSL.SSL_CTX_new(SSL.TLS_client_method());
+    assert!(ctx != null)
+    SSL.SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER!, null)
+    SSL.SSL_CTX_set_default_verify_paths(ctx)
+    return ctx
+}
+
 func initialize() {
     assert!(!initSslOnce)
     initSslOnce = true
@@ -64,9 +79,15 @@ func initialize() {
     SSL_load_error_strings!()
     SSL_library_init!()
     OpenSSL_add_all_algorithms!()
-    var ctx = SSL.SSL_CTX_new(SSL.TLS_client_method());
-    assert!(ctx != null)
-    return ctx
+    return newClientCtx()
+}
+
+// An IP address is not a host name: it is checked against the IP entries of a
+// certificate, and it is not sent as the server name
+func isIpLiteral(host: string): bool {
+    var buf: [u8, 16] = [];
+    return arpa.inet_pton(AF_INET!, host !: ^const char, buf !: ^void) == 1
+        || arpa.inet_pton(AF_INET6!, host !: ^const char, buf !: ^void) == 1
 }
 
 pub exception SslError(msg: String) =>
@@ -78,6 +99,72 @@ func getSslError(): string {
     if (code != 0)
         return ERR.ERR_error_string(code, null) !: string
     return null
+}
+
+// How a client trusts a server, and the certificate it shows when the server asks.
+// A new one verifies the server against the system roots, as the default does.
+pub class SslContext {
+    - _ctx: ^TYPES.ssl_ctx_st = null;
+
+    func `init`(ctx: ^TYPES.ssl_ctx_st) {
+        _ctx = ctx
+    }
+
+    @static
+    func create(): !SslContext {
+        // the default context set the library up
+        @unused var started = sslClientCtx;
+        var ctx = newClientCtx();
+        if (ctx == null)
+            raise SslError(f"SSL_CTX_new failed: {getSslError()}")
+        return This(ctx)
+    }
+
+    // Trust the CAs in a PEM file, besides the roots of the system
+    func trustFile(path: string): !void {
+        if (SSL.SSL_CTX_load_verify_locations(_ctx, path !: ^const char, null) != 1)
+            raise SslError(f"cannot load the CA file '{path}': {getSslError()}")
+    }
+
+    // Trust the CAs in a directory of hashed certificates (c_rehash), besides the roots
+    // of the system
+    func trustDir(path: string): !void {
+        // OpenSSL only looks in the directory when a certificate is checked, so a
+        // directory that is not there would be taken and nobody would be trusted
+        // 5 is R_OK | X_OK, the same on every system
+        if (unistd.access(path !: ^const char, 5) != 0)
+            raise SslError(f"cannot read the CA directory '{path}': {strerr()}")
+        if (SSL.SSL_CTX_load_verify_locations(_ctx, null, path !: ^const char) != 1)
+            raise SslError(f"cannot load the CA directory '{path}': {getSslError()}")
+    }
+
+    // The certificate (a chain in a PEM file) and the private key this client shows
+    // to a server that asks for one: mutual TLS
+    func clientCert(certFile: string, keyFile: string): !void {
+        if (SSL.SSL_CTX_use_certificate_chain_file(_ctx, certFile !: ^const char) != 1)
+            raise SslError(f"cannot load the client certificate '{certFile}': {getSslError()}")
+        if (SSL.SSL_CTX_use_PrivateKey_file(_ctx, keyFile !: ^const char, SSL_FILETYPE_PEM!) != 1)
+            raise SslError(f"cannot load the client key '{keyFile}': {getSslError()}")
+        if (SSL.SSL_CTX_check_private_key(_ctx) != 1)
+            raise SslError(f"the client key '{keyFile}' does not belong to '{certFile}'")
+    }
+
+    // Whether the certificate of the server is checked at all. Only for a server that
+    // cannot have a real certificate, such as one made on a development machine: with
+    // it off anybody can pose as the server.
+    func verify(on: bool): void {
+        SSL.SSL_CTX_set_verify(_ctx, on ? SSL_VERIFY_PEER! : SSL_VERIFY_NONE!, null)
+    }
+
+    @inline
+    func raw() => _ctx
+
+    func `deinit`() {
+        if (_ctx != null) {
+            SSL.SSL_CTX_free(_ctx)
+            _ctx = null
+        }
+    }
 }
 
 pub class SslSocket: Socket {
@@ -109,9 +196,9 @@ pub class SslSocket: Socket {
     }
 
     @static
-    func create(fd: i32, addr: Address, hostname: string = null, ctx: ^TYPES.ssl_ctx_st = sslClientCtx): !This {
+    func create(fd: i32, addr: Address, hostname: string = null, ctx: ^TYPES.ssl_ctx_st = sslClientCtx, server: bool = false): !This {
         var ssl: ^TYPES.ssl_st = null
-        var bio = SSL.BIO_new_ssl(ctx, (ctx == sslClientCtx)? 1 : 0)
+        var bio = SSL.BIO_new_ssl(ctx, server? 0 : 1)
         if (bio == null) {
             unistd.close(fd)
             raise SslError(f"BIO_new_ssl failed: {getSslError()}")
@@ -124,9 +211,27 @@ pub class SslSocket: Socket {
             raise SslError(f"BIO_get_ssl failed: {getSslError()}")
         }
 
-        // Set SNI (Server Name Indication)
-        if (hostname != null) {
-            SSL.SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME!, TLSEXT_NAMETYPE_host_name!, hostname !: ^void)
+        if (!server && hostname != null) {
+            if (isIpLiteral(hostname)) {
+                // checked against the IP entries of the certificate
+                if (SSL.SSL_CTX_get_verify_mode(ctx) != 0 &&
+                    X509V.X509_VERIFY_PARAM_set1_ip_asc(SSL.SSL_get0_param(ssl), hostname !: ^const char) != 1) {
+                    BIO.BIO_free(bio)
+                    unistd.close(fd)
+                    raise SslError(f"cannot check the address '{hostname}': {getSslError()}")
+                }
+            }
+            else {
+                // Set SNI (Server Name Indication)
+                SSL.SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME!, TLSEXT_NAMETYPE_host_name!, hostname !: ^void)
+                // and check the certificate was made for this host
+                if (SSL.SSL_CTX_get_verify_mode(ctx) != 0 &&
+                    SSL.SSL_set1_host(ssl, hostname !: ^const char) != 1) {
+                    BIO.BIO_free(bio)
+                    unistd.close(fd)
+                    raise SslError(f"cannot check the host name '{hostname}': {getSslError()}")
+                }
+            }
         }
 
         SSL_set_mode!(ssl, SSL_MODE_ENABLE_PARTIAL_WRITE!|SSL_MODE_AUTO_RETRY!)
@@ -152,9 +257,15 @@ pub class SslSocket: Socket {
                         continue
                 }
 
+                // A certificate that was refused says why
+                var why = SSL.SSL_get_verify_result(ssl);
+                var reason = String();
+                if (why != 0)
+                    reason = f", certificate verify failed: {X509.X509_verify_cert_error_string(why) !: string}"
+                var detail = f"SSL handshake failed({err}): {getSslError()}{reason}";
                 BIO.BIO_free_all(bio)
                 unistd.close(fd)
-                raise SslError( f"BIO_new_socket failed({err}): {getSslError()}")
+                raise SslError(detail)
             }
             TRC3!("SSL handshake done")
             break

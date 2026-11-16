@@ -1,6 +1,6 @@
 FROM suilteam/cxy-base:alpine
 
-RUN apk add --update --no-cache wget curl jq dcron bash bash-completion
+RUN apk add --update --no-cache ca-certificates wget curl jq dcron bash bash-completion
 
 # Build arguments
 ARG RELEASE_TAG=main

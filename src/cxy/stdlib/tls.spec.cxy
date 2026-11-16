@@ -1,0 +1,295 @@
+module tls_spec
+
+// TLS for the fetch client: a server certificate is verified by default, against the
+// system roots or the CA files of an SslContext, and an SslContext can carry a client
+// certificate for mutual TLS. The tests talk to a real TLS server in this file.
+//
+// The certificates below were made once with openssl (EC P-256, valid until 2126):
+//   CA          cxy-test-ca, signs the server and the client
+//   server      CN=localhost, SAN DNS:localhost and IP:127.0.0.1
+//   client      CN=cxy-test-client, signed by the CA
+//   other CA    cxy-other-ca, the CA of the rogue client
+//   rogue       a client certificate the server's CA did not sign
+
+import test { SslContext, SslSocket, SslError } from "stdlib/ssl.cxy"
+import test { Session } from "stdlib/fetch.cxy"
+import test { Method } from "stdlib/http.cxy"
+import test { Address } from "stdlib/net.cxy"
+import test { TcpListener } from "stdlib/tcp.cxy"
+
+import "unistd.h" as unistd
+import "fcntl.h" as fcntl
+import "openssl/ssl.h" as SSL
+import "openssl/types.h" as TYPES
+
+const CA_PEM = "-----BEGIN CERTIFICATE-----\nMIIBcTCCARigAwIBAgIUMUhVIfCneJI0CmYKnPf6ABHJwyswCgYIKoZIzj0EAwIw\nFjEUMBIGA1UEAwwLY3h5LXRlc3QtY2EwIBcNMjYxMTE2MDU0NjQ2WhgPMjEyNjEw\nMjMwNTQ2NDZaMBYxFDASBgNVBAMMC2N4eS10ZXN0LWNhMFkwEwYHKoZIzj0CAQYI\nKoZIzj0DAQcDQgAEi9PYy1fswpqs7AysAOQQJ/hcGV/Rvb9hIcCPPE04l2d+tlGn\ntqN9VRCszqKmhRdoqh4vCWD2IyLR6LV0iDTqhaNCMEAwHQYDVR0OBBYEFBAp/D9g\nqy2bM8S7np1GiUSXWz3wMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEG\nMAoGCCqGSM49BAMCA0cAMEQCIEdM68N01RiceeH3LokZYoju3dOPX0i4FYES6/mp\n+00NAiBARAcnvItCEn+RYm97CHdgPrO51K4tsc2XD2aIMw8SZg==\n-----END CERTIFICATE-----\n";
+const OTHER_CA_PEM = "-----BEGIN CERTIFICATE-----\nMIIBczCCARqgAwIBAgIUU937vvR4NdxjchL5SmYISzrHhzkwCgYIKoZIzj0EAwIw\nFzEVMBMGA1UEAwwMY3h5LW90aGVyLWNhMCAXDTI2MTExNjA1NDY0NloYDzIxMjYx\nMDIzMDU0NjQ2WjAXMRUwEwYDVQQDDAxjeHktb3RoZXItY2EwWTATBgcqhkjOPQIB\nBggqhkjOPQMBBwNCAAQS8rXiTOvDfgyrIYNGUfHS/b7nCw35/qxrCqV9bFiLrgpZ\nttgk/Nc9Fnf0uQ6qADwpEBmNbDdhzN7uoQGbuKa8o0IwQDAdBgNVHQ4EFgQUIno2\nVeErC60jbVgdkg6PfTAsPeEwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMC\nAQYwCgYIKoZIzj0EAwIDRwAwRAIgbeyeFiAPksP3rCfn9cRXIq4Zo1/dktZ2aaCF\nAIXwqHsCIC3TtVr63CnZz5GC7TyRfpr5vRs7w75wrEUTGyO6R+pZ\n-----END CERTIFICATE-----\n";
+const SERVER_PEM = "-----BEGIN CERTIFICATE-----\nMIIBfDCCASKgAwIBAgIUBvqpJ32GBjl4eNQKMg7sB0qAOxowCgYIKoZIzj0EAwIw\nFjEUMBIGA1UEAwwLY3h5LXRlc3QtY2EwIBcNMjYxMTE2MDU0NjQ2WhgPMjEyNjEw\nMjMwNTQ2NDZaMBQxEjAQBgNVBAMMCWxvY2FsaG9zdDBZMBMGByqGSM49AgEGCCqG\nSM49AwEHA0IABNe4VvQ9tcpdsFpGsEeWZtBXjw81laf3ngswfPKAoIweoJFuk7aC\n4mEsEFylA1eJcCJUsu9Pc8m20rKSKCuhHJWjTjBMMAkGA1UdEwQCMAAwDgYDVR0P\nAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMBoGA1UdEQQTMBGCCWxvY2Fs\naG9zdIcEfwAAATAKBggqhkjOPQQDAgNIADBFAiEA7GLUf4o13iJUR72MlWxGuRPQ\nXlSVd1lLeZJtO3daPToCIH4k3uHb5W1G5SfZMI2Pd1gqXVUVwHMUd8dM+jhR7ChX\n-----END CERTIFICATE-----\n";
+const SERVER_KEY = "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEILNxFqW6djqqD9zyIXCPvCD1z5/ThEWS7buAbbDjW5mAoAoGCCqGSM49\nAwEHoUQDQgAE17hW9D21yl2wWkawR5Zm0FePDzWVp/eeCzB88oCgjB6gkW6TtoLi\nYSwQXKUDV4lwIlSy709zybbSspIoK6EclQ==\n-----END EC PRIVATE KEY-----\n";
+const CLIENT_PEM = "-----BEGIN CERTIFICATE-----\nMIIBZjCCAQygAwIBAgIUBvqpJ32GBjl4eNQKMg7sB0qAOxswCgYIKoZIzj0EAwIw\nFjEUMBIGA1UEAwwLY3h5LXRlc3QtY2EwIBcNMjYxMTE2MDU0NjQ2WhgPMjEyNjEw\nMjMwNTQ2NDZaMBoxGDAWBgNVBAMMD2N4eS10ZXN0LWNsaWVudDBZMBMGByqGSM49\nAgEGCCqGSM49AwEHA0IABCrN6w4oq2dPn7Q6zMiRlxPC3h6eF9muhfVYVZ7Uj7sl\n365iLubkq4DqN3vm7wfhH/o6q4mB16lDlE0yBXjmBZujMjAwMAkGA1UdEwQCMAAw\nDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMCMAoGCCqGSM49BAMC\nA0gAMEUCICj6/R1wyhcNzsARZ56DbOiQY6cCrvRMjS3Opbg5B/JJAiEA1wxlJAMC\nzsKSrtOwpNKhIOdEolO49DrvP7AUtZ4kVcU=\n-----END CERTIFICATE-----\n";
+const CLIENT_KEY = "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIGe9AoiLLrq8KrUloEww8Ow1DTqdUmvCTifdODe35hmpoAoGCCqGSM49\nAwEHoUQDQgAEKs3rDiirZ0+ftDrMyJGXE8LeHp4X2a6F9VhVntSPuyXfrmIu5uSr\ngOo3e+bvB+Ef+jqriYHXqUOUTTIFeOYFmw==\n-----END EC PRIVATE KEY-----\n";
+const ROGUE_PEM = "-----BEGIN CERTIFICATE-----\nMIIBZzCCAQ6gAwIBAgIUcNo8XZFfa0mwQ8MmtM9C/X1khYMwCgYIKoZIzj0EAwIw\nFzEVMBMGA1UEAwwMY3h5LW90aGVyLWNhMCAXDTI2MTExNjA1NDY0NloYDzIxMjYx\nMDIzMDU0NjQ2WjAbMRkwFwYDVQQDDBBjeHktcm9ndWUtY2xpZW50MFkwEwYHKoZI\nzj0CAQYIKoZIzj0DAQcDQgAEDvr7XA6MfMy9Z8sGgFdGB+OOfYvSUvEVlRCq7a0M\niBgWz9Y7rqtmd6w+3IkT+oSHh7mrObX8DaC8vkSfblyJRqMyMDAwCQYDVR0TBAIw\nADAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwIwCgYIKoZIzj0E\nAwIDRwAwRAIgKr839dNlWoX7XOsaFWNkjV04HRkis821C+qBvGdw0GMCIHY1Z4SP\nLHqIIwoA56Ca8U04CuX6QCrP8N5MVPHYbt48\n-----END CERTIFICATE-----\n";
+const ROGUE_KEY = "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIPgdDub0g6jet9tUU65HYJnmUE0auVnlpsdayPU0vMM2oAoGCCqGSM49\nAwEHoUQDQgAEDvr7XA6MfMy9Z8sGgFdGB+OOfYvSUvEVlRCq7a0MiBgWz9Y7rqtm\nd6w+3IkT+oSHh7mrObX8DaC8vkSfblyJRg==\n-----END EC PRIVATE KEY-----\n";
+
+const CA_FILE = "/tmp/cxy-tls-ca.pem";
+const OTHER_CA_FILE = "/tmp/cxy-tls-other-ca.pem";
+const SERVER_FILE = "/tmp/cxy-tls-server.pem";
+const SERVER_KEY_FILE = "/tmp/cxy-tls-server.key";
+const CLIENT_FILE = "/tmp/cxy-tls-client.pem";
+const CLIENT_KEY_FILE = "/tmp/cxy-tls-client.key";
+const ROGUE_FILE = "/tmp/cxy-tls-rogue.pem";
+const ROGUE_KEY_FILE = "/tmp/cxy-tls-rogue.key";
+
+func writeFile(path: string, text: string) {
+    unistd.unlink(path !: ^const char)
+    var fd = fcntl.creat(path !: ^const char, 384);
+    unistd.write(fd, text !: ^const void, strlen(text))
+    unistd.close(fd)
+}
+
+func writeFixtures() {
+    writeFile(CA_FILE, CA_PEM)
+    writeFile(OTHER_CA_FILE, OTHER_CA_PEM)
+    writeFile(SERVER_FILE, SERVER_PEM)
+    writeFile(SERVER_KEY_FILE, SERVER_KEY)
+    writeFile(CLIENT_FILE, CLIENT_PEM)
+    writeFile(CLIENT_KEY_FILE, CLIENT_KEY)
+    writeFile(ROGUE_FILE, ROGUE_PEM)
+    writeFile(ROGUE_KEY_FILE, ROGUE_KEY)
+}
+
+// A TLS server that answers one connection with a fixed response. It asks the client
+// for a certificate signed by `clientCa` when one is given.
+class TlsServer {
+    listener: TcpListener
+    ctx: ^TYPES.ssl_ctx_st = null
+    handshook = false
+
+    func `init`(clientCa: string = null) {
+        listener = TcpListener(Address("127.0.0.1", 0))
+        ctx = SSL.SSL_CTX_new(SSL.TLS_server_method())
+        SSL.SSL_CTX_use_certificate_chain_file(ctx, SERVER_FILE !: ^const char)
+        SSL.SSL_CTX_use_PrivateKey_file(ctx, SERVER_KEY_FILE !: ^const char, SSL_FILETYPE_PEM!)
+        if (clientCa != null) {
+            SSL.SSL_CTX_load_verify_locations(ctx, clientCa !: ^const char, null)
+            SSL.SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER! | SSL_VERIFY_FAIL_IF_NO_PEER_CERT!, null)
+        }
+    }
+
+    func `deinit`() {
+        if (ctx != null)
+            SSL.SSL_CTX_free(ctx)
+    }
+
+    func start(): bool => listener.listen()
+
+    func port() => listener.address().port()
+
+    @task
+    func serve(): void {
+        var conn = listener.accept(5000);
+        if (!conn)
+            return
+        // the TLS socket works on its own copy of the descriptor
+        var fd = unistd.dup((*conn).raw());
+        var sock = SslSocket.create(fd, Address(), null, ctx, true) catch {
+            return
+        }
+        handshook = true
+
+        // the request is small, it arrives in one piece
+        var buf: [char, 1024] = [];
+        var got = sock.receive(buf, 1000, 5000);
+        var reply = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
+        var sent = sock.sendBuffer(reply !: ^const void, len!(reply), 5000);
+        sock.close()
+    }
+}
+
+// A request to `host` of a server on this machine, with `ctx` or the default context.
+// Empty when it went through, else what went wrong.
+func attempt(server: &TlsServer, host: string, ctx: SslContext = null): String {
+    var session = Session(
+        "https".s, String(host), server.port(),
+        Address("127.0.0.1", server.port()), 5000`u64);
+    if (ctx != null)
+        session.tls(&&ctx)
+    var resp = session.perform(Method.Get, "/") catch {
+        return String(ex!.what())
+    }
+    if (resp.ok() && resp.body() == "hello")
+        return String()
+    return String("the server did not answer")
+}
+
+// A context that trusts the test CA
+func trusting(): SslContext {
+    var ctx = SslContext.create() catch {
+        return null
+    }
+    var trusted = true;
+    ctx.trustFile(CA_FILE) catch {
+        trusted = false
+    }
+    // a context that trusts nothing makes the test that uses it fail
+    return trusted ? &&ctx : null
+}
+
+test "TLS: a server whose CA is trusted answers" {
+    writeFixtures()
+    var server = TlsServer();
+    ok!(server.start())
+    var task = @async server.serve()
+
+    var ctx = trusting();
+    ok!(attempt(&server, "localhost", &&ctx) == "")
+    task.join()
+}
+
+test "TLS: a server is verified by default, a certificate no system root vouches for is refused" {
+    writeFixtures()
+    var server = TlsServer();
+    ok!(server.start())
+    var task = @async server.serve()
+
+    // no context: the system roots, which do not know the test CA
+    var why = attempt(&server, "localhost");
+    ok!(why != "")
+    ok!(why.s().contains("certificate verify failed"))
+    task.join()
+}
+
+test "TLS: a certificate made for another host name is refused" {
+    writeFixtures()
+    var server = TlsServer();
+    ok!(server.start())
+    var task = @async server.serve()
+
+    // the CA is trusted, the certificate is for localhost
+    var ctx = trusting();
+    var why = attempt(&server, "example.com", &&ctx);
+    ok!(why != "")
+    ok!(why.s().contains("certificate verify failed"))
+    task.join()
+}
+
+test "TLS: an IP address is checked against the IP entries of the certificate" {
+    writeFixtures()
+    var server = TlsServer();
+    ok!(server.start())
+    var task = @async server.serve()
+
+    // the certificate has IP:127.0.0.1
+    var ctx = trusting();
+    ok!(attempt(&server, "127.0.0.1", &&ctx) == "")
+    task.join()
+}
+
+test "TLS: an IP address the certificate does not have is refused" {
+    writeFixtures()
+    var server = TlsServer();
+    ok!(server.start())
+    var task = @async server.serve()
+
+    var ctx = trusting();
+    ok!(attempt(&server, "10.1.2.3", &&ctx) != "")
+    task.join()
+}
+
+test "TLS: verification can be turned off" {
+    writeFixtures()
+    var server = TlsServer();
+    ok!(server.start())
+    var task = @async server.serve()
+
+    var ctx = SslContext.create() catch {
+        ok!(false, "cannot make a context")
+        return
+    }
+    ctx.verify(false)
+    // an untrusted certificate, for a name it was not made for
+    ok!(attempt(&server, "example.com", &&ctx) == "")
+    task.join()
+}
+
+test "TLS: a server that asks for a client certificate gets the one of the context" {
+    writeFixtures()
+    var server = TlsServer(CA_FILE);
+    ok!(server.start())
+    var task = @async server.serve()
+
+    var ctx = trusting();
+    ctx.clientCert(CLIENT_FILE, CLIENT_KEY_FILE) catch {
+        ok!(false, "cannot load the client certificate")
+        return
+    }
+    ok!(attempt(&server, "localhost", &&ctx) == "")
+    task.join()
+}
+
+test "TLS: a server that asks for a client certificate refuses a client without one" {
+    writeFixtures()
+    var server = TlsServer(CA_FILE);
+    ok!(server.start())
+    var task = @async server.serve()
+
+    var ctx = trusting();
+    ok!(attempt(&server, "localhost", &&ctx) != "")
+    task.join()
+}
+
+test "TLS: a client certificate the server's CA did not sign is refused" {
+    writeFixtures()
+    var server = TlsServer(CA_FILE);
+    ok!(server.start())
+    var task = @async server.serve()
+
+    var ctx = trusting();
+    ctx.clientCert(ROGUE_FILE, ROGUE_KEY_FILE) catch {
+        ok!(false, "cannot load the rogue certificate")
+        return
+    }
+    ok!(attempt(&server, "localhost", &&ctx) != "")
+    task.join()
+}
+
+test "SslContext: files that are missing or do not match are refused" {
+    writeFixtures()
+    var ctx = SslContext.create() catch {
+        ok!(false, "cannot make a context")
+        return
+    }
+
+    var raised = false;
+    ctx.trustFile("/tmp/cxy-tls-no-such-ca.pem") catch {
+        raised = true
+    }
+    ok!(raised)
+
+    raised = false
+    ctx.trustDir("/tmp/cxy-tls-no-such-dir") catch {
+        raised = true
+    }
+    ok!(raised)
+
+    raised = false
+    ctx.clientCert("/tmp/cxy-tls-no-such.pem", CLIENT_KEY_FILE) catch {
+        raised = true
+    }
+    ok!(raised)
+
+    // a key that is not the one of the certificate
+    raised = false
+    ctx.clientCert(CLIENT_FILE, ROGUE_KEY_FILE) catch {
+        raised = true
+    }
+    ok!(raised)
+
+    // what is right is taken
+    ctx.trustFile(CA_FILE) catch {
+        ok!(false, "the CA file was refused")
+    }
+    ctx.clientCert(CLIENT_FILE, CLIENT_KEY_FILE) catch {
+        ok!(false, "the client certificate was refused")
+    }
+}

@@ -16,6 +16,7 @@ RUN apk add --update \
     gdb \
     openssl \
     openssl-dev \
+    ca-certificates \
     bash \
     git \
     curl-dev
